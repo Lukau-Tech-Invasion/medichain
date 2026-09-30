@@ -1,6 +1,6 @@
 # ADR-0008: Wallet Step-Up and Exact Transaction Authorization
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0010](0010-remove-blockchain-and-wallet-identity.md) (2026-09-29)
 - **Date:** 2026-08-25
 - **Deciders:** Founder
 - **Amends:** [ADR-0003](0003-wallet-auth-with-jwt.md) — for wallet-backed step-up

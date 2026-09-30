@@ -3,13 +3,15 @@ info:
   title: MediChain API
   description: |
     MediChain REST API provides secure access to patient identity, medical records, 
-    and access control functionality for a blockchain-based national health ID system.
+    and access control functionality for a national health ID system with a sealed,
+    tamper-evident audit stream (see ADR-0010).
     
     © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
     
     ## Authentication
     
-    MediChain uses **wallet-based blockchain authentication** with SS58 addresses. 
+    MediChain currently uses **wallet-based authentication** with SS58 addresses
+    (scheduled for replacement by password sign-in under ADR-0010, Phase C). 
     For API testing, include the `X-User-Id` header with a valid wallet address.
     
     ## Role-Based Access Control
@@ -21,6 +23,14 @@ info:
     - **LabTechnician** - Lab results upload, limited record access
     - **Pharmacist** - Prescription verification, medication records
     - **Patient** - Read-only access to own records
+    
+    ## Audit sealing
+    
+    Access-log rows and audit events are Merkle-batched, hash-chained, signed
+    with Ed25519 and exported as checkpoints. Responses that describe a
+    sealable item carry a `seal_status` (`pending`, `sealed` or `exported`;
+    `pending` means not yet batched). Sealing is asynchronous and never
+    refuses a request.
     
     ## Pagination
     
@@ -300,6 +310,28 @@ paths:
           description: Insufficient permissions
         '404':
           description: Patient not found
+
+  /api/patients/{patient_id}/verify:
+    get:
+      tags: [Access Logs]
+      summary: Verify a patient's sealed audit rows
+      description: >-
+        Returns each row's seal status, batch hash and signature check, the
+        capsule commitment comparison, and the public key needed to verify
+        exported checkpoints.
+      parameters:
+        - name: patient_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResponse'
 
   /api/access-logs/{patient_id}:
     get:
@@ -835,6 +867,85 @@ components:
         message:
           type: string
           example: MediChain API is running
+        audit_seal:
+          $ref: '#/components/schemas/AuditSealHealth'
+
+    SealStatus:
+      type: string
+      enum: [pending, sealed, exported]
+      description: >-
+        Where an audit row is in the sealed stream. `pending` = not yet batched.
+
+    AuditSealHealth:
+      type: object
+      properties:
+        unsealed_events:
+          type: integer
+        last_sealed_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_exported_at:
+          type: string
+          format: date-time
+          nullable: true
+        sink:
+          type: string
+          enum: [none, filesystem]
+        signing:
+          type: string
+          enum: [ed25519, unsigned]
+
+    SealKey:
+      type: object
+      nullable: true
+      properties:
+        key_id:
+          type: string
+        algorithm:
+          type: string
+          enum: [ed25519]
+        public_key:
+          type: string
+
+    VerifyRow:
+      type: object
+      properties:
+        seal_status:
+          type: string
+          enum: [pending, sealed, exported]
+          nullable: true
+          description: null = unbatched
+        batch_hash:
+          type: string
+          nullable: true
+        signature:
+          type: string
+          enum: [valid, invalid, unsigned]
+          nullable: true
+        sealed_at:
+          type: string
+          format: date-time
+          nullable: true
+        exported_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    VerifyResponse:
+      type: object
+      properties:
+        seal_key:
+          $ref: '#/components/schemas/SealKey'
+        capsule:
+          type: string
+          enum: [match, mismatch, unsealed, none]
+          description: >-
+            Recomputed capsule commitment compared with the sealed one.
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerifyRow'
 
     ErrorResponse:
       type: object
@@ -1091,6 +1202,8 @@ components:
           format: date-time
         emergency:
           type: boolean
+        seal_status:
+          $ref: '#/components/schemas/SealStatus'
 
     AccessLogsResponse:
       type: object
@@ -1138,6 +1251,8 @@ components:
           type: string
         uploaded_at:
           type: integer
+        seal_status:
+          $ref: '#/components/schemas/SealStatus'
 
     PaginatedRecords:
       type: object
@@ -1164,6 +1279,8 @@ components:
           type: string
         metadata_hash:
           type: string
+        seal_status:
+          $ref: '#/components/schemas/SealStatus'
 
     DownloadRecordResponse:
       type: object

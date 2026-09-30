@@ -52,7 +52,6 @@ const am_ET: TranslationRecord = {
     quickLoginHint: 'ወዲያውኑ ለመግባት ማንኛውንም ታካሚ ይጫኑ',
     signInNfc: 'በNFC ካርድ ይግቡ',
     scanQr: 'QR ኮድ ይቃኙ',
-    securityNotice: 'በብሎክቼይን የተጠበቀ ማረጋገጫ',
     errEnterWallet: 'እባክዎ የዋሌት አድራሻዎን ያስገቡ',
     errInvalidWallet: 'ልክ ያልሆነ የአድራሻ ቅርጸት። በ"5" የሚጀምር 48 ቁምፊዎች።',
   },
@@ -82,7 +81,6 @@ const am_ET: TranslationRecord = {
     call: 'ደውል',
     cardHash: 'የካርድ ሃሽ',
     lastUpdated: 'መጨረሻ የተዘመነ',
-    securedBy: 'በMediChain ብሎክቼይን የተጠበቀ',
   },
 };
 

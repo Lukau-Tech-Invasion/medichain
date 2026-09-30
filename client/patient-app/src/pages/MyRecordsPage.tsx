@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, clickable, formatTimestamp } from '@medichain/shared';
+import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, clickable, formatTimestamp, SealStatusBadge } from '@medichain/shared';
+import type { SealStatus } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -31,11 +32,11 @@ interface MedicalRecord {
   contentHash: string;
   metadataHash: string;
   /**
-   * Finalized blockchain transaction anchoring this record, or null. Only a
-   * real transaction may produce the "anchored" badge -- this used to be a
-   * hard-coded `verified: true` on nearly every record type.
+   * Where this stored document stands in the sealed audit stream, when the
+   * server reported it. Only a state the server sent may produce a badge --
+   * the old badge was a hard-coded `verified: true` on nearly every record type.
    */
-  chainTxHash: string | null;
+  sealStatus?: SealStatus | null;
   // Lab result specific fields (optional)
   labResults?: Array<{
     parameter: string;
@@ -84,7 +85,7 @@ function medicalRecordType(value: string): MedicalRecord['type'] {
  * My Records Page
  *
  * View clinical records and download available encrypted documents.
- * The interface presents care information without legacy chain metadata.
+ * Stored documents carry their seal state (Sealing pending, Sealed, Sealed and exported).
  *
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -239,7 +240,6 @@ export function MyRecordsPage() {
           date: new Date(sub.reviewed_at || sub.submitted_at).toISOString().split('T')[0],
           contentHash: sub.content_hash || `lab-${sub.id}`,
           metadataHash: sub.metadata_hash || `meta-${sub.id}`,
-          chainTxHash: null,
           labResults: sub.results,
           reviewedBy: sub.reviewed_by,
       }));
@@ -250,7 +250,7 @@ export function MyRecordsPage() {
           metadata_hash: string;
           record_type: string;
           uploaded_at: number;
-          blockchain_tx_hash?: string | null;
+          seal_status?: SealStatus | null;
         }>).map(rec => ({
           id: rec.content_hash,
           type: medicalRecordType(rec.record_type),
@@ -260,7 +260,7 @@ export function MyRecordsPage() {
           date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString().split('T')[0] : '',
           contentHash: rec.content_hash,
           metadataHash: rec.metadata_hash,
-          chainTxHash: rec.blockchain_tx_hash ?? null,
+          sealStatus: rec.seal_status ?? null,
       }));
       allRecords.push(...medRecords);
 
@@ -273,7 +273,6 @@ export function MyRecordsPage() {
         date: timestampDate(note.created_at),
         contentHash: `soap-${note.note_id}`,
         metadataHash: note.note_id,
-        chainTxHash: null,
       }));
       allRecords.push(...soapRecords);
 
@@ -287,7 +286,6 @@ export function MyRecordsPage() {
         date: timestampDate(rx.created_at),
         contentHash: `rx-${rx.prescription_id}`,
         metadataHash: rx.prescription_id,
-        chainTxHash: null,
       }));
       allRecords.push(...prescriptionRecords);
 
@@ -300,7 +298,6 @@ export function MyRecordsPage() {
         date: timestampDate(assessment.performed_at),
         contentHash: `triage-${assessment.assessment_id}`,
         metadataHash: assessment.assessment_id,
-        chainTxHash: null,
       }));
       allRecords.push(...triageRecords);
 
@@ -318,7 +315,6 @@ export function MyRecordsPage() {
         date: timestampDate((summary.discharge_date || summary.discharge_datetime || summary.created_at) as string | number | undefined),
         contentHash: `discharge-${summary.id}`,
         metadataHash: String(summary.id),
-        chainTxHash: null,
       }));
       allRecords.push(...dischargeRecords);
 
@@ -338,7 +334,6 @@ export function MyRecordsPage() {
         date: timestampDate(item.created_at as string | number | undefined),
         contentHash: `discharge-instructions-${item.id}`,
         metadataHash: String(item.id),
-        chainTxHash: null,
       }));
       allRecords.push(...dischargeInstructionRecords);
 
@@ -358,7 +353,6 @@ export function MyRecordsPage() {
         date: timestampDate(report.report_datetime as string | number | undefined),
         contentHash: `imaging-report-${report.id}`,
         metadataHash: String(report.status || report.id),
-        chainTxHash: null,
       }));
       allRecords.push(...imagingRecords);
 
@@ -381,7 +375,6 @@ export function MyRecordsPage() {
           ),
           contentHash: `imaging-order-${order.id}`,
           metadataHash: String(order.status || order.id),
-          chainTxHash: null,
         }));
       allRecords.push(...imagingOrderRecords);
 
@@ -399,7 +392,6 @@ export function MyRecordsPage() {
         date: timestampDate(report.report_date as string | number | undefined),
         contentHash: `pathology-${report.id}`,
         metadataHash: String(report.status || report.id),
-        chainTxHash: null,
       }));
       allRecords.push(...pathologyRecords);
 
@@ -423,7 +415,6 @@ export function MyRecordsPage() {
         metadataHash: String(consult.status || consult.id),
         // A consult that has been answered is a document; one still awaiting a
         // specialist is a request, and saying otherwise overstates it.
-        chainTxHash: null,
       }));
       allRecords.push(...consultRecords);
 
@@ -438,7 +429,6 @@ export function MyRecordsPage() {
         date: timestampDate(plan.created_at as string | number | undefined),
         contentHash: `care-plan-${plan.id}`,
         metadataHash: String(plan.care_level || plan.id),
-        chainTxHash: null,
       }));
       allRecords.push(...carePlanRecords);
 
@@ -460,7 +450,6 @@ export function MyRecordsPage() {
           date: timestampDate(screen.created_at as string | number | undefined),
           contentHash: `blood-screen-${screen.id}`,
           metadataHash: String(screen.id),
-          chainTxHash: null,
         })),
         ...((bloodBody.transfusions) || []).map(tx => ({
           id: String(tx.id),
@@ -473,7 +462,6 @@ export function MyRecordsPage() {
           date: timestampDate(tx.created_at as string | number | undefined),
           contentHash: `transfusion-${tx.id}`,
           metadataHash: String(tx.id),
-          chainTxHash: null,
         })),
       ];
       allRecords.push(...bloodRecords);
@@ -503,7 +491,6 @@ export function MyRecordsPage() {
           ),
           contentHash: `procedure-${key}-${item.id}`,
           metadataHash: String(item.id),
-          chainTxHash: null,
         }))
       );
       allRecords.push(...procedureRecords);
@@ -523,7 +510,6 @@ export function MyRecordsPage() {
         metadataHash: String(record.id),
         // The record's evidentiary value is its signatures; until they are
         // captured it is a pending document, and saying otherwise overstates it.
-        chainTxHash: null,
       }));
       allRecords.push(...amaRecords);
 
@@ -538,7 +524,6 @@ export function MyRecordsPage() {
         date: timestampDate(assessment.assessed_at),
         contentHash: `gcs-${assessment.assessment_id}`,
         metadataHash: assessment.assessment_id,
-        chainTxHash: null,
       }));
       allRecords.push(...gcsRecords);
 
@@ -552,7 +537,6 @@ export function MyRecordsPage() {
         date: timestampDate(handoff.received_at as string | undefined),
         contentHash: `ems-${handoff.id}`,
         metadataHash: String(handoff.id),
-        chainTxHash: null,
       }));
       allRecords.push(...emsRecords);
 
@@ -566,7 +550,6 @@ export function MyRecordsPage() {
         date: timestampDate(hp.performed_at as string | number | undefined),
         contentHash: `hp-${hp.id}`,
         metadataHash: String(hp.id),
-        chainTxHash: null,
       }));
       allRecords.push(...hpRecords);
 
@@ -580,7 +563,6 @@ export function MyRecordsPage() {
         date: timestampDate(note.created_at as string | number | undefined),
         contentHash: `progress-${note.id}`,
         metadataHash: String(note.id),
-        chainTxHash: null,
       }));
       allRecords.push(...progressRecords);
 
@@ -594,7 +576,6 @@ export function MyRecordsPage() {
         date: timestampDate(wound.assessed_at as string | number | undefined),
         contentHash: `wound-${wound.id}`,
         metadataHash: String(wound.id),
-        chainTxHash: null,
       }));
       allRecords.push(...woundRecords);
 
@@ -615,7 +596,6 @@ export function MyRecordsPage() {
         date: timestampDate(v.recorded_at as string | number | undefined),
         contentHash: `vitals-${v.reading_id}`,
         metadataHash: v.reading_id,
-        chainTxHash: null,
       }));
       allRecords.push(...vitalsRecords);
     } catch (error) {
@@ -961,6 +941,15 @@ export function MyRecordsPage() {
                     <p className="font-medium text-content">{formatDate(selectedRecord.date)}</p>
                   </div>
                 </div>
+                {selectedRecord.sealStatus && (
+                  <div className="flex items-center gap-3">
+                    <Shield className="w-5 h-5 text-content-muted" />
+                    <div>
+                      <p className="text-sm text-content-muted">{t('records.integrity')}</p>
+                      <SealStatusBadge status={selectedRecord.sealStatus} />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Lab Results Details (only for lab_result type) */}

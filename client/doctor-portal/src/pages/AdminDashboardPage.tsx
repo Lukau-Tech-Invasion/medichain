@@ -34,7 +34,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
-import { getAdminDashboard, detailedHealthCheck, useTranslation, type ServiceHealth, RestrictedSection } from '@medichain/shared';
+import { AuditSealStatus } from '../components/AuditSealStatus';
+import { getAdminDashboard, detailedHealthCheck, useTranslation, type AuditSealSummary, type ServiceHealth, RestrictedSection } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   StatCard,
@@ -155,6 +156,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [systemStatus, setSystemStatus] = useState<SystemStatus[]>([]);
   const [healthLoading, setHealthLoading] = useState(true);
+  const [auditSeal, setAuditSeal] = useState<AuditSealSummary | null>(null);
   const [lastHealthCheck, setLastHealthCheck] = useState<string>(new Date().toISOString());
 
   useEffect(() => {
@@ -177,12 +179,14 @@ export default function AdminDashboardPage() {
         message: svc.message,
       }));
       setSystemStatus(services);
+      setAuditSeal(healthData.audit_seal ?? null);
       // An absent `timestamp` used to become `new Date(undefined)` and render
       // the literal "Invalid Date" beside the system-status panel.
       setLastHealthCheck(healthData.timestamp ?? new Date().toISOString());
     } catch (error) {
       console.error('Failed to load health status:', error);
       // Fallback to degraded state if health check fails
+      setAuditSeal(null);
       setSystemStatus([
         { name: 'API Server', status: 'offline', lastCheck: new Date().toISOString(), message: 'Health check failed' },
         { name: 'Database', status: 'offline', lastCheck: new Date().toISOString() },
@@ -353,6 +357,7 @@ export default function AdminDashboardPage() {
             ))}
           </div>
         )}
+        <AuditSealStatus summary={auditSeal} />
       </div>
 
       {/* Stat Cards */}

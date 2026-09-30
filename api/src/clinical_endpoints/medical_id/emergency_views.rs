@@ -150,7 +150,6 @@ pub async fn get_emergency_medical_id(
             })
         }
     };
-    let patient_chain_account = patient.wallet_address.clone();
 
     // `connection_info()` borrows the request's internal `RefCell`. Bind the
     // owned address directly so the `Ref` is released at the end of this
@@ -177,7 +176,6 @@ pub async fn get_emergency_medical_id(
         is_emergency_access: true,
         ip_address,
         user_agent,
-        blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: data
             .device_lifecycle
@@ -186,7 +184,6 @@ pub async fn get_emergency_medical_id(
         authority_type: None,
         authority_id: None,
     };
-    let access_id = log_entry.id.clone();
     if let Err(error) = data
         .repositories
         .record_access_atomic(&patient_id, log_entry)
@@ -199,34 +196,6 @@ pub async fn get_emergency_medical_id(
             code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
         });
     }
-    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            error: "Emergency access was recorded, but the patient has no blockchain wallet for the required chain audit."
-                .to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
-    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
-        &data,
-        "emergency_access",
-        &access_id,
-        patient_chain_account.as_deref().unwrap_or_default(),
-        &emergency_claims.sub,
-        "EMERGENCY_ACCESS",
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Emergency chain audit could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Emergency access was recorded, but its required chain audit could not be queued."
-                    .to_string(),
-                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-
     // DNR STATUS - LEGAL REQUIREMENT
     // Only emit the authoritative "DO NOT RESUSCITATE" flag when the advance
     // directive is verified (status + verified_by + verified_at). An unverified
@@ -378,8 +347,6 @@ pub async fn get_emergency_medical_id(
         // ACCESS LOG WARNING
         "access_logged": true,
         "access_timestamp": chrono::Utc::now().to_rfc3339(),
-        "chain_audit_status": chain_anchor.status,
-        "blockchain_tx_hash": chain_anchor.transaction_hash
     });
 
     HttpResponse::Ok().json(emergency_data)
@@ -456,7 +423,6 @@ pub async fn get_lockscreen_medical_id(
             code: "LOCKSCREEN_ACCESS_DISABLED".to_string(),
         });
     }
-    let patient_chain_account = patient.wallet_address.clone();
 
     // See `get_emergency_medical_id`: the `connection_info()` borrow must not
     // outlive this statement, or it spans the audit `await` below.
@@ -480,13 +446,11 @@ pub async fn get_lockscreen_medical_id(
             .get(actix_web::http::header::USER_AGENT)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string),
-        blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: None,
         authority_type: None,
         authority_id: None,
     };
-    let access_id = log_entry.id.clone();
     if let Err(error) = data
         .repositories
         .record_access_atomic(&patient_id, log_entry)
@@ -499,35 +463,6 @@ pub async fn get_lockscreen_medical_id(
             code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
         });
     }
-    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            error: "Lockscreen access was recorded, but the patient has no blockchain wallet for the required chain audit."
-                .to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
-    let accessor_id = format!("device:{device_id}");
-    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
-        &data,
-        "lockscreen_access",
-        &access_id,
-        patient_chain_account.as_deref().unwrap_or_default(),
-        &accessor_id,
-        "READ",
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Lockscreen chain audit could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Lockscreen access was recorded, but its required chain audit could not be queued."
-                    .to_string(),
-                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-
     // LINE 3: DNR Warning (if applicable). Computed before the json! macro
     // because a block expression cannot be a json! value.
     // Authoritative "DO NOT RESUSCITATE" line is shown ONLY when the advance
@@ -644,8 +579,6 @@ pub async fn get_lockscreen_medical_id(
 
         // QR Code (small, bottom corner)
         "qr_url": format!("/api/medical-id/{}/qr", patient_id),
-        "chain_audit_status": chain_anchor.status,
-        "blockchain_tx_hash": chain_anchor.transaction_hash
     });
 
     HttpResponse::Ok().json(lockscreen_data)
@@ -765,6 +698,63 @@ mod hz_001_regression_tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
+
+    /// The checkpoint sink is background work: with it down, an emergency read
+    /// is still released, and the response names no chain or sealing state.
+    #[actix_web::test]
+    async fn an_emergency_read_succeeds_while_the_checkpoint_sink_is_failing() {
+        let mut state = crate::AppState::new();
+        state.audit_seal = crate::audit_seal::SealRuntime::new(
+            None,
+            std::sync::Arc::new(crate::audit_seal::FailingSink),
+        );
+        state.users.write().unwrap().insert(
+            "responder-sink".to_string(),
+            crate::test_fixtures::staff("responder-sink", crate::Role::Paramedic),
+        );
+        let patient_id = "PAT-SINK-1";
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &test_patient(patient_id),
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        let device_id = active_device(&state, "fingerprint-sink-1");
+        let token = super::super::emergency_access::issue_emergency_token(
+            patient_id,
+            "responder-sink",
+            &device_id,
+            "trauma",
+            120,
+        )
+        .unwrap();
+
+        // The sink really is failing.
+        assert!(
+            crate::audit_seal::CheckpointSink::put(state.audit_seal.sink.as_ref(), 1, b"{}")
+                .await
+                .is_err()
+        );
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(app_state.clone())
+                .service(get_emergency_medical_id),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/emergency"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert!(response.status().is_success());
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert!(body.get("chain_audit_status").is_none());
     }
 
     /// A token obtained via the exchange endpoint is accepted, and expired

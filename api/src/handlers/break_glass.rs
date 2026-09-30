@@ -3,8 +3,8 @@
 //!
 //! `POST /api/patients/{patient_id}/break-glass` with a reason. The grant is
 //! time-limited ([`BREAK_GLASS_MINUTES`]), written with its audit row in one
-//! transaction, anchored on its own (emergency access is never batched away),
-//! and the patient is told at once. Every chart read under it is recorded as
+//! transaction, sealed with the rest of the audit stream, and the patient is
+//! told at once. Every chart read under it is recorded as
 //! emergency access, which the patient's history highlights.
 
 use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
@@ -77,7 +77,6 @@ fn grant_and_audit(
         is_emergency_access: true,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
         authority_type: Some("break_glass".to_string()),
@@ -86,8 +85,9 @@ fn grant_and_audit(
     (grant, audit)
 }
 
-/// Tell the patient now, and queue the grant's own chain anchor. Neither may
-/// hold up the clinician: both are spawned, and failures are logged.
+/// Tell the patient now. The notice may not hold up the clinician: it is
+/// spawned, and a failure is logged. The grant and its access-log row are
+/// already durable and are sealed with the rest of the audit stream.
 fn announce(data: &web::Data<AppState>, grant: &BreakGlassGrantEntity, role: String) {
     let state = data.clone();
     let grant = grant.clone();
@@ -104,35 +104,6 @@ fn announce(data: &web::Data<AppState>, grant: &BreakGlassGrantEntity, role: Str
             "break_glass",
         )
         .await;
-        let wallet = match state
-            .repositories
-            .patients
-            .get_by_id(&grant.patient_id)
-            .await
-        {
-            Ok(patient) => patient.wallet_address,
-            Err(error) => {
-                log::error!(
-                    "break-glass {}: patient lookup for anchoring failed: {error}",
-                    grant.id
-                );
-                None
-            }
-        };
-        if let Some(wallet) = wallet {
-            if let Err(error) = crate::audit_outbox::anchor_access_or_queue(
-                &state,
-                "break_glass",
-                &grant.id,
-                &wallet,
-                &grant.clinician_id,
-                "EMERGENCY_ACCESS",
-            )
-            .await
-            {
-                log::error!("break-glass {} anchor not queued: {error}", grant.id);
-            }
-        }
     });
 }
 

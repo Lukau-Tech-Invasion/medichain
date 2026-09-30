@@ -120,7 +120,7 @@ impl PatientAccessService {
         &self,
         patient_id: String,
         provider: RequestingProvider,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
         now: DateTime<Utc>,
     ) -> Result<AccessRequestEntity, &'static str> {
         if patient_id.is_empty()
@@ -269,7 +269,7 @@ impl PatientAccessService {
         request_id: &str,
         access_type: AccessType,
         expires_at: Option<DateTime<Utc>>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
         now: DateTime<Utc>,
     ) -> Result<(AccessRequestEntity, AccessGrantEntity), &'static str> {
         let request = match self.get_request(request_id).await? {
@@ -325,7 +325,7 @@ impl PatientAccessService {
     pub async fn deny_request_with_audit(
         &self,
         request_id: &str,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> Result<AccessRequestEntity, &'static str> {
         match self.repo.deny_request_with_audit(request_id, event).await {
             Ok(Some(request)) => Ok(request),
@@ -361,7 +361,7 @@ impl PatientAccessService {
         &self,
         grant_id: &str,
         now: DateTime<Utc>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> Result<AccessGrantEntity, &'static str> {
         match self
             .repo

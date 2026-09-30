@@ -55,7 +55,7 @@ IDENTITY_LIST = re.compile(
     r"const\s+[A-Z_]*(PATIENTS|ACCOUNTS|USERS|IDENTITIES|WALLETS)\s*(:[^=]+)?=\s*\[",
 )
 
-# Known-safe: the Substrate well-known development keys are published, and the
+# Known-safe: the well-known sr25519 development keys are published, and the
 # server refuses to boot a non-demo instance holding one in a privileged role
 # (`startup::validate_no_privileged_dev_accounts`). Deriving one is safe
 # *because* production cannot use it.

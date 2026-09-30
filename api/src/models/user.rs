@@ -30,8 +30,6 @@ pub struct DbUser {
     pub role: String,
     pub name: Option<String>,
     pub username: Option<String>,
-    pub blockchain_address: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
     pub is_active: bool,
     /// Account status: `active | inactive | suspended | pending`.
     ///

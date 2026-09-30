@@ -312,7 +312,7 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("║   ██║ ╚═╝ ██║███████╗██████╔╝██║╚██████╗██║  ██║██║  ██║██║██║ ╚█║");
     println!("║   ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝ ╚╝║");
     println!("║                                                                  ║");
-    println!("║             Blockchain Health ID • Emergency Access              ║");
+    println!("║             National Health ID • Emergency Access                ║");
     println!("║                                                                  ║");
     println!("╚══════════════════════════════════════════════════════════════════╝");
     println!();
@@ -391,10 +391,10 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!();
 }
 
-/// The Substrate well-known development accounts.
+/// The sr25519 well-known development accounts.
 ///
-/// Their secrets are published in the Substrate source and in every tutorial, so
-/// anyone at all can sign as one.
+/// Their secrets are published in every Polkadot tutorial, so anyone at all can
+/// sign as one. Leaves with the wallets (ADR-0010, Phase C).
 const DEV_ACCOUNT_SURIS: [&str; 6] = [
     "//Alice",
     "//Bob",
@@ -420,7 +420,7 @@ fn privileged_dev_account_error(offenders: &[(String, String)]) -> String {
     roles.sort_unstable();
     roles.dedup();
     format!(
-        "Refusing to start: {} well-known Substrate development account(s) hold privileged role(s) \
+        "Refusing to start: {} well-known development account(s) hold privileged role(s) \
          in this deployment ({}). Their private keys are published, so anyone could authenticate \
          as them. Deactivate or delete these users, or set IS_DEMO=true if this is a demonstration \
          instance. The affected wallet addresses are intentionally omitted from operational output.",
@@ -432,10 +432,8 @@ fn privileged_dev_account_error(offenders: &[(String, String)]) -> String {
 /// Refuse to start a production instance where a well-known dev key holds a
 /// privileged role.
 ///
-/// `blockchain.rs` already refuses to *sign chain extrinsics* as Alice without
-/// `SUBSTRATE_ALLOW_DEV_SIGNER`. This closes the other half, which is worse:
 /// `//Alice` seeded as an active `Admin` in the `users` table means anyone who
-/// has read the Substrate docs can authenticate as an administrator of this
+/// has read a Polkadot tutorial can authenticate as an administrator of this
 /// deployment — create users, assign roles, read every registry. The key is not
 /// secret and never was.
 ///
@@ -717,7 +715,7 @@ mod dev_account_tests {
     /// `validate_no_privileged_dev_accounts` compares database rows against
     /// these, so a derivation that silently changed would turn the guard into a
     /// no-op — it would look like it was working and match nothing. Alice's
-    /// address is the one every Substrate tutorial prints, so a regression is
+    /// address is the one every Polkadot tutorial prints, so a regression is
     /// obvious rather than merely self-consistent.
     #[test]
     fn well_known_dev_addresses_are_the_canonical_ones() {

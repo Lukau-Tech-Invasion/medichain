@@ -4,7 +4,7 @@ use super::*;
 // Data Types
 // ============================================================================
 
-/// User roles matching the blockchain pallet
+/// User roles
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Role {
     Admin,
@@ -117,14 +117,6 @@ impl Role {
     /// * Reading clinical data — that is `can_view_medical_records`, which also
     ///   still includes `Admin`.
     ///
-    /// # The pallet's predicate of the same name is a different question
-    ///
-    /// `pallet_access_control::can_edit_medical_records` gates which *chain
-    /// account* may submit a medical-record extrinsic, and the API's own service
-    /// signer holds `Role::Admin` there — the dev genesis grants `//Alice` Admin
-    /// precisely because it is the API's default signer. Removing `Admin` there
-    /// would stop every on-chain write the API makes. That predicate is about a
-    /// service identity; this one is about a person.
     pub fn can_edit_medical_records(&self) -> bool {
         matches!(self, Role::Doctor | Role::Nurse)
     }
@@ -183,7 +175,7 @@ impl std::fmt::Display for Role {
 /// User account with role (wallet-based identity)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    /// SS58 wallet address (primary identifier for blockchain auth)
+    /// SS58 wallet address (primary identifier until Phase B)
     pub wallet_address: String,
     /// Optional username for display
     pub username: Option<String>,
@@ -817,8 +809,9 @@ pub struct AccessLogView {
     pub location: Option<String>,
     pub timestamp: DateTime<Utc>,
     pub emergency: bool,
-    /// Finalized chain transaction for this entry; `None` means not (yet) anchored.
-    pub blockchain_tx_hash: Option<String>,
+    /// Where this entry is in the sealed audit stream: `pending` (not batched
+    /// yet), `sealed` or `exported`.
+    pub seal_status: String,
     /// What authorised the access (WP9): `care_relationship`, `break_glass`,
     /// `patient_grant`, `guardian`, `admin`, …; `None` on older rows.
     pub authority_type: Option<String>,

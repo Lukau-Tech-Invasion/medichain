@@ -7,9 +7,10 @@ welcome; please read this before opening a pull request.
 
 1. **Safety-critical mindset.** This code is intended to run where a wrong answer
    harms a patient. Prefer the boring, verifiable construction.
-2. **No personal health information on-chain.** Hashes, commitments, pointers and
-   audit entries only. This is not negotiable — see
-   [ADR-0004](docs/adr/0004-commitment-not-plaintext-on-chain.md).
+2. **No personal health information in audit events or checkpoints.** Hashes,
+   commitments, pointers and privacy-minimised audit entries only. This is not
+   negotiable — see [ADR-0004](docs/adr/0004-commitment-not-plaintext-on-chain.md)
+   and [ADR-0010](docs/adr/0010-remove-blockchain-and-wallet-identity.md).
 3. **Never commit secrets.** Everything comes from the environment.
 4. **Synthetic data only** in tests, fixtures and examples.
 
@@ -66,8 +67,7 @@ rejected is worth more than the code around it.
 cargo test -p medichain-api --bin medichain-api      # 305 tests
 bash scripts/synthetic-e2e-test.sh                   # 40 live-API assertions
 
-# Pallets/runtime/node are a separate workspace and need --manifest-path.
-cargo test --manifest-path blockchain/Cargo.toml --workspace
+cargo test -p medichain-crypto
 ```
 
 Note: `cargo test -p medichain-api --lib` **fails** — it is a binary crate. Use

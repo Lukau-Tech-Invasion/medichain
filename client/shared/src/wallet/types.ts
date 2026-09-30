@@ -1,7 +1,7 @@
 /**
  * MediChain Wallet Types
  * 
- * Substrate blockchain wallet types for identity management.
+ * Substrate wallet types for identity management (removed in Phase C).
  * Uses SS58 address encoding compatible with Polkadot ecosystem.
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
@@ -38,7 +38,7 @@ export type Hash256 = string;
 // Do not redefine here to avoid duplicate export issues
 
 // ============================================================================
-// NATIONAL ID TYPES (mirrors pallet-patient-identity)
+// NATIONAL ID TYPES (mirrors the API national-ID verifiers)
 // ============================================================================
 
 /**
@@ -66,10 +66,8 @@ export interface WalletAccount {
   role: Role;
   /** Public key hex */
   publicKey: PublicKey;
-  /** Whether the account is verified on-chain */
+  /** Whether the server has verified the account */
   verified: boolean;
-  /** Block number when registered */
-  registeredAt?: number;
   /** Who registered this account (for patients) */
   registeredBy?: SubstrateAddress;
 }

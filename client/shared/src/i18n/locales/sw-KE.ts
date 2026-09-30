@@ -52,7 +52,6 @@ const sw_KE: TranslationRecord = {
     quickLoginHint: 'Bofya mgonjwa yeyote kuingia papo hapo',
     signInNfc: 'Ingia kwa kadi ya NFC',
     scanQr: 'Changanua msimbo wa QR',
-    securityNotice: 'Uthibitishaji uliolindwa na blockchain',
     errEnterWallet: 'Tafadhali weka anwani ya pochi yako',
     errInvalidWallet: 'Muundo wa anwani si sahihi. Herufi 48 zinazoanza na "5".',
   },
@@ -82,7 +81,6 @@ const sw_KE: TranslationRecord = {
     call: 'Piga simu',
     cardHash: 'Nambari ya kadi',
     lastUpdated: 'Imesasishwa mwisho',
-    securedBy: 'Imelindwa na Blockchain ya MediChain',
   },
 };
 

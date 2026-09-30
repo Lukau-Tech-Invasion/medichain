@@ -99,28 +99,29 @@ MediChain's design makes this a live question rather than a theoretical one:
 
 ### 6b. Transborder processing
 
-The blockchain component is the specific concern. A public — or even a
-permissioned but geographically distributed — chain replicates whatever is
-on-chain to every node, including nodes outside South Africa.
+**Update 2026-09-29 — the cross-border chain-node question is closed by
+[ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md).** The concern was
+that a distributed ledger, even a permissioned one, replicates its contents to
+every node, including nodes outside South Africa. There is no ledger any more, so
+no node replicates anything anywhere. Each deployment keeps its own audit stream;
+the checkpoint sink receives only signed batch headers and digests (no PHI), and
+where that sink physically lives is now a deployment decision recorded here.
 
-Current mitigations already in place (recorded so the assessment starts from
-facts, not assumptions):
+Mitigations in place (recorded so the assessment starts from facts):
 
-- Emergency plaintext values were removed from chain storage in favour of a
+- Emergency plaintext values are never put in the audit stream — only a
   commitment (Horizon HZ-003; see `api/src/emergency_capsule.rs`).
-- Personal identifiers on-chain are keyed digests, not raw values.
-- `BLOCKCHAIN_ENABLED` defaults to `false`; the node is a stub.
+- Personal identifiers in audit events are keyed digests, not raw values.
+- `AUDIT_CHECKPOINT_SINK=filesystem` exports to a directory on the deployment's
+  own host; a cloud write-once store, when adopted, is a new transborder
+  question to assess before it is configured.
 
 Still to assess:
 
-- [ ] Where will validator/full nodes physically run?
-- [ ] Which of those jurisdictions have an adequate level of protection?
-- [ ] Does an on-chain `AccountId`, correlated over time, amount to personal
-      information leaving the country? (The legal review already answered the
-      adjacent question — pseudonymity does not cure identifiability — so the
-      starting assumption should be "yes" until argued otherwise.)
 - [ ] Are IPFS pins, backups, or third-party APIs (SMS, national-ID
-      verification, model providers) also transborder transfers?
+      verification, model providers) transborder transfers?
+- [ ] If a cloud write-once checkpoint store is adopted: in which jurisdiction,
+      and does a signed batch header (no PHI) count as personal information?
 - [ ] Written transborder assessment completed and signed off
 
 ---

@@ -12,7 +12,7 @@ echo  ██║╚██╔╝██║██╔══╝  ██║  ██║�
 echo  ██║ ╚═╝ ██║███████╗██████╔╝██║╚██████╗██║  ██║██║  ██║██║██║ ╚████║
 echo  ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 echo.
-echo  Healthcare Blockchain Platform - Quick Start
+echo  Health ID and Emergency Records Platform - Quick Start
 echo  ============================================
 echo.
 

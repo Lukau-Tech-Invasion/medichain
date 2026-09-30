@@ -254,8 +254,6 @@ pub struct MedicalRecordEntity {
     pub ipfs_content_hash: Option<String>,
     pub ipfs_metadata_hash: Option<String>,
     pub content_checksum: Option<String>,
-    pub on_chain_hash: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
     #[serde(skip_serializing)]
     pub summary_encrypted: Option<Vec<u8>>,
     pub record_date: DateTime<Utc>,
@@ -388,7 +386,6 @@ pub struct AccessLogEntity {
     pub is_emergency_access: bool,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
     pub accessed_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     /// What authorised this access (WP9): `self`, `guardian`, `admin`,
@@ -706,17 +703,17 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>>;
 
-    /// `(total_entries, entries_carrying_a_blockchain_anchor)`.
+    /// `(total_entries, entries_in_a_sealed_batch)`.
     ///
     /// This is the measurement behind the compliance dashboard's audit-coverage
     /// figure, which used to be the string literal `"100%"`. In a system whose
     /// central claim is a tamper-evident access trail, the share of access
-    /// records actually anchored on-chain is the property an auditor is asking
-    /// about, and asserting it without counting is the assertion most likely to
-    /// be taken at face value.
+    /// records actually sealed is the property an auditor is asking about, and
+    /// asserting it without counting is the assertion most likely to be taken at
+    /// face value. The memory backend seals nothing, so its second count is 0.
     ///
     /// Both counts come from one call so they cannot disagree.
-    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)>;
+    async fn count_sealed(&self) -> RepositoryResult<(u64, u64)>;
 }
 
 // =============================================================================
@@ -5039,7 +5036,7 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
     async fn create_with_audit(
         &self,
         relationship: GuardianRelationshipEntity,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity>;
 
     /// All relationships (active or not) naming this ward — used to build
@@ -5075,7 +5072,7 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
         id: &str,
         permissions: Vec<String>,
         expires_at: Option<DateTime<Utc>>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity>;
 
     /// Revoke a previously verified relationship (e.g. the ward reaches
@@ -5089,7 +5086,7 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
         &self,
         id: &str,
         reason: Option<String>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<()>;
 }
 
@@ -5296,7 +5293,7 @@ pub trait RetentionExecutionRepository: Send + Sync + fmt::Debug {
 pub struct EmergencyCapsuleEntity {
     pub patient_id: String,
     pub version: i32,
-    /// Hex-encoded SHA3-256 commitment, as published on-chain.
+    /// Hex-encoded SHA3-256 commitment, recorded in the sealed audit stream.
     pub commitment: String,
     #[serde(skip_serializing)]
     pub capsule_encrypted: Vec<u8>,
@@ -5306,10 +5303,12 @@ pub struct EmergencyCapsuleEntity {
     pub revoked_at: Option<DateTime<Utc>>,
     pub revoked_by: Option<String>,
     pub revocation_reason: Option<String>,
-    pub chain_tx_hash: Option<String>,
-    /// `false` with a hash present means a placeholder, not an anchored
-    /// commitment. See `blockchain::ChainTxResult`.
-    pub chain_finalized: bool,
+    /// Where this version's published commitment is in the sealed audit stream:
+    /// `pending`, `sealed` or `exported`. Derived on read from the audit event
+    /// that records the publication; never stored on the capsule row, and never
+    /// written by callers (they pass `pending`).
+    #[cfg_attr(feature = "postgres", sqlx(default))]
+    pub seal_status: String,
 }
 
 impl EmergencyCapsuleEntity {
@@ -5335,7 +5334,7 @@ pub struct EmergencyCapsuleAccessEntity {
     pub reason_text: Option<String>,
     /// Fields actually returned to the caller.
     pub fields_revealed: Vec<String>,
-    /// Whether the capsule still matched its on-chain commitment at read time.
+    /// Whether the capsule still matched its own commitment at read time.
     pub commitment_verified: bool,
     pub accessed_at: DateTime<Utc>,
 }
@@ -5351,7 +5350,7 @@ pub trait EmergencyCapsuleRepository: Send + Sync + fmt::Debug {
     /// Store a new capsule version.
     ///
     /// Must reject a version that is not strictly greater than the newest
-    /// stored version for that patient, mirroring the pallet's own rule.
+    /// stored version for that patient.
     async fn put(
         &self,
         capsule: EmergencyCapsuleEntity,
@@ -5377,15 +5376,6 @@ pub trait EmergencyCapsuleRepository: Send + Sync + fmt::Debug {
         revoked_by: &str,
         reason: Option<String>,
     ) -> RepositoryResult<EmergencyCapsuleEntity>;
-
-    /// Record the outcome of the on-chain commitment submission.
-    async fn record_chain_result(
-        &self,
-        patient_id: &str,
-        version: i32,
-        tx_hash: &str,
-        finalized: bool,
-    ) -> RepositoryResult<()>;
 
     /// Append a break-glass access record.
     async fn log_access(
@@ -5492,7 +5482,7 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
     async fn create_request_with_audit(
         &self,
         request: AccessRequestEntity,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<AccessRequestEntity>;
 
     async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>>;
@@ -5521,7 +5511,7 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         &self,
         request_id: &str,
         grant: AccessGrantEntity,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
 
     /// Atomically move a `pending` request to `denied`. `Ok(None)` when it was
@@ -5533,7 +5523,7 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
     async fn deny_request_with_audit(
         &self,
         request_id: &str,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<Option<AccessRequestEntity>>;
 
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>>;
@@ -5559,7 +5549,7 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         &self,
         grant_id: &str,
         now: DateTime<Utc>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<Option<AccessGrantEntity>>;
 }
 

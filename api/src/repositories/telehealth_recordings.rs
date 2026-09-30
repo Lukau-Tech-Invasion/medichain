@@ -112,7 +112,7 @@ impl TelehealthRecordingRepository for MemoryTelehealthRecordingRepository {
             .filter(|row| row.session_id == session_id)
             .cloned()
             .collect();
-        found.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        found.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         Ok(found)
     }
 }

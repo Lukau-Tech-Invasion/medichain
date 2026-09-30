@@ -31,8 +31,7 @@
  *
  * A forgotten password is a lost key. There is deliberately no reset: a server
  * able to reset it would be a server able to sign as any clinician. Recovery
- * is re-enrolment by an administrator against a newly provisioned keypair,
- * which also needs the on-chain role reassigned.
+ * is re-enrolment by an administrator against a newly provisioned keypair.
  *
  * # Format
  *

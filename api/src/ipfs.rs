@@ -500,7 +500,12 @@ impl IpfsClient {
     }
 }
 
-/// Record reference stored on-chain (minimal data)
+/// A record no batch holds yet.
+pub fn default_seal_status() -> String {
+    crate::audit_batching::STATUS_PENDING.to_string()
+}
+
+/// Reference to an encrypted record in IPFS (minimal data)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MedicalRecordReference {
     /// IPFS hash of encrypted content
@@ -513,11 +518,11 @@ pub struct MedicalRecordReference {
     pub uploaded_at: i64,
     /// SHA-256 hash of original content (for integrity verification)
     pub content_checksum: String,
-    /// Finalized chain transaction anchoring this record, once one exists.
-    /// `None` means not (yet) anchored; clients must never show such a record
-    /// as blockchain-verified.
-    #[serde(default)]
-    pub blockchain_tx_hash: Option<String>,
+    /// Where this record's content digest is in the sealed audit stream:
+    /// `pending`, `sealed` or `exported`. Clients must not present `pending`
+    /// as verified.
+    #[serde(default = "default_seal_status")]
+    pub seal_status: String,
 }
 
 #[cfg(test)]
@@ -614,7 +619,7 @@ mod tests {
             record_type: "imaging".to_string(),
             uploaded_at: 1704067200,
             content_checksum: "abc123def456".to_string(),
-            blockchain_tx_hash: None,
+            seal_status: default_seal_status(),
         };
 
         let json = serde_json::to_string(&reference).unwrap();

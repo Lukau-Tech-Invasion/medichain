@@ -7,6 +7,9 @@
 import { getApiClient } from './client';
 import type {
   User,
+  AuditSealSummary,
+  SealStatus,
+  SealSignature,
   PatientProfile,
   RegisterPatientRequest,
   RegisterPatientResponse,
@@ -116,6 +119,8 @@ export interface DetailedHealthResponse {
   uptime_seconds: number;
   timestamp: string;
   services: ServiceHealth[];
+  /** Sealing state of the audit stream; absent when the server does not report it. */
+  audit_seal?: AuditSealSummary;
 }
 
 export async function detailedHealthCheck(): Promise<DetailedHealthResponse> {
@@ -3039,13 +3044,31 @@ export interface RowVerification {
   leaf_index: number | null;
   merkle_root: string | null;
   proof: MerkleProofStep[];
-  anchor_status: 'finalized' | 'pending' | null;
-  block_number: number | null;
-  tx_hash: string | null;
+  /** Where the row's batch stands; null = the row is not in a batch yet. */
+  seal_status: SealStatus | null;
+  /** Hash of the sealed batch that contains the row. */
+  batch_hash: string | null;
+  /**
+   * Whether the batch signature checked out. `unsigned` means the batch was
+   * sealed without a key (weaker than `valid`); null when there is no batch.
+   */
+  signature: SealSignature | null;
+  sealed_at: string | null;
+  exported_at: string | null;
 }
 
-/** The emergency capsule checked against finalized chain state. */
-export type CapsuleVerification = 'match' | 'mismatch' | 'unanchored' | 'none';
+/** The public key that signs sealed batches. */
+export interface SealKey {
+  key_id: string;
+  algorithm: 'ed25519';
+  public_key: string;
+}
+
+/**
+ * The emergency capsule checked against its sealed commitment. `unsealed`: no
+ * sealed commitment exists yet, so the card cannot be verified.
+ */
+export type CapsuleVerification = 'match' | 'mismatch' | 'unsealed' | 'none';
 
 /** A patient's record verification (WP8). */
 export interface RecordVerification {
@@ -3053,6 +3076,8 @@ export interface RecordVerification {
   emergency_capsule: CapsuleVerification;
   access_logs: RowVerification[];
   rows_checked_limit: number;
+  /** Null when batches are sealed without a signing key. */
+  seal_key: SealKey | null;
 }
 
 /** Verify a patient's emergency capsule and access history. */
@@ -4644,7 +4669,7 @@ export async function getDeletionRegister(): Promise<{
 export interface EmergencyCapsuleVersion {
   patient_id: string;
   version: number;
-  /** Hex SHA3-256 commitment, as published on-chain. */
+  /** Hex SHA3-256 commitment of the capsule. */
   commitment: string;
   key_version: number;
   created_by: string;
@@ -4652,13 +4677,8 @@ export interface EmergencyCapsuleVersion {
   revoked_at?: string | null;
   revoked_by?: string | null;
   revocation_reason?: string | null;
-  chain_tx_hash?: string | null;
-  /**
-   * `false` with a hash present means a placeholder, not an anchored
-   * commitment. Showing the hash without this would claim an anchoring that
-   * never happened.
-   */
-  chain_finalized: boolean;
+  /** Where this version's commitment stands in the sealed audit stream. */
+  seal_status: SealStatus;
 }
 
 /**
@@ -4679,7 +4699,7 @@ export async function getEmergencyCapsuleVersions(patientId: string): Promise<{
 
 /**
  * Publish a new capsule version from the patient's stored emergency
- * information, and anchor its commitment.
+ * information, and seal its commitment.
  *
  * Call this after any change to blood type, allergies, organ-donor status or a
  * DNR directive: the previous version stays on file but stops being current.
@@ -4690,9 +4710,8 @@ export async function publishEmergencyCapsule(patientId: string): Promise<{
   patient_id: string;
   version: number;
   commitment: string;
-  /** `finalized` | `pending` | `disabled` — never a bare hash. */
-  anchoring: string;
-  blockchain_tx_hash?: string | null;
+  /** Where the new version's commitment stands in the sealed audit stream. */
+  seal_status: SealStatus;
 }> {
   return getApiClient().post(
     `/api/patients/${encodeURIComponent(patientId)}/emergency-capsule`,
@@ -4734,7 +4753,7 @@ export interface EmergencyCapsuleAccess {
   reason_text: string | null;
   /** The fields actually returned to the caller, not the ones requested. */
   fields_revealed: string[];
-  /** Whether the capsule still matched its on-chain commitment at read time. */
+  /** Whether the capsule still matched its sealed commitment at read time. */
   commitment_verified: boolean;
   accessed_at: string;
 }

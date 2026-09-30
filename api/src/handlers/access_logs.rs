@@ -65,7 +65,8 @@ pub async fn get_all_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
+    let mut paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
+    apply_seal_status(&data, &mut paginated_logs).await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "access_logs": paginated_logs,
@@ -82,6 +83,23 @@ pub async fn get_all_access_logs(
 /// Get access logs for a patient (paginated)
 /// Requires authentication: Only healthcare providers and the patient themselves can view logs
 /// Query params: ?page=1&limit=20
+/// Set each entry's `seal_status` from the batch that holds it. An entry no batch
+/// holds yet keeps `pending`; on the memory backend nothing is ever sealed.
+async fn apply_seal_status(data: &web::Data<AppState>, logs: &mut [AccessLogView]) {
+    let ids: Vec<String> = logs.iter().map(|log| log.access_id.clone()).collect();
+    let statuses = crate::audit_batching::seal_statuses_or_pending(
+        data.db_pool.as_ref(),
+        crate::audit_batching::SOURCE_ACCESS_LOG,
+        &ids,
+    )
+    .await;
+    for log in logs {
+        if let Some(status) = statuses.get(&log.access_id) {
+            log.seal_status = status.clone();
+        }
+    }
+}
+
 /// The source (`encounter`, `referral`, …) of each care relationship cited by
 /// `logs`, looked up once per relationship. A relationship that cannot be read
 /// is left out and logged: the row still says "care relationship".
@@ -190,7 +208,8 @@ pub async fn get_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
+    let mut paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
+    apply_seal_status(&data, &mut paginated_logs).await;
     // Who looked, in words.
     //
     // This is the POPIA transparency control: the screen a patient opens to see

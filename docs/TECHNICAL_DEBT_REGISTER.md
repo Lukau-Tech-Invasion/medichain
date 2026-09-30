@@ -17,7 +17,31 @@
 >
 > This file remains the record: add new debt here as it is discovered.
 
-Last updated: 2026-09-25.
+Last updated: 2026-09-29.
+
+---
+
+## 2026-09-29 — The ledger layer is removed (ADR-0010)
+
+Recorded, not paid down here: the campaign is
+[`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md), decision
+[ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md).
+
+What this retires from the register: every entry that concerns the Substrate
+node, the pallets, `subxt`, chain qualification, the external-runtime release
+blocker, GPL licensing of the node binary, and the blockchain-workspace
+`cargo-deny` gate. Entries below dated before 2026-09-29 are left as written;
+they describe the system as it was then.
+
+What remains open because of it (Phases B and C of the plan): `users.wallet_address`
+stays until the user key is unified; wallet sign-in, `X-User-Id` wallet paths,
+`@polkadot/*`, sr25519 and SS58 validation are removed in Phase C, after which
+`scripts/check-no-blockchain.py --include-wallet-terms` becomes the default.
+
+New debt the removal introduces: until a write-once cloud checkpoint sink is
+configured, exported audit checkpoints live on the same host as the database and
+prove only what the host did not later rewrite; the signing key's custody is the
+other half of the guarantee.
 
 ---
 

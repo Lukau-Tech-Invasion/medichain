@@ -23,7 +23,7 @@ import type { UserPermissions } from '@medichain/shared';
 import { connectRealWallet, signMessage } from '@medichain/shared';
 
 /**
- * User roles matching the blockchain pallet
+ * User roles, as the server defines them
  */
 export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Paramedic' | 'Patient';
 
@@ -44,7 +44,7 @@ export interface User {
   userId: string;
   /** Display name */
   username: string;
-  /** User role from blockchain */
+  /** User role from the server */
   role: Role;
   /** Account creation timestamp */
   createdAt: string;

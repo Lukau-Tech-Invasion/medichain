@@ -245,8 +245,7 @@ describe('PatientDetailPage', () => {
     revoked_at: null,
     revoked_by: null,
     revocation_reason: null,
-    chain_tx_hash: null,
-    chain_finalized: false,
+    seal_status: 'pending',
     ...over,
   });
 
@@ -277,23 +276,40 @@ describe('PatientDetailPage', () => {
     );
   });
 
-  it('does not expose legacy blockchain details', async () => {
-    // A transaction hash with `chain_finalized: false` is a placeholder. Showing
-    // it as an anchoring would assert something that did not happen.
+  it.each([
+    ['pending', 'Sealing pending'],
+    ['sealed', 'Sealed'],
+    ['exported', 'Sealed and exported'],
+  ] as const)('shows a %s capsule version as "%s", from the server-reported seal state', async (status, label) => {
     vi.mocked(shared.getEmergencyCapsuleVersions).mockResolvedValue({
       success: true,
       patient_id: 'PAT-001',
-      current: capsuleVersion({ chain_tx_hash: '0xdeadbeef', chain_finalized: false }),
+      current: capsuleVersion({ seal_status: status }),
       count: 1,
-      versions: [capsuleVersion({ chain_tx_hash: '0xdeadbeef', chain_finalized: false })],
+      versions: [capsuleVersion({ seal_status: status })],
     } as never);
     await openAccessTab();
 
     await waitFor(() =>
       expect(screen.getByText(/Version 2 is in force/i)).toBeInTheDocument()
     );
-    expect(screen.queryByText(/on-chain/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/0xdeadbeef/)).not.toBeInTheDocument();
+    const list = await screen.findByTestId('capsule-version-list');
+    expect(within(list).getByTestId('seal-badge')).toHaveTextContent(new RegExp(`^${label}$`));
+    expect(screen.queryByText(/on-chain|blockchain|anchor/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show a seal badge when the server reported no seal state', async () => {
+    vi.mocked(shared.getEmergencyCapsuleVersions).mockResolvedValue({
+      success: true,
+      patient_id: 'PAT-001',
+      current: capsuleVersion({ seal_status: undefined }),
+      count: 1,
+      versions: [capsuleVersion({ seal_status: undefined })],
+    } as never);
+    await openAccessTab();
+
+    await screen.findByTestId('capsule-version-list');
+    expect(screen.queryByTestId('seal-badge')).not.toBeInTheDocument();
   });
 
   it('keeps a revoked version listed and offers no revoke button for it', async () => {

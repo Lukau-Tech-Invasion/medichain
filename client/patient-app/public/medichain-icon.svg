@@ -14,7 +14,7 @@
     <!-- Cross symbol -->
     <rect x="42" y="25" width="16" height="50" fill="white" rx="3"/>
     <rect x="27" y="42" width="46" height="16" fill="white" rx="3"/>
-    <!-- Blockchain dots -->
+    <!-- Network dots -->
     <circle cx="25" cy="75" r="4" fill="#99f6e4"/>
     <circle cx="50" cy="85" r="4" fill="#99f6e4"/>
     <circle cx="75" cy="75" r="4" fill="#99f6e4"/>

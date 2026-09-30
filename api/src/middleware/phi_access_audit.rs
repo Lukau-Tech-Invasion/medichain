@@ -20,14 +20,11 @@
 //! the data is not released: disclosure without evidence is exactly what this
 //! system exists to prevent (same contract as `support::require_durable_audit`).
 //!
-//! # Blockchain anchoring never blocks a read
+//! # Sealing never blocks a read
 //!
-//! Anchoring submits an extrinsic and waits for finality, which takes seconds.
-//! A chart screen issues ~20 reads, so anchoring inline would stall a clinician
-//! for most of a minute per patient. The middleware only *queues* the anchor in
-//! the durable audit outbox; the existing background worker submits it and
-//! writes the transaction hash back onto the row (see `audit_outbox`). The
-//! patient sees "anchor pending" and then "anchored".
+//! The middleware writes the disclosure row and returns. Sealing that row into a
+//! signed, hash-chained batch is the background job's work (`audit_batching`);
+//! the patient sees the row as `pending` and then `sealed`.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -475,7 +472,6 @@ fn build_access_log(
             .get(actix_web::http::header::USER_AGENT)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string),
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: data
             .identity_contexts
@@ -557,69 +553,7 @@ fn spawn_patient_notice(data: web::Data<AppState>, log: &AccessLogEntity) {
     });
 }
 
-/// Queue an emergency disclosure for its own blockchain anchor without waiting
-/// for the chain.
-///
-/// The background outbox worker submits the extrinsic and, on finality, writes
-/// the transaction hash back onto the access-log row (`audit_outbox`).
-///
-/// # Parameters
-/// * `data` - application state.
-/// * `log` - the persisted disclosure row.
-async fn queue_chain_anchor(data: &web::Data<AppState>, log: &AccessLogEntity) {
-    // Ordinary reads are anchored in Merkle batches (`audit_batching`, WP8);
-    // only emergency and break-glass reads keep their own extrinsic.
-    if !crate::blockchain::blockchain_enabled() || !log.is_emergency_access {
-        return;
-    }
-    let Some(patient_id) = log.patient_id.as_deref() else {
-        return;
-    };
-    let patient_account = match data.repositories.patients.get_by_id(patient_id).await {
-        Ok(patient) => patient.wallet_address,
-        Err(error) => {
-            log::error!(
-                "Chain anchor for access {} skipped: patient lookup failed: {error}",
-                log.id
-            );
-            return;
-        }
-    };
-    let Some(patient_account) = patient_account else {
-        log::warn!(
-            "Access {} not anchored: patient {patient_id} has no chain account",
-            log.id
-        );
-        return;
-    };
-    let payload = serde_json::json!({
-        "patient_account": patient_account,
-        "audit_event_id": log.id,
-        "access_log_id": log.id,
-        "accessor_id": log.accessor_id,
-        "access_type": "READ",
-    });
-    if let Err(error) = data
-        .audit_outbox
-        .record_durable(
-            data.db_pool.as_ref(),
-            "chain_access_anchor".to_string(),
-            "access_log".to_string(),
-            log.id.clone(),
-            payload,
-            Utc::now(),
-        )
-        .await
-    {
-        // The disclosure itself is already durable; only the anchor is missing.
-        log::error!(
-            "Chain anchor for access {} could not be queued: {error}",
-            log.id
-        );
-    }
-}
-
-/// Persist the disclosure row; on success notify the patient and queue the anchor.
+/// Persist the disclosure row; on success notify the patient.
 ///
 /// # Parameters
 /// * `req` - the routed request.
@@ -637,7 +571,6 @@ async fn record_disclosure(
     match data.repositories.access_logs.create(entry).await {
         Ok(saved) => {
             spawn_patient_notice(data.clone(), &saved);
-            queue_chain_anchor(data, &saved).await;
             Ok(())
         }
         Err(error) => {
@@ -1012,7 +945,6 @@ mod tests {
             assert_eq!(row.action, DISCLOSURE_ACTION);
             assert_eq!(row.resource_type, "Vital signs");
             assert_eq!(row.access_reason.as_deref(), Some("Treatment"));
-            assert!(row.blockchain_tx_hash.is_none(), "never a fabricated hash");
             assert_eq!(row.authority_type.as_deref(), Some("care_relationship"));
         }
 

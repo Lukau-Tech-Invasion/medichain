@@ -181,16 +181,13 @@ pub(crate) async fn link_user_with_audit(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     wallet_address: &str,
     patient_id: &str,
-    event: &crate::audit_outbox::AuditOutboxEvent,
+    event: &crate::audit_outbox::AuditEvent,
 ) -> Result<(), sqlx::Error> {
     let updated = sqlx::query("UPDATE users SET linked_patient_id = $2, updated_at = NOW() WHERE wallet_address = $1 AND linked_patient_id IS NULL")
         .bind(wallet_address).bind(patient_id).execute(&mut **transaction).await?;
     if updated.rows_affected() != 1 {
         return Err(sqlx::Error::RowNotFound);
     }
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivered_at, delivery_attempts, last_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-        .bind(0_i32).bind(&event.last_error).execute(&mut **transaction).await?;
+    crate::audit_outbox::insert_event(&mut **transaction, event).await?;
     Ok(())
 }

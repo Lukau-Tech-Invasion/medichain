@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { AccessLogEntry, RowVerification } from '@medichain/shared';
-import { anchorStateOf, groupAccessSessions, kindOf, verificationOf } from './accessHistoryGrouping';
+import { groupAccessSessions, kindOf, sealStateOf, verificationOf } from './accessHistoryGrouping';
 
 /** Build one access-log row; `minute` is minutes after 14:00 on a fixed day. */
 function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}): AccessLogEntry {
@@ -17,7 +17,7 @@ function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}
     location: 'Chris Hani Baragwanath',
     timestamp,
     emergency: false,
-    blockchain_tx_hash: null,
+    seal_status: null,
     ...overrides,
   };
 }
@@ -61,17 +61,30 @@ describe('groupAccessSessions', () => {
   });
 });
 
-describe('anchorStateOf', () => {
-  it('reports anchored only when every row has a transaction', () => {
-    const [all] = groupAccessSessions([
-      row('a', 0, { blockchain_tx_hash: '0xabc' }),
-      row('b', 1, { blockchain_tx_hash: '0xdef' }),
+describe('sealStateOf', () => {
+  it('reports exported only when every row is exported, and sealed when every row is at least sealed', () => {
+    const [exported] = groupAccessSessions([
+      row('a', 0, { seal_status: 'exported' }),
+      row('b', 1, { seal_status: 'exported' }),
     ]);
-    const [some] = groupAccessSessions([row('a', 0, { blockchain_tx_hash: '0xabc' }), row('b', 1)]);
-    const [none] = groupAccessSessions([row('a', 0)]);
-    expect(anchorStateOf(all)).toBe('anchored');
-    expect(anchorStateOf(some)).toBe('partial');
-    expect(anchorStateOf(none)).toBe('pending');
+    const [sealed] = groupAccessSessions([
+      row('a', 0, { seal_status: 'exported' }),
+      row('b', 1, { seal_status: 'sealed' }),
+    ]);
+    expect(sealStateOf(exported)).toBe('exported');
+    expect(sealStateOf(sealed)).toBe('sealed');
+  });
+
+  it('is pending when nothing is sealed and partial when only some rows are', () => {
+    const [pending] = groupAccessSessions([row('a', 0, { seal_status: 'pending' }), row('b', 1, { seal_status: 'pending' })]);
+    const [partial] = groupAccessSessions([row('a', 0, { seal_status: 'sealed' }), row('b', 1, { seal_status: 'pending' })]);
+    expect(sealStateOf(pending)).toBe('pending');
+    expect(sealStateOf(partial)).toBe('partial');
+  });
+
+  it('says nothing when the server reported no state for any row', () => {
+    const [none] = groupAccessSessions([row('a', 0), row('b', 1, { seal_status: undefined })]);
+    expect(sealStateOf(none)).toBeNull();
   });
 });
 
@@ -94,19 +107,35 @@ describe('verificationOf', () => {
     leaf_index: 0,
     merkle_root: 'ab'.repeat(32),
     proof: [],
-    anchor_status: 'finalized',
-    block_number: 10,
-    tx_hash: '0x1',
+    seal_status: 'sealed',
+    batch_hash: 'cd'.repeat(32),
+    signature: 'valid',
+    sealed_at: '2026-09-26T13:00:00Z',
+    exported_at: null,
     ...overrides,
   });
 
-  it('is verified only when every row is intact and finalized, naming the latest block', () => {
+  it('is verified only when every row is intact, sealed and validly signed, naming the latest seal time', () => {
     const [session] = groupAccessSessions([row('a', 1), row('b', 2)]);
     const rows = new Map([
-      ['a', verification('a', { block_number: 10 })],
-      ['b', verification('b', { block_number: 12 })],
+      ['a', verification('a', { sealed_at: '2026-09-26T13:00:00Z' })],
+      ['b', verification('b', { seal_status: 'exported', sealed_at: '2026-09-26T14:00:00Z' })],
     ]);
-    expect(verificationOf(session, rows)).toEqual({ state: 'verified', blockNumber: 12 });
+    expect(verificationOf(session, rows)).toEqual({ state: 'verified', sealedAt: '2026-09-26T14:00:00Z' });
+  });
+
+  it('reads a batch sealed without a signature as a weaker state, not as verified', () => {
+    const [session] = groupAccessSessions([row('a', 1), row('b', 2)]);
+    const rows = new Map([
+      ['a', verification('a')],
+      ['b', verification('b', { signature: 'unsigned' })],
+    ]);
+    expect(verificationOf(session, rows).state).toBe('verified_unsigned');
+  });
+
+  it('flags an invalid signature on its own', () => {
+    const [session] = groupAccessSessions([row('a', 1)]);
+    expect(verificationOf(session, new Map([['a', verification('a', { signature: 'invalid' })]])).state).toBe('signature_invalid');
   });
 
   it('turns the whole session into a mismatch when one row fails', () => {
@@ -120,8 +149,12 @@ describe('verificationOf', () => {
 
   it('does not call pending, unbatched or uncovered rows verified', () => {
     const [session] = groupAccessSessions([row('a', 1)]);
-    expect(verificationOf(session, new Map([['a', verification('a', { anchor_status: 'pending' })]])).state).toBe('not_anchored');
-    expect(verificationOf(session, new Map([['a', verification('a', { integrity: 'unbatched', anchor_status: null })]])).state).toBe('not_anchored');
+    expect(
+      verificationOf(session, new Map([['a', verification('a', { seal_status: 'pending', signature: null })]])).state,
+    ).toBe('not_sealed');
+    expect(
+      verificationOf(session, new Map([['a', verification('a', { integrity: 'unbatched', seal_status: null, signature: null })]])).state,
+    ).toBe('not_sealed');
     expect(verificationOf(session, new Map()).state).toBe('not_checked');
   });
 });

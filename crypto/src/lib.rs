@@ -30,6 +30,8 @@ use chacha20poly1305::{
 use rand::rngs::OsRng;
 use zeroize::Zeroize;
 
+pub mod seal;
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -315,8 +317,8 @@ pub fn to_hex(bytes: &[u8]) -> String {
 
 /// Convert hex string to bytes.
 ///
-/// An optional `0x`/`0X` prefix is accepted. That is the canonical Substrate
-/// and polkadot-js encoding — `u8aToHex` emits it by default — and rejecting it
+/// An optional `0x`/`0X` prefix is accepted. That is the canonical polkadot-js
+/// encoding — `u8aToHex` emits it by default — and rejecting it
 /// silently broke every signature produced by the browser: the sr25519
 /// signature was valid, the key was right, and verification failed at the hex
 /// decoder with `InvalidSignatureFormat`, which the API reports as the generic
@@ -457,7 +459,7 @@ mod tests {
     /// verification at the decoder, which the API surfaces as the generic
     /// "Signature verification failed" — a valid signature reported as forged.
     #[test]
-    fn from_hex_accepts_the_substrate_0x_prefix() {
+    fn from_hex_accepts_the_0x_prefix() {
         let expected = vec![0xde, 0xad, 0xbe, 0xef];
         assert_eq!(from_hex("0xdeadbeef").unwrap(), expected);
         assert_eq!(from_hex("0Xdeadbeef").unwrap(), expected);

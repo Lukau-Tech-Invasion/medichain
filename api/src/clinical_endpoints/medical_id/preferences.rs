@@ -273,7 +273,6 @@ pub async fn trigger_emergency_notification(
         is_emergency_access: true,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: None,
         authority_type: None,

@@ -2,12 +2,17 @@ use super::*;
 
 /// Preserve the declared access purpose when converting a document audit to storage.
 /// Returns the same audit event with its normalised reason and document resource type.
-fn document_audit(entry: AccessLogEntry, request: &HttpRequest) -> crate::repositories::traits::AccessLogEntity {
+fn document_audit(
+    entry: AccessLogEntry,
+    request: &HttpRequest,
+) -> crate::repositories::traits::AccessLogEntity {
     let mut audit: crate::repositories::traits::AccessLogEntity = entry.into();
-    let reason = request.headers()
+    let reason = request
+        .headers()
         .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
         .and_then(|value| value.to_str().ok());
-    audit.access_reason = Some(crate::middleware::phi_access_audit::normalise_access_reason(reason));
+    audit.access_reason =
+        Some(crate::middleware::phi_access_audit::normalise_access_reason(reason));
     audit.resource_type = "medical_document".to_string();
     audit
 }
@@ -19,12 +24,17 @@ mod document_reason_tests {
     #[test]
     fn document_audit_keeps_the_declared_reason() {
         let request = actix_web::test::TestRequest::default()
-            .insert_header(("x-access-reason", "treatment")).to_http_request();
+            .insert_header(("x-access-reason", "treatment"))
+            .to_http_request();
         let entry = AccessLogEntry {
-            access_id: "audit-test".into(), patient_id: "PAT-TEST".into(),
-            accessor_id: "doctor-test".into(), accessor_role: "Doctor".into(),
-            access_type: "download_record".into(), location: None,
-            timestamp: Utc::now(), emergency: false,
+            access_id: "audit-test".into(),
+            patient_id: "PAT-TEST".into(),
+            accessor_id: "doctor-test".into(),
+            accessor_role: "Doctor".into(),
+            access_type: "download_record".into(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: false,
         };
         let audit = document_audit(entry, &request);
         assert_eq!(audit.access_reason.as_deref(), Some("Treatment"));
@@ -102,21 +112,17 @@ pub async fn upload_medical_record(
         });
     }
 
-    // Verify patient exists and resolve its on-chain account once.
-    let patient = match data.repositories.patients.get_by_id(&req.patient_id).await {
-        Ok(patient) => patient,
-        Err(_) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: format!("Patient '{}' not found", req.patient_id),
-                code: "PATIENT_NOT_FOUND".to_string(),
-            });
-        }
-    };
-    let patient_account = patient.wallet_address;
-    if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
-        return HttpResponse::Conflict().json(ErrorResponse {
-            error: "Patient has no wallet bound for blockchain recording".to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
+    // Verify the patient exists.
+    if data
+        .repositories
+        .patients
+        .get_by_id(&req.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            error: format!("Patient '{}' not found", req.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
         });
     }
 
@@ -169,14 +175,14 @@ pub async fn upload_medical_record(
         }
     };
 
-    // Create record reference for on-chain storage
+    // The reference to the encrypted record: pointers and digests, never content.
     let record_ref = MedicalRecordReference {
         content_hash: upload_result.ipfs_hash.clone(),
         metadata_hash: upload_result.metadata_hash.clone(),
         record_type: req.record_type.clone(),
         uploaded_at: Utc::now().timestamp(),
         content_checksum,
-        blockchain_tx_hash: None,
+        seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
     };
 
     let mut record_entity: crate::repositories::traits::MedicalRecordEntity =
@@ -200,7 +206,7 @@ pub async fn upload_medical_record(
 
     let access_id = secure_tokens::generate_access_id();
     let access_log: crate::repositories::AccessLogEntity = AccessLogEntry {
-        access_id: access_id.clone(),
+        access_id,
         patient_id: req.patient_id.clone(),
         accessor_id: current_user_id.clone(),
         accessor_role: current_user.role.to_string(),
@@ -224,89 +230,28 @@ pub async fn upload_medical_record(
         });
     }
 
-    let patient_account = patient_account.as_deref().unwrap_or_default();
-    let record_chain = match crate::audit_outbox::anchor_medical_record_or_queue(
+    if let Err(error) = crate::audit_outbox::record_medical_record_stored(
         &data,
         &record_id,
-        patient_account,
         &upload_result.ipfs_hash,
-        &req.record_type,
-        &current_user_id,
     )
     .await
     {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Medical-record chain anchor could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "The record was saved, but its blockchain anchor could not be queued."
-                    .to_string(),
-                code: "CHAIN_ANCHOR_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-    if let Some(tx_hash) = record_chain.transaction_hash.as_deref() {
-        stamp_record_anchor(&data, &record_id, tx_hash).await;
+        log::error!("Medical-record audit event could not be recorded: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "The record was saved, but its audit event could not be recorded.".to_string(),
+            code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
+        });
     }
-    let access_chain = match crate::audit_outbox::anchor_access_or_queue(
-        &data,
-        "medical_record_access",
-        &access_id,
-        patient_account,
-        &current_user_id,
-        "UPLOAD_RECORD",
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Upload access chain audit could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "The record was saved, but its blockchain access audit could not be queued."
-                    .to_string(),
-                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
-            });
-        }
-    };
 
     HttpResponse::Created().json(UploadMedicalRecordResponse {
         success: true,
         ipfs_hash: upload_result.ipfs_hash,
         metadata_hash: upload_result.metadata_hash,
         record_reference: record_ref,
-        record_chain_status: record_chain.status,
-        record_blockchain_tx_hash: record_chain.transaction_hash,
-        access_chain_status: access_chain.status,
-        access_blockchain_tx_hash: access_chain.transaction_hash,
+        seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
         message: "Medical record uploaded and encrypted successfully".to_string(),
     })
-}
-
-/// Record a finalized chain transaction on the stored medical record.
-///
-/// Without this, the transaction hash lived only in the upload response and
-/// the record list could never show an anchored record as anchored. A failure
-/// here does not undo the upload: the record and its anchor both exist, only
-/// the cross-reference is missing, and it is logged for repair.
-///
-/// # Parameters
-/// * `data` - application state.
-/// * `record_id` - the stored record's id.
-/// * `tx_hash` - the finalized extrinsic hash.
-async fn stamp_record_anchor(data: &web::Data<AppState>, record_id: &str, tx_hash: &str) {
-    let mut record = match data.repositories.medical_records.get_by_id(record_id).await {
-        Ok(record) => record,
-        Err(error) => {
-            log::error!(
-                "Anchor {tx_hash} not stamped on record {record_id}: lookup failed: {error}"
-            );
-            return;
-        }
-    };
-    record.blockchain_tx_hash = Some(tx_hash.to_string());
-    if let Err(error) = data.repositories.medical_records.update(record).await {
-        log::error!("Anchor {tx_hash} not stamped on record {record_id}: update failed: {error}");
-    }
 }
 
 /// Download and decrypt medical document from IPFS
@@ -394,7 +339,9 @@ pub async fn download_medical_record(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await {
+    if let Err(response) =
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+    {
         return response;
     }
 
@@ -1606,9 +1553,9 @@ pub async fn download_medical_record_by_hash(
             timestamp: Utc::now(),
             emergency: false,
         };
-        if let Err(response) = crate::support::require_durable_audit(
-            &data, document_audit(audit, &http_req),
-        ).await {
+        if let Err(response) =
+            crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+        {
             return response;
         }
         return download_lab_result(&data, submission_id).await;
@@ -1654,7 +1601,9 @@ pub async fn download_medical_record_by_hash(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await {
+    if let Err(response) =
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+    {
         return response;
     }
 
@@ -1907,8 +1856,24 @@ pub async fn list_patient_records(
     };
     let total_items = result.total as usize;
     let total_pages = result.total_pages as usize;
-    let paginated_records: Vec<crate::ipfs::MedicalRecordReference> =
+    let record_ids: Vec<String> = result
+        .items
+        .iter()
+        .map(|record| record.id.clone())
+        .collect();
+    let mut paginated_records: Vec<crate::ipfs::MedicalRecordReference> =
         result.items.into_iter().map(Into::into).collect();
+    let seal_statuses = crate::audit_batching::event_statuses_or_pending(
+        data.db_pool.as_ref(),
+        crate::audit_outbox::RECORD_STORED_EVENT,
+        &record_ids,
+    )
+    .await;
+    for (record, id) in paginated_records.iter_mut().zip(&record_ids) {
+        if let Some(status) = seal_statuses.get(id) {
+            record.seal_status = status.clone();
+        }
+    }
 
     let audit = AccessLogEntry {
         access_id: secure_tokens::generate_access_id(),
@@ -1920,7 +1885,9 @@ pub async fn list_patient_records(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await {
+    if let Err(response) =
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+    {
         return response;
     }
 

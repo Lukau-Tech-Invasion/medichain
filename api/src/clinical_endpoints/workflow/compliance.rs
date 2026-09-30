@@ -88,29 +88,6 @@ pub async fn get_consent_types(
 /// policy engine, but named so it can be found and changed deliberately.
 const DEFAULT_CONSENT_VALIDITY_DAYS: i64 = 365;
 
-async fn anchor_consent_on_chain(
-    data: &web::Data<AppState>,
-    patient_account: Option<&str>,
-    consent_id: &str,
-    accessor_id: &str,
-    access_type: &str,
-) -> Result<(String, Option<String>), String> {
-    if !crate::blockchain::blockchain_enabled() {
-        return Ok(("disabled".to_string(), None));
-    }
-    let account = patient_account.ok_or("patient has no blockchain wallet")?;
-    let outcome = crate::audit_outbox::anchor_access_or_queue(
-        data,
-        "consent",
-        consent_id,
-        account,
-        accessor_id,
-        access_type,
-    )
-    .await?;
-    Ok((outcome.status, outcome.transaction_hash))
-}
-
 /// Request body for `sign_consent`.
 ///
 /// Replaces the previous untyped `serde_json::Value`, which silently accepted
@@ -365,25 +342,6 @@ pub async fn sign_consent(
         Err(refusal) => return refusal,
     };
 
-    let patient_chain_account = match data.repositories.patients.get_by_id(&patient_id).await {
-        Ok(patient) => patient.wallet_address,
-        Err(_) if crate::blockchain::blockchain_enabled() => {
-            return HttpResponse::Conflict().json(ErrorResponse {
-                error: "Patient must have a wallet-bound record before consent can be anchored"
-                    .to_string(),
-                code: "PATIENT_WALLET_REQUIRED".to_string(),
-            });
-        }
-        Err(_) => None,
-    };
-    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
-        return HttpResponse::Conflict().json(ErrorResponse {
-            error: "Patient must have a wallet-bound record before consent can be anchored"
-                .to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
-
     // A third-party capacity with no recorded guardian relationship is exactly
     // the gap the legal review flagged — refuse rather than record an
     // unevidenced claim of authority.
@@ -516,41 +474,9 @@ pub async fn sign_consent(
 
     match data.repositories.consent_records.create(entity).await {
         Ok(created) => {
-            let access_type = if created.consent_status == ConsentStatus::Granted.as_str() {
-                "CONSENT_GRANT"
-            } else {
-                "CONSENT_REFUSAL"
-            };
-            let (chain_status, chain_tx_hash) = match anchor_consent_on_chain(
-                &data,
-                patient_chain_account.as_deref(),
-                &created.id,
-                &current_user_id,
-                access_type,
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(error) => {
-                    log::error!(
-                        "Consent {} could not be durably queued: {}",
-                        created.id,
-                        error
-                    );
-                    return HttpResponse::ServiceUnavailable().json(serde_json::json!({
-                        "success": false,
-                        "consent_id": created.id,
-                        "error": "Consent was saved, but its blockchain audit could not be recorded or queued",
-                        "code": "CONSENT_CHAIN_AUDIT_UNAVAILABLE"
-                    }));
-                }
-            };
-            let pending = chain_status == "pending";
             let payload = serde_json::json!({
             "success": true,
             "consent_id": created.id,
-            "chain_status": chain_status,
-            "blockchain_tx_hash": chain_tx_hash,
             "consent": {
                 "consent_id": created.id,
                 "consent_type": created.consent_type,
@@ -567,11 +493,7 @@ pub async fn sign_consent(
             },
             "message": "Consent signed and recorded"
             });
-            if pending {
-                HttpResponse::Accepted().json(payload)
-            } else {
-                HttpResponse::Created().json(payload)
-            }
+            HttpResponse::Created().json(payload)
         }
         Err(e) => {
             log::error!(

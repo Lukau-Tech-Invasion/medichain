@@ -189,7 +189,7 @@ impl RefillRequestRepository for MemoryRefillRequestRepository {
             .filter(|request| request.patient_id == patient_id)
             .cloned()
             .collect();
-        found.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        found.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         found.truncate(MAX_REFILL_REQUESTS_PER_READ);
         Ok(found)
     }
@@ -207,7 +207,7 @@ impl RefillRequestRepository for MemoryRefillRequestRepository {
             })
             .cloned()
             .collect();
-        found.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        found.sort_by_key(|a| a.created_at);
         found.truncate(MAX_REFILL_REQUESTS_PER_READ);
         Ok(found)
     }
@@ -522,7 +522,6 @@ mod pg_tests {
             is_emergency_access: false,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: Utc::now(),
             facility_id: None,
             authority_type: None,

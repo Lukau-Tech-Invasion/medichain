@@ -7,9 +7,10 @@
 ## Overview
 
 MediChain uses a **hybrid storage architecture**:
-1. **On-chain storage**: Substrate blockchain for immutable metadata, access control, and audit trails
-2. **Off-chain storage**: IPFS for encrypted medical documents
-3. **In-memory cache**: REST API server for session data and real-time access
+1. **PostgreSQL** (or the in-memory backend in dev/demo): queryable clinical and operational data, consent, access logs and the audit stream
+2. **IPFS**: encrypted medical documents
+3. **Checkpoint sink**: signed audit-batch headers exported outside the database (ADR-0010)
+4. **In-memory cache**: REST API server for session data and real-time access
 
 This document describes all data structures used across the system.
 
@@ -17,7 +18,7 @@ This document describes all data structures used across the system.
 
 ## Table of Contents
 
-1. [Blockchain Pallets](#blockchain-pallets)
+1. [Audit Sealing Tables](#audit-sealing-tables)
 2. [API Data Types](#api-data-types)
 3. [Clinical Documentation Types](#clinical-documentation)
 4. [IPFS Storage Types](#ipfs-storage)
@@ -25,126 +26,47 @@ This document describes all data structures used across the system.
 
 ---
 
-## 1. Blockchain Pallets {#blockchain-pallets}
+## 1. Audit Sealing Tables {#audit-sealing-tables}
 
-### 1.1 Access Control Pallet
+The tamper-evident audit stream (see [`AUDIT_LOG.md`](AUDIT_LOG.md)) is stored in
+PostgreSQL. The migration `20260929000001_remove_blockchain.sql` produced the
+shape below from the earlier anchoring tables; applied migrations before it are
+never edited.
 
-**Storage Items:**
+### 1.1 `audit_seal_batches`
 
-| Name | Type | Description |
-|------|------|-------------|
-| `UserRoles` | `StorageMap<AccountId, Role>` | Maps accounts to their roles |
-| `ActiveAccess` | `StorageDoubleMap<AccountId, AccountId, AccessLog>` | Active access grants (patient → accessor) |
-| `AccessCount` | `StorageMap<AccountId, u32>` | Count of active accesses per patient |
+One row per sealed batch. `status` is `pending` | `sealed` | `exported`.
 
-**Types:**
+| Column | Meaning |
+|--------|---------|
+| `id` | Batch id; the order batches are chained and exported in |
+| `first_seq`, `last_seq`, `leaf_count`, `merkle_root` | The leaves covered and their Merkle root |
+| `prev_batch_hash` | The previous batch's `batch_hash`; absent for the first batch |
+| `batch_hash` | `SHA3-256("medichain.audit.batch.v1\0" ‖ id ‖ first_seq ‖ last_seq ‖ leaf_count ‖ merkle_root ‖ prev_batch_hash)` |
+| `signature`, `signing_key_id` | Ed25519 signature over `batch_hash` and the key that made it (null when sealed unsigned in demo mode) |
+| `sealed_at`, `exported_at`, `export_ref` | When it was sealed and exported, and where |
 
-```rust
-enum Role {
-    Admin,        // System administrator
-    Doctor,       // Licensed physician
-    Nurse,        // Registered nurse
-    LabTechnician,// Laboratory staff
-    Pharmacist,   // Licensed pharmacist
-    Patient,      // End user (read-only)
-}
+CHECK constraints require that a `sealed` or `exported` batch has its hash and
+timestamps.
 
-enum AccessType {
-    Emergency,    // Time-limited emergency access
-    Regular,      // Patient-granted access
-    Full,         // Primary care provider
-}
+### 1.2 `audit_seal_batch_members`
 
-struct AccessLog<T> {
-    accessor: AccountId,
-    access_type: AccessType,
-    granted_at: BlockNumber,
-    expires_at: BlockNumber,
-    reason_hash: [u8; 32],
-    revoked: bool,
-}
-```
+One row per leaf: `source` (`access_log` | `audit_event`), `source_id`, and the
+owning batch. Unique on `(source, source_id)`, so a row can be sealed once.
 
-### 1.2 Patient Identity Pallet
+### 1.3 `access_logs` and `audit_events`
 
-**Storage Items:**
+- `access_logs.seal_seq` orders access-log rows for batching. Leaves keep the
+  `medichain.audit.leaf.v1` encoding.
+- `audit_events` (renamed from `audit_outbox_events`) holds privacy-minimised
+  events — type, aggregate id, payload hash, payload JSON without PHI — with a
+  unique `seal_seq`. Leaves use `medichain.audit.event.v1`. The events
+  `emergency_capsule_published`, `medical_record_stored` and `patient_registered`
+  carry the commitments and digests.
 
-| Name | Type | Description |
-|------|------|-------------|
-| `Patients` | `StorageMap<PatientId, Patient>` | Patient metadata |
-| `NationalIdToPatient` | `StorageMap<IdHash, PatientId>` | National ID lookup (hashed) |
-| `PatientCount` | `StorageValue<u64>` | Total registered patients |
-
-**Types:**
-
-```rust
-struct Patient<T> {
-    patient_id: PatientId,
-    id_hash: [u8; 32],         // SHA-256 of national ID
-    id_type: NationalIdType,
-    registered_by: AccountId,
-    registered_at: BlockNumber,
-    is_active: bool,
-}
-
-enum NationalIdType {
-    FaydaId,           // Ethiopia
-    GhanaCard,         // Ghana
-    NigeriaNIN,        // Nigeria
-    SouthAfricaSmartId,// South Africa
-    KenyaHuduma,       // Kenya
-    Other,
-}
-```
-
-### 1.3 Medical Records Pallet
-
-**Storage Items:**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `HealthRecords` | `StorageMap<PatientId, HealthRecord>` | Health record metadata |
-| `MedicalAlerts` | `StorageMap<PatientId, BoundedVec<Alert>>` | Active medical alerts |
-| `RecordCount` | `StorageValue<u64>` | Total records |
-
-**Types:**
-
-```rust
-struct HealthRecord<T> {
-    patient_id: PatientId,
-    ipfs_hash: IpfsHash,       // Encrypted document hash
-    record_type: RecordType,
-    created_by: AccountId,
-    created_at: BlockNumber,
-    last_modified_by: AccountId,
-    updated_at: BlockNumber,
-}
-
-struct Alert<T> {
-    alert_type: AlertType,
-    severity: AlertSeverity,
-    description: BoundedVec<u8>,
-    created_at: BlockNumber,
-    created_by: AccountId,
-    is_active: bool,
-}
-
-enum AlertType {
-    Allergy,
-    DrugInteraction,
-    ChronicCondition,
-    CriticalVital,
-    LabResult,
-    Custom,
-}
-
-enum AlertSeverity {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-```
+The clinical `chain_of_custody` tables (for example
+`specimen_collections.chain_of_custody`) are unrelated to the audit stream and
+are unchanged.
 
 ---
 
@@ -303,14 +225,14 @@ interface LabTestResult {
 
 ```
 
-## 2.6 Postgres Indexer (Off-chain)
+## 2.6 PostgreSQL storage
 
-To support fast queries, reporting, and joins that are inefficient on-chain, the API maintains an off-chain Postgres indexer. The indexer ingests blockchain events and API actions and stores denormalized views for read-heavy operations.
+PostgreSQL is the primary store for queryable clinical data; the in-memory
+backend implements the same repository traits for dev and demo. Nothing is
+ingested from any external ledger.
 
 Key design points:
-- The indexer is eventual-consistent and replayable from block/event logs.
 - Tables include `patients`, `users`, `health_records`, `lab_submissions`, `access_logs`, and `nfc_cards`.
-- Each table includes `source_block` (u64) and `source_tx` (varchar) for traceability to the on-chain event.
 - Soft-delete is handled by an `archived` boolean flag rather than physical deletes.
 
 Example high-level table schemas:
@@ -324,9 +246,7 @@ CREATE TABLE patients (
     registered_by TEXT,
     registered_at TIMESTAMP WITH TIME ZONE,
     is_active BOOLEAN DEFAULT TRUE,
-    archived BOOLEAN DEFAULT FALSE,
-    source_block BIGINT,
-    source_tx TEXT
+    archived BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE health_records (
@@ -338,9 +258,7 @@ CREATE TABLE health_records (
     created_at TIMESTAMP WITH TIME ZONE,
     last_modified_by TEXT,
     updated_at TIMESTAMP WITH TIME ZONE,
-    archived BOOLEAN DEFAULT FALSE,
-    source_block BIGINT,
-    source_tx TEXT
+    archived BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE access_logs (
@@ -351,13 +269,11 @@ CREATE TABLE access_logs (
     granted_at TIMESTAMP WITH TIME ZONE,
     expires_at TIMESTAMP WITH TIME ZONE,
     reason_hash BYTEA,
-    revoked BOOLEAN DEFAULT FALSE,
-    source_block BIGINT,
-    source_tx TEXT
+    revoked BOOLEAN DEFAULT FALSE
 );
 ```
 
-Indexer migration/versioning:
+Migration/versioning:
 - Use `diesel` or `sqlx` migrations managed alongside the `api/` code. Include a `schema_version` table with migration timestamps.
 - Provide `POSTGRES_SETUP.md` with sample connection strings and `docker-compose` snippets.
 
@@ -365,11 +281,10 @@ Indexer migration/versioning:
 
 ## Migration Notes
 
-When deploying the Postgres indexer you must run migrations before starting the API server. The indexer expects the following notable schema additions compared to the original on-chain-only model:
+When deploying you must run migrations before starting the API server (the API also applies them on boot). Notable schema conventions:
 
 - `archived BOOLEAN DEFAULT FALSE` on read tables to support soft-deletes and safe recovery.
-- `source_block BIGINT` and `source_tx TEXT` on denormalized tables to link back to the on-chain event that produced the row.
-- UUID primary keys for indexer tables (separate from on-chain numeric IDs) to support joins and external integrations.
+- UUID primary keys for indexed tables to support joins and external integrations.
 
 Recommended migration steps (example using `sqlx`):
 

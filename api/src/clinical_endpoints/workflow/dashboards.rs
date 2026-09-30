@@ -707,11 +707,6 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
         data.repositories.medical_records.count().await,
         "admin dashboard record count"
     );
-    let tx_count = required_dashboard_read!(
-        data.repositories.chain_of_custody.list_all().await,
-        "admin dashboard chain-of-custody count"
-    )
-    .len();
 
     let users: Vec<crate::types::User> = data
         .users
@@ -802,36 +797,16 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
         .filter(|s| s.status == "approved")
         .count();
 
-    // This used to report `status: "healthy", peers: 4, best_block: 12450,
-    // finalized_block: 12445` as literals — an administrator's node-health
-    // panel that showed a healthy, syncing chain even with no node configured
-    // at all. The client exposes connection readiness and nothing else, so
-    // that is all this reports; peer count and block heights are null rather
-    // than invented, and an operator can tell the difference between "not
-    // configured", "unreachable" and "connected".
-    let node_status = serde_json::json!({
-        "status": if !crate::blockchain::blockchain_enabled() {
-            "disabled"
-        } else if data
-            .substrate_client
-            .as_ref()
-            .is_some_and(|client| client.is_ready())
-        {
-            "connected"
-        } else {
-            "unavailable"
-        },
-        "peers": serde_json::Value::Null,
-        "best_block": serde_json::Value::Null,
-        "finalized_block": serde_json::Value::Null
-    });
+    // The sealed audit stream, measured: backlog, last seal and export, sink and
+    // signing. This panel used to show a node's peers and block heights, as
+    // literals for a long time, and then as nulls.
+    let audit_seal = crate::audit_batching::audit_seal_summary(&data).await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "admin_id": current_user_id,
         "system_stats": {
             "total_patients": patient_count,
             "total_records": record_count,
-            "total_blockchain_transactions": tx_count,
             "total_users": users.len(),
             "doctors": count_role(crate::types::Role::Doctor),
             "nurses": count_role(crate::types::Role::Nurse),
@@ -856,7 +831,7 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
             "total": nfc_cards.len(),
             "cards": nfc_cards,
         },
-        "node_status": node_status
+        "audit_seal": audit_seal
     }))
 }
 

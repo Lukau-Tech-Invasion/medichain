@@ -13,7 +13,7 @@ Categories, most actionable first:
                are real defects — the HZ-023 class.
   DEBT_NOTE    TODO/FIXME markers: real backlog, not a live defect.
   DOCUMENTED   Comments describing a deliberate, documented design decision
-               (e.g. the blockchain placeholder-hash fallback) or a past fix.
+               (e.g. a documented fallback) or a past fix.
   UI_ATTR      React `placeholder=` / `placeholder:` — input hint text. Not a
                defect in any sense.
   TEST_SUPPORT Mocks and fixtures inside test code. Correct by definition.

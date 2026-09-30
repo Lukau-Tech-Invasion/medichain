@@ -31,7 +31,7 @@ Organised by what you are trying to do.
 | [`api.md`](api.md) | Endpoint reference |
 | [`openapi.yaml`](openapi.yaml) | Machine-readable specification |
 | [`database-schema.md`](database-schema.md) | Schema reference |
-| [`postgres-implementation-guide.md`](postgres-implementation-guide.md) | Hybrid chain + database patterns |
+| [`postgres-implementation-guide.md`](postgres-implementation-guide.md) | Hybrid PostgreSQL patterns (historical; ADR-0010 dropped the ledger half) |
 
 ## Security, privacy and compliance
 
@@ -50,7 +50,9 @@ Organised by what you are trying to do.
 
 | Document | Purpose |
 |---|---|
-| [`BLOCKCHAIN_OPERATIONS.md`](BLOCKCHAIN_OPERATIONS.md) | Node and chain operations |
+| [`AUDIT_LOG.md`](AUDIT_LOG.md) | The sealed audit stream: batches, signing, checkpoint export |
+| [`adr/0010-remove-blockchain-and-wallet-identity.md`](adr/0010-remove-blockchain-and-wallet-identity.md) | Decision to remove the ledger and wallet identity |
+| [`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md) | Work plan for that removal |
 | [`BACKUP_RESTORE_RUNBOOK.md`](BACKUP_RESTORE_RUNBOOK.md) | Backup and verified restore |
 | [`monitoring.md`](monitoring.md) | Prometheus and Grafana |
 | [`PERFORMANCE_BUDGETS.md`](PERFORMANCE_BUDGETS.md) | Latency budgets |
@@ -77,7 +79,7 @@ Organised by what you are trying to do.
 |---|---|
 | [`medichain_master_plan.md`](medichain_master_plan.md) | Original plan and market analysis |
 | [`medichain-comprehensive-research.md`](medichain-comprehensive-research.md) | Hospital workflow research |
-| [`HYBRID_ARCHITECTURE_RESEARCH.md`](HYBRID_ARCHITECTURE_RESEARCH.md) | Chain-vs-database decision matrix |
+| [`HYBRID_ARCHITECTURE_RESEARCH.md`](HYBRID_ARCHITECTURE_RESEARCH.md) | Ledger-vs-database decision matrix (historical) |
 | [`medical-id-research.md`](medical-id-research.md) | National ID systems |
 | [`medichain-security-deep-dive.md`](medichain-security-deep-dive.md) | Security research |
 

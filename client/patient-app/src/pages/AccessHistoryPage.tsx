@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Eye, FlaskConical, PencilLine } from 'lucide-react';
-import { getAccessLogs, useTranslation, formatTimestamp } from '@medichain/shared';
+import { getAccessLogs, useTranslation, formatTimestamp, SealStatusBadge } from '@medichain/shared';
 import type { AccessLogEntry } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
-import { authorityLabelKey, groupAccessSessions } from './accessHistoryGrouping';
+import { authorityLabelKey, groupAccessSessions, sealStateOf } from './accessHistoryGrouping';
 import type { AccessSession } from './accessHistoryGrouping';
 import { EmergencyAccessHistory } from './EmergencyAccessHistory';
 
@@ -63,6 +63,9 @@ export function AccessHistoryPage() {
     <div className="max-w-3xl mx-auto p-4">
       <h1 className="text-2xl font-bold text-content">{t('accessHistory.title')}</h1>
       <p className="text-sm text-content-muted mt-1 mb-4">{t('accessHistory.subtitle')}</p>
+      {sessions.some((session) => sealStateOf(session) !== null) && (
+        <p className="text-xs text-content-muted mb-4">{t('accessHistory.sealExplainer')}</p>
+      )}
       {patientId && <EmergencyAccessHistory key={patientId} patientId={patientId} entries={entries} />}
 
       {status === 'loading' && <p className="text-sm text-content-muted">{t('accessHistory.loading')}</p>}
@@ -126,7 +129,7 @@ function ResearchInclusionCard({ session }: { session: AccessSession }) {
 }
 
 /**
- * One access session: who, where, when, why, what, and anchor state.
+ * One access session: who, where, when, why, what, and seal state.
  *
  * @param props.session - The grouped session to render.
  */
@@ -170,6 +173,7 @@ function SessionCard({ session }: { session: AccessSession }) {
         </span>
       </p>
       <AuthorityLine session={session} />
+      <SealStatusBadge status={sealStateOf(session)} className="mt-2" />
     </li>
   );
 }

@@ -27,7 +27,6 @@
 # exactly like a broken route registration. The preflight below refuses to run
 # against a server that is not this suite's own.
 BASE=${BASE:-http://127.0.0.1:8090}
-CHAIN_E2E=${CHAIN_E2E:-false}
 
 # Overridable so the suite can be pointed at a server started with a different
 # key; the default matches scripts/run-synthetic-local.sh.
@@ -299,53 +298,20 @@ cat <<J
 J
 }
 
-# A chain-enabled registration needs a checksum-valid SS58 patient account
-# before the record exists. These synthetic public keys need not possess a
-# signer: the operator submits the registration extrinsic on the patient's
-# behalf. A run-specific seed avoids collisions on a persistent dev chain.
-synthetic_ss58() {
-  python -c '
-import hashlib, sys
-alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-public_key = hashlib.sha256(sys.argv[1].encode()).digest()
-payload = b"\x2a" + public_key
-checksum = hashlib.blake2b(b"SS58PRE" + payload, digest_size=64).digest()[:2]
-number = int.from_bytes(payload + checksum, "big")
-encoded = ""
-while number:
-    number, remainder = divmod(number, 58)
-    encoded = alphabet[remainder] + encoded
-print(encoded)
-' "$1"
-}
-
-if [ "$CHAIN_E2E" = "true" ]; then
-  CHAIN_RUN_ID=${CHAIN_RUN_ID:-$(date +%s%N)}
-  WALLET_ADULT=$(synthetic_ss58 "medichain-chain-adult-$CHAIN_RUN_ID")
-  WALLET_C11=$(synthetic_ss58 "medichain-chain-child-$CHAIN_RUN_ID")
-  WALLET_C14=$(synthetic_ss58 "medichain-chain-teen-$CHAIN_RUN_ID")
-fi
-
-c=$(code POST /api/register "$(mkpatient 'Adult Synthetic' '1990-03-14' 'SYN-ADULT-0001' '+27000000001' 'O+' "${WALLET_ADULT:-}")" "$DOCTOR")
+c=$(code POST /api/register "$(mkpatient 'Adult Synthetic' '1990-03-14' 'SYN-ADULT-0001' '+27000000001' 'O+')" "$DOCTOR")
 check "register adult patient" 201 "$c" "$(body)"
 PAT_ADULT=$(jget patient_id)
 NFC_ADULT=$(jget nfc_tag_id)
 
-c=$(code POST /api/register "$(mkpatient 'Child Eleven' '2015-01-10' 'SYN-CHILD11-01' '+27000000002' 'A+' "${WALLET_C11:-}")" "$DOCTOR")
+c=$(code POST /api/register "$(mkpatient 'Child Eleven' '2015-01-10' 'SYN-CHILD11-01' '+27000000002' 'A+')" "$DOCTOR")
 check "register child aged 11" 201 "$c" "$(body)"
 PAT_C11=$(jget patient_id)
 
-c=$(code POST /api/register "$(mkpatient 'Teen Fourteen' '2012-01-10' 'SYN-TEEN14-01' '+27000000003' 'B+' "${WALLET_C14:-}")" "$DOCTOR")
+c=$(code POST /api/register "$(mkpatient 'Teen Fourteen' '2012-01-10' 'SYN-TEEN14-01' '+27000000003' 'B+')" "$DOCTOR")
 check "register child aged 14" 201 "$c" "$(body)"
 PAT_C14=$(jget patient_id)
 
 echo "  adult=$PAT_ADULT  child11=$PAT_C11  teen14=$PAT_C14  nfc=$NFC_ADULT"
-
-if [ "$CHAIN_E2E" = "true" ]; then
-  c=$(code POST /api/register "$(mkpatient 'No Wallet Synthetic' '1990-01-02' 'SYN-NO-WALLET' '+27000000008' 'O+')" "$DOCTOR")
-  check "chain mode refuses patient registration without a wallet" 400 "$c" "$(body)"
-  check "wallet refusal names the missing linkage contract" PATIENT_WALLET_REQUIRED "$(jget code)" "$(body)"
-fi
 
 # ----------------------------------------------------------------------------
 # Give each synthetic patient a WALLET they can act as.
@@ -383,11 +349,9 @@ provision_patient_wallet() {
   echo "$w"
 }
 
-if [ "$CHAIN_E2E" != "true" ]; then
-  WALLET_ADULT=$(provision_patient_wallet "$PAT_ADULT" 'SYN-ADULT-0001' '1990-03-14' 'synadult')
-  WALLET_C11=$(provision_patient_wallet "$PAT_C11" 'SYN-CHILD11-01' '2015-01-10' 'synchild11')
-  WALLET_C14=$(provision_patient_wallet "$PAT_C14" 'SYN-TEEN14-01' '2012-01-10' 'synteen14')
-fi
+WALLET_ADULT=$(provision_patient_wallet "$PAT_ADULT" 'SYN-ADULT-0001' '1990-03-14' 'synadult')
+WALLET_C11=$(provision_patient_wallet "$PAT_C11" 'SYN-CHILD11-01' '2015-01-10' 'synchild11')
+WALLET_C14=$(provision_patient_wallet "$PAT_C14" 'SYN-TEEN14-01' '2012-01-10' 'synteen14')
 check "adult patient wallet can read its own record" 200   "$(code GET "/api/patients/$PAT_ADULT" '' "$WALLET_ADULT")" "$(body)"
 
 

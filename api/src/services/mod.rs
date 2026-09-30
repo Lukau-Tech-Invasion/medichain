@@ -1,6 +1,6 @@
 //! Services for MediChain API
 //!
-//! Contains business logic for authentication and blockchain sync.
+//! Contains business logic for authentication.
 //!
 //! Horizon HZ-014: `user_service` (a Postgres-backed `UserService` with a
 //! `upsert_profile` method writing PII in plaintext) was removed here —

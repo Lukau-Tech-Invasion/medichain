@@ -35,31 +35,14 @@ MediChain implements healthcare-grade security following NASA Power of 10 rules 
 | Read Own Record | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Grant Emergency Access | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 
-### Role Helper Functions
+### Where roles are enforced
 
-```rust
-// Check if user is a healthcare provider
-pub fn is_healthcare_provider(account: &T::AccountId) -> bool {
-    matches!(
-        Self::user_roles(account),
-        Some(Role::Admin) | Some(Role::Doctor) | Some(Role::Nurse) 
-        | Some(Role::LabTechnician) | Some(Role::Pharmacist)
-    )
-}
-
-// Check if user can edit medical records
-pub fn can_edit_medical_records(account: &T::AccountId) -> bool {
-    matches!(
-        Self::user_roles(account),
-        Some(Role::Admin) | Some(Role::Doctor) | Some(Role::Nurse)
-    )
-}
-
-// Check if user is admin
-pub fn is_admin(account: &T::AccountId) -> bool {
-    matches!(Self::user_roles(account), Some(Role::Admin))
-}
-```
+Roles are enforced per handler in the API, from the server-side user record (never
+from a client-supplied claim). The same three questions are asked throughout:
+is the caller a healthcare provider (Admin, Doctor, Nurse, LabTechnician,
+Pharmacist), may they edit medical records (Admin, Doctor, Nurse), and are they
+an Admin. `scripts/check-endpoint-auth.py` fails the build if a handler makes no
+authorization decision.
 
 ---
 
@@ -67,9 +50,9 @@ pub fn is_admin(account: &T::AccountId) -> bool {
 
 ### Role Assignment
 - Only Admin can assign roles
-- Admin role cannot be assigned via extrinsic (must be set directly)
+- The Admin role cannot be assigned through role assignment (it is set by bootstrap)
 - Users cannot revoke their own role
-- Role changes are logged on-chain
+- Role changes are written as audit events and sealed with the rest of the audit stream
 
 ### Patient Registration
 - Only healthcare providers can register patients
@@ -141,7 +124,7 @@ Every sensitive operation is logged with:
 - ✅ Emergency access with time limits
 
 ### GDPR Alignment
-- ✅ Data minimization (only essential fields on-chain)
+- ✅ Data minimization (only ids, digests and commitments in the audit stream)
 - ✅ Right to access (patients can view own records)
 - ✅ Accountability (audit trail)
 
@@ -151,7 +134,7 @@ Every sensitive operation is logged with:
 
 1. Healthcare provider initiates emergency access
 2. 15-minute time-limited access granted
-3. Access logged immutably on blockchain
+3. Access logged in the database and sealed in a signed, hash-chained audit batch
 4. Patient notified of access (future: SMS/email)
 5. Access automatically expires
 

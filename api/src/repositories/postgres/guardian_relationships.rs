@@ -80,7 +80,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
     async fn create_with_audit(
         &self,
         relationship: GuardianRelationshipEntity,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         let mut tx = self.pool.begin().await?;
         let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
@@ -103,11 +103,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         .bind(relationship.child_assent_recorded_at).bind(&relationship.child_assent_notes)
         .bind(&relationship.supersedes_relationship_id).bind(relationship.dispute_flag).bind(&relationship.dispute_notes)
         .fetch_one(&mut *tx).await?;
-        sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivered_at, delivery_attempts, last_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-            .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-            .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-            .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
-            .bind(&event.last_error).execute(&mut *tx).await?;
+        crate::audit_outbox::insert_event(&mut *tx, &event).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -177,7 +173,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         id: &str,
         permissions: Vec<String>,
         expires_at: Option<DateTime<Utc>>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         let mut tx = self.pool.begin().await?;
         let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
@@ -189,15 +185,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         .bind(expires_at)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query(
-            "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash,
-             payload, occurred_at, delivered_at, delivery_attempts, last_error)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        )
-        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-        .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
-        .bind(&event.last_error).execute(&mut *tx).await?;
+        crate::audit_outbox::insert_event(&mut *tx, &event).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -220,7 +208,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         &self,
         id: &str,
         reason: Option<String>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<()> {
         let mut tx = self.pool.begin().await?;
         let changed = sqlx::query(
@@ -236,15 +224,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
                 id.into(),
             ));
         }
-        sqlx::query(
-            "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash,
-             payload, occurred_at, delivered_at, delivery_attempts, last_error)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        )
-        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-        .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
-        .bind(&event.last_error).execute(&mut *tx).await?;
+        crate::audit_outbox::insert_event(&mut *tx, &event).await?;
         tx.commit().await?;
         Ok(())
     }

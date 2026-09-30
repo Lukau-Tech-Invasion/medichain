@@ -4,16 +4,16 @@ This guide helps you set up demo users for recording the hackathon demo video.
 
 ## Docker demo stack (recommended)
 
-One command brings up the full stack with the development chain, so blockchain
-anchoring in the demo is real rather than "disabled":
+One command brings up the full stack with the demo settings, including the
+sealed audit stream exported to a local checkpoint volume:
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.blockchain.yml -f docker-compose.demo.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 ```
 
 `docker-compose.demo.yml` is the only place demo settings are switched on. It
-points the API at the dev chain, allows the published dev signer (demo mode
-only), and builds the web bundle with `VITE_DEMO_MODE=true`, which shows the
+exports audit checkpoints to the `audit_checkpoints` volume (batches are sealed
+unsigned because no `AUDIT_SEAL_SIGNING_KEY` is set — demo mode only), and builds the web bundle with `VITE_DEMO_MODE=true`, which shows the
 clinician sign-in page's **"Demo accounts — disabled in production"** buttons.
 Without this override, `docker-compose.yml` builds with every demo flag off.
 

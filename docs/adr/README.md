@@ -21,12 +21,13 @@ point.
 |---|---|---|
 | [0001](0001-dual-storage-backends.md) | Two storage backends behind one repository trait | Accepted |
 | [0002](0002-server-sent-events-over-websockets.md) | Server-Sent Events instead of WebSockets | Accepted |
-| [0003](0003-wallet-auth-with-jwt.md) | Wallet signature auth with JWT sessions | Accepted |
-| [0004](0004-commitment-not-plaintext-on-chain.md) | On-chain commitments, never plaintext health data | Accepted — supersedes 0004-draft |
+| [0003](0003-wallet-auth-with-jwt.md) | Wallet signature auth with JWT sessions | Superseded by 0010 |
+| [0004](0004-commitment-not-plaintext-on-chain.md) | On-chain commitments, never plaintext health data | Superseded by 0010 (the off-chain capsule and its commitment stay) |
 | [0005](0005-retention-restriction-before-deletion.md) | Restriction before deletion for retention | Accepted |
-| [0006](0006-federated-deployment.md) | Federated per-hospital deployment | Accepted |
+| [0006](0006-federated-deployment.md) | Federated per-hospital deployment | Superseded by 0010 (per-hospital deployment stays; the shared chain is withdrawn) |
 | [0007](0007-single-organisation-per-instance.md) | One organisation per instance, and what that means for bulk reads | Accepted |
-| [0008](0008-wallet-step-up-and-transaction-authorization.md) | Wallet step-up and exact transaction authorization | Proposed |
+| [0008](0008-wallet-step-up-and-transaction-authorization.md) | Wallet step-up and exact transaction authorization | Superseded by 0010 (assurance classes stay; wallet proofs are replaced by TOTP/password) |
+| [0010](0010-remove-blockchain-and-wallet-identity.md) | Remove the blockchain and wallet identity | Accepted |
 
 ## Template
 

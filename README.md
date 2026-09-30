@@ -3,15 +3,15 @@
 **A paramedic taps an NFC card and sees blood type, allergies and DNR status in under three seconds — with no internet connection.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.97-orange.svg)](https://www.rust-lang.org/)
-[![Substrate](https://img.shields.io/badge/Substrate-polkadot--sdk-blue.svg)](https://substrate.io/)
-[![Tests](https://img.shields.io/badge/tests-380%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-328%20passing-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 MediChain is a national health-ID and emergency medical records system for African
 healthcare. Patient consent and role enforcement are durable PostgreSQL controls;
-the blockchain anchors emergency-capsule commitments and audit evidence when a
-qualified chain is configured. First responders get the handful of facts that
-decide whether someone lives, without waiting on a network or a login.
+tamper evidence comes from a sealed audit stream — access and audit rows are
+Merkle-batched, hash-chained, signed with Ed25519 and exported as checkpoints to
+an external sink. First responders get the handful of facts that decide whether
+someone lives, without waiting on a network or a login.
 
 > **Origin:** Rust Africa Hackathon 2026 (2nd place). Now being engineered toward
 > production, including a formal POPIA legal review and a multi-week internal
@@ -33,13 +33,15 @@ them when the network is down?
 
 MediChain's answer:
 
-- **Reach** — the emergency subset is read from local storage on a tap. No chain
-  round-trip, no patient interaction, no connectivity requirement.
+- **Reach** — the emergency subset is read from local storage on a tap. No
+  audit-sealing round-trip, no patient interaction, no connectivity requirement.
 - **Trust** — access requires a live professional work context, an approved
   device, and a freshly-issued server-side grant. Every read is logged with who,
   why, when, and *which fields were actually shown*.
-- **Integrity** — the off-chain record is committed to on-chain as a hash, so
-  tampering is detectable without publishing anything private to a ledger.
+- **Integrity** — every access-log and audit row is sealed into a signed,
+  hash-chained batch and exported as a checkpoint, and the emergency capsule's
+  commitment is sealed with them, so tampering is detectable without publishing
+  anything private. Sealing runs in the background and never blocks a read.
 
 ---
 
@@ -62,7 +64,7 @@ graph TB
     subgraph Storage
         PG[("PostgreSQL 16<br/>179 tables — queryable clinical data")]
         IPFS[("IPFS<br/>ChaCha20-Poly1305 encrypted documents")]
-        CHAIN[("Substrate chain<br/>hashes · commitments · audit entries")]
+        SEAL[("Sealed audit stream<br/>signed batches · exported checkpoints")]
     end
 
     DP --> MW
@@ -71,14 +73,14 @@ graph TB
     MW --> H --> SVC
     SVC --> PG
     SVC --> IPFS
-    SVC -->|"hash / commitment only"| CHAIN
+    SVC -->|"digests / commitments only"| SEAL
 ```
 
-**The load-bearing rule: no personal health information goes on-chain.** Only
-hashes, commitments, pointers, public keys and audit entries. Encrypted documents
-live in IPFS; queryable clinical data lives in PostgreSQL. An immutable ledger
-cannot honour a correction or deletion request, so nothing that might need
-correcting or deleting is put there.
+**The load-bearing rule: no personal health information goes into the audit
+stream.** Only hashes, commitments, pointers, public keys and privacy-minimised
+audit entries. Encrypted documents live in IPFS; queryable clinical data lives in
+PostgreSQL. Sealed batches cannot honour a correction or deletion request, so
+nothing that might need correcting or deleting is put there.
 
 Full diagrams — C4 context/container/component, the emergency-access sequence,
 trust boundaries and the data model — are in
@@ -95,10 +97,8 @@ commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers)
 |---|---|---|
 | **HTTP API** | Working | 386 handlers, 385 registered routes; `/api/v1` versioning, idempotency keys, cursor pagination, canonical error envelope |
 | **Storage** | Working, dual backend | In-memory (default, ephemeral) and PostgreSQL (`MEDICHAIN_STORAGE=postgres`); 38 migrations → 179 tables. Both implement the same repository traits |
-| **Blockchain** | Implemented; qualification pending | Real `subxt` extrinsics return a hash only after finalized success. Failures are durably queued or returned as errors; no placeholder transaction hashes exist |
-| **Substrate node** | External production dependency | `node/` and `runtime/` retain custom-chain source, but this checkout does not currently ship a buildable node image. Production must point `SUBSTRATE_WS_URL` at an independently deployed and qualified runtime |
-| **Pallets** | Implemented | `access-control`, `medical-records`, and `patient-identity`; current CI proof is required before release |
-| **Crypto** | Working | ChaCha20-Poly1305 AEAD, Argon2id KDF, SHA3-256, Sr25519 signatures, zeroization on drop |
+| **Sealed audit stream** | In progress (ADR-0010) | `access_logs` and `audit_events` rows are Merkle-batched, chained to the previous batch's hash, signed with Ed25519 and exported to a checkpoint sink (`AUDIT_CHECKPOINT_SINK`). Sealing is asynchronous; only the durable database audit write can refuse a request. See [docs/AUDIT_LOG.md](docs/AUDIT_LOG.md) |
+| **Crypto** | Working | ChaCha20-Poly1305 AEAD, Argon2id KDF, SHA3-256, Ed25519 batch signatures, Sr25519 signatures (until wallet sign-in is removed), zeroization on drop |
 | **Emergency access** | Working | Grant-bound break-glass requiring live work context + approved device; short-lived signed NFC token exchange; field-level disclosure logging |
 | **Consent / legal basis** | Working | POPIA §11 grounds, §32 health authorisation, §34/35 children's information, Children's Act §129 mature-minor rules — not a boolean |
 | **Data retention** | Partial by design | Evaluation, legal holds, approval-gated execution, processing restriction, deletion register. **Irreversible deletion deliberately not built** — see [ADR-0005](docs/adr/0005-retention-restriction-before-deletion.md) |
@@ -135,7 +135,7 @@ commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers)
 
 Requires Rust 1.97+, Node 20+, and Docker (only for the PostgreSQL path).
 
-### Fastest path — no database, no chain, synthetic data
+### Fastest path — no database, no checkpoint export, synthetic data
 
 ```bash
 cargo build -p medichain-api --bin medichain-api
@@ -149,7 +149,7 @@ bash scripts/synthetic-e2e-test.sh           # 40 assertions
 ```
 
 This runs in-memory: state is discarded on restart, no third-party API keys are
-read, and `BLOCKCHAIN_ENABLED=false`. It is the intended way to demo or evaluate
+read, and `AUDIT_CHECKPOINT_SINK=none`. It is the intended way to demo or evaluate
 the system without provisioning anything.
 
 ### PostgreSQL path
@@ -189,16 +189,10 @@ Full setup, environment variables and troubleshooting:
 cargo test -p medichain-api --bin medichain-api    # 305 tests
 cargo test -p medichain-crypto                     # 23
 bash scripts/synthetic-e2e-test.sh                 # 40 live-API assertions
-
-# Pallets live in a SEPARATE workspace (blockchain/), so they need a manifest
-# path. Without it, cargo silently reports success for crates it never compiled.
-cargo test --manifest-path blockchain/Cargo.toml --workspace   # 60 pallet tests
 ```
 
-See [`docs/BLOCKCHAIN_NODE.md`](docs/BLOCKCHAIN_NODE.md) for building, running
-and verifying the MediChain node.
-
-**380 automated tests pass** (305 API + 23 crypto + 52 pallet), plus 40
+**328 automated tests pass** (305 API + 23 crypto — a count that predates
+many later additions; see `CLAUDE.md` for the current one), plus 40
 end-to-end assertions against a running server. Four of the 305 require a live
 PostgreSQL and are skipped without one:
 
@@ -220,13 +214,14 @@ Security here is evidenced rather than asserted.
   conditions that gate real patient data, derived from a POPIA / National Health Act /
   Children's Act legal review.
 - **[docs/adr/](docs/adr/)** — Architecture Decision Records, including why plaintext
-  emergency fields were removed from chain storage.
+  emergency fields are committed to rather than stored in the audit stream, and why
+  the ledger layer was removed (ADR-0010).
 - **[docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md)** — how an internal,
   authorized security assessment was run against an isolated synthetic environment,
   and what it changed. Target-specific findings are deliberately not published.
 
-Highlights of what that assessment changed: on-chain plaintext health fields
-replaced with commitments; keyed digests for national-ID hashes; a replayable NFC
+Highlights of what that assessment changed: plaintext health fields in the audit
+stream replaced with commitments; keyed digests for national-ID hashes; a replayable NFC
 credential replaced with short-lived signed tokens; plaintext staff PII removed;
 `sqlx` upgraded to close a reachable CVE.
 
@@ -241,9 +236,7 @@ concatenation in queries.
 | Path | Contents |
 |---|---|
 | `api/` | Rust API — handlers, middleware, repositories, domain services, migrations |
-| `pallets/` | Substrate pallets: access-control, medical-records, patient-identity |
-| `runtime/`, `node/` | Substrate runtime and node |
-| `crypto/` | `medichain-crypto` — AEAD, KDF, zeroization |
+| `crypto/` | `medichain-crypto` — AEAD, KDF, Ed25519 batch signing, zeroization |
 | `client/` | `doctor-portal`, `patient-app`, `shared` (typed API client) |
 | `docs/` | Architecture, ADRs, API reference, OpenAPI spec, runbooks, compliance |
 | `scripts/` | Run scripts, synthetic test harness, backup/restore |

@@ -43,7 +43,7 @@ pub struct NFCCard {
     /// Unique card identifier (UUID v4)
     pub card_id: String,
 
-    /// Patient's blockchain/system ID (e.g., "MCHI-1234-5678")
+    /// Patient's system ID (e.g., "MCHI-1234-5678")
     pub patient_id: String,
 
     /// SHA3-256 hash of card_id + patient_id for verification

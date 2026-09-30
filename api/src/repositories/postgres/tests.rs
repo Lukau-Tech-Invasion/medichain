@@ -73,7 +73,6 @@ async fn test_pg_prescription_mutation_rolls_back_when_audit_insert_fails() {
         is_emergency_access: false,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
         authority_type: None,
@@ -482,8 +481,6 @@ async fn test_pg_medical_record_repository() {
         ipfs_content_hash: Some("QmTest123".to_string()),
         ipfs_metadata_hash: None,
         content_checksum: Some("abc123def".to_string()),
-        on_chain_hash: None,
-        blockchain_tx_hash: None,
         summary_encrypted: None,
         record_date: Utc::now(),
         created_at: Utc::now(),
@@ -1098,7 +1095,7 @@ async fn test_pg_guardian_revocation_rolls_back_when_audit_outbox_insert_fails()
         Utc::now(),
     )
     .expect("prepare audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1168,7 +1165,7 @@ async fn test_pg_guardian_creation_rolls_back_when_audit_outbox_insert_fails() {
         Utc::now(),
     )
     .expect("prepare audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
         .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).execute(&pool).await
         .expect("reserve audit event ID");
@@ -1210,7 +1207,7 @@ async fn test_pg_guardian_permission_update_rolls_back_when_audit_outbox_insert_
         Utc::now(),
     )
     .expect("prepare audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
         .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).execute(&pool).await
         .expect("reserve audit event ID");
@@ -1342,14 +1339,13 @@ async fn test_pg_emergency_grant_and_audit_commit_together() {
         )
         .await
         .expect("grant and audit must commit");
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1 AND aggregate_id = $2",
-    )
-    .bind(&event.id)
-    .bind(&grant.id)
-    .fetch_one(&pool)
-    .await
-    .expect("read audit event");
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1 AND aggregate_id = $2")
+            .bind(&event.id)
+            .bind(&grant.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read audit event");
     assert_eq!(
         count, 1,
         "committed grant must have its durable audit event"
@@ -1367,7 +1363,7 @@ async fn test_pg_emergency_grant_rolls_back_when_audit_insert_fails() {
     let pool = get_test_pool().await;
     sqlx::query("CREATE FUNCTION reject_emergency_grant_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install isolated audit failure function");
-    sqlx::query("CREATE TRIGGER reject_emergency_grant_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_audit()")
+    sqlx::query("CREATE TRIGGER reject_emergency_grant_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_audit()")
         .execute(&pool).await.expect("install isolated audit failure trigger");
     let suffix = uuid::Uuid::new_v4().to_string();
     let (organization_id, facility_id, device_id) =
@@ -1436,7 +1432,7 @@ async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails()
         .expect("seed active grant");
     sqlx::query("CREATE FUNCTION reject_emergency_grant_revoke_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install isolated audit failure function");
-    sqlx::query("CREATE TRIGGER reject_emergency_grant_revoke_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_revoke_audit()")
+    sqlx::query("CREATE TRIGGER reject_emergency_grant_revoke_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_revoke_audit()")
         .execute(&pool).await.expect("install isolated audit failure trigger");
     assert!(store
         .revoke_with_audit(
@@ -1480,7 +1476,7 @@ async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
         .execute(&pool).await.expect("seed claim user");
     sqlx::query("CREATE FUNCTION reject_identity_claim_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install audit failure function");
-    sqlx::query("CREATE TRIGGER reject_identity_claim_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_identity_claim_audit()")
+    sqlx::query("CREATE TRIGGER reject_identity_claim_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_identity_claim_audit()")
         .execute(&pool).await.expect("install audit failure trigger");
     let event = crate::audit_outbox::AuditOutbox::prepare_event(
         "medical_identity_claimed".into(),
@@ -1597,7 +1593,7 @@ async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
 
     // Reserve the event ID. The transactional method must then reject its
     // duplicate outbox insert and roll back the preceding request insert.
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1659,7 +1655,7 @@ async fn test_pg_access_approval_rolls_back_when_audit_outbox_insert_fails() {
         now,
     )
     .expect("valid audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1733,12 +1729,11 @@ async fn test_pg_access_approval_with_audit_commits_grant_and_event() {
         .expect("approve with audit");
     assert_eq!(approved.status, "approved");
     assert_eq!(grant.id, grant_id);
-    let event_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
-            .bind(&event_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count audit events");
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+        .bind(&event_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count audit events");
     assert_eq!(event_count, 1, "approval must commit its audit event");
     pool.close().await;
 }
@@ -1764,7 +1759,7 @@ async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
         now,
     )
     .expect("valid audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1824,12 +1819,11 @@ async fn test_pg_access_denial_with_audit_commits_request_and_event() {
         .await
         .expect("deny with audit");
     assert_eq!(denied.status, "denied");
-    let event_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
-            .bind(&event_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count audit events");
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+        .bind(&event_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count audit events");
     assert_eq!(event_count, 1, "denial must commit its audit event");
     pool.close().await;
 }
@@ -1861,7 +1855,7 @@ async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
         now,
     )
     .expect("valid audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1927,12 +1921,11 @@ async fn test_pg_access_revocation_with_audit_commits_grant_and_event() {
         .await
         .expect("revoke with audit");
     assert_eq!(revoked.status, "revoked");
-    let event_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
-            .bind(&event_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count audit events");
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+        .bind(&event_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count audit events");
     assert_eq!(event_count, 1, "revocation must commit its audit event");
     pool.close().await;
 }
@@ -3720,7 +3713,7 @@ async fn test_pg_user_directory_lists_deactivated_accounts() {
 ///
 /// `AuditOutbox::record` writes to an in-process `RwLock<HashMap>` and nothing
 /// else. `record_durable` writes the same event *and* persists it to
-/// `audit_outbox_events`. Until 2026-08-20 every one of the 14 call sites --
+/// `audit_events`. Until 2026-08-20 every one of the 14 call sites --
 /// emergency break-glass grants, access-control changes, RBAC changes, device
 /// lifecycle, identity claims, mobile record access -- called `record`, and
 /// discarded the result with `let _ =`.
@@ -3751,13 +3744,13 @@ async fn test_pg_audit_outbox_event_survives_a_restart() {
     // in-memory map is empty, so anything readable now came from PostgreSQL.
     let after_restart = crate::audit_outbox::AuditOutbox::new();
     assert!(
-        after_restart.pending().is_empty(),
+        after_restart.recorded().is_empty(),
         "a fresh outbox starts empty -- otherwise this test proves nothing"
     );
 
     let (event_type, aggregate_type, payload_hash): (String, String, String) = sqlx::query_as(
         "SELECT event_type, aggregate_type, payload_hash
-         FROM audit_outbox_events WHERE id = $1",
+         FROM audit_events WHERE id = $1",
     )
     .bind(&event.id)
     .fetch_one(&pool)

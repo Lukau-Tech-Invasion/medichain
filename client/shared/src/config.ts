@@ -1,8 +1,8 @@
 /**
  * MediChain Application Configuration
  * 
- * Blockchain-based health ID system configuration.
- * All authentication is wallet-based using Substrate addresses.
+ * National health ID system configuration.
+ * All authentication is wallet-based using Substrate addresses (Phase C removes this).
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -88,16 +88,6 @@ function detectApiBaseUrl(): string {
 }
 
 /**
- * Detect WebSocket URL for Substrate node
- */
-function detectSubstrateWsUrl(): string {
-  if (import.meta.env?.VITE_SUBSTRATE_WS) {
-    return import.meta.env.VITE_SUBSTRATE_WS;
-  }
-  return 'ws://127.0.0.1:9944';
-}
-
-/**
  * API Configuration
  */
 export const API_CONFIG = {
@@ -115,9 +105,6 @@ export const API_CONFIG = {
   
   /** Maximum delay between retries (ms) */
   RETRY_MAX_DELAY: 10000,
-  
-  /** WebSocket URL for Substrate node */
-  SUBSTRATE_WS_URL: detectSubstrateWsUrl(),
   
   /**
    * Health check endpoint.

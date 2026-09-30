@@ -20,19 +20,17 @@ import Constants from 'expo-constants';
  * 
  * Tests:
  * - REST API connectivity (Actix-web server on :8080)
- * - Substrate node WebSocket (on :9944)
  * - Authentication flow
  * - Request timing and latency
  * 
  * Usage:
  * 1. Start MediChain API: cd medichain && cargo run -p medichain-api
  * 2. Find your machine's LAN IP (ipconfig / ip addr)
- * 3. Create .env file with EXPO_PUBLIC_API_URL and EXPO_PUBLIC_SUBSTRATE_WS_URL
+ * 3. Create .env file with EXPO_PUBLIC_API_URL
  * 4. Run this app on device/emulator
  * 
  * Environment Variables (see .env.example):
  * - EXPO_PUBLIC_API_URL: API server URL (e.g., http://192.168.1.100:8080)
- * - EXPO_PUBLIC_SUBSTRATE_WS_URL: WebSocket URL (e.g., ws://192.168.1.100:9944)
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
@@ -66,25 +64,6 @@ function getDefaultApiUrl(): string {
   return 'http://YOUR_COMPUTER_IP:8080';
 }
 
-/**
- * Get WebSocket URL from environment or detect automatically
- */
-function getDefaultWsUrl(): string {
-  const envUrl = Constants.expoConfig?.extra?.wsUrl || 
-                 process.env.EXPO_PUBLIC_SUBSTRATE_WS_URL;
-  if (envUrl) return envUrl;
-  
-  if (Platform.OS === 'android') {
-    return 'ws://10.0.2.2:9944';
-  }
-  
-  if (Platform.OS === 'ios') {
-    return 'ws://127.0.0.1:9944';
-  }
-  
-  return 'ws://YOUR_COMPUTER_IP:9944';
-}
-
 // Sample wallet address for testing (from MediChain demo data)
 const SAMPLE_WALLET = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
@@ -97,7 +76,6 @@ interface LogEntry {
 export default function App() {
   // Configuration - initialize from environment
   const [apiUrl, setApiUrl] = useState(getDefaultApiUrl());
-  const [wsUrl, setWsUrl] = useState(getDefaultWsUrl());
   const [walletAddress, setWalletAddress] = useState(SAMPLE_WALLET);
   
   // State
@@ -108,7 +86,6 @@ export default function App() {
   useEffect(() => {
     log(`Platform: ${Platform.OS}`, 'info');
     log(`API URL: ${apiUrl}`, 'info');
-    log(`WebSocket URL: ${wsUrl}`, 'info');
     if (apiUrl.includes('YOUR_COMPUTER_IP')) {
       log('⚠️ Please update API URL with your machine\'s IP address', 'warning');
       log('   Find IP: Windows=ipconfig, Mac/Linux=ifconfig', 'warning');
@@ -238,86 +215,6 @@ export default function App() {
   };
 
   // ============================================================================
-  // TEST 4: Substrate WebSocket
-  // ============================================================================
-  const testWebSocket = async (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      log('Testing Substrate WebSocket connection...', 'info');
-      log(`   Connecting to ${wsUrl}`, 'info');
-      
-      try {
-        const ws = new WebSocket(wsUrl);
-        let resolved = false;
-        
-        const timeout = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            ws.close();
-            log(`❌ WebSocket TIMEOUT after 10s`, 'error');
-            resolve(false);
-          }
-        }, 10000);
-        
-        ws.onopen = () => {
-          log(`✅ WebSocket connected`, 'success');
-          
-          // Send RPC request
-          const msg = JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'system_health',
-            params: []
-          });
-          ws.send(msg);
-          log(`   Sent system_health request`, 'info');
-        };
-        
-        ws.onmessage = (event) => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            
-            try {
-              const data = JSON.parse(event.data);
-              log(`✅ WebSocket response received`, 'success');
-              log(`   Peers: ${data.result?.peers ?? 'N/A'}`, 'info');
-              log(`   Syncing: ${data.result?.isSyncing ?? 'N/A'}`, 'info');
-            } catch {
-              log(`   Raw response: ${event.data.substring(0, 100)}`, 'info');
-            }
-            
-            ws.close();
-            resolve(true);
-          }
-        };
-        
-        ws.onerror = () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            log(`❌ WebSocket error`, 'error');
-            log(`   Check if Substrate node is running on ${wsUrl}`, 'warning');
-            resolve(false);
-          }
-        };
-        
-        ws.onclose = (event) => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            log(`⚠️ WebSocket closed (code: ${event.code})`, 'warning');
-            resolve(false);
-          }
-        };
-        
-      } catch (err: any) {
-        log(`❌ WebSocket exception: ${err.message}`, 'error');
-        resolve(false);
-      }
-    });
-  };
-
-  // ============================================================================
   // RUN ALL TESTS
   // ============================================================================
   const runAllTests = async () => {
@@ -333,7 +230,7 @@ export default function App() {
     log('═══════════════════════════════════════', 'info');
     
     let passed = 0;
-    let total = 4;
+    let total = 3;
     
     // Test 1: API Health
     log('\n📡 TEST 1: API Health Check', 'info');
@@ -351,12 +248,6 @@ export default function App() {
     // Test 3: Data endpoint
     log('\n📋 TEST 3: Data Endpoint (Patients)', 'info');
     if (await testPatients()) passed++;
-    
-    await new Promise(r => setTimeout(r, 500));
-    
-    // Test 4: WebSocket
-    log('\n🔌 TEST 4: Substrate WebSocket', 'info');
-    if (await testWebSocket()) passed++;
     
     // Summary
     log('\n═══════════════════════════════════════', 'info');
@@ -391,16 +282,6 @@ export default function App() {
             value={apiUrl}
             onChangeText={setApiUrl}
             placeholder="http://192.168.1.100:8080"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          
-          <Text style={styles.label}>Substrate WebSocket URL</Text>
-          <TextInput
-            style={styles.input}
-            value={wsUrl}
-            onChangeText={setWsUrl}
-            placeholder="ws://192.168.1.100:9944"
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -446,9 +327,6 @@ export default function App() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.smallButton} onPress={testPatients}>
             <Text style={styles.smallButtonText}>Patients</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.smallButton} onPress={testWebSocket}>
-            <Text style={styles.smallButtonText}>WebSocket</Text>
           </TouchableOpacity>
         </View>
         

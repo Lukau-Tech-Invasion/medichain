@@ -7,8 +7,9 @@ import {
   revokeEmergencyGrant,
   useTranslation,
   formatTimestamp as formatStamp,
+  SealStatusBadge,
 } from '@medichain/shared';
-import type { EmergencyAccessGrant } from '@medichain/shared';
+import type { EmergencyAccessGrant, SealStatus } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -34,6 +35,8 @@ interface AccessLog {
   location: string | null;
   timestamp: string;
   emergency: boolean;
+  /** Where the row stands in the sealed audit stream; `pending` = not yet batched. */
+  seal_status?: SealStatus | null;
 }
 
 function AccessLogsPage() {
@@ -511,6 +514,11 @@ function AccessLogsPage() {
                               {t('docAccessLogs.statusVerified')}
                             </span>
                           )}
+                          {log.seal_status && (
+                            <div className="mt-1">
+                              <SealStatusBadge status={log.seal_status} />
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -554,14 +562,14 @@ function AccessLogsPage() {
         )}
       </div>
 
-      {/* Blockchain Notice */}
+      {/* Accountability notice */}
       <div className="mt-6 bg-brand-subtle border border-brand rounded-lg p-4">
         <div className="flex items-start gap-3">
           <Shield className="text-brand mt-0.5" size={20} />
           <div>
-            <h4 className="font-medium text-brand-subtle-fg">{t('docAccessLogs.blockchainVerified')}</h4>
+            <h4 className="font-medium text-brand-subtle-fg">{t('docAccessLogs.accountabilityTitle')}</h4>
             <p className="text-sm text-brand mt-1">
-              {t('docAccessLogs.blockchainBody')}
+              {t('docAccessLogs.accountabilityBody')}
             </p>
           </div>
         </div>

@@ -23,7 +23,7 @@ echo "  ██║╚██╔╝██║██╔══╝  ██║  ██�
 echo "  ██║ ╚═╝ ██║███████╗██████╔╝██║╚██████╗██║  ██║██║  ██║██║██║ ╚████║"
 echo "  ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝"
 echo -e "${NC}"
-echo -e "${GREEN}  Healthcare Blockchain Platform${NC}"
+echo -e "${GREEN}  Health ID and Emergency Records Platform${NC}"
 echo "  ========================================"
 echo ""
 

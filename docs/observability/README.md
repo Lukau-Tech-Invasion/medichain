@@ -62,7 +62,7 @@ not enabled; the configuration has no default Grafana administrator credential.
 
 ## Still open
 
-- A single health dashboard aggregating DB / IPFS / blockchain probes (the raw
+- A single health dashboard aggregating DB / IPFS / audit-seal probes (the raw
   probes exist at `/health`, `/health/ready`, `/health/db`, and
   `/api/health/detailed`).
 - Alertmanager routing (PagerDuty/Slack/email).

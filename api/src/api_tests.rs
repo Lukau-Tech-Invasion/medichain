@@ -339,7 +339,7 @@ mod tests {
         }
         let events: Vec<_> = state
             .audit_outbox
-            .pending()
+            .recorded()
             .into_iter()
             .filter(|event| event.event_type == "patient_directory_search")
             .collect();
@@ -382,7 +382,7 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), actix_web::http::StatusCode::FORBIDDEN);
-        assert!(state.audit_outbox.pending().is_empty());
+        assert!(state.audit_outbox.recorded().is_empty());
     }
 
     /// A purpose must be declared by the caller; the server never invents one.
@@ -400,7 +400,7 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
-        assert!(state.audit_outbox.pending().is_empty());
+        assert!(state.audit_outbox.recorded().is_empty());
 
         let response = test::call_service(
             &app,
@@ -412,7 +412,7 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
-        assert!(state.audit_outbox.pending().is_empty());
+        assert!(state.audit_outbox.recorded().is_empty());
     }
 
     /// A failed durable audit blocks the directory response.

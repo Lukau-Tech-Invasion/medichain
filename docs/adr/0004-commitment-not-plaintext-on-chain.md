@@ -1,6 +1,6 @@
 # ADR-0004: On-chain commitments, never plaintext health data
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0010](0010-remove-blockchain-and-wallet-identity.md) (2026-09-29)
 - **Date:** 2026-07-29
 - **Deciders:** Founder, informed by an external POPIA / National Health Act / Children's Act legal review (2026-07-28)
 

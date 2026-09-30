@@ -35,7 +35,7 @@ This plan distinguishes code written locally from proof that can only be collect
 | Audit outbox | A failed chain delivery leaves a privacy-minimised event replayable; security revocations create an outbox event. |
 | Governance | A validator or policy decision cannot execute until its configured number of distinct approvals exists. |
 | Legacy record compatibility | A record encrypted with an existing `ENCRYPTION_KEYS` version remains readable after the federation migrations apply. |
-| Envelope implementation | Hospital A can create an envelope for Hospital B without any private key being stored in the database or blockchain. |
+| Envelope implementation | Hospital A can create an envelope for Hospital B without any private key being stored in the database or the audit stream. |
 | Emergency access | Server time, device, active context, scope, and grant expiry are enforced for every protected endpoint. |
 
 ## Deliberately unproven until infrastructure exists

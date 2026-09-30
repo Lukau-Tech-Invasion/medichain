@@ -37,9 +37,14 @@ services:
       JITSI_DOMAIN: ${JITSI_DOMAIN:-}
       JITSI_APP_ID: ${JITSI_APP_ID:-}
       JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
-      BLOCKCHAIN_ENABLED: "true"
-      SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:?SUBSTRATE_WS_URL is required}
-      SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:?SUBSTRATE_SIGNING_KEY is required}
+      # Sealed audit stream (ADR-0010). The signing key is required outside
+      # demo mode and has no default; the API refuses AUDIT_CHECKPOINT_SINK=none
+      # in production, so checkpoints go to the audit_checkpoints volume
+      # (declared in docker-compose.yml). Copy that volume to write-once storage:
+      # on the database's own host it proves only what the host did not rewrite.
+      AUDIT_SEAL_SIGNING_KEY: ${AUDIT_SEAL_SIGNING_KEY:?AUDIT_SEAL_SIGNING_KEY is required}
+      AUDIT_CHECKPOINT_SINK: filesystem
+      AUDIT_CHECKPOINT_DIR: /var/lib/medichain/audit-checkpoints
 
   # `!override` is REQUIRED on every `ports:` below. Compose MERGES list-valued
   # fields across files, so a bare `ports: []` is a no-op and the base file's
@@ -79,23 +84,6 @@ services:
     volumes:
       - ./nginx/default.prod.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
-
-  substrate-node:
-    # Production uses the externally managed and independently qualified node
-    # named by SUBSTRATE_WS_URL. Do not make a production `up` depend on the
-    # repository's non-containerized developer node source.
-    profiles: ["local-node-source-not-containerized"]
-    restart: "no"
-    healthcheck:
-      # 9944, not 9933: Substrate merged the RPC ports, so a single port serves
-      # both WebSocket and HTTP JSON-RPC. A healthcheck against 9933 can never
-      # connect on a current node, so this probe would have failed every time.
-      test: ["CMD-SHELL", "curl -H \"Content-Type: application/json\" -d '{\"id\":1, \"jsonrpc\":\"2.0\", \"method\": \"system_health\", \"params\":[]}' http://localhost:9944"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    networks:
-      - medichain_network
 
   # ===========================================================================
   # Observability (OPT-IN — `docker compose ... --profile monitoring up`)

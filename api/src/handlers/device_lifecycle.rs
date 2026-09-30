@@ -421,13 +421,20 @@ mod device_listing_access_tests {
 
     #[actix_web::test]
     async fn a_clinician_may_list_the_devices_they_could_use() {
-        let data = state_with(&[(Role::Doctor, "doc-1"), (Role::Patient, "pat-1"), (Role::Paramedic, "ems-1")]);
+        let data = state_with(&[
+            (Role::Doctor, "doc-1"),
+            (Role::Patient, "pat-1"),
+            (Role::Paramedic, "ems-1"),
+        ]);
         assert_eq!(
             get(data.clone(), "doc-1", "/api/devices/available").await.0,
             200
         );
         // A patient has no device to bind emergency access to.
-        assert_eq!(get(data.clone(), "ems-1", "/api/devices/available").await.0, 200);
+        assert_eq!(
+            get(data.clone(), "ems-1", "/api/devices/available").await.0,
+            200
+        );
         assert_eq!(get(data.clone(), "ems-1", "/api/devices").await.0, 403);
         assert_eq!(get(data, "pat-1", "/api/devices/available").await.0, 403);
     }

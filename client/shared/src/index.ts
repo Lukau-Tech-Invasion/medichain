@@ -1,8 +1,8 @@
 /**
  * @medichain/shared - Shared components and utilities
  * 
- * Blockchain-based health ID system shared library.
- * All authentication is wallet-based using Substrate addresses.
+ * National health ID system shared library.
+ * All authentication is wallet-based using Substrate addresses (Phase C removes this).
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
@@ -38,7 +38,7 @@ export * from './auth/credentials';
 // The one place that decides whether the interface is dark.
 export * from './theme';
 
-// Wallet Types and Service (Blockchain Identity)
+// Wallet Types and Service (wallet identity; removed in Phase C)
 export * from './wallet/types';
 export * from './wallet/service';
 
@@ -67,6 +67,7 @@ export * from './utils/indexedDB';
 export * from './utils/syncQueue';
 export * from './utils/offlineQueue';
 export * from './utils/validation';
+export * from './utils/sealStatus';
 
 // Components
 export * from './components';

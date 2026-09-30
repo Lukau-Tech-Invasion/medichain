@@ -1,4 +1,10 @@
-//! Privacy-minimised audit outbox and multi-approver governance decisions.
+//! Privacy-minimised audit events and multi-approver governance decisions.
+//!
+//! An audit event is a durable row in `audit_events`: an event type, an
+//! aggregate identity and a digest of its payload -- ids and digests, never PHI.
+//! Nothing here delivers anywhere. The sealing job (`audit_batching`) takes every
+//! event into a hash-chained, signed batch, so an event is written once, inside
+//! the request's own transaction where there is one, and sealed later.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -8,7 +14,7 @@ use std::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AuditOutboxEvent {
+pub struct AuditEvent {
     pub id: String,
     pub event_type: String,
     pub aggregate_type: String,
@@ -16,9 +22,6 @@ pub struct AuditOutboxEvent {
     pub payload_hash: String,
     pub payload: serde_json::Value,
     pub occurred_at: DateTime<Utc>,
-    pub delivered_at: Option<DateTime<Utc>>,
-    pub delivery_attempts: u32,
-    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -45,33 +48,11 @@ pub struct GovernanceDecision {
     pub executed_at: Option<DateTime<Utc>>,
 }
 
+/// The in-process audit store of the memory backend, and the governance
+/// decisions of both backends.
 pub struct AuditOutbox {
-    events: RwLock<HashMap<String, AuditOutboxEvent>>,
+    events: RwLock<HashMap<String, AuditEvent>>,
     decisions: RwLock<HashMap<String, GovernanceDecision>>,
-}
-
-/// Result of an attempted chain anchor. `pending` means a durable outbox row
-/// exists; it never means that a best-effort background task was merely spawned.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct ChainAnchorOutcome {
-    pub status: String,
-    pub transaction_hash: Option<String>,
-}
-
-impl ChainAnchorOutcome {
-    fn disabled() -> Self {
-        Self {
-            status: "disabled".to_string(),
-            transaction_hash: None,
-        }
-    }
-
-    fn pending() -> Self {
-        Self {
-            status: "pending".to_string(),
-            transaction_hash: None,
-        }
-    }
 }
 
 impl AuditOutbox {
@@ -88,7 +69,7 @@ impl AuditOutbox {
         aggregate_id: String,
         payload: serde_json::Value,
         now: DateTime<Utc>,
-    ) -> Result<AuditOutboxEvent, &'static str> {
+    ) -> Result<AuditEvent, &'static str> {
         let event = Self::prepare_event(event_type, aggregate_type, aggregate_id, payload, now)?;
         self.events
             .write()
@@ -106,14 +87,14 @@ impl AuditOutbox {
         aggregate_id: String,
         payload: serde_json::Value,
         now: DateTime<Utc>,
-    ) -> Result<AuditOutboxEvent, &'static str> {
+    ) -> Result<AuditEvent, &'static str> {
         if event_type.is_empty() || aggregate_type.is_empty() || aggregate_id.is_empty() {
             return Err("Event type and aggregate identity are required");
         }
         let payload_bytes =
             serde_json::to_vec(&payload).map_err(|_| "Audit payload cannot be serialised")?;
         let payload_hash = format!("{:x}", Sha3_256::digest(payload_bytes));
-        let event = AuditOutboxEvent {
+        let event = AuditEvent {
             id: Uuid::new_v4().to_string(),
             event_type,
             aggregate_type,
@@ -121,16 +102,13 @@ impl AuditOutbox {
             payload_hash,
             payload,
             occurred_at: now,
-            delivered_at: None,
-            delivery_attempts: 0,
-            last_error: None,
         };
         Ok(event)
     }
 
-    /// Add a pre-validated event to the in-process demo queue. Production
+    /// Add a pre-validated event to the in-process memory-backend store. Production
     /// persistence is performed by the repository transaction instead.
-    pub fn record_prepared(&self, event: AuditOutboxEvent) -> Result<(), &'static str> {
+    pub fn record_prepared(&self, event: AuditEvent) -> Result<(), &'static str> {
         self.events
             .write()
             .map_err(|_| "Audit outbox is unavailable")?
@@ -148,73 +126,25 @@ impl AuditOutbox {
         aggregate_id: String,
         payload: serde_json::Value,
         now: DateTime<Utc>,
-    ) -> Result<AuditOutboxEvent, String> {
+    ) -> Result<AuditEvent, String> {
         let event = self
             .record(event_type, aggregate_type, aggregate_id, payload, now)
             .map_err(str::to_string)?;
         let Some(pool) = pool else {
             return Ok(event);
         };
-        sqlx::query(
-            "INSERT INTO audit_outbox_events (
-                id, event_type, aggregate_type, aggregate_id, payload_hash,
-                payload, occurred_at, delivered_at, delivery_attempts, last_error
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        )
-        .bind(&event.id)
-        .bind(&event.event_type)
-        .bind(&event.aggregate_type)
-        .bind(&event.aggregate_id)
-        .bind(&event.payload_hash)
-        .bind(&event.payload)
-        .bind(event.occurred_at)
-        .bind(event.delivered_at)
-        .bind(
-            i32::try_from(event.delivery_attempts)
-                .map_err(|_| "delivery attempt count exceeds PostgreSQL INTEGER".to_string())?,
-        )
-        .bind(&event.last_error)
-        .execute(pool)
-        .await
-        .map_err(|error| error.to_string())?;
+        insert_event(pool, &event)
+            .await
+            .map_err(|error| error.to_string())?;
         Ok(event)
     }
-    pub fn pending(&self) -> Vec<AuditOutboxEvent> {
+    /// Every event the in-process store holds (memory backend only; on
+    /// PostgreSQL events live in `audit_events`).
+    pub fn recorded(&self) -> Vec<AuditEvent> {
         self.events
             .read()
-            .map(|events| {
-                events
-                    .values()
-                    .filter(|event| event.delivered_at.is_none())
-                    .cloned()
-                    .collect()
-            })
+            .map(|events| events.values().cloned().collect())
             .unwrap_or_default()
-    }
-    pub fn mark_delivered(
-        &self,
-        id: &str,
-        now: DateTime<Utc>,
-    ) -> Result<AuditOutboxEvent, &'static str> {
-        let mut events = self
-            .events
-            .write()
-            .map_err(|_| "Audit outbox is unavailable")?;
-        let event = events.get_mut(id).ok_or("Audit event not found")?;
-        event.delivery_attempts += 1;
-        event.delivered_at = Some(now);
-        event.last_error = None;
-        Ok(event.clone())
-    }
-    pub fn mark_failed(&self, id: &str, error: String) -> Result<AuditOutboxEvent, &'static str> {
-        let mut events = self
-            .events
-            .write()
-            .map_err(|_| "Audit outbox is unavailable")?;
-        let event = events.get_mut(id).ok_or("Audit event not found")?;
-        event.delivery_attempts += 1;
-        event.last_error = Some(error);
-        Ok(event.clone())
     }
     pub fn propose(
         &self,
@@ -302,13 +232,38 @@ impl Default for AuditOutbox {
     }
 }
 
-async fn queue_chain_operation(
+/// Insert one audit event on `executor` -- the pool, or a transaction, so an
+/// event can commit with the change it describes.
+pub async fn insert_event<'e, E>(executor: E, event: &AuditEvent) -> Result<(), sqlx::Error>
+where
+    E: sqlx::PgExecutor<'e>,
+{
+    sqlx::query(
+        "INSERT INTO audit_events
+            (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(&event.id)
+    .bind(&event.event_type)
+    .bind(&event.aggregate_type)
+    .bind(&event.aggregate_id)
+    .bind(&event.payload_hash)
+    .bind(&event.payload)
+    .bind(event.occurred_at)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Write one audit event durably. The single path the three commitment writers
+/// below share.
+async fn write_event(
     data: &crate::AppState,
     event_type: &str,
     aggregate_type: &str,
     aggregate_id: &str,
     payload: serde_json::Value,
-) -> Result<ChainAnchorOutcome, String> {
+) -> Result<(), String> {
     data.audit_outbox
         .record_durable(
             data.db_pool.as_ref(),
@@ -318,132 +273,40 @@ async fn queue_chain_operation(
             payload,
             Utc::now(),
         )
-        .await?;
-    Ok(ChainAnchorOutcome::pending())
-}
-
-/// Refuse an argument the chain would reject, before it is queued: a queued
-/// operation that can never succeed would retry forever.
-fn require_ss58(account: &str) -> Result<(), String> {
-    account
-        .parse::<sp_core::crypto::AccountId32>()
+        .await
         .map(|_| ())
-        .map_err(|_| "patient wallet is not SS58".to_string())
 }
 
-/// Durably queue an access audit anchor. Never awaits the chain: the outbox
-/// worker submits it and records the result only from a finalized block.
-///
-/// Since WP8 ordinary reads are anchored in Merkle batches instead
-/// (`audit_batching`); this per-event anchor is kept for emergency and
-/// break-glass access and for consent acts.
-pub async fn anchor_access_or_queue(
-    data: &crate::AppState,
-    aggregate_type: &str,
-    aggregate_id: &str,
-    patient_account: &str,
-    accessor_id: &str,
-    access_type: &str,
-) -> Result<ChainAnchorOutcome, String> {
-    if !crate::blockchain::blockchain_enabled() {
-        return Ok(ChainAnchorOutcome::disabled());
-    }
-    require_ss58(patient_account)?;
-    queue_chain_operation(
-        data,
-        "chain_access_anchor",
-        aggregate_type,
-        aggregate_id,
-        serde_json::json!({
-            "patient_account": patient_account,
-            "audit_event_id": aggregate_id,
-            "accessor_id": accessor_id,
-            "access_type": access_type
-        }),
-    )
-    .await
+/// Event type of a published emergency-capsule commitment.
+pub const CAPSULE_PUBLISHED_EVENT: &str = "emergency_capsule_published";
+/// Event type of a stored medical record's content digest.
+pub const RECORD_STORED_EVENT: &str = "medical_record_stored";
+/// Event type of a patient registration digest.
+pub const PATIENT_REGISTERED_EVENT: &str = "patient_registered";
+
+/// The aggregate id of a capsule version's event: `<patient id>:<version>`.
+pub fn capsule_aggregate_id(patient_id: &str, version: i32) -> String {
+    format!("{patient_id}:{version}")
 }
 
-/// Durably queue a patient registration for the chain (never awaited).
-pub async fn anchor_patient_registration_or_queue(
+/// Record that a capsule version's commitment was published. Sealing it is what
+/// lets the capsule be verified later against a commitment nobody can edit.
+pub async fn record_capsule_published(
     data: &crate::AppState,
     patient_id: &str,
-    patient_account: &str,
-    id_hash: &str,
-    id_type: &str,
-    registered_by: &str,
-) -> Result<ChainAnchorOutcome, String> {
-    if !crate::blockchain::blockchain_enabled() {
-        return Ok(ChainAnchorOutcome::disabled());
-    }
-    require_ss58(patient_account)?;
-    queue_chain_operation(
-        data,
-        "patient_registration_chain_anchor",
-        "patient",
-        patient_id,
-        serde_json::json!({
-            "patient_account": patient_account,
-            "id_hash": id_hash,
-            "id_type": id_type,
-            "registered_by": registered_by
-        }),
-    )
-    .await
-}
-
-/// Durably queue an IPFS record anchor for the chain (never awaited).
-pub async fn anchor_medical_record_or_queue(
-    data: &crate::AppState,
-    record_id: &str,
-    patient_account: &str,
-    ipfs_hash: &str,
-    record_type: &str,
-    uploaded_by: &str,
-) -> Result<ChainAnchorOutcome, String> {
-    if !crate::blockchain::blockchain_enabled() {
-        return Ok(ChainAnchorOutcome::disabled());
-    }
-    require_ss58(patient_account)?;
-    queue_chain_operation(
-        data,
-        "medical_record_chain_anchor",
-        "medical_record",
-        record_id,
-        serde_json::json!({
-            "patient_account": patient_account,
-            "ipfs_hash": ipfs_hash,
-            "record_type": record_type,
-            "uploaded_by": uploaded_by
-        }),
-    )
-    .await
-}
-
-/// Durably queue an emergency-capsule commitment for the chain (never awaited).
-pub async fn anchor_capsule_or_queue(
-    data: &crate::AppState,
-    patient_id: &str,
-    patient_account: &str,
     commitment: &str,
     version: i32,
-) -> Result<ChainAnchorOutcome, String> {
-    if !crate::blockchain::blockchain_enabled() {
-        return Ok(ChainAnchorOutcome::disabled());
-    }
-    u32::try_from(version).map_err(|_| "capsule version must be non-negative".to_string())?;
-    require_ss58(patient_account)?;
+) -> Result<(), String> {
     if crate::audit_merkle::decode_digest(commitment).is_none() {
         return Err("commitment must be 64 hex characters".to_string());
     }
-    queue_chain_operation(
+    write_event(
         data,
-        "emergency_capsule_chain_anchor",
+        CAPSULE_PUBLISHED_EVENT,
         "emergency_capsule",
-        &format!("{patient_id}:{version}"),
+        &capsule_aggregate_id(patient_id, version),
         serde_json::json!({
             "patient_id": patient_id,
-            "patient_account": patient_account,
             "commitment": commitment,
             "version": version
         }),
@@ -451,291 +314,70 @@ pub async fn anchor_capsule_or_queue(
     .await
 }
 
-async fn submit_queued_chain_operation(
-    client: &crate::blockchain::SubstrateClient,
-    event_type: &str,
-    aggregate_id: &str,
-    payload: &serde_json::Value,
-) -> Result<crate::blockchain::ChainTxResult, crate::blockchain::BlockchainError> {
-    let required = |name: &str| {
-        payload
-            .get(name)
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                crate::blockchain::BlockchainError::InvalidArgument(format!(
-                    "outbox payload is missing {name}"
-                ))
-            })
-    };
-    match event_type {
-        "chain_access_anchor" | "consent_chain_anchor" => {
-            client
-                .log_access_on_chain(
-                    payload
-                        .get("audit_event_id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or(aggregate_id),
-                    required("accessor_id")?,
-                    required("patient_account")?,
-                    required("access_type")?,
-                )
-                .await
-        }
-        "patient_registration_chain_anchor" => {
-            client
-                .register_patient_on_chain(
-                    required("patient_account")?,
-                    required("id_hash")?,
-                    required("id_type")?,
-                    required("registered_by")?,
-                )
-                .await
-        }
-        "medical_record_chain_anchor" => {
-            client
-                .record_ipfs_hash_on_chain(
-                    required("patient_account")?,
-                    required("ipfs_hash")?,
-                    required("record_type")?,
-                    required("uploaded_by")?,
-                )
-                .await
-        }
-        "emergency_capsule_chain_anchor" => {
-            let version = payload
-                .get("version")
-                .and_then(serde_json::Value::as_i64)
-                .and_then(|value| u32::try_from(value).ok())
-                .ok_or_else(|| {
-                    crate::blockchain::BlockchainError::InvalidArgument(
-                        "outbox payload has an invalid capsule version".into(),
-                    )
-                })?;
-            client
-                .set_emergency_capsule_commitment_on_chain(
-                    required("patient_account")?,
-                    required("commitment")?,
-                    version,
-                )
-                .await
-        }
-        crate::audit_batching::AUDIT_BATCH_EVENT => submit_batch_anchor(client, payload).await,
-        other => Err(crate::blockchain::BlockchainError::InvalidArgument(
-            format!("unsupported chain outbox event type: {other}"),
-        )),
-    }
-}
-
-/// Submit a queued Merkle batch root (WP8).
-async fn submit_batch_anchor(
-    client: &crate::blockchain::SubstrateClient,
-    payload: &serde_json::Value,
-) -> Result<crate::blockchain::ChainTxResult, crate::blockchain::BlockchainError> {
-    let invalid = |name: &str| {
-        crate::blockchain::BlockchainError::InvalidArgument(format!(
-            "batch outbox payload has an invalid {name}"
-        ))
-    };
-    let number = |name: &str| payload.get(name).and_then(serde_json::Value::as_i64);
-    let root = payload
-        .get("merkle_root")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| invalid("merkle_root"))?;
-    let first = number("first_seq").and_then(|v| u64::try_from(v).ok());
-    let last = number("last_seq").and_then(|v| u64::try_from(v).ok());
-    let count = number("leaf_count").and_then(|v| u32::try_from(v).ok());
-    client
-        .anchor_audit_batch_on_chain(
-            root,
-            first.ok_or_else(|| invalid("first_seq"))?,
-            last.ok_or_else(|| invalid("last_seq"))?,
-            count.ok_or_else(|| invalid("leaf_count"))?,
-        )
-        .await
-}
-
-async fn record_queued_chain_success(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    event_type: &str,
-    payload: &serde_json::Value,
-    transaction_hash: &str,
+/// Record that an encrypted medical record was stored, by its content digest
+/// (the digest of the encrypted bytes; never the record).
+pub async fn record_medical_record_stored(
+    data: &crate::AppState,
+    record_id: &str,
+    content_digest: &str,
 ) -> Result<(), String> {
-    if event_type == "chain_access_anchor" {
-        return record_access_anchor_success(transaction, payload, transaction_hash).await;
-    }
-    if event_type == "medical_record_chain_anchor" {
-        return record_medical_record_anchor_success(transaction, payload, transaction_hash).await;
-    }
-    if event_type != "emergency_capsule_chain_anchor" {
-        return Ok(());
-    }
-    let patient_id = payload
-        .get("patient_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "capsule outbox payload is missing patient_id".to_string())?;
-    let version = payload
-        .get("version")
-        .and_then(serde_json::Value::as_i64)
-        .and_then(|value| i32::try_from(value).ok())
-        .ok_or_else(|| "capsule outbox payload has an invalid version".to_string())?;
-    sqlx::query(
-        "UPDATE emergency_capsules SET chain_tx_hash = $3, chain_finalized = true
-         WHERE patient_id = $1 AND version = $2",
+    write_event(
+        data,
+        RECORD_STORED_EVENT,
+        "medical_record",
+        record_id,
+        serde_json::json!({
+            "record_id": record_id,
+            "content_digest": content_digest
+        }),
     )
-    .bind(patient_id)
-    .bind(version)
-    .bind(transaction_hash)
-    .execute(&mut **transaction)
     .await
-    .map_err(|error| error.to_string())?;
-    Ok(())
 }
 
-/// Stamp the finalized transaction hash onto the access-log row it anchors.
-///
-/// This is what lets a patient see "anchored" next to a read. Only rows queued
-/// by the disclosure audit carry `access_log_id`; older anchor events (whose
-/// aggregate is a grant or consent id, not an access-log row) are left alone.
-/// An existing hash is never overwritten.
-///
-/// # Parameters
-/// * `transaction` - the delivery transaction, so the stamp commits with the delivery.
-/// * `payload` - the outbox payload.
-/// * `transaction_hash` - the finalized extrinsic hash.
-///
-/// # Returns
-/// `Ok(())`, or the database error text.
-async fn record_access_anchor_success(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    payload: &serde_json::Value,
-    transaction_hash: &str,
+/// Domain prefix of a registration digest.
+const REGISTRATION_DOMAIN: &[u8] = b"medichain.patient.registration.v1\0";
+
+/// The digest a registration is recorded by: the patient id, the hash of the
+/// national identifier and the registrar, each length-prefixed. The identifier
+/// itself never leaves the patient record.
+pub fn registration_digest(
+    patient_id: &str,
+    national_id_hash: &str,
+    registered_by: &str,
+) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(REGISTRATION_DOMAIN);
+    for field in [patient_id, national_id_hash, registered_by] {
+        hasher.update((field.len() as u32).to_be_bytes());
+        hasher.update(field.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// Record that a patient was registered, by registration digest.
+pub async fn record_patient_registered(
+    data: &crate::AppState,
+    patient_id: &str,
+    registration_digest: &str,
 ) -> Result<(), String> {
-    let Some(access_log_id) = payload
-        .get("access_log_id")
-        .and_then(serde_json::Value::as_str)
-    else {
-        return Ok(());
-    };
-    sqlx::query(
-        "UPDATE access_logs SET blockchain_tx_hash = $2
-         WHERE id = $1 AND blockchain_tx_hash IS NULL",
+    write_event(
+        data,
+        PATIENT_REGISTERED_EVENT,
+        "patient",
+        patient_id,
+        serde_json::json!({
+            "patient_id": patient_id,
+            "registration_digest": registration_digest
+        }),
     )
-    .bind(access_log_id)
-    .bind(transaction_hash)
-    .execute(&mut **transaction)
     .await
-    .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-/// Stamp the finalized transaction hash onto the medical record it anchors.
-///
-/// # Parameters
-/// * `transaction` - the delivery transaction.
-/// * `payload` - the outbox payload (carries the record's IPFS content hash).
-/// * `transaction_hash` - the finalized extrinsic hash.
-///
-/// # Returns
-/// `Ok(())`, or the database error text.
-async fn record_medical_record_anchor_success(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    payload: &serde_json::Value,
-    transaction_hash: &str,
-) -> Result<(), String> {
-    let ipfs_hash = payload
-        .get("ipfs_hash")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "record outbox payload is missing ipfs_hash".to_string())?;
-    sqlx::query(
-        "UPDATE medical_records SET blockchain_tx_hash = $2
-         WHERE ipfs_content_hash = $1 AND blockchain_tx_hash IS NULL",
-    )
-    .bind(ipfs_hash)
-    .bind(transaction_hash)
-    .execute(&mut **transaction)
-    .await
-    .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-/// Retry every durable chain operation in bounded batches. Success is recorded
-/// only after Substrate reports finalized execution.
-pub async fn deliver_pending_chain_events(
-    pool: &sqlx::PgPool,
-    client: &crate::blockchain::SubstrateClient,
-) -> Result<usize, String> {
-    // Keep each selected row locked until its chain attempt and status update
-    // finish. `SKIP LOCKED` lets another replica process different events while
-    // preventing two replicas from submitting the same event concurrently.
-    let mut transaction = pool.begin().await.map_err(|error| error.to_string())?;
-    let events: Vec<(String, String, String, serde_json::Value)> = sqlx::query_as(
-        "SELECT id, event_type, aggregate_id, payload FROM audit_outbox_events
-         WHERE delivered_at IS NULL AND event_type IN (
-            'chain_access_anchor', 'consent_chain_anchor', 'patient_registration_chain_anchor',
-            'medical_record_chain_anchor', 'emergency_capsule_chain_anchor',
-            'audit_batch_chain_anchor'
-         )
-         ORDER BY occurred_at ASC LIMIT 50 FOR UPDATE SKIP LOCKED",
-    )
-    .fetch_all(&mut *transaction)
-    .await
-    .map_err(|error| error.to_string())?;
-    let mut delivered = 0usize;
-    for (id, event_type, aggregate_id, payload) in events {
-        let outcome =
-            submit_queued_chain_operation(client, &event_type, &aggregate_id, &payload).await;
-        match outcome {
-            Ok(result) => {
-                if event_type == crate::audit_batching::AUDIT_BATCH_EVENT {
-                    let block_number = client
-                        .finalized_block_number(&result.finalized_block_hash)
-                        .await;
-                    crate::audit_batching::record_batch_finalized(
-                        &mut transaction,
-                        &payload,
-                        &result,
-                        block_number,
-                    )
-                    .await?;
-                }
-                record_queued_chain_success(&mut transaction, &event_type, &payload, &result.hash)
-                    .await?;
-                sqlx::query(
-                    "UPDATE audit_outbox_events SET delivered_at = NOW(),
-                     delivery_attempts = delivery_attempts + 1, last_error = NULL WHERE id = $1",
-                )
-                .bind(&id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|error| error.to_string())?;
-                delivered += 1;
-            }
-            Err(error) => {
-                let message: String = error.to_string().chars().take(500).collect();
-                sqlx::query(
-                    "UPDATE audit_outbox_events SET delivery_attempts = delivery_attempts + 1,
-                     last_error = $2 WHERE id = $1",
-                )
-                .bind(&id)
-                .bind(message)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|update_error| update_error.to_string())?;
-            }
-        }
-    }
-    transaction
-        .commit()
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(delivered)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn outbox_event_is_replayable_after_a_delivery_failure() {
+    fn a_recorded_event_is_held_with_a_digest_of_its_payload() {
         let outbox = AuditOutbox::new();
         let event = outbox
             .record(
@@ -746,10 +388,20 @@ mod tests {
                 Utc::now(),
             )
             .unwrap();
-        outbox
-            .mark_failed(&event.id, "chain unavailable".into())
-            .unwrap();
-        assert_eq!(outbox.pending().len(), 1);
+        assert_eq!(event.payload_hash.len(), 64);
+        assert_eq!(outbox.recorded().len(), 1);
+    }
+    #[test]
+    fn the_registration_digest_binds_all_three_fields_and_their_boundaries() {
+        let base = registration_digest("PAT-1", "hash", "dr");
+        assert_ne!(base, registration_digest("PAT-2", "hash", "dr"));
+        assert_ne!(base, registration_digest("PAT-1", "other", "dr"));
+        assert_ne!(base, registration_digest("PAT-1", "hash", "nurse"));
+        // "ab"+"c" and "a"+"bc" must not collide.
+        assert_ne!(
+            registration_digest("ab", "c", "x"),
+            registration_digest("a", "bc", "x")
+        );
     }
     #[test]
     fn governance_decision_requires_distinct_approvers_before_execution() {

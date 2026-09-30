@@ -4,8 +4,8 @@ This document explains how the API authenticates clients during development, how
 
 ## Wallet-based auth (X-User-Id)
 
-- MediChain authenticates with Substrate-style SS58 wallet addresses.
-- The API expects callers to set `X-User-Id` header to a wallet address (48-char Substrate address starting with `5`).
+- MediChain currently authenticates with SS58 wallet addresses (until ADR-0010 Phase C replaces them with password sign-in).
+- The API expects callers to set `X-User-Id` header to a wallet address (48-char SS58 address starting with `5`).
 
 Example request header:
 

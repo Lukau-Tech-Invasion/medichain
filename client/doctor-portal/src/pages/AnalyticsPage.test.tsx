@@ -42,7 +42,7 @@ const RESPONSES: Record<string, unknown> = {
       uptime_seconds: 334,
       total_requests: 34,
       server_errors: 0,
-      blockchain_status: 'disabled',
+      audit_seal: { unsealed_events: 189, last_sealed_at: null, last_exported_at: null, sink: 'none', signing: 'unsigned' },
     },
   },
   '/api/platform/analytics/appointments': {
@@ -59,7 +59,7 @@ const RESPONSES: Record<string, unknown> = {
     critical_alerts: 2,
     audit_logs_coverage: 0.0,
     audit_entries_total: 189,
-    audit_entries_anchored: 0,
+    audit_seal: { unsealed_events: 189, last_sealed_at: null, last_exported_at: null, sink: 'none', signing: 'unsigned' },
     compliance_score: null,
     compliance_score_basis: 'requires_reviewed_assessment',
   },

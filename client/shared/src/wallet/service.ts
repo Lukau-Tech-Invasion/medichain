@@ -47,7 +47,7 @@ export async function connectRealWallet(): Promise<WalletAccount[]> {
   return allAccounts.map(account => ({
     address: account.address,
     name: account.meta.name,
-    role: 'Patient', // Default role, should be fetched from chain
+    role: 'Patient', // Default role, should be fetched from the server
     publicKey: bytesToHex(decodeAddress(account.address)),
     verified: false,
   }));

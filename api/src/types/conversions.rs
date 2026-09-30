@@ -14,7 +14,6 @@ impl From<AccessLogEntry> for crate::repositories::traits::AccessLogEntity {
             is_emergency_access: entry.emergency,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: entry.timestamp,
             facility_id: entry.location,
             authority_type: None,
@@ -29,7 +28,7 @@ impl From<AccessLogEntry> for crate::repositories::traits::AccessLogEntity {
 /// * `entity` - the row as stored by the repository.
 ///
 /// # Returns
-/// An [`AccessLogView`] carrying who, when, why, what and anchor state.
+/// An [`AccessLogView`] carrying who, when, why, what and seal state.
 impl From<crate::repositories::traits::AccessLogEntity> for AccessLogView {
     fn from(entity: crate::repositories::traits::AccessLogEntity) -> Self {
         Self {
@@ -44,7 +43,7 @@ impl From<crate::repositories::traits::AccessLogEntity> for AccessLogView {
             location: entity.facility_id,
             timestamp: entity.accessed_at,
             emergency: entity.is_emergency_access,
-            blockchain_tx_hash: entity.blockchain_tx_hash,
+            seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
             authority_type: entity.authority_type,
             authority_id: entity.authority_id,
         }
@@ -112,8 +111,6 @@ impl From<(String, crate::ipfs::MedicalRecordReference)>
             ipfs_content_hash: Some(r.content_hash),
             ipfs_metadata_hash: Some(r.metadata_hash),
             content_checksum: Some(r.content_checksum),
-            on_chain_hash: None,
-            blockchain_tx_hash: None,
             summary_encrypted: None,
             record_date,
             created_at: record_date,
@@ -137,7 +134,7 @@ impl From<crate::repositories::traits::MedicalRecordEntity>
             record_type: entity.record_type,
             uploaded_at: entity.record_date.timestamp(),
             content_checksum: entity.content_checksum.unwrap_or_default(),
-            blockchain_tx_hash: entity.blockchain_tx_hash,
+            seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
         }
     }
 }

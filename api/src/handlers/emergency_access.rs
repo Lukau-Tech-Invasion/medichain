@@ -29,7 +29,7 @@ pub struct GrantBoundEmergencyAccessResponse {
     /// which must not be read as "no DNR", only as "unknown".
     pub dnr_actionable: Option<bool>,
 
-    /// Whether the off-chain capsule still matched its on-chain commitment.
+    /// Whether the stored capsule still matched its own commitment.
     /// `false` means the emergency data is being shown but its integrity could
     /// not be confirmed.
     pub commitment_verified: bool,

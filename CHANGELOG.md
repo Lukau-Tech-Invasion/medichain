@@ -6,6 +6,26 @@ pre-1.0 and does not yet make compatibility guarantees.
 
 ## [Unreleased]
 
+### Removed (2026-09-29, ADR-0010)
+- The blockchain layer: the Substrate node, runtime and three pallets, the
+  `subxt` client, the chain-anchoring outbox, `docker-compose.blockchain.yml`,
+  the node-release workflow and every chain script and document, plus the
+  `BLOCKCHAIN_ENABLED`, `SUBSTRATE_*` and `MEDICHAIN_CHAIN_NETWORK`
+  configuration. Chain fields are gone from the API responses.
+- The `PATIENT_WALLET_REQUIRED`, `CHAIN_AUDIT_UNAVAILABLE` and
+  `CHAIN_ANCHOR_UNAVAILABLE` refusals: an emergency read or document upload can
+  no longer fail because a chain was down.
+
+### Added (2026-09-29, ADR-0010)
+- The sealed audit stream: `access_logs` and `audit_events` rows are
+  Merkle-batched, hash-chained, signed with Ed25519 and exported as checkpoints
+  by the single-instance job. New `AUDIT_SEAL_SIGNING_KEY`,
+  `AUDIT_CHECKPOINT_SINK` and `AUDIT_CHECKPOINT_DIR` configuration, an
+  `audit_checkpoints` volume, `seal_status` on API responses and an `audit_seal`
+  block on `GET /api/health`. See `docs/AUDIT_LOG.md`.
+- `scripts/check-no-blockchain.py`, a static gate against chain vocabulary
+  returning to tracked files.
+
 ### Added
 - Off-chain emergency capsule with on-chain commitment anchoring: versioned,
   revocable, encrypted under the server keyring, with field-level access logging

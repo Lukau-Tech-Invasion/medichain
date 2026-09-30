@@ -254,8 +254,8 @@ pub async fn demo_login(
 pub async fn demo_info() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "project": "MediChain",
-        "description": "Blockchain-based national health ID system with NFC emergency access",
-        "auth_mode": "Wallet-based blockchain authentication (no seed data)",
+        "description": "National health ID system with NFC emergency access",
+        "auth_mode": "Wallet-based authentication (no seed data)",
         "dev_mode": std::env::var("MEDICHAIN_DEV_MODE").map(|v| v == "true" || v == "1").unwrap_or(true),
         "demo_login_endpoint": "POST /api/auth/demo-login (dev mode only - auto-creates users)",
         "demo_instructions": {
@@ -271,12 +271,12 @@ pub async fn demo_info() -> impl Responder {
             "note": "Users must be registered by admin before accessing protected endpoints"
         },
         "features": [
-            "Wallet-based blockchain authentication",
+            "Wallet-based authentication",
             "Role-Based Access Control (RBAC)",
             "Healthcare provider patient registration",
             "Read-only patient access",
             "NFC-based emergency medical records access",
-            "Blockchain-verified patient identity",
+            "Sealed, signed audit trail",
             "Cryptographic consent management",
             "Complete audit trail",
             "HIPAA/GDPR compliance ready"

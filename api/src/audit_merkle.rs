@@ -1,10 +1,11 @@
-//! Merkle batching of the access audit (WP8): the canonical leaf of an
-//! `access_logs` row, the tree over a batch of leaves, and inclusion proofs.
+//! Merkle batching of the audit stream (WP8, ADR-0010): the canonical leaf of
+//! an `access_logs` row and of an `audit_events` row, the tree over a batch of
+//! leaves, and inclusion proofs.
 //!
-//! One root per batch goes on chain (`AccessControl::anchor_audit_batch`), in
-//! place of one extrinsic per read. Anyone holding a row, its proof and the
-//! anchored root can check the row is exactly what was anchored; a row edited
-//! in the database afterwards hashes to a different leaf and fails.
+//! One root per batch is sealed (`audit_seal`), in place of one signature per
+//! read. Anyone holding a row, its proof and the sealed root can check the row
+//! is exactly what was sealed; a row edited in the database afterwards hashes
+//! to a different leaf and fails.
 //!
 //! Every hash is SHA3-256 with a domain-separation prefix, so a leaf can never
 //! be passed off as an interior node or the other way round. Fields are hashed
@@ -13,10 +14,15 @@
 
 use sha3::{Digest, Sha3_256};
 
+use crate::audit_outbox::AuditEvent;
 use crate::repositories::traits::AccessLogEntity;
 
-/// Domain prefix of a leaf hash. The version changes if the encoding does.
+/// Domain prefix of an access-log leaf hash. The version changes if the
+/// encoding does.
 const LEAF_DOMAIN: &[u8] = b"medichain.audit.leaf.v1\0";
+/// Domain prefix of an audit-event leaf hash. Distinct from `LEAF_DOMAIN`, so
+/// an event can never be passed off as an access-log row or the other way round.
+const EVENT_LEAF_DOMAIN: &[u8] = b"medichain.audit.event.v1\0";
 /// Domain prefix of an interior node hash.
 const NODE_DOMAIN: &[u8] = b"medichain.audit.node.v1\0";
 
@@ -38,9 +44,8 @@ fn push_field(buffer: &mut Vec<u8>, value: Option<&str>) {
 
 /// The canonical byte encoding of an access-log row, fields in a fixed order.
 ///
-/// `blockchain_tx_hash` is left out: it is written after the fact and is not
-/// part of what happened. Time is encoded in microseconds, the precision
-/// PostgreSQL stores.
+/// Time is encoded in microseconds, the precision PostgreSQL stores. This
+/// encoding is fixed: batches already sealed were hashed with it.
 pub fn canonical_row(row: &AccessLogEntity) -> Vec<u8> {
     let mut buffer = Vec::with_capacity(256);
     push_field(&mut buffer, Some(&row.id));
@@ -67,6 +72,28 @@ pub fn leaf_hash(row: &AccessLogEntity) -> Digest32 {
     let mut hasher = Sha3_256::new();
     hasher.update(LEAF_DOMAIN);
     hasher.update(canonical_row(row));
+    hasher.finalize().into()
+}
+
+/// The canonical byte encoding of an audit event: its identity, its type, the
+/// payload digest and its time. The payload itself is covered through
+/// `payload_hash`, which is stored beside it.
+pub fn canonical_event(event: &AuditEvent) -> Vec<u8> {
+    let mut buffer = Vec::with_capacity(192);
+    push_field(&mut buffer, Some(&event.id));
+    push_field(&mut buffer, Some(&event.event_type));
+    push_field(&mut buffer, Some(&event.aggregate_type));
+    push_field(&mut buffer, Some(&event.aggregate_id));
+    push_field(&mut buffer, Some(&event.payload_hash));
+    buffer.extend_from_slice(&event.occurred_at.timestamp_micros().to_be_bytes());
+    buffer
+}
+
+/// The leaf hash of an audit event.
+pub fn event_leaf_hash(event: &AuditEvent) -> Digest32 {
+    let mut hasher = Sha3_256::new();
+    hasher.update(EVENT_LEAF_DOMAIN);
+    hasher.update(canonical_event(event));
     hasher.finalize().into()
 }
 
@@ -183,7 +210,6 @@ mod tests {
             is_emergency_access: false,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: chrono::DateTime::from_timestamp(1_790_000_000, 123_000).unwrap(),
             facility_id: None,
             authority_type: None,
@@ -226,12 +252,36 @@ mod tests {
         let mut no_reason = row("LOG-1");
         no_reason.access_reason = None;
         assert_ne!(leaf_hash(&empty_reason), leaf_hash(&no_reason));
-        // A later chain transaction hash is not part of the row's identity.
-        let mut stamped = row("LOG-1");
-        stamped.blockchain_tx_hash = Some("0xabc".into());
-        assert_eq!(leaf_hash(&stamped), leaf_hash(&row("LOG-1")));
         let pair = leaves(2);
         assert_ne!(merkle_root(&pair).unwrap(), leaf_hash(&row("LOG-0")));
+    }
+
+    fn event(id: &str) -> AuditEvent {
+        AuditEvent {
+            id: id.into(),
+            event_type: "emergency_capsule_published".into(),
+            aggregate_type: "emergency_capsule".into(),
+            aggregate_id: "PAT-1:2".into(),
+            payload_hash: "ab".repeat(32),
+            payload: serde_json::json!({"version": 2}),
+            occurred_at: chrono::DateTime::from_timestamp(1_790_000_000, 456_000).unwrap(),
+        }
+    }
+
+    #[test]
+    fn an_event_leaf_changes_with_any_covered_field_and_never_equals_a_log_leaf() {
+        let base = event_leaf_hash(&event("EV-1"));
+        let mut edited = event("EV-1");
+        edited.payload_hash = "cd".repeat(32);
+        assert_ne!(event_leaf_hash(&edited), base);
+        let mut later = event("EV-1");
+        later.occurred_at += chrono::Duration::microseconds(1);
+        assert_ne!(event_leaf_hash(&later), base);
+        assert_ne!(base, leaf_hash(&row("EV-1")));
+        // The payload body is covered through its digest, not hashed twice.
+        let mut reshaped = event("EV-1");
+        reshaped.payload = serde_json::json!({"anything": true});
+        assert_eq!(event_leaf_hash(&reshaped), base);
     }
 
     #[test]

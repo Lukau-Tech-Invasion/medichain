@@ -205,7 +205,7 @@ impl EmergencyGrantStore {
         &self,
         binding: EmergencyGrantBinding,
         request: AuditedEmergencyGrantRequest,
-    ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditOutboxEvent), &'static str> {
+    ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditEvent), &'static str> {
         let AuditedEmergencyGrantRequest {
             reason_code,
             reason_text,
@@ -361,7 +361,7 @@ impl EmergencyGrantStore {
         event_type: String,
         payload: serde_json::Value,
         now: DateTime<Utc>,
-    ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditOutboxEvent), &'static str> {
+    ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditEvent), &'static str> {
         if reason.trim().is_empty() {
             return Err("A revocation reason is required");
         }
@@ -488,16 +488,11 @@ fn validate_grant(
 
 async fn insert_audit_event(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    event: &crate::audit_outbox::AuditOutboxEvent,
+    event: &crate::audit_outbox::AuditEvent,
 ) -> Result<(), &'static str> {
-    sqlx::query(
-        "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivered_at, delivery_attempts, last_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-    )
-    .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-    .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-    .bind(i32::try_from(event.delivery_attempts).map_err(|_| "Audit delivery count is invalid")?)
-    .bind(&event.last_error).execute(&mut **transaction).await
-    .map_err(|_| "Emergency grant store is unavailable")?;
+    crate::audit_outbox::insert_event(&mut **transaction, event)
+        .await
+        .map_err(|_| "Emergency grant store is unavailable")?;
     Ok(())
 }
 

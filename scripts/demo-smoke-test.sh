@@ -29,7 +29,6 @@ check "landing page is served at /"            200 "$(code /)"
 check "landing page names the clinician portal" yes "$(has / 'Clinician portal')"
 check "landing page names the patient app"      yes "$(has / 'Patient app')"
 check "landing page carries a synthetic-data banner" yes "$(has / 'synthetic data only')"
-check "landing page discloses the chain is off" yes "$(has / 'blockchain layer is not connected')"
 
 printf '\n\033[1m== Portals ==\033[0m\n'
 check "clinician portal loads"                 200 "$(code /doctor/)"

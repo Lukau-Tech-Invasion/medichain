@@ -10,6 +10,13 @@ them (2026-07-28). This document is derived from that review; see
 `.horizon/decision-log.md` / `.horizon/findings-private/HZ-003.md` for the
 full session record.
 
+> **2026-09-29 note.** This record is dated and is kept as written. Where it
+> describes anchoring commitments on a ledger (item 1 and §1), that layer was
+> removed by [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md): the
+> capsule and its commitment stay, and the commitment is now sealed in the audit
+> stream ([`AUDIT_LOG.md`](AUDIT_LOG.md)) instead. The legal reasoning below —
+> no personal information in an immutable store — is unchanged and still governs.
+
 ## Implementation status (updated 2026-07-29, second pass)
 
 | # | Item | Status |

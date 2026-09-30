@@ -18,6 +18,8 @@
  * interface without fabricating unverified nested field shapes.
  */
 
+import type { AuditSealSummary } from './index';
+
 // ============================================================================
 // Emergency Protocols
 // ============================================================================
@@ -781,7 +783,7 @@ export interface DashboardMetricsResponse {
     uptime_seconds: number | null;
     total_requests: number;
     server_errors: number;
-    blockchain_status: string;
+    audit_seal?: AuditSealSummary;
   };
 }
 
@@ -798,12 +800,13 @@ export interface QualityMetricsResponse {
   clinical_alerts_total: number;
   critical_alerts: number;
   /**
-   * Percentage of access-log entries carrying a blockchain anchor. Null while
+   * Percentage of access-log entries already in a sealed batch. Null while
    * there are no entries to measure.
    */
   audit_logs_coverage: number | null;
   audit_entries_total: number;
-  audit_entries_anchored: number;
+  /** Sealing state of the audit stream, as the health endpoint reports it. */
+  audit_seal?: AuditSealSummary;
   /**
    * Always null. A compliance score is a reviewed assessment against a control
    * framework, not something this endpoint derives; publishing a computed

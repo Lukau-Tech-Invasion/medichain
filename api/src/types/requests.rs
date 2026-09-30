@@ -77,7 +77,7 @@ pub fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, Pa
 #[derive(Debug, Deserialize)]
 pub struct RegisterPatientRequest {
     pub full_name: String,
-    /// Patient-owned SS58 account used for on-chain identity and audit binding.
+    /// Patient-owned SS58 account (removed with the wallets, Phase C).
     #[serde(default)]
     pub wallet_address: Option<String>,
     pub date_of_birth: String,
@@ -123,8 +123,6 @@ pub struct RegisterPatientResponse {
     pub success: bool,
     pub patient_id: String,
     pub nfc_tag_id: String,
-    pub chain_status: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
     pub message: String,
 }
 
@@ -147,9 +145,6 @@ pub struct HealthCheckResponse {
     pub status: String,
     pub version: String,
     pub timestamp: DateTime<Utc>,
-    /// Whether the chain is enabled and its node answered the last health check.
-    pub blockchain_connected: bool,
-    /// `development` unless the deployment declares `production`; the UI footer
-    /// labels a development chain as such.
-    pub chain_network: String,
+    /// The sealed audit stream: backlog, last seal and export, sink and signing.
+    pub audit_seal: serde_json::Value,
 }

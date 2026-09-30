@@ -18,7 +18,7 @@ export type Role =
   | 'Patient';
 
 /**
- * User authenticated via blockchain wallet
+ * User authenticated via wallet
  */
 export interface User {
   /** SS58 encoded wallet address (primary identifier) */
@@ -384,9 +384,32 @@ export interface RegisterPatientResponse {
   success: boolean;
   patient_id: string;
   nfc_tag_id: string;
-  chain_status?: 'disabled' | 'pending' | 'finalized';
-  blockchain_tx_hash?: string;
   message: string;
+}
+
+// ============================================================================
+// Sealed audit stream
+// ============================================================================
+
+/**
+ * Where an audit entry, record digest or capsule commitment stands in the
+ * sealed audit stream. `pending` = not yet in a sealed batch; `sealed` = in a
+ * chained, signed batch; `exported` = sealed and its checkpoint written to the
+ * external sink.
+ */
+export type SealStatus = 'pending' | 'sealed' | 'exported';
+
+/** Whether a sealed batch's signature checked out. `unsigned` is weaker than `valid`. */
+export type SealSignature = 'valid' | 'invalid' | 'unsigned';
+
+/** The `audit_seal` object the health, dashboard, analytics and compliance reads carry. */
+export interface AuditSealSummary {
+  /** Audit entries not yet in a sealed batch. */
+  unsealed_events: number;
+  last_sealed_at: string | null;
+  last_exported_at: string | null;
+  sink: 'none' | 'filesystem';
+  signing: 'ed25519' | 'unsigned';
 }
 
 // ============================================================================
@@ -408,6 +431,8 @@ export interface MedicalRecordReference {
   record_type: RecordType;
   uploaded_at: number;
   content_checksum: string;
+  /** Where the record's content digest stands in the sealed audit stream. */
+  seal_status?: SealStatus | null;
 }
 
 export interface UploadMedicalRecordRequest {
@@ -423,10 +448,8 @@ export interface UploadMedicalRecordResponse {
   ipfs_hash: string;
   metadata_hash: string;
   record_reference: MedicalRecordReference;
-  record_chain_status: 'disabled' | 'pending' | 'finalized';
-  record_blockchain_tx_hash?: string;
-  access_chain_status: 'disabled' | 'pending' | 'finalized';
-  access_blockchain_tx_hash?: string;
+  /** Where the stored record's content digest stands in the sealed audit stream. */
+  seal_status?: SealStatus;
   message: string;
 }
 
@@ -520,10 +543,11 @@ export interface AccessLogEntry {
   timestamp: string;
   emergency: boolean;
   /**
-   * Finalized blockchain transaction anchoring this entry. Null means the entry
-   * is not (yet) anchored -- never render such an entry as verified.
+   * Where this entry stands in the sealed audit stream: `pending` means it is
+   * not yet in a sealed batch. Absent or null means the server did not say --
+   * show nothing rather than guess.
    */
-  blockchain_tx_hash?: string | null;
+  seal_status?: SealStatus | null;
   /**
    * What authorised the access (WP9): `care_relationship`, `break_glass`,
    * `patient_grant`, `guardian`, `admin`, ... Null on older entries.

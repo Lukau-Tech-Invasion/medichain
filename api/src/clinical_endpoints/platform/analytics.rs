@@ -50,29 +50,18 @@ pub async fn get_dashboard_metrics(
         .map(|page| page.total)
         .unwrap_or(0);
 
-    // `avg_latency_ms`, `system_uptime` and `blockchain_status` used to be the
-    // literals 45, 99.98 and "synced" — an operations dashboard that reported
-    // a healthy system no matter what was true, including while the chain was
-    // unreachable. They then became nulls, which was honest but left the
-    // dashboard blank. All three are now measured: latency and availability come
-    // from the same Prometheus counters the scrape endpoint serves, and uptime
-    // is the process clock. A field stays null only while its sample is empty,
+    // `avg_latency_ms` and `system_uptime` used to be the literals 45 and 99.98
+    // — an operations dashboard that reported a healthy system no matter what
+    // was true. They then became nulls, which was honest but left the dashboard
+    // blank. Both are now measured: latency and availability come from the same
+    // Prometheus counters the scrape endpoint serves, and uptime is the process
+    // clock. A field stays null only while its sample is empty,
     // because 100% availability computed from zero requests is a claim rather
     // than a measurement.
     let telemetry = crate::middleware::metrics::telemetry_snapshot();
     let uptime_seconds = crate::middleware::metrics::uptime_seconds();
 
-    let blockchain_status = if !crate::blockchain::blockchain_enabled() {
-        "disabled"
-    } else if data
-        .substrate_client
-        .as_ref()
-        .is_some_and(|client| client.is_ready())
-    {
-        "connected"
-    } else {
-        "unavailable"
-    };
+    let audit_seal = crate::audit_batching::audit_seal_summary(&data).await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -89,7 +78,7 @@ pub async fn get_dashboard_metrics(
             "uptime_seconds": uptime_seconds,
             "total_requests": telemetry.total_requests,
             "server_errors": telemetry.server_errors,
-            "blockchain_status": blockchain_status
+            "audit_seal": audit_seal
         }
     }))
 }
@@ -358,15 +347,15 @@ pub async fn get_quality_metrics(
         };
 
     // `audit_logs_coverage` was the literal `"100%"`. It is now counted: the
-    // share of access-log entries that actually carry a blockchain anchor. In a
-    // system whose central claim is a tamper-evident access trail, that is the
-    // number an auditor is asking for, and it is `null` — not 100 — while there
-    // is nothing to measure, because a percentage over an empty set is a claim
+    // share of access-log entries that sit in a sealed batch. In a system whose
+    // central claim is a tamper-evident access trail, that is the number an
+    // auditor is asking for, and it is `null` — not 100 — while there is
+    // nothing to measure, because a percentage over an empty set is a claim
     // rather than a measurement.
-    let (audit_total, audit_anchored) = match data.repositories.access_logs.count_anchored().await {
+    let (audit_total, audit_sealed) = match data.repositories.access_logs.count_sealed().await {
         Ok(counts) => counts,
         Err(e) => {
-            log::error!("quality metrics: audit anchoring counts unavailable: {e}");
+            log::error!("quality metrics: audit sealing counts unavailable: {e}");
             return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 error: "Quality metrics are unavailable because audit coverage could not be read"
                     .to_string(),
@@ -375,7 +364,7 @@ pub async fn get_quality_metrics(
         }
     };
     let audit_logs_coverage =
-        (audit_total > 0).then(|| (audit_anchored as f64 / audit_total as f64) * 100.0);
+        (audit_total > 0).then(|| (audit_sealed as f64 / audit_total as f64) * 100.0);
 
     // `compliance_score: 98.5` stays absent deliberately. A compliance score is
     // a reviewed assessment against a control framework, not an index this
@@ -388,7 +377,8 @@ pub async fn get_quality_metrics(
         "critical_alerts": critical_alerts,
         "audit_logs_coverage": audit_logs_coverage,
         "audit_entries_total": audit_total,
-        "audit_entries_anchored": audit_anchored,
+        "audit_entries_sealed": audit_sealed,
+        "audit_seal": crate::audit_batching::audit_seal_summary(&data).await,
         "compliance_score": serde_json::Value::Null,
         "compliance_score_basis": "requires_reviewed_assessment"
     }))

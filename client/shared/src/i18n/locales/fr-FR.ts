@@ -52,7 +52,6 @@ const fr_FR: TranslationRecord = {
     quickLoginHint: 'Cliquez sur un patient pour vous connecter instantanément',
     signInNfc: 'Se connecter avec une carte NFC',
     scanQr: 'Scanner le code QR',
-    securityNotice: 'Authentification sécurisée par blockchain',
     errEnterWallet: 'Veuillez saisir votre adresse de portefeuille',
     errInvalidWallet: 'Format d’adresse invalide. 48 caractères commençant par « 5 ».',
   },
@@ -82,7 +81,6 @@ const fr_FR: TranslationRecord = {
     call: 'Appeler',
     cardHash: 'Empreinte de la carte',
     lastUpdated: 'Dernière mise à jour',
-    securedBy: 'Sécurisé par la blockchain MediChain',
   },
 };
 

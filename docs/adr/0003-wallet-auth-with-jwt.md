@@ -1,6 +1,6 @@
 # ADR-0003: Wallet signature authentication with JWT sessions
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0010](0010-remove-blockchain-and-wallet-identity.md) (2026-09-29)
 - **Date:** 2026-02 (recorded retrospectively 2026-07-29)
 - **Deciders:** Founder
 

@@ -818,7 +818,7 @@ pub async fn ensure_not_restricted(
 
 /// Validate SS58 wallet address format (basic validation)
 pub fn is_valid_wallet_address(address: &str) -> bool {
-    // SS58 addresses start with 5 and are typically 48 characters for Substrate
+    // SS58 addresses start with 5 and are typically 48 characters
     address.len() >= 45 && address.len() <= 50 && address.starts_with('5')
 }
 
@@ -1163,7 +1163,6 @@ mod access_alert_rule_tests {
             is_emergency_access: emergency,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: Utc::now(),
             facility_id: None,
             authority_type: None,

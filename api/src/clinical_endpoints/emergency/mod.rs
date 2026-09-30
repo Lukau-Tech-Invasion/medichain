@@ -358,7 +358,6 @@ fn access_log_entity(
         is_emergency_access: true,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
         authority_type: None,

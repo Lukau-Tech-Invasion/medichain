@@ -261,8 +261,6 @@ mod tests {
             ipfs_content_hash: Some(format!("Qm{}", id)),
             ipfs_metadata_hash: None,
             content_checksum: None,
-            on_chain_hash: None,
-            blockchain_tx_hash: None,
             summary_encrypted: None,
             record_date: Utc::now(),
             created_at: Utc::now(),

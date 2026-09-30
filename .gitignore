@@ -97,7 +97,6 @@ docs/copilot-instructions.md
 # docs/CONNECTION_FIXES_SUMMARY.md
 # docs/CONNECTION_TROUBLESHOOTING_RUNBOOK.md
 # docs/COMPREHENSIVE_CONNECTION_ANALYSIS.md
-# docs/BLOCKCHAIN_MOBILE_AMD.md
 # docs/MOBILE_AUTH_FLOW.md
 # docs/MOBILE_INTEGRATION_CHECKLIST.md
 # docs/PROJECT_PROGRESS.md
@@ -108,12 +107,8 @@ docs/copilot-instructions.md
 __pycache__/
 *.py[cod]
 
-# Blockchain node: the CI-downloaded binary and any local chain database.
-# Both are large and machine-specific; the binary comes from the
-# "Blockchain node release binary" workflow, the chain data from
-# `run-dev-node.sh --persist`.
-.node-bin/
-# All local chain databases and node logs. Nothing under data/ is tracked.
+# Local runtime data (databases, logs). Machine-specific; nothing under data/
+# is tracked.
 /data/
 
 # Playwright run output and the screenshots captured during browser-driven

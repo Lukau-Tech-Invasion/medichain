@@ -130,7 +130,7 @@ pub struct RepositoryContainer {
     pub guardian_relationships: Arc<dyn GuardianRelationshipRepository>,
     /// Litigation/regulatory holds that suspend retention-based disposal.
     pub legal_holds: Arc<dyn LegalHoldRepository>,
-    /// Off-chain emergency capsules committed to on-chain (Horizon HZ-003).
+    /// Emergency capsules and their sealed commitments (Horizon HZ-003).
     pub emergency_capsules: Arc<dyn EmergencyCapsuleRepository>,
     /// Retention approvals, processing restrictions, and the deletion register.
     pub retention_execution: Arc<dyn RetentionExecutionRepository>,
@@ -389,8 +389,8 @@ async fn insert_access_log(
         "INSERT INTO access_logs (
             id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
             action, access_reason, is_emergency_access, ip_address, user_agent,
-            blockchain_tx_hash, accessed_at, facility_id, authority_type, authority_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+            accessed_at, facility_id, authority_type, authority_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
     )
     .bind(&log.id)
     .bind(&log.accessor_id)
@@ -403,7 +403,6 @@ async fn insert_access_log(
     .bind(log.is_emergency_access)
     .bind(&log.ip_address)
     .bind(&log.user_agent)
-    .bind(&log.blockchain_tx_hash)
     .bind(log.accessed_at)
     .bind(&log.facility_id)
     .bind(&log.authority_type)
@@ -1125,7 +1124,7 @@ impl RepositoryContainer {
             "INSERT INTO access_logs (
                 id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
                 action, access_reason, is_emergency_access, ip_address, user_agent,
-                blockchain_tx_hash, accessed_at, facility_id, authority_type, authority_id
+                accessed_at, facility_id, authority_type, authority_id
             ) ",
         );
         qb.push_values([&log], |mut b, l| {
@@ -1140,7 +1139,6 @@ impl RepositoryContainer {
                 .push_bind(l.is_emergency_access)
                 .push_bind(&l.ip_address)
                 .push_bind(&l.user_agent)
-                .push_bind(&l.blockchain_tx_hash)
                 .push_bind(l.accessed_at)
                 .push_bind(&l.facility_id)
                 .push_bind(&l.authority_type)

@@ -223,7 +223,6 @@ pub async fn create_triage_assessment(
         is_emergency_access: esi_level.level() <= 2,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
         authority_type: None,

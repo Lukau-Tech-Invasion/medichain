@@ -57,7 +57,7 @@ services:
   # =============================================================================
   api:
     build:
-      # Context is the repo root so the workspace members (crypto, pallets) are
+      # Context is the repo root so the workspace member (crypto) is
       # available to the build; see api/Dockerfile.
       context: .
       dockerfile: api/Dockerfile
@@ -151,13 +151,17 @@ services:
       # request or a skipped patient left no trace anyone could read.
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
 
-      # Blockchain anchoring. With no SUBSTRATE_WS_URL the API logs
-      # "blockchain features disabled" and every anchored write is a typed
-      # error rather than a fabricated hash.
-      BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-}
-      SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:-}
-      SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:-}
-      SUBSTRATE_ALLOW_DEV_SIGNER: ${SUBSTRATE_ALLOW_DEV_SIGNER:-}
+      # Sealed audit stream (ADR-0010). Audit batches are chained, signed with
+      # Ed25519 and exported as checkpoints. No default secret: with no
+      # AUDIT_SEAL_SIGNING_KEY a demo seals batches UNSIGNED and verification
+      # says so; outside demo mode the API refuses to start without one.
+      # AUDIT_CHECKPOINT_SINK is none | filesystem (production refuses none);
+      # `filesystem` needs AUDIT_CHECKPOINT_DIR, an absolute path inside the
+      # container -- the audit_checkpoints volume below is mounted at
+      # /var/lib/medichain/audit-checkpoints for it.
+      AUDIT_SEAL_SIGNING_KEY: ${AUDIT_SEAL_SIGNING_KEY:-}
+      AUDIT_CHECKPOINT_SINK: ${AUDIT_CHECKPOINT_SINK:-}
+      AUDIT_CHECKPOINT_DIR: ${AUDIT_CHECKPOINT_DIR:-}
 
       # Telehealth. Without JITSI_DOMAIN the service points at the public
       # meet.jit.si with unauthenticated rooms, which is not somewhere PHI
@@ -231,6 +235,10 @@ services:
       # Read-only, and a single file rather than a directory, so the container
       # cannot rewrite the policy it is being governed by.
       - ${DISPENSING_POLICY_FILE:-./api/data/dispensing_policy.example.json}:/app/policy/dispensing_policy.json:ro
+      # Exported audit checkpoints. Only used when AUDIT_CHECKPOINT_SINK is
+      # `filesystem`. On the same host as the database it proves only what the
+      # host did not later rewrite; copy it to write-once storage for more.
+      - audit_checkpoints:/var/lib/medichain/audit-checkpoints
     depends_on:
       postgres:
         condition: service_healthy
@@ -307,31 +315,6 @@ services:
     networks:
       - medichain_network
 
-  # =============================================================================
-  # Substrate Node — NOT DEFINED HERE ON PURPOSE
-  # -----------------------------------------------------------------------------
-  # There was a `substrate-node` service here that built `node/Dockerfile`. That
-  # file never existed, and the node source has since moved to `blockchain/node/`,
-  # so the service could not have started under any profile. It has been removed
-  # rather than left as a stanza that looks like working configuration.
-  #
-  # To run a node for local development, run the binary directly — that is the
-  # supported and verified path:
-  #
-  #     scripts/blockchain/run-dev-node.sh --persist
-  #     scripts/blockchain/qualify-node.sh
-  #
-  # and point the API at it with SUBSTRATE_WS_URL=ws://127.0.0.1:9944.
-  # See docs/BLOCKCHAIN_NODE.md.
-  #
-  # Production supplies a separately qualified node through SUBSTRATE_WS_URL; the
-  # API fails closed when that dependency is absent and never fabricates a
-  # transaction hash.
-  #
-  # Note also: the old stanza passed `--rpc-external`, which binds RPC on all
-  # interfaces. Do not reintroduce that without an access-control story.
-  # =============================================================================
-
 # =============================================================================
 # Volumes for Data Persistence
 # =============================================================================
@@ -341,6 +324,8 @@ volumes:
   pgadmin_data:
     driver: local
   ipfs_data:
+    driver: local
+  audit_checkpoints:
     driver: local
 
 # =============================================================================

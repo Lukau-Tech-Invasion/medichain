@@ -41,7 +41,7 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
     async fn create_with_audit(
         &self,
         relationship: GuardianRelationshipEntity,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         self.create(relationship).await
     }
@@ -103,7 +103,7 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         id: &str,
         permissions: Vec<String>,
         expires_at: Option<chrono::DateTime<Utc>>,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         self.update_permissions(id, permissions, expires_at).await
     }
@@ -125,7 +125,7 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         &self,
         id: &str,
         reason: Option<String>,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<()> {
         self.revoke(id, reason).await
     }

@@ -212,4 +212,46 @@ describe('MyRecordsPage (Patient)', () => {
     );
     expect(await screen.findByRole('alert')).toBeInTheDocument();
   });
+
+  it('shows the seal state of a stored document, and nothing chain-related', async () => {
+    const complete = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes(`/api/records/${mockPatientId}`)) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve([{
+            content_hash: 'Qm-sealed',
+            metadata_hash: 'Qm-meta',
+            record_type: 'discharge_summary',
+            uploaded_at: 1_767_225_600,
+            content_checksum: 'abc',
+            seal_status: 'exported',
+          }]),
+        });
+      }
+      return complete!(url, init);
+    });
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MyRecordsPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(await screen.findByText(/Discharge Summary/i));
+    const badge = await screen.findByTestId('seal-badge');
+    expect(badge).toHaveTextContent('Sealed and exported');
+    expect(screen.queryByText(/blockchain|on-chain|anchor|transaction/i)).not.toBeInTheDocument();
+  });
+
+  it('shows no seal badge for a record the server reported no seal state for', async () => {
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MyRecordsPage />
+      </MemoryRouter>
+    );
+    fireEvent.click(await screen.findByText(/Blood Count/i));
+    await screen.findByText(/Record Details/i);
+    expect(screen.queryByTestId('seal-badge')).not.toBeInTheDocument();
+  });
 });

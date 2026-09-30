@@ -23,6 +23,7 @@ import {
   type PatientProfile,
   formatDateOnly,
   formatTimestamp,
+  SealStatusBadge,
 } from '@medichain/shared';
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
@@ -350,15 +351,9 @@ function PatientDetailPage() {
     setCapsuleBusy(true);
     try {
       const body = await publishEmergencyCapsule(patientId);
-      // `anchoring` rather than the hash: a transaction hash with
-      // `chain_finalized: false` is a placeholder, and reporting it as an
-      // anchoring would claim something that did not happen.
-      setCapsuleNotice(
-        t('docPatientDetail.capsulePublished', {
-          version: body.version,
-          anchoring: body.anchoring,
-        })
-      );
+      // The notice says the version is in force; the seal state of its
+      // commitment is shown beside the version in the list, from the server.
+      setCapsuleNotice(t('docPatientDetail.capsulePublished', { version: body.version }));
       await loadCapsule();
     } catch (err) {
       setCapsuleError(getApiErrorMessage(err, t('docPatientDetail.capsulePublishFailed')));
@@ -870,6 +865,7 @@ function PatientDetailPage() {
                               date: formatTimestamp(entry.created_at),
                             })}
                           </p>
+                          <SealStatusBadge status={entry.seal_status} className="mt-1" />
                           {entry.revoked_at && (
                             <p className="text-xs text-content-muted mt-1">
                               {t('docPatientDetail.capsuleRevokedOn', {

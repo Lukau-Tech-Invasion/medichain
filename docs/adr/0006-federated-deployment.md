@@ -1,6 +1,6 @@
 # ADR-0006: Federated per-hospital deployment
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0010](0010-remove-blockchain-and-wallet-identity.md) (2026-09-29)
 - **Date:** 2026-03 (recorded retrospectively 2026-07-29)
 - **Deciders:** Founder
 

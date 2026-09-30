@@ -1,14 +1,20 @@
 import { useState } from 'react';
 import { Loader2, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
-import { useTranslation, verifyPatientRecord } from '@medichain/shared';
-import type { CapsuleVerification } from '@medichain/shared';
+import { summariseSignatures, useTranslation, verifyPatientRecord } from '@medichain/shared';
+import type { CapsuleVerification, SignatureSummary } from '@medichain/shared';
 
-type State = { kind: 'idle' } | { kind: 'loading' } | { kind: 'failed' } | { kind: 'ready'; status: CapsuleVerification };
+type State =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'failed' }
+  | { kind: 'ready'; status: CapsuleVerification; signatures: SignatureSummary };
 
 /**
- * "Verify" for the emergency card (WP8): compares the stored card with the
- * commitment in the blockchain's latest finalized state, and says plainly
- * when it matches, when it does not, and when it is not anchored yet.
+ * "Verify" for the emergency card (WP8): compares the stored card with its
+ * sealed commitment, and says plainly when it matches, when it does not, and
+ * when it has not been sealed yet. It also reports how the sealed batches
+ * covering the patient's access history were signed: a batch sealed without a
+ * key is reported as such, never as a valid signature.
  *
  * @param props.patientId - The patient record id.
  */
@@ -20,7 +26,11 @@ export function CapsuleVerify({ patientId }: { patientId: string }) {
     setState({ kind: 'loading' });
     try {
       const body = await verifyPatientRecord(patientId);
-      setState({ kind: 'ready', status: body.emergency_capsule });
+      setState({
+        kind: 'ready',
+        status: body.emergency_capsule,
+        signatures: summariseSignatures(body.access_logs ?? []),
+      });
     } catch (error) {
       console.error('Emergency card verification failed', error);
       setState({ kind: 'failed' });
@@ -49,7 +59,12 @@ export function CapsuleVerify({ patientId }: { patientId: string }) {
   if (state.kind === 'failed') {
     return <p role="alert" className="text-sm text-critical-subtle-fg">{t('verification.failed')}</p>;
   }
-  return <CapsuleResult status={state.status} />;
+  return (
+    <div className="space-y-1">
+      <CapsuleResult status={state.status} />
+      <SignatureResult summary={state.signatures} />
+    </div>
+  );
 }
 
 /** The capsule verification answer, with a warning for a mismatch. */
@@ -74,7 +89,38 @@ function CapsuleResult({ status }: { status: CapsuleVerification }) {
   return (
     <p className="flex items-center gap-1 text-sm text-content-muted">
       <ShieldQuestion className="w-4 h-4" aria-hidden="true" />
-      {status === 'unanchored' ? t('verification.capsuleUnanchored') : t('verification.capsuleNone')}
+      {status === 'unsealed' ? t('verification.capsuleUnsealed') : t('verification.capsuleNone')}
+    </p>
+  );
+}
+
+/**
+ * How the sealed batches were signed. `unsigned` reads as a weaker state, not
+ * a success; `none` (nothing sealed yet) says nothing.
+ */
+function SignatureResult({ summary }: { summary: SignatureSummary }) {
+  const { t } = useTranslation();
+  if (summary === 'none') return null;
+  if (summary === 'invalid') {
+    return (
+      <p role="alert" className="flex items-center gap-1 text-sm font-semibold text-critical-subtle-fg" data-testid="signature-result">
+        <ShieldAlert className="w-4 h-4" aria-hidden="true" />
+        {t('verification.signatureInvalid')}
+      </p>
+    );
+  }
+  if (summary === 'unsigned') {
+    return (
+      <p className="flex items-center gap-1 text-sm text-caution-subtle-fg" data-testid="signature-result">
+        <ShieldQuestion className="w-4 h-4" aria-hidden="true" />
+        {t('verification.signatureUnsigned')}
+      </p>
+    );
+  }
+  return (
+    <p className="flex items-center gap-1 text-sm text-ok-subtle-fg" data-testid="signature-result">
+      <ShieldCheck className="w-4 h-4" aria-hidden="true" />
+      {t('verification.signatureValid')}
     </p>
   );
 }

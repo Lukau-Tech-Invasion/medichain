@@ -3,6 +3,15 @@
 **Last reconciled:** 2026-08-09
 **Launch verdict:** **BLOCKED pending verification and H3 completion**
 
+> **2026-09-29 — ADR-0010 withdraws the external-runtime release blocker.** The
+> ledger layer is removed, so there is no external node or runtime to deploy and
+> qualify, and evidence items 7 and 8 below no longer apply. Tamper evidence is
+> now the sealed audit stream ([`AUDIT_LOG.md`](AUDIT_LOG.md)); its evidence
+> requirements replace them (item 7 below). Rows and verification records dated
+> before 2026-09-29 are kept as written — they describe the system as it was
+> then. See [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md) and
+> [`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md).
+
 This document tracks GitHub issues #2–#10. “Implemented” means the unsafe code
 path was replaced and regression coverage was added. It does not mean the issue
 may be closed: closure also requires the relevant CI and production-like gates
@@ -16,7 +25,7 @@ below to pass on the exact release commit.
 | #3 / C2 — emergency Medical ID leaked PHI for any non-empty token/hash | The PHI endpoint accepts only a short-lived, patient-bound, responder-bound, device-bound, scoped, one-time Bearer token. The NFC hash is exchanged at an authenticated endpoint and is no longer accepted as a PHI credential or query parameter. A durable access record is required before PHI is returned. | Implemented; Rust and production-like negative-path proof pending. |
 | #4 / C3 — lockscreen Medical ID served PHI without identity enforcement | A linked patient issues a short-lived capability for one active owned device. The PHI endpoint verifies the Bearer capability and `X-Device-Id`, re-checks live device ownership/revocation, and records access before returning data. | Implemented; Rust and production-like negative-path proof pending. |
 | #5 / C4 — patient consent endpoint returned hardcoded demo rows | The endpoint reads `ConsentRecordRepository` and fails closed on repository errors. Coverage includes zero, one and multiple stored consents. | Implemented; Rust/Postgres CI proof pending. |
-| #6 / C5 — placeholder blockchain consent/audit, Alice key and wrong routing | Fabricated transaction hashes are removed. Production requires a configured operator key and finalized extrinsic success; Alice is demo-only. Failed writes are durably queued. Consent, registration, medical-record, capsule and access operations share the retry worker. Access audits use `log_delegated_access`, carry a keyed accessor commitment, and never masquerade as an emergency grant. Medical-record/capsule calls now upsert a safe on-chain record shell on first use. | Code implemented. **Still release-blocking** until the external Substrate runtime containing the new calls is deployed and the qualification script plus end-to-end finalized-write tests pass. |
+| #6 / C5 — placeholder blockchain consent/audit, Alice key and wrong routing | Fabricated transaction hashes are removed. Production requires a configured operator key and finalized extrinsic success; Alice is demo-only. Failed writes are durably queued. Consent, registration, medical-record, capsule and access operations share the retry worker. Access audits use `log_delegated_access`, carry a keyed accessor commitment, and never masquerade as an emergency grant. Medical-record/capsule calls now upsert a safe on-chain record shell on first use. | Code implemented. Was release-blocking on an external runtime; **withdrawn 2026-09-29 by ADR-0010** — the ledger layer is removed and replaced by the sealed audit stream. |
 | #7 / H1 — user/profile/RBAC mutations were memory-only | Users and professional profiles load from and write through to Postgres. Role assignment/revocation, status/profile changes, patient account creation and identity linking persist before the cache changes. Inactive users are excluded. Production rejects the memory backend. Restart tests cover role/status/profile durability. | Implemented; Rust/Postgres CI proof pending. |
 | #8 / H2 — MFA step-up bypass through `X-User-Id` | Privileged operations use one assurance policy: production requires durable MFA enrollment and a fresh MFA JWT. A header-only identity, stale/expired/malformed token, unenrolled account and role mismatch are denied. The policy and HTTP bypass cases have regression coverage. | Implemented; Rust CI proof pending. |
 | #9 / H3 — no real automated test gate | Clippy is blocking, the Rust job has Postgres 16, and `cargo test` is blocking. Frontend installs use the lockfile. | **Closed 2026-08-11.** Backend: 361 API + 79 pallet/crypto tests pass, clippy `-D warnings` clean, state-durability gate reads 0. Frontend: doctor-portal **256/256**, patient-app **78/78** — every suite green, so the whole frontend suite is now the gate rather than a 32-file subset. Typecheck, lint and build clean in both workspaces. See the H3 note below for what the failures were and the nine product defects they surfaced. |
@@ -32,11 +41,8 @@ The following gates must all be attached to the exact release commit:
 4. Frontend typecheck, lint, production builds and the trusted regression gate.
 5. A disposition for every remaining legacy frontend failure: repaired test, confirmed product defect with fix, or reviewed removal/replacement. No silent skips.
 6. Production Compose configuration validation with real secret injection and no published database/admin ports.
-7. An independently qualified Substrate node whose runtime metadata contains:
-   - `AccessControl.log_delegated_access`
-   - `MedicalRecords.upsert_ipfs_hash`
-   - `MedicalRecords.upsert_emergency_capsule_commitment`
-8. Finalized on-chain end-to-end proof for patient registration, consent audit, routine access, emergency access, first/subsequent medical-record anchors, capsule versioning and outbox replay after node unavailability.
+7. Sealed audit stream evidence (ADR-0010): tests showing that a tampered middle batch, a deleted batch and a reordered pair all fail verification; signature valid/invalid/unsigned; checkpoint export idempotent and refusing to overwrite; both sources (`access_logs`, `audit_events`) sealed; an emergency read that still succeeds with the checkpoint sink failing; and, in production, a real `AUDIT_SEAL_SIGNING_KEY` and `AUDIT_CHECKPOINT_SINK=filesystem` pointing at storage the API host cannot rewrite.
+8. `scripts/verify-audit-checkpoints.py` run over the exported checkpoints of a live stack, exiting zero.
 9. Production-like API negative tests proving forged, expired, replayed, wrong-patient and revoked-device credentials never return PHI.
 
 ## Verification performed 2026-08-11 (this session)
@@ -80,8 +86,8 @@ the durability closure in `FEATURE_END_TO_END_AUDIT.md`.
 - Live Substrate/Postgres/production-stack end-to-end verification: not performed in this session.
 
 Do not close #2–#10 solely from this document. Close each issue only after its
-acceptance evidence is green and linked, and do not launch while #9 or the C5
-runtime qualification remains unresolved.
+acceptance evidence is green and linked, and do not launch while #9 or the
+sealed-audit-stream evidence (item 7) remains unresolved.
 
 The broader feature-by-feature durability and integration status is tracked in
 [`FEATURE_END_TO_END_AUDIT.md`](FEATURE_END_TO_END_AUDIT.md).

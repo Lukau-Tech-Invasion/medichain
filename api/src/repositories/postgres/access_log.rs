@@ -28,7 +28,7 @@ impl AccessLogRepository for PgAccessLogRepository {
             "INSERT INTO access_logs (
                 id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
                 action, access_reason, is_emergency_access, ip_address, user_agent,
-                blockchain_tx_hash, accessed_at, facility_id, authority_type, authority_id
+                accessed_at, facility_id, authority_type, authority_id
             ) ",
         );
 
@@ -44,7 +44,6 @@ impl AccessLogRepository for PgAccessLogRepository {
                 .push_bind(l.is_emergency_access)
                 .push_bind(&l.ip_address)
                 .push_bind(&l.user_agent)
-                .push_bind(&l.blockchain_tx_hash)
                 .push_bind(l.accessed_at)
                 .push_bind(&l.facility_id)
                 .push_bind(&l.authority_type)
@@ -233,13 +232,18 @@ impl AccessLogRepository for PgAccessLogRepository {
         Ok(PaginatedResult::new(logs, count.0 as u64, &pagination))
     }
 
-    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)> {
-        // One scan, two counts, so the total and the anchored subset are always
-        // taken from the same snapshot. An empty-string hash is not an anchor.
+    async fn count_sealed(&self) -> RepositoryResult<(u64, u64)> {
+        // One scan, two counts, so the total and the sealed subset are always
+        // taken from the same snapshot. A row is sealed once the batch holding
+        // it is `sealed` or `exported`.
         let row = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT COUNT(*), \
-             COUNT(*) FILTER (WHERE blockchain_tx_hash IS NOT NULL AND TRIM(blockchain_tx_hash) <> '') \
-             FROM access_logs",
+            "SELECT COUNT(*),
+                    COUNT(*) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM audit_seal_batch_members m
+                        JOIN audit_seal_batches b ON b.id = m.batch_id
+                        WHERE m.source = 'access_log' AND m.source_id = a.id
+                          AND b.status IN ('sealed', 'exported')))
+             FROM access_logs a",
         )
         .fetch_one(&self.pool)
         .await?;

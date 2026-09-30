@@ -65,12 +65,12 @@ import {
 } from '@polkadot/util-crypto';
 
 /**
- * The mini-secret and address of a Substrate well-known development account.
+ * The mini-secret and address of a well-known sr25519 development account.
  *
  * An already-bootstrapped deployment cannot mint a second first-admin, and
  * credential enrolment needs the account's key — so an admin browser fixture
  * looked impossible against an existing database. It is not, when the seeded
- * administrator is `//Alice`: that key is published in the Substrate source, so
+ * administrator is `//Alice`: that key is published in the Polkadot SDK source, so
  * it can simply be re-derived here.
  *
  * That is also exactly why `startup::validate_no_privileged_dev_accounts`
@@ -79,7 +79,7 @@ import {
  */
 async function devAccount(suri: string): Promise<{ secretKey: Uint8Array; address: string }> {
   await cryptoWaitReady();
-  // The canonical Substrate development phrase.
+  // The canonical sr25519 development phrase.
   const DEV_PHRASE = 'bottom drive obey lake curtain smoke basket hold race lonely fit walk';
   const { path } = keyExtractPath(suri);
   const pair = keyFromPath(sr25519PairFromSeed(mnemonicToMiniSecret(DEV_PHRASE)), path, 'sr25519');
@@ -429,7 +429,7 @@ async function main(): Promise<void> {
     // A deployment cannot mint a second first-admin (`/api/auth/bootstrap` is
     // once-only) and `assign_role` refuses to grant `Admin` — both deliberate.
     // So an admin credential fixture is only possible when this run holds the
-    // administrator's key. It does when the seeded admin is a Substrate
+    // administrator's key. It does when the seeded admin is a
     // well-known development account, whose secret is published: re-derive it.
     //
     // Safe precisely because it is a *development* key. `startup::
@@ -611,7 +611,7 @@ async function main(): Promise<void> {
       wallet: adminWallet,
       // A well-known dev account has no mnemonic of its own; the derivation
       // path is the recovery information that matters.
-      mnemonic: adminIdentity.address === adminWallet ? adminIdentity.mnemonic : '(Substrate well-known development key)',
+      mnemonic: adminIdentity.address === adminWallet ? adminIdentity.mnemonic : '(well-known development key)',
       sign_in: 'POST /api/auth/staff/login (employee identifier + password)',
     });
   }

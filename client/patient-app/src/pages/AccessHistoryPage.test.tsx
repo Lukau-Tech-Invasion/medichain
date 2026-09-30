@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { I18nProvider } from '@medichain/shared';
 import type { AccessLogEntry } from '@medichain/shared';
@@ -14,6 +14,7 @@ vi.mock('../store/authStore', () => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getAccessLogs: vi.fn(),
+  getEmergencyCapsuleAccessLog: vi.fn(),
   verifyPatientRecord: vi.fn(),
 }));
 
@@ -33,7 +34,7 @@ function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}
     location: 'Chris Hani Baragwanath',
     timestamp: new Date(Date.UTC(2026, 8, 26, 12, minute)).toISOString(),
     emergency: false,
-    blockchain_tx_hash: null,
+    seal_status: null,
     ...overrides,
   };
 }
@@ -50,6 +51,12 @@ function renderPage() {
 
 describe('AccessHistoryPage', () => {
   beforeEach(() => {
+    vi.mocked(shared.getEmergencyCapsuleAccessLog).mockResolvedValue({
+      success: true,
+      patient_id: PATIENT_ID,
+      count: 0,
+      accesses: [],
+    });
     vi.mocked(usePatientAuthStore).mockImplementation(((selector: (state: unknown) => unknown) =>
       selector({ patient: { healthId: PATIENT_ID } })) as never);
   });
@@ -68,19 +75,49 @@ describe('AccessHistoryPage', () => {
     expect(card).toHaveTextContent('Doctor · Chris Hani Baragwanath');
     expect(card).toHaveTextContent('Treatment');
     expect(card).toHaveTextContent('Vital signs, Lab results');
-    expect(card).not.toHaveTextContent(/blockchain|anchor/i);
     expect(shared.getAccessLogs).toHaveBeenCalledWith(PATIENT_ID, { page: 1, limit: 100 });
   });
 
-  it('omits legacy chain badges even when historical metadata exists', async () => {
+  it('shows no seal badge when the server reported no seal state', async () => {
     vi.mocked(shared.getAccessLogs).mockResolvedValue({
       patient_id: PATIENT_ID,
       total_accesses: 1,
-      access_logs: [row('a', 2, { blockchain_tx_hash: '0xabc' })],
+      access_logs: [row('a', 2)],
     });
     renderPage();
-    expect(await screen.findByTestId('access-session')).not.toHaveTextContent(/blockchain|anchor/i);
+    await screen.findByTestId('access-session');
+    expect(screen.queryByTestId('seal-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText(/sealing records a signed fingerprint/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Verify' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['pending', 'Sealing pending'],
+    ['sealed', 'Sealed'],
+    ['exported', 'Sealed and exported'],
+  ] as const)('shows %s access as "%s"', async (status, label) => {
+    vi.mocked(shared.getAccessLogs).mockResolvedValue({
+      patient_id: PATIENT_ID,
+      total_accesses: 1,
+      access_logs: [row('a', 2, { seal_status: status })],
+    });
+    renderPage();
+    const card = await screen.findByTestId('access-session');
+    const badge = within(card).getByTestId('seal-badge');
+    expect(badge).toHaveTextContent(new RegExp(`^${label}$`));
+    expect(badge).toHaveAttribute('data-seal-status', status);
+    expect(screen.getByText(/sealing records a signed fingerprint/i)).toBeInTheDocument();
+    expect(card).not.toHaveTextContent(/blockchain|on-chain|anchor|transaction/i);
+  });
+
+  it('calls a session with some rows still unsealed "Partly sealed"', async () => {
+    vi.mocked(shared.getAccessLogs).mockResolvedValue({
+      patient_id: PATIENT_ID,
+      total_accesses: 2,
+      access_logs: [row('b', 5, { seal_status: 'pending' }), row('a', 2, { seal_status: 'sealed' })],
+    });
+    renderPage();
+    expect(await screen.findByTestId('seal-badge')).toHaveTextContent('Partly sealed');
   });
 
   it('highlights an emergency access', async () => {
@@ -133,6 +170,12 @@ describe('AccessHistoryPage', () => {
 
 describe('AccessHistoryPage authority (WP9)', () => {
   beforeEach(() => {
+    vi.mocked(shared.getEmergencyCapsuleAccessLog).mockResolvedValue({
+      success: true,
+      patient_id: PATIENT_ID,
+      count: 0,
+      accesses: [],
+    });
     vi.mocked(usePatientAuthStore).mockImplementation(((selector: (state: unknown) => unknown) =>
       selector({ patient: { healthId: PATIENT_ID } })) as never);
   });

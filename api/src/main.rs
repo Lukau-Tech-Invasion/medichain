@@ -41,9 +41,9 @@ mod attachment_scan;
 mod audit_batching;
 mod audit_merkle;
 mod audit_outbox;
+mod audit_seal;
 mod auth_challenges;
 mod auth_sessions;
-mod blockchain;
 mod blood_inventory;
 mod care_access;
 mod clinical;
@@ -291,49 +291,6 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
     })
 }
 
-/// Connect the Substrate client, if one is configured.
-///
-/// Failure is fatal only when `BLOCKCHAIN_ENABLED` claims the chain is in use;
-/// otherwise it is a warning, because a disabled chain has nothing to connect
-/// to and every write path already returns a typed error for it.
-async fn connect_blockchain(
-) -> std::io::Result<Option<std::sync::Arc<crate::blockchain::SubstrateClient>>> {
-    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
-    Ok(match crate::blockchain::SubstrateClient::from_env() {
-        Some(ws_url) => {
-            log::info!("connecting to configured Substrate node");
-            match crate::blockchain::SubstrateClient::new(&ws_url).await {
-                Ok(client) => {
-                    let connected = client.health_check().await;
-                    if connected && client.is_ready() {
-                        println!("  [OK] Blockchain node connected");
-                    } else if crate::blockchain::blockchain_enabled() {
-                        return Err(std::io::Error::other(
-                            "blockchain is enabled but the node/subxt client is not ready",
-                        ));
-                    } else {
-                        println!("  [WARN] Blockchain node not reachable - will retry on requests");
-                    }
-                    Some(std::sync::Arc::new(client))
-                }
-                Err(e) => {
-                    if crate::blockchain::blockchain_enabled() {
-                        return Err(std::io::Error::other(format!(
-                            "blockchain client initialization failed: {e}"
-                        )));
-                    }
-                    log::warn!("blockchain client initialization failed: {e}");
-                    None
-                }
-            }
-        }
-        None => {
-            println!("  [INFO] No SUBSTRATE_WS_URL set - blockchain features disabled");
-            None
-        }
-    })
-}
-
 /// Fill the in-process caches the authorization path reads from.
 ///
 /// Outside demo mode every one of these is fatal: an empty user cache is not a
@@ -423,38 +380,14 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
         });
     }
 
-    // Merkle-batch the access audit (WP8). Runs whether or not the chain is
-    // up: batches wait, queued in the outbox, until it is.
+    // Seal the audit stream (WP8, ADR-0010): batch, chain, sign and export.
+    // PostgreSQL only; a failure is logged and retried, never shown to a request.
     if let Some(pool) = app_state.db_pool.clone() {
         crate::audit_batching::spawn_batching_job(
             pool,
             tokio::time::Duration::from_secs(AUDIT_BATCH_INTERVAL_SECS),
+            app_state.audit_seal.clone(),
         );
-    }
-
-    if let (Some(pool), Some(client)) = (
-        app_state.db_pool.clone(),
-        app_state.substrate_client.clone(),
-    ) {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-            loop {
-                interval.tick().await;
-                let delivered = crate::job_lock::run_exclusive(
-                    Some(&pool),
-                    crate::job_lock::JobKey::OutboxDelivery,
-                    || crate::audit_outbox::deliver_pending_chain_events(&pool, &client),
-                )
-                .await;
-                match delivered {
-                    Some(Ok(count)) if count > 0 => {
-                        log::info!("Delivered {} pending blockchain operation(s)", count)
-                    }
-                    Some(Ok(_)) | None => {}
-                    Some(Err(error)) => log::error!("Blockchain outbox delivery failed: {}", error),
-                }
-            }
-        });
     }
 
     // Start medication reminder background task
@@ -584,14 +517,15 @@ async fn main() -> std::io::Result<()> {
 
     let db_pool = initialise_storage().await?;
 
-    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
+    // Outside demo mode the audit seal needs a signing key and a checkpoint sink.
+    let audit_seal = crate::audit_seal::SealRuntime::from_env(crate::support::is_demo_mode())
         .map_err(std::io::Error::other)?;
-
-    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
-    let substrate_client = connect_blockchain().await?;
+    if audit_seal.signer.is_none() {
+        log::warn!("AUDIT_SEAL_SIGNING_KEY is not set: audit batches are sealed unsigned (demo)");
+    }
 
     // Create shared state with optional database pool (using async version for PostgreSQL support)
-    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
+    let state = AppState::new_with_pool_async(db_pool, audit_seal).await;
     if !crate::support::is_demo_mode()
         && state.repositories.backend != crate::repositories::StorageBackend::Postgres
     {
@@ -609,8 +543,7 @@ async fn main() -> std::io::Result<()> {
             .await
             .map_err(std::io::Error::other)?;
         // A published development key holding an Admin role is an open door,
-        // and nothing else checks for it — `blockchain.rs` guards only the
-        // chain signer.
+        // and nothing else checks for it.
         startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
             .await
             .map_err(std::io::Error::other)?;

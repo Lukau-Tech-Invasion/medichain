@@ -1,4 +1,5 @@
-import type { AccessLogEntry, RowVerification } from '@medichain/shared';
+import { combineSealStatuses } from '@medichain/shared';
+import type { AccessLogEntry, CombinedSealStatus, RowVerification, SealStatus } from '@medichain/shared';
 
 /**
  * Turns raw access-log rows into the sessions a patient can read.
@@ -36,8 +37,8 @@ export interface AccessSession {
   /** Distinct plain-language categories, in the order first touched. */
   resources: string[];
   emergency: boolean;
-  /** How many of the session's rows carry a finalized chain transaction. */
-  anchoredCount: number;
+  /** Each row's `seal_status`, as the server reported it (null when it did not). */
+  sealStatuses: Array<SealStatus | null>;
   rowCount: number;
   /** The access-log row ids in this session, for verification (WP8). */
   rowIds: string[];
@@ -129,7 +130,7 @@ function openSession(entry: AccessLogEntry): AccessSession {
     endedAt: entry.timestamp,
     resources: [entry.resource_type || RESOURCE_UNKNOWN],
     emergency: entry.emergency,
-    anchoredCount: entry.blockchain_tx_hash ? 1 : 0,
+    sealStatuses: [entry.seal_status ?? null],
     rowCount: 1,
     rowIds: [entry.access_id],
     authorityType: entry.authority_type ?? null,
@@ -151,9 +152,7 @@ function extend(session: AccessSession, entry: AccessLogEntry): void {
   session.endedAt = entry.timestamp;
   session.rowCount += 1;
   session.rowIds.push(entry.access_id);
-  if (entry.blockchain_tx_hash) {
-    session.anchoredCount += 1;
-  }
+  session.sealStatuses.push(entry.seal_status ?? null);
 }
 
 /**
@@ -178,33 +177,43 @@ export function groupAccessSessions(entries: AccessLogEntry[]): AccessSession[] 
   return sessions.reverse();
 }
 
-/** Anchor state of a whole session, for the badge beside it. */
-export type AnchorState = 'anchored' | 'partial' | 'pending';
-
 /**
- * Summarise a session's blockchain anchoring.
+ * Seal state of a whole session, for the badge beside it.
  *
  * @param session - A grouped session.
- * @returns `'anchored'` only when every row has a finalized transaction.
+ * @returns `exported` only when every row the server reported on is exported,
+ *   `sealed` when every one is at least sealed, `pending` when none is,
+ *   `partial` otherwise, and `null` when no row reported a state.
  */
-export function anchorStateOf(session: AccessSession): AnchorState {
-  if (session.anchoredCount === 0) return 'pending';
-  return session.anchoredCount === session.rowCount ? 'anchored' : 'partial';
+export function sealStateOf(session: AccessSession): CombinedSealStatus | null {
+  return combineSealStatuses(session.sealStatuses);
 }
 
 /** What verification says about one session (WP8). */
 export type SessionVerification =
   | { state: 'mismatch' }
-  | { state: 'verified'; blockNumber: number | null }
-  | { state: 'not_anchored' }
+  | { state: 'signature_invalid' }
+  /** Every row proves into a sealed batch, and every batch signature is valid. */
+  | { state: 'verified'; sealedAt: string | null }
+  /** Every row proves into a sealed batch, but a batch was sealed without a signature. */
+  | { state: 'verified_unsigned'; sealedAt: string | null }
+  | { state: 'not_sealed' }
   | { state: 'not_checked' };
+
+/** The most recent `sealed_at` among rows, or null when none carries one. */
+function latestSealedAt(rows: RowVerification[]): string | null {
+  const stamps = rows.map((row) => row.sealed_at).filter((s): s is string => typeof s === 'string');
+  return stamps.length > 0 ? stamps.reduce((a, b) => (new Date(a) >= new Date(b) ? a : b)) : null;
+}
 
 /**
  * Summarise the verification of a session's rows.
  *
  * Any row that no longer proves into its batch makes the whole session a
- * mismatch. "Verified" needs every row intact AND in a finalized batch;
- * anything short of that is "not anchored yet", never "verified".
+ * mismatch, and a failed signature is its own warning. "Verified" needs every
+ * row intact AND in a sealed batch with a valid signature; a batch sealed
+ * without a key is `verified_unsigned` -- a weaker state that must never read
+ * as verified. Anything not yet sealed is "not sealed yet".
  *
  * @param session - A grouped session.
  * @param rows - The verification result rows, by access-log id.
@@ -218,10 +227,14 @@ export function verificationOf(
   if (mine.some((row) => row === undefined)) return { state: 'not_checked' };
   const checked = mine as RowVerification[];
   if (checked.some((row) => row.integrity === 'mismatch')) return { state: 'mismatch' };
-  const finalized = checked.every((row) => row.integrity === 'intact' && row.anchor_status === 'finalized');
-  if (!finalized) return { state: 'not_anchored' };
-  const blocks = checked.map((row) => row.block_number).filter((n): n is number => typeof n === 'number');
-  return { state: 'verified', blockNumber: blocks.length > 0 ? Math.max(...blocks) : null };
+  if (checked.some((row) => row.signature === 'invalid')) return { state: 'signature_invalid' };
+  const sealed = checked.every(
+    (row) => row.integrity === 'intact' && (row.seal_status === 'sealed' || row.seal_status === 'exported'),
+  );
+  if (!sealed) return { state: 'not_sealed' };
+  const sealedAt = latestSealedAt(checked);
+  const fullySigned = checked.every((row) => row.signature === 'valid');
+  return { state: fullySigned ? 'verified' : 'verified_unsigned', sealedAt };
 }
 
 /** The translation key describing how a session was authorised, if any. */

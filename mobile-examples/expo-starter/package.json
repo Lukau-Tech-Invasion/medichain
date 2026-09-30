@@ -37,8 +37,7 @@
   },
   "expo": {
     "extra": {
-      "apiUrl": "${EXPO_PUBLIC_API_URL}",
-      "wsUrl": "${EXPO_PUBLIC_SUBSTRATE_WS_URL}"
+      "apiUrl": "${EXPO_PUBLIC_API_URL}"
     }
   }
 }

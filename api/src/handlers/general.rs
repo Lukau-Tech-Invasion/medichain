@@ -4,20 +4,13 @@ use super::*;
 // API Endpoints
 // ============================================================================
 
-/// The liveness payload. `blockchain_connected` is read from the chain client
-/// (it used to be hard-coded `false`, so a running chain was never shown).
-fn health_payload(data: &AppState) -> HealthCheckResponse {
-    let connected = crate::blockchain::blockchain_enabled()
-        && data
-            .substrate_client
-            .as_ref()
-            .is_some_and(|client| client.is_connected());
+/// The liveness payload, with the state of the sealed audit stream.
+async fn health_payload(data: &AppState) -> HealthCheckResponse {
     HealthCheckResponse {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
-        blockchain_connected: connected,
-        chain_network: crate::blockchain::chain_network().to_string(),
+        audit_seal: crate::audit_batching::audit_seal_summary(data).await,
     }
 }
 
@@ -27,7 +20,7 @@ fn health_payload(data: &AppState) -> HealthCheckResponse {
 /// name, so it stays exactly where it is.
 #[get("/health")]
 pub async fn health_check(data: web::Data<AppState>) -> impl Responder {
-    HttpResponse::Ok().json(health_payload(&data))
+    HttpResponse::Ok().json(health_payload(&data).await)
 }
 
 /// The same health check, on the one prefix a browser can actually reach.
@@ -50,7 +43,7 @@ pub async fn health_check(data: web::Data<AppState>) -> impl Responder {
 /// and `/health/db`, which report degradation instead of hiding it.
 #[get("/api/health")]
 pub async fn api_health_check(data: web::Data<AppState>) -> impl Responder {
-    HttpResponse::Ok().json(health_payload(&data))
+    HttpResponse::Ok().json(health_payload(&data).await)
 }
 
 /// Readiness probe (graceful degradation).
@@ -151,6 +144,8 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         uptime_seconds: u64,
         timestamp: chrono::DateTime<Utc>,
         services: Vec<ServiceHealth>,
+        /// The sealed audit stream: backlog, last seal and export, sink, signing.
+        audit_seal: serde_json::Value,
     }
 
     let mut services = Vec::new();
@@ -208,28 +203,6 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         },
     });
 
-    // Check Blockchain health (Substrate node)
-    let bc_start = Instant::now();
-    let bc_connected = match &data.substrate_client {
-        Some(client) => client.health_check().await,
-        None => false,
-    };
-    let bc_latency = bc_start.elapsed().as_millis() as u64;
-    services.push(ServiceHealth {
-        name: "Blockchain (Substrate)".to_string(),
-        status: if bc_connected {
-            "online".to_string()
-        } else {
-            "offline".to_string()
-        },
-        latency_ms: Some(bc_latency),
-        message: if bc_connected {
-            Some("Substrate node connected".to_string())
-        } else {
-            Some("Substrate node connection failed".to_string())
-        },
-    });
-
     // Determine overall status
     let overall_status = if services.iter().all(|s| s.status == "online") {
         "healthy".to_string()
@@ -248,6 +221,7 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         uptime_seconds,
         timestamp: Utc::now(),
         services,
+        audit_seal: crate::audit_batching::audit_seal_summary(&data).await,
     })
 }
 
@@ -291,8 +265,6 @@ fn validate_register_patient_request(
             success: false,
             patient_id: String::new(),
             nfc_tag_id: String::new(),
-            chain_status: None,
-            blockchain_tx_hash: None,
             message: e,
         })
     })
@@ -456,12 +428,6 @@ pub async fn register_patient(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    if crate::blockchain::blockchain_enabled() && patient_wallet.is_none() {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "wallet_address is required when blockchain integration is enabled".to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
     if patient_wallet.is_some_and(|wallet| !is_valid_wallet_address(wallet)) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "wallet_address must be a valid SS58 address".to_string(),
@@ -520,7 +486,7 @@ pub async fn register_patient(
         });
 
     // Re-running the deterministic seeder must not create a second patient,
-    // a second NFC tag, or an extra registration anchor. A conflicting key is
+    // a second NFC tag, or an extra registration event. A conflicting key is
     // refused instead of overwriting an unrelated record.
     if demo_ids.is_some() {
         match data.repositories.patients.get_by_id(&patient_id).await {
@@ -532,8 +498,6 @@ pub async fn register_patient(
                     success: true,
                     patient_id,
                     nfc_tag_id,
-                    chain_status: Some("already_seeded".to_string()),
-                    blockchain_tx_hash: None,
                     message: "Deterministic demo patient already exists.".to_string(),
                 });
             }
@@ -598,8 +562,6 @@ pub async fn register_patient(
                 success: false,
                 patient_id,
                 nfc_tag_id,
-                chain_status: None,
-                blockchain_tx_hash: None,
                 message: "Patient record was created, but account persistence failed; retry account provisioning"
                     .to_string(),
             });
@@ -614,30 +576,19 @@ pub async fn register_patient(
     );
 
     let id_hash = crate::support::hash_national_id(&req.national_id);
-    let chain_anchor = match crate::audit_outbox::anchor_patient_registration_or_queue(
-        &data,
-        &patient_id,
-        patient_wallet.unwrap_or_default(),
-        &id_hash,
-        "national_id",
-        &current_user_id,
-    )
-    .await
+    let digest = crate::audit_outbox::registration_digest(&patient_id, &id_hash, &current_user_id);
+    if let Err(error) =
+        crate::audit_outbox::record_patient_registered(&data, &patient_id, &digest).await
     {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Patient chain registration could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
-                success: false,
-                patient_id,
-                nfc_tag_id,
-                chain_status: None,
-                blockchain_tx_hash: None,
-                message: "Patient record was created, but its required blockchain registration could not be queued."
-                    .to_string(),
-            });
-        }
-    };
+        log::error!("Patient registration audit event could not be recorded: {error}");
+        return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
+            success: false,
+            patient_id,
+            nfc_tag_id,
+            message: "Patient record was created, but its registration audit event could not be recorded."
+                .to_string(),
+        });
+    }
 
     if let Err(error) =
         crate::emergency_capsule::publish_capsule(&data, &patient.emergency_info, &current_user_id)
@@ -648,9 +599,7 @@ pub async fn register_patient(
             success: false,
             patient_id,
             nfc_tag_id,
-            chain_status: Some(chain_anchor.status),
-            blockchain_tx_hash: chain_anchor.transaction_hash,
-            message: "Patient record was created, but the emergency capsule could not be stored and queued for anchoring."
+            message: "Patient record was created, but the emergency capsule could not be stored and recorded."
                 .to_string(),
         });
     }
@@ -659,8 +608,6 @@ pub async fn register_patient(
         success: true,
         patient_id,
         nfc_tag_id,
-        chain_status: Some(chain_anchor.status),
-        blockchain_tx_hash: chain_anchor.transaction_hash,
         message: "Patient registered successfully. NFC tag provisioned.".to_string(),
     })
 }

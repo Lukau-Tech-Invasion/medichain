@@ -84,7 +84,6 @@ fn governance_audit(caller: &crate::User, run_id: &str, action: &str) -> AccessL
         is_emergency_access: false,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
         authority_type: None,

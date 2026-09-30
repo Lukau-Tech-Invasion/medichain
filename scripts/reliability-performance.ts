@@ -377,8 +377,8 @@ async function main(): Promise<void> {
     'needs process control over the outbox worker, which this harness does not have'
   );
   skip(
-    'blockchain outage and recovery',
-    'BLOCKCHAIN_ENABLED=false here and no node can be built on this host (BC-003)'
+    'audit checkpoint export outage and recovery',
+    'AUDIT_CHECKPOINT_SINK=none here, and this harness has no control over a sink to break (the request path never depends on it)'
   );
 
   report(samples);

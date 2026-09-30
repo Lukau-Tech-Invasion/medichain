@@ -2,7 +2,7 @@
  * MediChain Mobile Entry Point with Polyfills
  * 
  * IMPORTANT: This file must be loaded FIRST before any other imports.
- * It sets up the polyfills required for blockchain libraries in React Native.
+ * It sets up the polyfills the crypto and binary-data helpers need in React Native.
  * 
  * @see COMPREHENSIVE_CONNECTION_ANALYSIS.md Section 7.2
  */
@@ -23,7 +23,7 @@ if (typeof global.process === 'undefined') {
   global.process = { env: {} };
 }
 
-// 4. TextEncoder/TextDecoder (if using @polkadot/api directly)
+// 4. TextEncoder/TextDecoder (if a library you add needs them)
 // Uncomment if needed:
 // import 'fast-text-encoding';
 

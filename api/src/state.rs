@@ -29,8 +29,9 @@ pub struct AppState {
     pub users: RwLock<HashMap<String, User>>,
     /// IPFS client for encrypted document storage
     pub ipfs_client: IpfsClient,
-    /// Substrate blockchain client (None if SUBSTRATE_WS_URL not set)
-    pub substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
+    /// The audit-sealing key and checkpoint sink (ADR-0010). Read by the sealing
+    /// job and by verification; never by a request path that must not fail.
+    pub audit_seal: crate::audit_seal::SealRuntime,
     /// WebSocket/SSE session manager for push notifications
     pub ws_manager: crate::websocket::WsSessionManager,
     /// Encryption key for medical records — the *current* version's key, for callers
@@ -58,7 +59,7 @@ pub struct AppState {
     pub patient_access: crate::patient_access::PatientAccessService,
     /// Phase 6 patient-owned mobile devices and ciphertext access capabilities.
     pub mobile_records: crate::mobile_records::MobileRecordStore,
-    /// Phase 8 local audit events for retryable chain anchoring and governance.
+    /// Phase 8 audit events (memory backend) and governance decisions.
     pub audit_outbox: crate::audit_outbox::AuditOutbox,
     /// NFC Card registry for demo
     pub card_registry: CardRegistry,
@@ -105,7 +106,7 @@ impl AppState {
             repositories,
             users: RwLock::new(HashMap::new()),
             ipfs_client: IpfsClient::from_env(),
-            substrate_client: None, // Use new_with_pool_async for blockchain support
+            audit_seal: crate::audit_seal::SealRuntime::unsigned_without_sink(),
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
             encryption_keyring,
@@ -125,10 +126,10 @@ impl AppState {
     }
 
     /// Create new AppState with optional PostgreSQL pool (async version)
-    /// Pass substrate_client to enable blockchain integration.
+    /// `audit_seal` is the validated sealing configuration (`SealRuntime::from_env`).
     pub async fn new_with_pool_async(
         db_pool: Option<sqlx::PgPool>,
-        substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
+        audit_seal: crate::audit_seal::SealRuntime,
     ) -> Self {
         // Loaded from ENCRYPTION_KEYS so it survives restarts (see encryption_keyring.rs);
         // falls back to an ephemeral key with a loud warning if unset.
@@ -228,7 +229,7 @@ impl AppState {
             repositories,
             users: RwLock::new(HashMap::new()),
             ipfs_client: IpfsClient::from_env(),
-            substrate_client,
+            audit_seal,
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
             encryption_keyring,

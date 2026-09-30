@@ -17,7 +17,7 @@ use sqlx::PgPool;
 /// The background jobs, each with its own advisory-lock key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKey {
-    OutboxDelivery,
+    AuditCheckpointExport,
     MedicationReminders,
     AppointmentReminders,
     RetentionAssessment,
@@ -32,7 +32,7 @@ impl JobKey {
         const PREFIX: i64 = 0x4d43_4a4f_4200_0000;
         PREFIX
             + match self {
-                Self::OutboxDelivery => 1,
+                Self::AuditCheckpointExport => 1,
                 Self::MedicationReminders => 2,
                 Self::AppointmentReminders => 3,
                 Self::RetentionAssessment => 4,
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn every_job_has_its_own_key() {
         let keys = [
-            JobKey::OutboxDelivery,
+            JobKey::AuditCheckpointExport,
             JobKey::MedicationReminders,
             JobKey::AppointmentReminders,
             JobKey::RetentionAssessment,

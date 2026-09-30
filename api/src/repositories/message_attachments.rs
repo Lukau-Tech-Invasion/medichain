@@ -105,7 +105,7 @@ impl MessageAttachmentRepository for MemoryMessageAttachmentRepository {
             .filter(|row| wanted.contains(&row.message_id))
             .cloned()
             .collect();
-        found.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        found.sort_by_key(|a| a.created_at);
         Ok(found)
     }
 }

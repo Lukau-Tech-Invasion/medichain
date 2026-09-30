@@ -9,7 +9,7 @@ Note: This is a concise reference. For full request/response shapes see `api/src
 - GET /health — Public health check
 - GET /health/ready — Readiness check
 - GET /health/db — Database health (shows DB connection status)
-- GET /api/health/detailed — Detailed system health (services, uptime)
+- GET /api/health/detailed — Detailed system health (services, uptime, `audit_seal`)
 
 ## Authentication / Users
 - POST /api/auth/challenge — Get authentication challenge (wallet)
@@ -109,9 +109,9 @@ MediChain REST API provides secure access to patient identity, medical records, 
 
 ## Authentication
 
-### Wallet-Based Blockchain Authentication
+### Wallet-based authentication (to be replaced)
 
-MediChain uses **wallet-based blockchain authentication** with SS58 addresses. Users authenticate via their blockchain wallets (Polkadot.js, Subwallet, etc.) rather than traditional username/password.
+MediChain currently uses **wallet-based authentication** with SS58 addresses. Users authenticate by signing a challenge with their wallet. ADR-0010 replaces this with password sign-in in Phase C; this section describes the interim behaviour.
 
 For API testing, the `X-User-Id` header accepts a user's wallet address (SS58 format):
 
@@ -121,7 +121,7 @@ X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
 
 ### User Registration
 
-New users are registered on the blockchain with their wallet address and assigned a role:
+New users are registered with their wallet address and assigned a role:
 - **Admin** - Full system access, user management
 - **Doctor** - Patient registration, medical record access/edit
 - **Nurse** - Patient registration, medical record access/edit
@@ -178,10 +178,9 @@ Register a new patient with national ID.
 ```json
 {
   "success": true,
-  "message": "Patient registered with blockchain verification",
+  "message": "Patient registered",
   "patient_id": "PAT-001",
   "national_health_id": "MCHI-2026-XXXX-XXXX",
-  "blockchain_tx": "0xabc123...",
   "registered_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 }
 ```
@@ -323,6 +322,8 @@ Get access logs for a patient.
 **Path Parameters:**
 - `patient_id` - Patient ID (e.g., `PAT-001`)
 
+`seal_status` is `pending` (not yet batched), `sealed` or `exported`.
+
 **Response (200 OK):**
 ```json
 {
@@ -332,11 +333,33 @@ Get access logs for a patient.
       "timestamp": "2026-01-04T13:00:00Z",
       "accessed_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
       "access_type": "view",
-      "reason": "Scheduled appointment"
+      "reason": "Scheduled appointment",
+      "seal_status": "sealed"
     }
   ]
 }
 ```
+
+---
+
+### Audit sealing
+
+Access-log rows and audit events are sealed in signed, hash-chained batches and
+exported as checkpoints (see [`AUDIT_LOG.md`](AUDIT_LOG.md)). The API exposes the
+result through these fields; sealing is asynchronous and never refuses a request.
+
+#### `GET /api/patients/{id}/verify`
+
+Each row: `seal_status` (`pending` | `sealed` | `exported` | `null` = unbatched),
+`batch_hash`, `signature` (`valid` | `invalid` | `unsigned` | `null`), `sealed_at`,
+`exported_at`. Top level: `seal_key` (`{ key_id, algorithm: "ed25519", public_key }`
+or `null`) and the capsule check `match` | `mismatch` | `unsealed` | `none`.
+
+Elsewhere: capsule versions and `POST /api/patients/{id}/emergency-capsule` return
+`seal_status`; medical-record upload and list items return `seal_status`; and
+`GET /api/health`, dashboards, analytics and compliance views return
+`audit_seal: { unsealed_events, last_sealed_at, last_exported_at, sink, signing }`
+(`sink`: `none` | `filesystem`; `signing`: `ed25519` | `unsigned`).
 
 ---
 

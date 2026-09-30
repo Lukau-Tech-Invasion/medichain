@@ -12,8 +12,5 @@ export * from './connectionHealth';
 // Offline queue for pending operations
 export * from './offlineQueue';
 
-// Substrate WebSocket connection manager
-export * from './substrateConnection';
-
 // Error handling utilities
 export * from './errorHandler';

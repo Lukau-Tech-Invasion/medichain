@@ -3,7 +3,7 @@
 # Multi-stage build for the MediChain API (Rust workspace).
 #
 # IMPORTANT: the build context MUST be the repository ROOT, because the `api`
-# crate depends on the `crypto` and `pallets/*` workspace members. Build with:
+# crate depends on the `crypto` workspace member. Build with:
 #
 #   docker build -f api/Dockerfile -t medichain-api .
 #
@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Build dependencies from manifests and placeholder sources first. This cache
 # layer is intentionally independent of application source: an API handler
-# change must not force a full Rust/Substrate dependency rebuild before every
+# change must not force a full Rust dependency rebuild before every
 # runtime verification.
 COPY Cargo.toml Cargo.lock ./
 COPY crypto/Cargo.toml crypto/Cargo.toml
@@ -34,14 +34,8 @@ RUN mkdir -p crypto/src api/src \
     && rm -rf crypto/src api/src
 
 # Copy the workspace members the API actually needs after dependency caching.
-# (node/ and runtime/ are excluded from the workspace and not built here.)
 COPY crypto ./crypto
 COPY api ./api
-# NOTE: no `COPY pallets`. The pallets moved to blockchain/pallets and left the
-# root workspace entirely; `api` never depended on them (its only path
-# dependency is `crypto`). Copying a path that no longer exists fails the build
-# outright, and this only surfaced when the image was first rebuilt after the
-# move — nothing else references this Dockerfile.
 
 # Build only the API binary (and its path dependencies).
 # Docker preserves source mtimes from the build context. Refresh them after

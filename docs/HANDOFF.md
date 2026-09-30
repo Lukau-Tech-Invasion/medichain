@@ -4,6 +4,14 @@ Status of the "MediChain remaining features" build prompt (WP1–WP16): what is
 done, what is in progress, and the plan for everything left. Pick up from
 **"Resume here"**.
 
+> **2026-09-29 — superseded in part by ADR-0010.** WP12.2 (wallet step-up) and
+> WP12.3 (patient key custody) are superseded by
+> [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md) and the campaign
+> plan [`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md): step-up becomes
+> TOTP/password (Phase C) and there are no patient wallets or recovery phrases to
+> custody. Do not implement those two packages as written below. The rest of this
+> handoff is a record of the state on 2026-09-26.
+
 ## Continuation evidence (2026-09-26, Windows)
 
 ### Latest verified state (17:55 SAST)

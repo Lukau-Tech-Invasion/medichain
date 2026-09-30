@@ -89,7 +89,7 @@ export MEDICHAIN_DEV_MODE=1
 # cannot switch the limiter off.
 export MEDICHAIN_RATE_LIMIT_ANONYMOUS="${MEDICHAIN_RATE_LIMIT_ANONYMOUS:-6000}"
 export MEDICHAIN_RATE_LIMIT_AUTHENTICATED="${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-6000}"
-export BLOCKCHAIN_ENABLED=false
+export AUDIT_CHECKPOINT_SINK=none
 export DISPENSING_POLICY_PATH="$(pwd)/api/data/dispensing_policy.example.json"
 
 # Third-party integrations stay off: a browser test must never reach a real SMS

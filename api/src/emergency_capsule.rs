@@ -1,29 +1,29 @@
-//! Off-chain emergency capsule and its on-chain commitment (Horizon HZ-003).
+//! Emergency capsule and its sealed commitment (Horizon HZ-003, ADR-0010).
 //!
 //! # Why this exists
 //!
 //! `blood_type`, `organ_donor`, and `dnr_status` used to be stored in the clear
-//! in on-chain storage, as a documented exception to this project's "hashes and
-//! pointers only" rule, so a paramedic could read them without a decrypt
+//! in an immutable ledger, as a documented exception to this project's "hashes
+//! and pointers only" rule, so a paramedic could read them without a decrypt
 //! round-trip. A POPIA legal review on 2026-07-28 concluded that exception does
 //! not survive contact with real patient data: an immutable ledger cannot honour
 //! the correction, deletion, and retention-limitation duties POPIA places on
-//! health information, and a pseudonymous `AccountId` does not cure it — the
+//! health information, and a pseudonymous account id does not cure it — the
 //! Information Regulator's de-identification standard turns on whether data can
 //! be re-linked to a person "by a reasonably foreseeable method", and this
 //! project already accepts that such correlation may happen.
 //!
 //! # What replaced it
 //!
-//! The values live in an **off-chain capsule** (this module), where they can be
-//! corrected, superseded, and deleted. Only a 32-byte commitment goes on-chain,
-//! via `pallet-medical-records::set_emergency_capsule_commitment`.
+//! The values live in an encrypted **capsule** (this module), where they can be
+//! corrected, superseded, and deleted. Only a 32-byte commitment is recorded
+//! elsewhere: as an `emergency_capsule_published` audit event, which the sealing
+//! job puts into a signed, hash-chained batch (`audit_batching`).
 //!
 //! The emergency-read requirement that motivated the original design is
 //! untouched: the paramedic path reads this capsule from Postgres and always
-//! did — it never read from chain. What the commitment adds is the ability to
-//! *detect tampering* with that off-chain copy, which the previous design did
-//! not provide either.
+//! did. What the sealed commitment adds is the ability to *detect tampering*
+//! with that stored copy: `GET /api/patients/{id}/verify` compares the two.
 //!
 //! # Provenance
 //!
@@ -68,11 +68,12 @@ impl BloodTypeSource {
 
 /// The emergency data a first responder needs, with provenance.
 ///
-/// Held off-chain (Postgres today), committed to on-chain as a 32-byte digest.
+/// Held encrypted in the database, committed to by a 32-byte digest that is
+/// sealed in the audit stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmergencyCapsule {
     pub patient_id: String,
-    /// Monotonically increasing. Must be > the version currently on-chain, so a
+    /// Monotonically increasing. Must be > the newest stored version, so a
     /// superseded capsule cannot be replayed as current.
     pub version: u32,
 
@@ -128,7 +129,7 @@ impl EmergencyCapsule {
         self.dnr_status && self.dnr_verified_by.is_some() && self.dnr_revoked_at.is_none()
     }
 
-    /// The 32-byte commitment published on-chain.
+    /// The 32-byte commitment recorded in the audit stream.
     ///
     /// Uses explicit length prefixes rather than delimiter-joined fields, so no
     /// combination of field values can produce the same digest as a different
@@ -162,16 +163,16 @@ impl EmergencyCapsule {
         hasher.finalize().into()
     }
 
-    /// Whether this capsule matches a commitment published on-chain.
+    /// Whether this capsule matches a recorded commitment.
     ///
-    /// A mismatch means the off-chain copy has been altered, replaced, or is a
+    /// A mismatch means the stored copy has been altered, replaced, or is a
     /// different version than the one committed — all cases where the data must
     /// not be trusted without investigation.
-    pub fn matches_commitment(&self, on_chain: &[u8; 32]) -> bool {
+    pub fn matches_commitment(&self, recorded: &[u8; 32]) -> bool {
         // Not constant-time on purpose: both sides of this comparison are
         // public integrity values, not secrets, so there is no timing oracle to
         // protect against.
-        &self.commitment() == on_chain
+        &self.commitment() == recorded
     }
 }
 
@@ -184,7 +185,7 @@ fn rfc3339(value: chrono::DateTime<chrono::Utc>) -> String {
 /// `None` and `Some("")` are genuinely different states — "no DNR document on
 /// file" versus "a DNR document whose reference is blank" — so they must not
 /// produce the same digest. A presence byte keeps them distinct; without it,
-/// clearing a field and blanking it would be indistinguishable on-chain.
+/// clearing a field and blanking it would be indistinguishable in the digest.
 fn opt_field<F: FnMut(&[u8])>(field: &mut F, value: Option<String>) {
     match value {
         Some(v) => {
@@ -196,7 +197,7 @@ fn opt_field<F: FnMut(&[u8])>(field: &mut F, value: Option<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// Storage, anchoring, and break-glass reads
+// Storage, sealing, and break-glass reads
 // ---------------------------------------------------------------------------
 
 use actix_web::web;
@@ -217,15 +218,15 @@ pub struct VerifiedCapsule {
     pub commitment_verified: bool,
 }
 
-/// Build, encrypt, store, and anchor a new capsule version.
+/// Build, encrypt, store, and record a new capsule version.
 ///
 /// Call this whenever a patient's emergency information changes. Versions are
 /// allocated from storage rather than passed in, so two callers cannot mint the
 /// same version.
 ///
-/// Chain unavailability does not lose the clinical write: a failed submission
-/// is durably queued before this function succeeds. A finalized transaction is
-/// written back to the capsule row immediately.
+/// The commitment is written as an `emergency_capsule_published` audit event and
+/// sealed by the audit job later (`audit_batching`); publication never waits
+/// for sealing. Only that durable event write can fail it.
 pub async fn publish_capsule(
     data: &web::Data<AppState>,
     info: &EmergencyInfo,
@@ -253,7 +254,7 @@ pub async fn publish_capsule(
         .map_err(|e| format!("could not encrypt capsule: {e}"))?
         .to_bytes();
 
-    let mut stored = repo
+    let stored = repo
         .put(EmergencyCapsuleEntity {
             patient_id: info.patient_id.clone(),
             version: next_version,
@@ -265,42 +266,18 @@ pub async fn publish_capsule(
             revoked_at: None,
             revoked_by: None,
             revocation_reason: None,
-            chain_tx_hash: None,
-            chain_finalized: false,
+            seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
         })
         .await
         .map_err(|e| format!("could not store capsule: {e}"))?;
 
-    let patient_account = data
-        .repositories
-        .patients
-        .get_by_id(&info.patient_id)
-        .await
-        .ok()
-        .and_then(|patient| patient.wallet_address);
-    if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
-        return Err(format!(
-            "capsule {}/v{} is stored but the patient has no blockchain wallet",
-            info.patient_id, next_version
-        ));
-    }
-    let outcome = crate::audit_outbox::anchor_capsule_or_queue(
+    crate::audit_outbox::record_capsule_published(
         data,
         &info.patient_id,
-        patient_account.as_deref().unwrap_or_default(),
         &commitment,
         next_version,
     )
     .await?;
-    if let Some(transaction_hash) = outcome.transaction_hash {
-        repo.record_chain_result(&info.patient_id, next_version, &transaction_hash, true)
-            .await
-            .map_err(|error| {
-                format!("chain finalized but its capsule result was not saved: {error}")
-            })?;
-        stored.chain_tx_hash = Some(transaction_hash);
-        stored.chain_finalized = true;
-    }
 
     Ok(stored)
 }
@@ -343,11 +320,11 @@ pub async fn load_current_verified(
     };
 
     // Recomputing the digest catches modification of the stored ciphertext. It
-    // does NOT by itself prove the chain agrees: the stored `commitment` column
-    // is the value that was submitted, so an attacker able to rewrite both the
-    // blob and this column would still pass. Checking against live chain state
-    // requires a connected node and is only meaningful once
-    // `chain_finalized` is true for the version.
+    // does NOT by itself prove the sealed record agrees: the stored `commitment`
+    // column is the value that was recorded, so an attacker able to rewrite both
+    // the blob and this column would still pass. The comparison with the sealed
+    // commitment is `handlers::audit_verification`, and is only meaningful once
+    // the version's publication event is in a sealed batch.
     //
     // A commitment column that is not valid 32-byte hex fails verification
     // rather than being skipped — an unreadable commitment is not a passing one.

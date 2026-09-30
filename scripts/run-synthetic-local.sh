@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Synthetic-data-only local run. No PostgreSQL, no chain, no third-party keys.
+# Synthetic-data-only local run. No PostgreSQL, no checkpoint export, no third-party keys.
 #
 # In-memory repositories are deliberate: the whole process state is ephemeral,
 # so the kill switch is "kill the process" and rollback is "restart it". That is
@@ -22,7 +22,7 @@ export REQUIRE_SIGNATURES=false
 # symptom -- "approval is not executable: status 'pending'" -- points at the
 # approval workflow instead of at a missing environment variable.
 export MEDICHAIN_DEV_MODE=1
-export BLOCKCHAIN_ENABLED=false     # no training chain attached yet; placeholder hashes
+export AUDIT_CHECKPOINT_SINK=none    # no checkpoint is exported
 export DISPENSING_POLICY_PATH="C:/Users/Admin/RustroverProjects/medichain/api/data/dispensing_policy.example.json"
 unset MEDICHAIN_STORAGE             # in-memory repositories
 unset DATABASE_URL

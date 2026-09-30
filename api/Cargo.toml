@@ -51,11 +51,9 @@ env_logger = "0.11"
 # Async traits and error handling
 async-trait = "0.1"
 thiserror = "1.0"
-subxt = { workspace = true }
-# parity-scale-codec removed 2026-07-31: the API crate never used it (no
-# `codec::`, no Encode/Decode derives). The pallets declare it themselves.
+# sr25519 wallet verification and the dev-account check. Leaves with the wallets
+# (ADR-0010, Phase C).
 sp-core = { workspace = true, features = ["std"] }
-subxt-signer = { workspace = true }
 
 # Cryptography for NFC simulation
 sha3 = "0.10"
@@ -103,8 +101,8 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 # it able to succeed.
 #
 # `rustls-tls` rather than native-tls: the graph already carries rustls (via
-# reqwest and subxt), so this adds a protocol implementation rather than a
-# second TLS stack. `default-features = false` drops the file/sendmail
+# reqwest), so this adds a protocol implementation rather than a second TLS
+# stack. `default-features = false` drops the file/sendmail
 # transports and the blocking runtime, none of which this uses.
 lettre = { version = "0.11", default-features = false, features = [
     "smtp-transport",

@@ -1,8 +1,8 @@
 //! Emergency capsule lifecycle management (Horizon HZ-003).
 //!
 //! - `POST /api/patients/{id}/emergency-capsule` — publish a new capsule
-//!   version from the patient's current emergency information and anchor its
-//!   commitment on-chain.
+//!   version from the patient's current emergency information and record its
+//!   commitment in the sealed audit stream.
 //! - `POST /api/patients/{id}/emergency-capsule/revoke` — revoke a version.
 //! - `GET  /api/patients/{id}/emergency-capsule/access-log` — who read this
 //!   patient's emergency data, why, and which fields were revealed.
@@ -19,8 +19,7 @@ use crate::middleware::error_handling::{error_codes, error_envelope_json};
 
 /// Resolve the caller and require a healthcare-provider role.
 ///
-/// Publishing a capsule is provider-gated for the same reason the pallet gates
-/// `set_emergency_capsule_commitment`: the commitment must correspond to a
+/// Publishing a capsule is provider-gated: the commitment must correspond to a
 /// capsule the clinical system actually holds, so an arbitrary authenticated
 /// account must not be able to mint one.
 fn require_provider(data: &web::Data<AppState>, req: &HttpRequest) -> Result<String, HttpResponse> {
@@ -183,23 +182,13 @@ pub async fn publish_emergency_capsule(
     };
 
     match crate::emergency_capsule::publish_capsule(&data, &profile.emergency_info, &caller).await {
-        Ok(stored) => {
-            let anchoring = if stored.chain_finalized {
-                "finalized"
-            } else if crate::blockchain::blockchain_enabled() {
-                "pending"
-            } else {
-                "disabled"
-            };
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "patient_id": stored.patient_id,
-                "version": stored.version,
-                "commitment": stored.commitment,
-                "anchoring": anchoring,
-                "blockchain_tx_hash": stored.chain_tx_hash,
-            }))
-        }
+        Ok(stored) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "patient_id": stored.patient_id,
+            "version": stored.version,
+            "commitment": stored.commitment,
+            "seal_status": stored.seal_status,
+        })),
         Err(e) => {
             log::error!("Capsule publication failed: {e}");
             HttpResponse::InternalServerError().json(error_envelope_json(

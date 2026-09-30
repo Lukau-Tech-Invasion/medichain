@@ -52,7 +52,6 @@ const ha_NG: TranslationRecord = {
     quickLoginHint: 'Danna kowane mara lafiya don shiga nan take',
     signInNfc: 'Shiga da katin NFC',
     scanQr: 'Duba lambar QR',
-    securityNotice: 'An tabbatar da tsaro ta hanyar blockchain',
     errEnterWallet: 'Da fatan za a shigar da adireshin walat ɗinka',
     errInvalidWallet: 'Tsarin adireshi ba daidai ba ne. Haruffa 48 da suka fara da "5".',
   },
@@ -82,7 +81,6 @@ const ha_NG: TranslationRecord = {
     call: 'Kira',
     cardHash: 'Hash na Katin',
     lastUpdated: 'An Sabunta na Ƙarshe',
-    securedBy: 'An Kiyaye ta hanyar blockchain na MediChain',
   },
 };
 

@@ -60,12 +60,8 @@ source $HOME/.cargo/env
 rustc --version
 cargo --version
 
-# Add WebAssembly target (for Substrate)
-rustup target add wasm32-unknown-unknown
-
-# Install nightly toolchain (required for some Substrate components)
-rustup toolchain install nightly
-rustup target add wasm32-unknown-unknown --toolchain nightly
+# No WebAssembly targets or nightly toolchain are needed: the API and the crypto
+# crate build on the stable toolchain pinned by rust-toolchain.toml.
 ```
 
 ### Install Node.js (for Frontend)
@@ -138,7 +134,6 @@ cargo build --release --workspace
 
 # Or build specific components:
 cargo build --release -p medichain-api      # API server only
-cargo build --release -p medichain-node     # Blockchain node only
 cargo build --release -p medichain-crypto   # Crypto library only
 ```
 
@@ -151,7 +146,6 @@ medichain/
 └── target/
     └── release/
         ├── medichain-api      # REST API server executable
-        ├── medichain-node     # Blockchain node executable
         └── lib*.so            # Shared libraries
 ```
 
@@ -204,6 +198,12 @@ When started successfully, you'll see:
 export HOST=0.0.0.0          # Listen on all interfaces (default: 127.0.0.1)
 export PORT=8090             # Port number (default: 8090; 8080 is IPFS)
 export RUST_LOG=debug        # Log level: error, warn, info, debug, trace
+
+# Sealed audit stream (see docs/AUDIT_LOG.md)
+export AUDIT_CHECKPOINT_SINK=none          # none | filesystem (production refuses none)
+# export AUDIT_CHECKPOINT_DIR=/abs/path    # required with filesystem
+# export AUDIT_SEAL_SIGNING_KEY=<64 hex>   # openssl rand -hex 32; required outside demo
+                                            # mode. Unset in demo mode = batches sealed unsigned.
 ```
 
 ### Test the API
@@ -242,7 +242,7 @@ curl -X POST http://localhost:8090/api/register \
 
 ### Authentication
 
-MediChain uses **wallet-based blockchain authentication**. Users authenticate via their blockchain wallet (Polkadot.js, Subwallet, etc.) and the system uses their SS58 address for identification.
+MediChain currently uses **wallet-based authentication**. Users authenticate with their wallet (Polkadot.js, Subwallet, etc.) and the system uses their SS58 address for identification. ADR-0010 replaces this with password sign-in in Phase C.
 
 **Roles:**
 - **Admin** - Full system access
@@ -252,7 +252,7 @@ MediChain uses **wallet-based blockchain authentication**. Users authenticate vi
 - **Pharmacist** - Can view prescriptions
 - **Patient** - Read-only access to own records
 
-> **Note:** Legacy demo user IDs (e.g., `DOC-001`, `ADMIN-001`) are deprecated. Register users via the blockchain with their wallet addresses.
+> **Note:** Legacy demo user IDs (e.g., `DOC-001`, `ADMIN-001`) are deprecated. Register users with their wallet addresses.
 
 ---
 
@@ -397,11 +397,6 @@ cargo audit                          # Security scan
 ### Run Specific Test Suites
 
 ```bash
-# Pallet tests (blockchain logic)
-cargo test -p pallet-access-control
-cargo test -p pallet-patient-identity
-cargo test -p pallet-medical-records
-
 # Crypto library tests
 cargo test -p medichain-crypto
 

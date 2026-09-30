@@ -161,7 +161,7 @@ pub async fn bootstrap_admin(
 }
 
 /// Register a new user with wallet address (Admin only)
-/// This creates a new user account linked to a blockchain wallet
+/// This creates a new user account linked to a wallet
 #[post("/api/auth/register")]
 pub async fn wallet_register(
     data: web::Data<AppState>,
