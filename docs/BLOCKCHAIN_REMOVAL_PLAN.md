@@ -164,6 +164,6 @@ UI wording: no "blockchain", "on-chain", "anchored", "finalized block",
 | Phase | State |
 | --- | --- |
 | A | Done (2026-09-30): chain removed, sealed audit stream; 938 API + 37 crypto tests, clippy, fmt, deny, all gates green except wallet terms (Phase C) and the pre-existing PatientNavigation colour classes |
-| B | Not started |
-| C | Not started |
-| D | Not started |
+| B | Account-key migration implemented in `73bae3f`: internal user IDs, actor references, and a read-only mapping for sealed historical keys. A forward migration now backfills a separate issuance registry; new registered patients receive random `MCHI-` IDs. Scratch-database migration and non-reuse checks pass. Full API and browser regression remains. |
+| C | In progress: password/TOTP login, activation and reset codes, durable sessions, and factor challenges are implemented. The API no longer exposes signature or client identity headers in CORS, and privileged assurance requires a verified JWT. Rust focused tests, `cargo check -p medichain-api`, and both portal builds pass; full suite and browser proof remain. Class C challenges are not yet enforced by mutation handlers. |
+| D | In progress (2026-10-02): backed up the live demo `public` schema, rebuilt and deployed API and both portals in Docker, and verified doctor/admin login, patient activation/login, record viewing, medical ID issuance display, and session reloads in a browser. Full role and browser suites, trace-gate cleanup (475 matches on 2026-10-01, mostly historical tests, migrations and docs), independent locked S3 checkpoint/backup custody, and restore proof remain. |

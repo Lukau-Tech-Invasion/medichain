@@ -1,72 +1,7 @@
 use super::*;
 
-// =============================================================================
-// AUTH CHALLENGE ENDPOINT (SEC-005)
-// =============================================================================
+const MAX_STAFF_PHONE_LEN: usize = 32;
 
-/// Request body for auth challenge
-#[derive(Debug, Deserialize)]
-pub struct AuthChallengeRequest {
-    pub wallet_address: String,
-}
-
-/// Get a one-time wallet-ownership challenge to sign with your wallet.
-///
-/// Proves wallet ownership at a point in time (suited to a login-style
-/// exchange, e.g. `/api/auth/jwt`). This is **not** sufficient on its own to
-/// authenticate a specific subsequent mutating request:
-/// `SignatureAuthMiddleware` requires a signature bound to that request's own
-/// method, path, and body (Horizon HZ-007) — see
-/// `middleware::signature_auth::generate_auth_challenge`'s doc comment.
-#[post("/api/auth/challenge")]
-pub async fn get_auth_challenge(
-    data: web::Data<AppState>,
-    body: web::Json<AuthChallengeRequest>,
-) -> impl Responder {
-    // Validate wallet address format
-    if !is_valid_wallet_address(&body.wallet_address) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "Invalid wallet address format".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
-    let Some(pool) = data.db_pool.as_ref() else {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            error: "Authentication is temporarily unavailable".to_string(),
-            code: "AUTH_STORAGE_REQUIRED".to_string(),
-        });
-    };
-    let challenge = match crate::auth_challenges::issue(pool, &body.wallet_address).await {
-        Ok(challenge) => challenge,
-        Err(crate::auth_challenges::IssueError::RateLimited) => {
-            return HttpResponse::TooManyRequests().json(ErrorResponse {
-                error: "Too many authentication challenges. Please try again shortly.".to_string(),
-                code: "AUTH_CHALLENGE_RATE_LIMITED".to_string(),
-            });
-        }
-        Err(crate::auth_challenges::IssueError::Database(error)) => {
-            log::error!("Could not create authentication challenge: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Authentication is temporarily unavailable".to_string(),
-                code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "challenge": challenge,
-        "instructions": {
-            "step1": "Sign the challenge message with your wallet's sr25519 private key",
-            "step2": "Submit challenge_id, wallet_address, nonce and signature to /api/auth/jwt",
-            "note": format!("Challenge expires in {} seconds and can be used once", challenge.expires_in_secs)
-        }
-    }))
-}
-
-/// Get list of healthcare providers (doctors, nurses, etc.) for selection
-/// Requires: Any authenticated user. Patients need this directory to start a
 /// secure conversation, while the response deliberately exposes only public
 /// provider identity fields.
 /// Query params: ?role=Doctor (optional filter by role)
@@ -81,7 +16,7 @@ pub async fn get_providers(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Sign in is required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -135,16 +70,16 @@ pub async fn get_providers(
     }))
 }
 
-/// Get current user info from wallet address
+/// Get current user info from the verified session.
 /// The caller's own identity, in full.
 ///
 /// Returns everything a screen might otherwise ask the user to re-enter —
-/// wallet, role, department, specialty, licence — plus the role's derived
+/// account ID, role, department, specialty, licence — plus the role's derived
 /// permissions, so the frontend has one authoritative provider context instead
 /// of each page re-deriving its own (audit RC-1, `docs/WORKFLOW_AUDIT.md`).
 ///
-/// Self-scoped: `get_current_user_id` resolves the caller from a verified JWT
-/// or a signature-bound `X-User-Id`, and the response describes only that
+/// Self-scoped: `get_current_user_id` resolves the caller from a verified JWT,
+/// and the response describes only that
 /// account, so no authorization check beyond "you are registered" applies.
 #[get("/api/auth/me")]
 pub async fn get_current_user_info(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
@@ -182,7 +117,7 @@ pub async fn get_user_with_profile(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Sign in is required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -221,7 +156,7 @@ pub async fn get_user_with_profile(
     let mut user_with_profile = user.clone();
 
     if let Some(pool) = &data.db_pool {
-        // Query user profile by wallet address (join with users table to get user_id)
+        // Query the authenticated account's profile by its internal user ID.
         let profile_result: Result<Option<crate::models::user::DbUserProfile>, _> = sqlx::query_as(
             r#"
             SELECT up.* FROM user_profiles up
@@ -257,7 +192,7 @@ pub async fn list_users(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Sign in is required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -406,7 +341,7 @@ pub async fn get_user_details(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Sign in is required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -538,7 +473,7 @@ pub async fn update_user_profile(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Sign in is required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -657,7 +592,7 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Sign in is required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }

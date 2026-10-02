@@ -23,6 +23,7 @@ pub fn parse_user_id(id: &str) -> Option<Uuid> {
 }
 
 /// The user a key (current id or legacy key) belongs to, if any.
+#[cfg_attr(not(test), allow(dead_code))] // retained for historical-key lookups
 pub async fn resolve(pool: &PgPool, key: &str) -> Result<Option<Uuid>, sqlx::Error> {
     sqlx::query_scalar("SELECT user_id FROM actor_directory WHERE actor_key = $1")
         .bind(key)
@@ -65,27 +66,6 @@ pub async fn user_ids_for_keys(
         .into_iter()
         .map(|(key, user_id)| (key, user_id.to_string()))
         .collect())
-}
-
-/// Remember a wallet a user signs in with, so sign-in and historical rows can
-/// both find them. Idempotent. Used only by the wallet flows phase C removes.
-pub async fn record_legacy_wallet(
-    pool: &PgPool,
-    wallet: &str,
-    user_id: &str,
-) -> Result<(), sqlx::Error> {
-    let Some(user_uuid) = parse_user_id(user_id) else {
-        return Ok(());
-    };
-    sqlx::query(
-        "INSERT INTO legacy_wallet_identities (wallet_address, user_id, kind)
-         VALUES ($1, $2, 'wallet') ON CONFLICT (wallet_address) DO NOTHING",
-    )
-    .bind(wallet)
-    .bind(user_uuid)
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]

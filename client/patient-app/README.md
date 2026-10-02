@@ -13,4 +13,4 @@ Key files:
 - `public/sw.js` — service worker for offline support
 
 Auth & API:
-- Uses `client/shared` API wrappers and expects `X-User-Id` header for authentication in dev/demo flows.
+- Uses `client/shared` API wrappers with a verified Bearer access token. Patients activate their account and sign in with their credentials.

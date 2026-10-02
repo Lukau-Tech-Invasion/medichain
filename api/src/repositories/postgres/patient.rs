@@ -133,8 +133,7 @@ impl PatientRepository for PgPatientRepository {
 
     async fn update(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE patients SET ");
-        qb.push("health_id = ").push_bind(&patient.health_id);
-        qb.push(", national_id_hash = ")
+        qb.push("national_id_hash = ")
             .push_bind(&patient.national_id_hash);
         qb.push(", national_id_type = ")
             .push_bind(&patient.national_id_type);

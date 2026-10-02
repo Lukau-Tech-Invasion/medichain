@@ -1,11 +1,9 @@
-//! JWT-to-legacy identity bridge for the incremental client migration.
+//! JWT-to-legacy identity bridge for handlers still reading `X-User-Id`.
 //!
 //! Some established handlers still read `X-User-Id` directly. Normal browser
 //! sessions now send only a Bearer access token, so this middleware inserts the
-//! verified JWT subject as that header *after* signature authentication has
-//! processed any client-supplied header. This keeps the old handler contract
-//! working without transmitting a raw wallet identifier from JWT-authenticated
-//! clients.
+//! verified JWT subject as that header. A client-supplied identity header is
+//! always discarded; otherwise those handlers could trust a forged identity.
 
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
@@ -17,14 +15,10 @@ use std::rc::Rc;
 
 const LEGACY_IDENTITY_HEADER: HeaderName = HeaderName::from_static("x-user-id");
 
-/// Add a server-derived legacy identity only when the caller supplied no
-/// identity header and the Bearer token has already been cryptographically
-/// verified. Invalid tokens and client-supplied headers are deliberately left
-/// unchanged for the normal downstream policy to handle.
+/// Replace any client-supplied identity with the verified JWT subject.
+/// Invalid or absent tokens leave no identity header for legacy handlers.
 fn inject_verified_jwt_subject(req: &mut ServiceRequest) {
-    if req.headers().contains_key(&LEGACY_IDENTITY_HEADER) {
-        return;
-    }
+    req.headers_mut().remove(&LEGACY_IDENTITY_HEADER);
 
     let Some(claims) = crate::support::get_current_claims(req.request()) else {
         return;
@@ -85,12 +79,12 @@ mod tests {
     use super::*;
     use actix_web::{test as actix_test, test::TestRequest, web, App, HttpRequest, HttpResponse};
 
-    const WALLET: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+    const USER_ID: &str = "123e4567-e89b-12d3-a456-426614174000";
 
     #[test]
     fn injects_only_a_verified_access_token_subject() {
         let token =
-            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
+            crate::security::jwt::issue_access_token(USER_ID, "Doctor", false, None).unwrap();
         let mut request = TestRequest::default()
             .insert_header(("Authorization", format!("Bearer {token}")))
             .to_srv_request();
@@ -102,7 +96,7 @@ mod tests {
                 .headers()
                 .get(&LEGACY_IDENTITY_HEADER)
                 .and_then(|value| value.to_str().ok()),
-            Some(WALLET)
+            Some(USER_ID)
         );
     }
 
@@ -118,9 +112,9 @@ mod tests {
     }
 
     #[test]
-    fn never_replaces_a_client_supplied_legacy_identity() {
+    fn replaces_a_client_supplied_legacy_identity() {
         let token =
-            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
+            crate::security::jwt::issue_access_token(USER_ID, "Doctor", false, None).unwrap();
         let mut request = TestRequest::default()
             .insert_header(("Authorization", format!("Bearer {token}")))
             .insert_header((LEGACY_IDENTITY_HEADER.clone(), "client-supplied"))
@@ -133,7 +127,7 @@ mod tests {
                 .headers()
                 .get(&LEGACY_IDENTITY_HEADER)
                 .and_then(|value| value.to_str().ok()),
-            Some("client-supplied")
+            Some(USER_ID)
         );
     }
 
@@ -153,7 +147,7 @@ mod tests {
         ))
         .await;
         let token =
-            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
+            crate::security::jwt::issue_access_token(USER_ID, "Doctor", false, None).unwrap();
         let request = TestRequest::get()
             .uri("/identity")
             .insert_header(("Authorization", format!("Bearer {token}")))
@@ -162,41 +156,6 @@ mod tests {
         let response = actix_test::call_service(&app, request).await;
 
         assert!(response.status().is_success());
-        assert_eq!(actix_test::read_body(response).await, WALLET.as_bytes());
-    }
-
-    #[actix_web::test]
-    async fn bearer_identity_reaches_legacy_handler_after_signature_middleware() {
-        let app = actix_test::init_service(
-            App::new()
-                // This is the production order: signature authentication sees
-                // client input before the JWT bridge creates any legacy header.
-                .wrap(JwtIdentityMiddleware)
-                .wrap(crate::middleware::signature_auth::SignatureAuthMiddleware::enabled())
-                .route(
-                    "/identity",
-                    web::get().to(|req: HttpRequest| async move {
-                        HttpResponse::Ok().body(
-                            req.headers()
-                                .get(&LEGACY_IDENTITY_HEADER)
-                                .and_then(|value| value.to_str().ok())
-                                .unwrap_or_default()
-                                .to_string(),
-                        )
-                    }),
-                ),
-        )
-        .await;
-        let token =
-            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
-        let request = TestRequest::get()
-            .uri("/identity")
-            .insert_header(("Authorization", format!("Bearer {token}")))
-            .to_request();
-
-        let response = actix_test::call_service(&app, request).await;
-
-        assert!(response.status().is_success());
-        assert_eq!(actix_test::read_body(response).await, WALLET.as_bytes());
+        assert_eq!(actix_test::read_body(response).await, USER_ID.as_bytes());
     }
 }

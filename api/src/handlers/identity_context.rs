@@ -28,13 +28,13 @@ pub struct ContextSwitchResponse {
     pub context: LoginContext,
 }
 
-/// Enter a professional work context for the authenticated wallet.
+/// Enter a professional work context for the authenticated account.
 #[post("/api/identity/context/work")]
 pub async fn enter_work_context(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     issue_context(&data, &req, ContextType::Professional, None).await
 }
 
-/// Enter the personal patient context for the authenticated wallet.
+/// Enter the personal patient context for the authenticated account.
 #[post("/api/identity/context/patient")]
 pub async fn enter_patient_context(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     issue_context(&data, &req, ContextType::Patient, None).await
@@ -57,16 +57,16 @@ async fn issue_context(
     context_type: ContextType,
     target_patient_id: Option<String>,
 ) -> HttpResponse {
-    let wallet = match get_current_user_id(req) {
-        Some(wallet) => wallet,
+    let user_id = match get_current_user_id(req) {
+        Some(user_id) => user_id,
         None => return unauthorized_missing_user(),
     };
-    let user = match get_user(data, &wallet) {
+    let user = match get_user(data, &user_id) {
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Wallet not registered".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
+                error: "Account not registered".to_string(),
+                code: "ACCOUNT_NOT_REGISTERED".to_string(),
             })
         }
     };
@@ -88,16 +88,16 @@ async fn issue_context(
         }
     }
 
-    data.identity_contexts.register_legacy_user(
-        &wallet,
+    data.identity_contexts.register_user(
+        &user_id,
         user.linked_patient_id.as_deref(),
         &user.role.to_string(),
     );
     let context = match context_type {
         ContextType::Patient => data
             .identity_contexts
-            .issue_patient_context(&wallet, target_patient_id.as_deref()),
-        ContextType::Professional => data.identity_contexts.issue_work_context(&wallet),
+            .issue_patient_context(&user_id, target_patient_id.as_deref()),
+        ContextType::Professional => data.identity_contexts.issue_work_context(&user_id),
     };
     let context = match context {
         Ok(context) => context,
@@ -122,10 +122,13 @@ async fn issue_context(
             expires_in: jwt::ACCESS_TOKEN_TTL_SECS,
             context,
         }),
-        Err(error) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: format!("Failed to issue context token: {error}"),
-            code: "CONTEXT_TOKEN_ISSUE_FAILED".to_string(),
-        }),
+        Err(error) => {
+            log::error!("Context token issuance failed: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Context token is temporarily unavailable".to_string(),
+                code: "CONTEXT_TOKEN_ISSUE_FAILED".to_string(),
+            })
+        }
     }
 }
 
@@ -149,16 +152,16 @@ pub async fn list_my_medical_identities(
     data: web::Data<AppState>,
     req: HttpRequest,
 ) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
-        Some(wallet) => wallet,
+    let user_id = match get_current_user_id(&req) {
+        Some(user_id) => user_id,
         None => return unauthorized_missing_user(),
     };
-    let user = match get_user(&data, &wallet) {
+    let user = match get_user(&data, &user_id) {
         Some(user) => user,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Wallet not registered".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
+                error: "Account not registered".to_string(),
+                code: "ACCOUNT_NOT_REGISTERED".to_string(),
             })
         }
     };
@@ -180,7 +183,7 @@ pub async fn list_my_medical_identities(
     let relationships = data
         .repositories
         .guardian_relationships
-        .get_by_guardian(&wallet)
+        .get_by_guardian(&user_id)
         .await
         .unwrap_or_default();
     for relationship in relationships

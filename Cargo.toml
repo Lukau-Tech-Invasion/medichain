@@ -9,10 +9,3 @@ members = [
 exclude = [
     "client/wasm-crypto"
 ]
-
-[workspace.dependencies]
-# Only what `api` and `crypto` actually inherit.
-#
-# sr25519 wallet signature verification (`sp-core`) remains only until the
-# wallet sign-in is replaced (ADR-0010, Phase C).
-sp-core = { version = "34.0.0", default-features = false }

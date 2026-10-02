@@ -51,10 +51,6 @@ env_logger = "0.11"
 # Async traits and error handling
 async-trait = "0.1"
 thiserror = "1.0"
-# sr25519 wallet verification and the dev-account check. Leaves with the wallets
-# (ADR-0010, Phase C).
-sp-core = { workspace = true, features = ["std"] }
-
 # Cryptography for NFC simulation
 sha3 = "0.10"
 # SHA-256 for the Class C body digest. ADR-0008 specifies SHA-256 over the

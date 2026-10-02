@@ -29,6 +29,7 @@ type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 
 interface SystemUser {
   userId: string;
+  linkedPatientId?: string;
   /** The Employee ID (or username) the person signs in with, when the API reports it. */
   loginId?: string;
   name: string;
@@ -102,6 +103,7 @@ const UserManagementPage: React.FC = () => {
   // here, only until dismissed: the server keeps a hash and cannot show it again.
   const [issuedCode, setIssuedCode] = useState<{
     identifier: string;
+    isPatient: boolean;
     code: string;
     expiresAt: string;
     kind: 'created' | 'reset';
@@ -150,8 +152,9 @@ const UserManagementPage: React.FC = () => {
       }
       
       // Map API response to SystemUser interface
-      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; login_id?: string; username?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
+      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; linked_patient_id?: string; login_id?: string; username?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
         userId: u.user_id || '',
+        linkedPatientId: u.linked_patient_id,
         loginId: u.login_id || u.username,
         name: u.name || '',
         email: u.email || '',
@@ -226,6 +229,7 @@ const UserManagementPage: React.FC = () => {
         }
         setIssuedCode({
           identifier: loginId,
+          isPatient: false,
           code: created.credential_code,
           expiresAt: created.credential_expires_at,
           kind: 'created',
@@ -254,7 +258,8 @@ const UserManagementPage: React.FC = () => {
       await stepUp.run(async () => {
         const grant = await resetUserCredential(target.userId);
         setIssuedCode({
-          identifier: target.loginId || target.userId,
+          identifier: target.role === 'patient' ? (target.linkedPatientId || target.userId) : (target.loginId || target.userId),
+          isPatient: target.role === 'patient',
           code: grant.credential_code,
           expiresAt: grant.expires_at,
           kind: 'reset',
@@ -443,7 +448,7 @@ const UserManagementPage: React.FC = () => {
             code={issuedCode.code}
             expiresAt={issuedCode.expiresAt}
             identifier={issuedCode.identifier}
-            identifierLabel={t('docUserManagement.employeeIdLabel')}
+            identifierLabel={issuedCode.isPatient ? t('activate.patientIdLabel') : t('docUserManagement.employeeIdLabel')}
             title={issuedCode.kind === 'created' ? t('docUserManagement.credentialCodeTitle') : t('docUserManagement.resetCodeTitle')}
             body={t('docUserManagement.credentialCodeBody')}
             printTitle={t('docUserManagement.credentialPrintTitle')}

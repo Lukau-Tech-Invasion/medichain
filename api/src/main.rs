@@ -26,7 +26,6 @@ use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
 use crate::middleware::session_state::SessionStateMiddleware;
-use crate::middleware::signature_auth::SignatureAuthMiddleware;
 use crate::middleware::versioning::ApiVersionMiddleware;
 
 // Database modules (PostgreSQL integration)
@@ -43,13 +42,13 @@ mod audit_batching;
 mod audit_merkle;
 mod audit_outbox;
 mod audit_seal;
-mod auth_challenges;
 mod auth_sessions;
 mod blood_inventory;
 mod care_access;
 mod clinical;
 mod clinical_endpoints;
 mod clinical_scoring;
+mod credentials;
 mod deferred_emergency_audit;
 mod device_lifecycle;
 mod dispensing_policy;
@@ -117,7 +116,7 @@ const AUDIT_BATCH_INTERVAL_SECS: u64 = 60;
 /// whose format closure applied `privacy_logging`, and — under
 /// `--features tokio-console` — a bare `console_subscriber::init()`. Only one
 /// global subscriber can exist, so the console build replaced the redacting one
-/// outright and logged the wallet addresses, bearer tokens and patient
+/// outright and logged account identifiers, bearer tokens and patient
 /// identifiers every other build redacts. The control vanished precisely when
 /// someone was debugging a live system closely enough to want a task console.
 ///
@@ -238,8 +237,8 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                         // Loud on purpose. This branch silently turned a
                         // postgres-configured deployment into an EMPTY in-memory
                         // one while /health still answered "healthy", so the
-                        // first symptom was every demo login failing with
-                        // "Wallet not registered" on a stack that looked green.
+                        // first symptom was every demo login failing on a
+                        // stack that looked green.
                         // The two-line warning it used to print was lost among
                         // the startup banner and the demo-secret warnings.
                         eprintln!("\n============================================================");
@@ -248,7 +247,7 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                         eprintln!();
                         eprintln!("  Falling back to EMPTY in-memory storage (demo mode).");
                         eprintln!("  No seeded users, patients or records exist in this mode:");
-                        eprintln!("  every login will fail with WALLET_NOT_REGISTERED.");
+                        eprintln!("  every login will fail until accounts are available.");
                         eprintln!();
                         eprintln!("  If the database is merely slow to start (WAL replay after");
                         eprintln!("  an unclean shutdown can exceed two minutes), restart the");
@@ -543,11 +542,6 @@ async fn main() -> std::io::Result<()> {
         startup::validate_single_organisation(pool)
             .await
             .map_err(std::io::Error::other)?;
-        // A published development key holding an Admin role is an open door,
-        // and nothing else checks for it.
-        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
-            .await
-            .map_err(std::io::Error::other)?;
     }
 
     hydrate_caches(&app_state).await?;
@@ -616,11 +610,7 @@ async fn main() -> std::io::Result<()> {
                     actix_web::http::header::AUTHORIZATION,
                     actix_web::http::header::ACCEPT,
                     actix_web::http::header::CONTENT_TYPE,
-                    actix_web::http::header::HeaderName::from_static("x-user-id"),
                     actix_web::http::header::HeaderName::from_static("x-request-id"),
-                    // SEC-005: Wallet signature authentication headers
-                    actix_web::http::header::HeaderName::from_static("x-signature"),
-                    actix_web::http::header::HeaderName::from_static("x-timestamp"),
                     // Clinician's declared reason for opening a chart (PHI audit).
                     actix_web::http::header::HeaderName::from_static(
                         crate::middleware::phi_access_audit::ACCESS_REASON_HEADER,
@@ -653,27 +643,7 @@ async fn main() -> std::io::Result<()> {
         // count.
         let rate_limit = rate_limit.clone();
 
-        // Configure signature authentication (SEC-005)
-        // SECURE BY DEFAULT: verification is ENABLED unless the operator explicitly
-        // opts out via IS_DEMO=true or REQUIRE_SIGNATURES=false. IS_DEMO defaults to
-        // "false" here (matches the CORS block above) so a misconfigured/forgotten
-        // env never silently trusts the unauthenticated X-User-Id header.
-        // Precedence: REQUIRE_SIGNATURES (when set) overrides the IS_DEMO-derived default.
         let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
-        let require_signatures = match std::env::var("REQUIRE_SIGNATURES") {
-            Ok(val) => val == "true",
-            Err(_) => !is_demo, // Default: on in production, off only when IS_DEMO=true
-        };
-        let signature_auth = if require_signatures {
-            log::info!("Signature authentication ENABLED - all authenticated requests require a wallet signature");
-            SignatureAuthMiddleware::enabled()
-        } else {
-            log::warn!(
-                "Signature verification DISABLED — X-User-Id is NOT cryptographically verified. \
-                 Do NOT use in production. (Set IS_DEMO=false and unset REQUIRE_SIGNATURES to enable.)"
-            );
-            SignatureAuthMiddleware::disabled()
-        };
 
         // Configure encryption policy
         let encryption_policy = if !is_demo {
@@ -692,15 +662,12 @@ async fn main() -> std::io::Result<()> {
             // Rewrites /api/v1/... → /api/... before routing (Phase 9.1).
             .wrap(ApiVersionMiddleware)
             .wrap(rate_limit)
-            // Must execute after signature authentication so durable operation
-            // claims are never scoped by an unverified legacy identity header.
+            // Identity for durable operation claims comes only from the verified JWT.
             .wrap(IdempotencyMiddleware)
-            // Runs after signature verification. It bridges verified Bearer
-            // sessions to handlers that have not yet stopped reading the
-            // legacy header directly; it never trusts client header content.
+            // Bridges verified Bearer sessions to handlers still reading the
+            // legacy header; client-supplied values are always discarded.
             .wrap(JwtIdentityMiddleware)
             .wrap(SessionStateMiddleware)
-            .wrap(signature_auth)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
             .app_data(app_state.clone())

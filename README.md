@@ -98,7 +98,7 @@ commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers)
 | **HTTP API** | Working | 386 handlers, 385 registered routes; `/api/v1` versioning, idempotency keys, cursor pagination, canonical error envelope |
 | **Storage** | Working, dual backend | In-memory (default, ephemeral) and PostgreSQL (`MEDICHAIN_STORAGE=postgres`); 38 migrations → 179 tables. Both implement the same repository traits |
 | **Sealed audit stream** | In progress (ADR-0010) | `access_logs` and `audit_events` rows are Merkle-batched, chained to the previous batch's hash, signed with Ed25519 and exported to a checkpoint sink (`AUDIT_CHECKPOINT_SINK`). Sealing is asynchronous; only the durable database audit write can refuse a request. See [docs/AUDIT_LOG.md](docs/AUDIT_LOG.md) |
-| **Crypto** | Working | ChaCha20-Poly1305 AEAD, Argon2id KDF, SHA3-256, Ed25519 batch signatures, Sr25519 signatures (until wallet sign-in is removed), zeroization on drop |
+| **Crypto** | Working | ChaCha20-Poly1305 AEAD, Argon2id credential hashing, SHA3-256, Ed25519 audit-batch signatures, zeroization on drop |
 | **Emergency access** | Working | Grant-bound break-glass requiring live work context + approved device; short-lived signed NFC token exchange; field-level disclosure logging |
 | **Consent / legal basis** | Working | POPIA §11 grounds, §32 health authorisation, §34/35 children's information, Children's Act §129 mature-minor rules — not a boolean |
 | **Data retention** | Partial by design | Evaluation, legal holds, approval-gated execution, processing restriction, deletion register. **Irreversible deletion deliberately not built** — see [ADR-0005](docs/adr/0005-retention-restriction-before-deletion.md) |

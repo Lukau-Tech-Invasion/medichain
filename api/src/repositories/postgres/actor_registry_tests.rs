@@ -166,9 +166,14 @@ async fn the_directory_resolves_current_and_legacy_keys_to_one_person() {
     let pool = get_test_pool().await;
     let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let wallet = format!("5Legacy{}", uuid::Uuid::new_v4().simple());
-    crate::actor_directory::record_legacy_wallet(&pool, &wallet, &user)
-        .await
-        .expect("record wallet");
+    sqlx::query(
+        "INSERT INTO legacy_wallet_identities (wallet_address, user_id, kind) VALUES ($1, $2::uuid, 'wallet')",
+    )
+    .bind(&wallet)
+    .bind(&user)
+    .execute(&pool)
+    .await
+    .expect("seed historical identity");
 
     let by_id = crate::actor_directory::resolve(&pool, &user).await.unwrap();
     let by_wallet = crate::actor_directory::resolve(&pool, &wallet)
@@ -193,9 +198,14 @@ async fn a_pre_migration_access_log_is_found_through_the_persons_legacy_key() {
         .unwrap();
     let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let wallet = format!("5Legacy{}", uuid::Uuid::new_v4().simple());
-    crate::actor_directory::record_legacy_wallet(&pool, &wallet, &user)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO legacy_wallet_identities (wallet_address, user_id, kind) VALUES ($1, $2::uuid, 'wallet')",
+    )
+    .bind(&wallet)
+    .bind(&user)
+    .execute(&pool)
+    .await
+    .expect("seed historical identity");
 
     let mut ids = Vec::new();
     for accessor in [&wallet, &user] {

@@ -77,9 +77,6 @@ pub fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, Pa
 #[derive(Debug, Deserialize)]
 pub struct RegisterPatientRequest {
     pub full_name: String,
-    /// Patient-owned SS58 account (removed with the user ids, Phase C).
-    #[serde(default)]
-    pub wallet_address: Option<String>,
     pub date_of_birth: String,
     /// "HH:MM" birth time, optional — twins-safe identification alongside
     /// date_of_birth + national_id (patient_id itself is already a random
@@ -124,6 +121,12 @@ pub struct RegisterPatientResponse {
     pub patient_id: String,
     pub nfc_tag_id: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Deserialize)]

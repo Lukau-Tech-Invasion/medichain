@@ -103,6 +103,7 @@ mod tests {
                     secret_base32: "JBSWY3DPEHPK3PXP".to_string(),
                     enabled: true,
                     created_at: Utc::now(),
+                    last_used_step: None,
                 },
             );
         }

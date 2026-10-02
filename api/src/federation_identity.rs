@@ -1,6 +1,6 @@
 //! Federation-ready identity contexts.
 //!
-//! This Phase 1 module is an additive bridge from the legacy wallet/role model.
+//! This Phase 1 module separates an account's professional and patient contexts.
 //! It keeps professional and patient authorisation contexts distinct so callers
 //! cannot treat a global role as permission to use personal health access.
 
@@ -19,7 +19,7 @@ pub enum ContextType {
     Professional,
 }
 
-/// Placeholder facility the legacy user bridge assigns when none is known.
+/// Placeholder facility the account bridge assigns when none is known.
 const LEGACY_FACILITY_ID: &str = "legacy-facility";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74,10 +74,10 @@ impl IdentityContextStore {
         }
     }
 
-    /// Create the minimum compatible identity records for an existing wallet.
+    /// Create the minimum compatible identity records for an existing account.
     /// This prevents a destructive authentication migration while making the
     /// legacy organisation explicit and easy to replace in Phase 2.
-    pub fn register_legacy_user(
+    pub fn register_user(
         &self,
         user_id: &str,
         linked_patient_id: Option<&str>,
@@ -200,7 +200,7 @@ impl IdentityContextStore {
     /// Used to tell a patient *where* the person who read their record works.
     ///
     /// # Parameters
-    /// * `user_id` - the clinician's authenticated wallet.
+    /// * `user_id` - the clinician's authenticated account ID.
     ///
     /// # Returns
     /// The facility name, or `None` when the caller has no active assignment
@@ -260,10 +260,10 @@ mod tests {
     #[test]
     fn work_and_patient_contexts_are_disjoint() {
         let store = IdentityContextStore::new();
-        let wallet = "5TestIdentityContext";
-        store.register_legacy_user(wallet, Some("patient-1"), "Doctor");
-        let work = store.issue_work_context(wallet).unwrap();
-        let patient = store.issue_patient_context(wallet, None).unwrap();
+        let user_id = Uuid::new_v4().to_string();
+        store.register_user(&user_id, Some("patient-1"), "Doctor");
+        let work = store.issue_work_context(&user_id).unwrap();
+        let patient = store.issue_patient_context(&user_id, None).unwrap();
         assert_eq!(work.context_type, ContextType::Professional);
         assert!(work.patient_profile_id.is_none());
         assert_eq!(patient.context_type, ContextType::Patient);
@@ -273,10 +273,10 @@ mod tests {
     #[test]
     fn target_patient_id_switches_into_a_wards_identity() {
         let store = IdentityContextStore::new();
-        let wallet = "5GuardianUser";
-        store.register_legacy_user(wallet, None, "Patient");
+        let user_id = Uuid::new_v4().to_string();
+        store.register_user(&user_id, None, "Patient");
         let context = store
-            .issue_patient_context(wallet, Some("PAT-ward-123"))
+            .issue_patient_context(&user_id, Some("PAT-ward-123"))
             .unwrap();
         assert_eq!(context.patient_profile_id.as_deref(), Some("PAT-ward-123"));
     }
@@ -284,21 +284,21 @@ mod tests {
     #[test]
     fn a_seeded_assignment_replaces_the_legacy_facility_placeholder() {
         let store = IdentityContextStore::new();
-        let wallet = "5DemoParamedic";
-        store.register_legacy_user(wallet, None, "Paramedic");
+        let user_id = Uuid::new_v4().to_string();
+        store.register_user(&user_id, None, "Paramedic");
         store.assign_professional_facility(
-            wallet,
+            &user_id,
             "demo-org",
             "demo-facility-jhb",
             "MediChain Johannesburg Demonstration Clinic",
             "Paramedic",
         );
         assert_eq!(
-            store.facility_for_user(wallet).as_deref(),
+            store.facility_for_user(&user_id).as_deref(),
             Some("MediChain Johannesburg Demonstration Clinic")
         );
         assert_eq!(
-            store.issue_work_context(wallet).unwrap().role.as_deref(),
+            store.issue_work_context(&user_id).unwrap().role.as_deref(),
             Some("Paramedic")
         );
     }

@@ -174,6 +174,20 @@ pub async fn revoke_all_for_user(
 ) -> Result<u64, sqlx::Error> {
     let user_id = parse_user_id(user_id)?;
     let mut transaction = pool.begin().await?;
+    let ended = revoke_sessions_in(&mut transaction, user_id, None, reason).await?;
+    transaction.commit().await?;
+    Ok(ended)
+}
+
+/// Revoke a user's active sessions inside a transaction the caller owns, so a
+/// credential change and the end of the sessions it invalidates commit or fail
+/// together. `keep` exempts one login session.
+pub async fn revoke_sessions_in(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    keep: Option<Uuid>,
+    reason: &str,
+) -> Result<u64, sqlx::Error> {
     // Lock every parent for this user before touching any generation, in a
     // deterministic id order so two concurrent logout-alls cannot deadlock each
     // other. Rotation locks a single parent, so it serializes against this too.
@@ -184,27 +198,29 @@ pub async fn revoke_all_for_user(
          FOR UPDATE",
     )
     .bind(user_id)
-    .fetch_all(&mut *transaction)
+    .fetch_all(&mut **transaction)
     .await?;
     let parents = sqlx::query(
         "UPDATE auth_login_sessions
          SET revoked_at = NOW(), revocation_reason = $2
-         WHERE user_id = $1 AND revoked_at IS NULL",
+         WHERE user_id = $1 AND revoked_at IS NULL AND id IS DISTINCT FROM $3",
     )
     .bind(user_id)
     .bind(reason)
-    .execute(&mut *transaction)
+    .bind(keep)
+    .execute(&mut **transaction)
     .await?;
     sqlx::query(
         "UPDATE auth_sessions
          SET revoked_at = NOW(), revocation_reason = $2
-         WHERE user_id = $1 AND revoked_at IS NULL",
+         WHERE user_id = $1 AND revoked_at IS NULL
+           AND login_session_id IS DISTINCT FROM $3",
     )
     .bind(user_id)
     .bind(reason)
-    .execute(&mut *transaction)
+    .bind(keep)
+    .execute(&mut **transaction)
     .await?;
-    transaction.commit().await?;
     Ok(parents.rows_affected())
 }
 

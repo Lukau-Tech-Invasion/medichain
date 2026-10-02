@@ -64,6 +64,7 @@ function resolveDnr(dnr: boolean | DnrStatusObject | null | undefined): Resolved
 
 interface MedicalIdData {
   patient_id: string;
+  national_health_id: string;
   /** Null when the encrypted profile could not be decrypted. */
   name: string | null;
   /** Null when the encrypted profile could not be decrypted. */
@@ -118,6 +119,7 @@ interface MedicalIdData {
 function toMedicalIdData(card: MedicalIdCard): MedicalIdData {
   return {
     patient_id: card.patient_id,
+    national_health_id: card.national_health_id,
     name: card.name,
     date_of_birth: card.date_of_birth,
     profile_unavailable: card.profile_unavailable,
@@ -445,6 +447,7 @@ export function MedicalIdPage() {
               <h2 className="text-2xl font-bold">
                 {data.name ?? t('medicalId.nameUnavailable')}
               </h2>
+              <p className="text-sm font-medium">Medical ID: {data.national_health_id}</p>
               <div className="flex items-center gap-2 text-white">
                 <Calendar className="w-4 h-4" />
                 <span>

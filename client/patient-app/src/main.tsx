@@ -5,17 +5,27 @@ import App from './App';
 import { usePatientAuthStore } from './store/authStore';
 import './index.css';
 
-// Rebind the API singleton to the patient-specific stored session on every
-// reload. The doctor portal can be open on the same origin and has its own
-// independent session.
-usePatientAuthStore.getState().restoreSession();
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+root.render(<div role="status" className="min-h-screen flex items-center justify-center">Restoring your session…</div>);
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    {/* basename derived from Vite's `base` so the router and asset paths
-        cannot drift apart. See the doctor-portal main.tsx for the rationale. */}
-    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-      <App />
-    </BrowserRouter>
-  </React.StrictMode>
-);
+/** Restore the cookie-backed session before protected pages request patient data. */
+async function startApp() {
+  try {
+    // The doctor portal has its own independent session on its own origin.
+    await usePatientAuthStore.getState().restoreSession();
+  } catch (error) {
+    console.warn('[MediChain] Patient session restore failed:', error);
+    usePatientAuthStore.getState().logout();
+  }
+  root.render(
+    <React.StrictMode>
+      {/* basename derived from Vite's `base` so the router and asset paths
+          cannot drift apart. See the doctor-portal main.tsx for the rationale. */}
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+        <App />
+      </BrowserRouter>
+    </React.StrictMode>
+  );
+}
+
+void startApp();

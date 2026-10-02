@@ -530,13 +530,13 @@ This section documents implementation details discovered during a repo audit to 
 
 ### Important Headers
 
-- `X-User-Id` (required for authenticated requests): SS58 wallet address of the caller.
+- `Authorization: Bearer <access-token>` (required for authenticated requests).
 - `X-Provider-Role` (recommended for provider-scoped requests): role name such as `Doctor`, `Nurse`, `LabTechnician`, `Pharmacist`.
 - `X-Health-Id` (optional): patient health ID used by client apps when making patient-scoped requests.
 
 ### Demo & Seed Guidance (short)
 
-- Demo users are provided in `api/data/demo_users.json` and seeded by `api` startup or seed scripts. Use `docs/DEV_AUTH.md` for step-by-step developer guidance to enable demo seeds safely.
+- Synthetic browser accounts are seeded by `scripts/seed-browser-test-fixtures.ts` into an isolated development database. See `docs/DEV_AUTH.md` for the current sign-in flow.
 
 ---
 

@@ -79,6 +79,41 @@ pub struct AppState {
     pub telehealth_service: crate::telehealth::TelehealthService,
 }
 
+/// A `user_mfa` row as read at startup.
+type MfaRow = (String, Vec<u8>, bool, chrono::DateTime<Utc>, Option<i64>);
+
+/// The sign-in handle (and optionally the credential) a new account is created
+/// with. See [`AppState::persist_user_with_login`].
+pub struct NewLogin<'a> {
+    pub login_id: &'a str,
+    /// Argon2id verifier over the client's auth proof. `None` leaves the account
+    /// unable to sign in until a one-time code is redeemed.
+    pub verifier: Option<&'a str>,
+}
+
+/// Which enrolments a TOTP code may be checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TotpScope {
+    /// Only a confirmed enrolment: sign-in, step-up, disabling, Class C.
+    Enabled,
+    /// An enrolment still waiting for its first code: confirming it.
+    Pending,
+}
+
+/// The result of checking a TOTP code and spending its step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TotpOutcome {
+    Accepted,
+    /// The code is wrong, or from a step outside the tolerated drift.
+    Invalid,
+    /// The code is right but its step (or a later one) was already used.
+    Replayed,
+    /// No enrolment of the requested kind exists for this user.
+    NotEnrolled,
+    /// The durable record could not be read or written; nothing was accepted.
+    Unavailable,
+}
+
 impl AppState {
     /// Create new AppState with optional PostgreSQL pool
     /// If pool is provided, demo users will be loaded from database
@@ -328,13 +363,29 @@ impl AppState {
     /// Upsert a user into the persistent `users` table. No-op when no DB pool
     /// is configured (memory-only demo mode).
     ///
-    /// Added 2026-07-22: `wallet_register`/`assign_role`/`update_user_profile`
-    /// previously only wrote to the in-memory `self.users` map — every
+    /// Account creation, role assignment, and profile updates previously only
+    /// wrote to the in-memory `self.users` map — every
     /// admin-registered user (and every profile edit) was silently lost on
     /// restart even with `MEDICHAIN_STORAGE=postgres` configured, since
     /// `load_demo_users_from_db` only re-seeds from what was actually
     /// persisted here.
     pub async fn persist_user(&self, user: &User) -> Result<(), String> {
+        self.persist_user_with_login(user, None).await
+    }
+
+    /// `persist_user`, also stamping the sign-in handle (and, for the first
+    /// administrator, the credential) on a NEW row.
+    ///
+    /// The login handle and verifier are written only by the INSERT: an update of
+    /// an existing row never touches them, so an ordinary profile edit cannot
+    /// clear or replace a credential. Doing both in one statement is what stops
+    /// an account existing without the handle its unique index should have
+    /// refused.
+    pub async fn persist_user_with_login(
+        &self,
+        user: &User,
+        login: Option<&NewLogin<'_>>,
+    ) -> Result<(), String> {
         let pool = match &self.db_pool {
             Some(p) => p,
             None => return Ok(()),
@@ -350,9 +401,11 @@ impl AppState {
         sqlx::query(
             "INSERT INTO users (
                 id, role, name, username, email, linked_patient_id,
-                is_active, status, last_login_at, created_by, created_at
+                is_active, status, last_login_at, created_by, created_at,
+                login_id, credential_verifier, credential_updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    CASE WHEN $13::text IS NULL THEN NULL ELSE NOW() END)
             ON CONFLICT (id) DO UPDATE SET
                 role = EXCLUDED.role,
                 name = EXCLUDED.name,
@@ -375,6 +428,8 @@ impl AppState {
         .bind(user.last_login)
         .bind(&user.created_by)
         .bind(user.created_at)
+        .bind(login.map(|l| l.login_id))
+        .bind(login.and_then(|l| l.verifier))
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
@@ -495,23 +550,21 @@ impl AppState {
 
     /// Persist a user before publishing the change to the authorization cache.
     pub async fn persist_then_cache_user(&self, user: User) -> Result<(), String> {
-        self.persist_user(&user).await?;
+        self.persist_then_cache_user_with_login(user, None).await
+    }
+
+    /// Persist an account and its sign-in handle before exposing it to callers.
+    pub async fn persist_then_cache_user_with_login(
+        &self,
+        user: User,
+        login: Option<&NewLogin<'_>>,
+    ) -> Result<(), String> {
+        self.persist_user_with_login(&user, login).await?;
         self.users
             .write()
             .map_err(|_| "User cache is unavailable".to_string())?
             .insert(user.id.clone(), user);
         Ok(())
-    }
-
-    /// Remember the user id a user signs in with (the user id flows phase C removes),
-    /// so the user id resolves to `user_id` at sign-in. No-op without a database.
-    pub async fn record_legacy_wallet(&self, wallet: &str, user_id: &str) -> Result<(), String> {
-        let Some(pool) = &self.db_pool else {
-            return Ok(());
-        };
-        crate::actor_directory::record_legacy_wallet(pool, wallet, user_id)
-            .await
-            .map_err(|e| e.to_string())
     }
 
     /// Bootstrap must inspect durable state, not only the active-user cache.
@@ -576,8 +629,9 @@ impl AppState {
         self.security.load_alerts_from_db().await;
 
         // MFA enrollments: decrypt each secret with the app encryption key.
-        let rows: Vec<(String, Vec<u8>, bool, chrono::DateTime<Utc>)> = sqlx::query_as(
-            "SELECT user_id::text, secret_encrypted, enabled, created_at FROM user_mfa",
+        let rows: Vec<MfaRow> = sqlx::query_as(
+            "SELECT user_id::text, secret_encrypted, enabled, created_at, last_used_step
+             FROM user_mfa",
         )
         .fetch_all(pool)
         .await
@@ -585,7 +639,7 @@ impl AppState {
 
         let mut loaded = 0usize;
         if let Ok(mut map) = self.security.mfa.write() {
-            for (user_id, secret_encrypted, enabled, created_at) in rows {
+            for (user_id, secret_encrypted, enabled, created_at, last_used_step) in rows {
                 let secret_base32 =
                     match medichain_crypto::EncryptedData::from_bytes(&secret_encrypted)
                         .and_then(|ed| medichain_crypto::decrypt(&self.encryption_key, &ed))
@@ -611,6 +665,7 @@ impl AppState {
                         secret_base32,
                         enabled,
                         created_at,
+                        last_used_step,
                     },
                 );
                 loaded += 1;
@@ -636,7 +691,7 @@ impl AppState {
         let user_uuid = crate::actor_directory::parse_user_id(user_id)
             .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
         sqlx::query(
-            "INSERT INTO user_mfa (user_id, secret_encrypted, enabled) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, enabled = EXCLUDED.enabled",
+            "INSERT INTO user_mfa (user_id, secret_encrypted, enabled) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, enabled = EXCLUDED.enabled, last_used_step = NULL",
         )
         .bind(user_uuid)
         .bind(&encrypted)
@@ -682,6 +737,54 @@ impl AppState {
             return Err("delete MFA enrollment: enrollment not found".to_string());
         }
         Ok(())
+    }
+
+    /// Check a TOTP code for `user_id` and, if it is right, spend its step.
+    ///
+    /// A code is accepted once: the step it belongs to must be later than the last
+    /// step accepted for this user, which is recorded in `user_mfa` so the rule
+    /// holds across instances and restarts. The in-process record is advanced
+    /// first, so two concurrent requests presenting the same code on one instance
+    /// cannot both pass while the database write is in flight.
+    pub async fn verify_totp(&self, user_id: &str, code: &str, scope: TotpScope) -> TotpOutcome {
+        let Some(secret) = self.security.totp_secret(user_id, scope) else {
+            return TotpOutcome::NotEnrolled;
+        };
+        let now = Utc::now().timestamp().max(0) as u64;
+        let Some(step) = crate::security::mfa::matching_step(&secret, user_id, code, now) else {
+            return TotpOutcome::Invalid;
+        };
+        if !self.security.claim_totp_step(user_id, step) {
+            return TotpOutcome::Replayed;
+        }
+        match self.persist_totp_step(user_id, step).await {
+            Ok(true) => TotpOutcome::Accepted,
+            Ok(false) => TotpOutcome::Replayed,
+            Err(error) => {
+                log::error!("TOTP step could not be recorded: {error}");
+                TotpOutcome::Unavailable
+            }
+        }
+    }
+
+    /// Record `step` as used. `Ok(false)` means a step at or after it was already
+    /// recorded, i.e. the code is a replay. Always `Ok(true)` on the memory backend.
+    async fn persist_totp_step(&self, user_id: &str, step: i64) -> Result<bool, String> {
+        let Some(pool) = &self.db_pool else {
+            return Ok(true);
+        };
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
+        let advanced = sqlx::query(
+            "UPDATE user_mfa SET last_used_step = $2
+             WHERE user_id = $1 AND (last_used_step IS NULL OR last_used_step < $2)",
+        )
+        .bind(user_uuid)
+        .bind(step)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("record TOTP step: {e}"))?;
+        Ok(advanced.rows_affected() == 1)
     }
 
     /// Load demo patients from PostgreSQL into the patient repository

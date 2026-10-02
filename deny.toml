@@ -48,12 +48,6 @@ ignore = [
     # endpoint — MediChain never decodes attacker-supplied protobuf bytes.
     "RUSTSEC-2024-0437",
 
-    # libsecp256k1 is pulled in generically by sp-core's multi-curve support
-    # (sp-core leaves with the wallets, ADR-0010 Phase C).
-    # MediChain's signing exclusively uses sr25519 (Schnorrkel) — no code path
-    # in this codebase constructs or verifies a secp256k1 key/signature.
-    "RUSTSEC-2025-0161",
-
     # lopdf's stack-overflow advisory requires *parsing* a maliciously deeply
     # nested PDF. `api/src/pdf.rs` only calls `PdfDocument::new(...)` to
     # generate PDFs (via `printpdf`) — this codebase never loads/parses an

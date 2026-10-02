@@ -1002,7 +1002,7 @@ export function MyRecordsPage() {
                   {selectedRecord.reviewedBy && (
                     <p className="text-xs text-content-muted flex items-center gap-1">
                       <Shield className="w-3 h-3 text-ok-subtle-fg" />
-                      {t('records.reviewedByName', { name: selectedRecord.reviewedBy })}
+                      {t('records.reviewedByName', { name: providerName(selectedRecord.reviewedBy) })}
                     </p>
                   )}
                 </div>

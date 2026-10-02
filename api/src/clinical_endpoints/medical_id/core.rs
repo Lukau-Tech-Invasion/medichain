@@ -182,10 +182,41 @@ pub async fn get_medical_id(
         (false, _) => "#6B7280",
     };
 
+    let issued_medical_id = if let Some(pool) = data.db_pool.as_ref() {
+        match sqlx::query_scalar::<_, String>(
+            "SELECT medical_id FROM medical_id_issuances WHERE patient_id = $1",
+        )
+        .bind(&patient.id)
+        .fetch_one(pool)
+        .await
+        {
+            Ok(id) => id,
+            Err(error) => {
+                log::error!("Medical ID issuance lookup failed: {error}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Medical ID is temporarily unavailable".to_string(),
+                    code: "MEDICAL_ID_UNAVAILABLE".to_string(),
+                });
+            }
+        }
+    } else if patient.health_id.starts_with("MCHI-") {
+        patient.health_id.clone()
+    } else {
+        format!(
+            "MCHI-{}",
+            patient
+                .id
+                .chars()
+                .skip(4)
+                .collect::<String>()
+                .to_uppercase()
+        )
+    };
+
     // Build Medical ID card data (emergency format)
     let medical_id = serde_json::json!({
         "patient_id": patient.id,
-        "national_health_id": format!("MCHI-{}", patient.id.chars().skip(4).collect::<String>().to_uppercase()),
+        "national_health_id": issued_medical_id,
         // Decrypted from the profile rather than the former literals "Patient"
         // and "Redacted". A card that cannot name its holder cannot be matched
         // to the person in front of the responder.

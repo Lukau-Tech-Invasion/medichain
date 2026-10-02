@@ -19,14 +19,8 @@ sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 
 # Ed25519 for the sealed audit stream (ADR-0010): batch hashes are signed with
-# one instance-held key. Distinct from the sr25519 wallet verification below,
-# which leaves with the wallets in Phase C.
+# one instance-held key.
 ed25519-dalek = "2"
-
-# sr25519 wallet signature verification (SEC-005); leaves with the wallets, Phase C
-sp-core = { version = "38.0.0", default-features = false, features = ["std"] }
-bs58 = "0.5"
-blake2 = "0.10"
 
 [dev-dependencies]
 # Benchmarking (Phase 12.1) — no OS sampling profiler needed (unlike

@@ -18,7 +18,6 @@ pub mod phi_access_audit;
 pub mod rate_limit;
 pub mod security_headers;
 pub mod session_state;
-pub mod signature_auth;
 pub mod versioning;
 
 // Re-exports the handlers use through `crate::middleware::...`. The two

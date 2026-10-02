@@ -205,7 +205,6 @@ fn patient_registration_from_resource(resource: &Value) -> Result<RegisterPatien
 
     Ok(RegisterPatientRequest {
         full_name: patient_name(resource)?,
-        wallet_address: None,
         date_of_birth: required_string(resource, "birthDate")?,
         time_of_birth: None,
         national_id,

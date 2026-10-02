@@ -30,8 +30,7 @@ type SessionRow = (String, Option<chrono::DateTime<chrono::Utc>>);
 
 /// Outcome of checking one request's session claim.
 enum SessionVerdict {
-    /// No Bearer token, or a token predating ADR-0008 that carries no `sid`.
-    /// Nothing to enforce here; the normal authentication path still applies.
+    /// No Bearer token. Protected handlers still require authentication.
     NotApplicable,
     Active,
     /// Revoked, expired, unknown, or bound to a different subject.
@@ -50,7 +49,7 @@ async fn verify_session(pool: &PgPool, req: &ServiceRequest) -> SessionVerdict {
         return SessionVerdict::NotApplicable;
     };
     let Some(sid) = claims.sid.as_deref() else {
-        return SessionVerdict::NotApplicable;
+        return SessionVerdict::Rejected("Sign in again to start a current session");
     };
     let Ok(sid) = Uuid::parse_str(sid) else {
         return SessionVerdict::Rejected("Session is not valid");
@@ -126,8 +125,7 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         Box::pin(async move {
-            // In-memory deployments have no session store to consult, and demo
-            // mode never issues a `sid`, so there is nothing to enforce there.
+            // In-memory deployments have no durable sessions to consult.
             let pool = req
                 .app_data::<actix_web::web::Data<crate::state::AppState>>()
                 .and_then(|state| state.db_pool.clone());
@@ -185,10 +183,10 @@ mod tests {
             .as_u16()
     }
 
-    async fn open_session(pool: &sqlx::PgPool, wallet: &str) -> uuid::Uuid {
+    async fn open_session(pool: &sqlx::PgPool, user_id: &str) -> uuid::Uuid {
         crate::auth_sessions::create(
             pool,
-            wallet,
+            user_id,
             &format!("http-generation-{}", uuid::Uuid::new_v4()),
             &uuid::Uuid::new_v4().to_string(),
             chrono::Utc::now() + chrono::Duration::hours(1),
@@ -321,11 +319,9 @@ mod tests {
         assert_eq!(status_for(pool, &token).await, 401);
     }
 
-    /// Tokens issued before ADR-0008 carry no `sid`. They must pass through this
-    /// middleware untouched -- it enforces session state, it does not become a
-    /// second authentication gate for tokens that never claimed one.
+    /// Old access tokens without a durable session cannot bypass revocation.
     #[tokio::test]
-    async fn a_token_without_a_session_claim_is_left_alone() {
+    async fn a_token_without_a_session_claim_is_refused() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
         let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
         let legacy =
@@ -333,8 +329,8 @@ mod tests {
 
         assert_eq!(
             status_for(pool, &legacy).await,
-            200,
-            "a pre-ADR-0008 token has no session to check"
+            401,
+            "an access token without a durable session cannot be trusted"
         );
     }
 }

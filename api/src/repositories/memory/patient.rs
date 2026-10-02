@@ -106,14 +106,15 @@ impl PatientRepository for MemoryPatientRepository {
         self.get_by_id(&id).await
     }
 
-    async fn update(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
+    async fn update(&self, mut patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut storage = self.storage.write().map_err(Self::lock_error)?;
-        if !storage.contains_key(&patient.id) {
+        let Some(existing) = storage.get(&patient.id) else {
             return Err(RepositoryError::NotFound(format!(
                 "Patient {} not found",
                 patient.id
             )));
-        }
+        };
+        patient.health_id = existing.health_id.clone();
         storage.insert(patient.id.clone(), patient.clone());
         Ok(patient)
     }

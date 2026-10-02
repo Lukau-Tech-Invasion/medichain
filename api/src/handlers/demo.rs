@@ -1,24 +1,5 @@
 use super::*;
 
-/// Development-only demo login endpoint
-/// Creates a temporary user with the specified role for testing purposes
-/// SECURITY: Only available when MEDICHAIN_DEV_MODE environment variable is set
-#[derive(Debug, Deserialize)]
-pub struct DemoLoginRequest {
-    pub wallet_address: String,
-    pub role: Option<String>,
-    pub name: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DemoLoginResponse {
-    pub success: bool,
-    pub user_id: String,
-    pub role: String,
-    pub name: String,
-    pub message: String,
-}
-
 /// Seed the durable demo facility registry and active staff assignments.
 ///
 /// This endpoint exists only to prepare a local demonstration. It requires the
@@ -97,13 +78,13 @@ pub async fn seed_demo_facilities(data: web::Data<AppState>) -> impl Responder {
                 .collect()
         })
         .unwrap_or_default();
-    for (wallet, role) in staff {
+    for (user_id, role) in staff {
         let person_id = match sqlx::query_scalar::<_, String>(
             "INSERT INTO persons (id, user_id, status) VALUES ($1, $2::text::uuid, 'active') \
              ON CONFLICT (user_id) DO UPDATE SET status = 'active' RETURNING id",
         )
-        .bind(format!("demo-person-{wallet}"))
-        .bind(&wallet)
+        .bind(format!("demo-person-{user_id}"))
+        .bind(&user_id)
         .fetch_one(&mut *transaction)
         .await
         {
@@ -116,8 +97,8 @@ pub async fn seed_demo_facilities(data: web::Data<AppState>) -> impl Responder {
                 });
             }
         };
-        let professional_id = format!("demo-professional-{wallet}");
-        let assignment_id = format!("demo-assignment-{wallet}");
+        let professional_id = format!("demo-professional-{user_id}");
+        let assignment_id = format!("demo-assignment-{user_id}");
         if let Err(error) = sqlx::query("INSERT INTO professional_identities (id, person_id, profession, status) VALUES ($1, $2, $3, 'active') ON CONFLICT (id) DO UPDATE SET profession = EXCLUDED.profession, status = 'active'")
             .bind(&professional_id).bind(&person_id).bind(&role).execute(&mut *transaction).await {
             log::error!("seed demo professional: {error}");
@@ -129,7 +110,7 @@ pub async fn seed_demo_facilities(data: web::Data<AppState>) -> impl Responder {
             return HttpResponse::ServiceUnavailable().json(ErrorResponse { error: "Demo facility seeding is temporarily unavailable.".to_string(), code: "DEMO_STORAGE_REQUIRED".to_string() });
         }
         data.identity_contexts.assign_professional_facility(
-            &wallet,
+            &user_id,
             "demo-organization",
             "demo-facility-jhb",
             "MediChain Johannesburg Demonstration Clinic",
@@ -146,116 +127,22 @@ pub async fn seed_demo_facilities(data: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({ "success": true, "facilities": 3 }))
 }
 
-#[post("/api/auth/demo-login")]
-pub async fn demo_login(
-    data: web::Data<AppState>,
-    body: web::Json<DemoLoginRequest>,
-) -> impl Responder {
-    // This endpoint AUTO-CREATES a user account for any wallet address presented,
-    // with no credential. It defaulted to enabled (`unwrap_or(true)`), so a
-    // deployment that never set MEDICHAIN_DEV_MODE shipped an open
-    // account-creation endpoint — anyone could mint themselves an identity and
-    // then satisfy every presence-only handler in the API. It now defaults to
-    // DISABLED and additionally requires demo mode, so enabling it is a
-    // deliberate act in two places rather than an omission in one.
-    let dev_mode = std::env::var("MEDICHAIN_DEV_MODE")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
-
-    if !dev_mode || !crate::support::is_demo_mode() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            error: "Demo login is only available in development mode".to_string(),
-            code: "DEV_MODE_REQUIRED".to_string(),
-        });
-    }
-
-    // Validate wallet address format
-    if !is_valid_wallet_address(&body.wallet_address) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error:
-                "Invalid wallet address format. Must be SS58 encoded (starts with 5, 45-50 chars)"
-                    .to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
-    // Parse role (optional; default to Doctor in dev/demo mode)
-    let role_str = body.role.clone().unwrap_or_else(|| "Doctor".to_string());
-    let role = match parse_role(&role_str) {
-        Ok(r) => r,
-        Err(e) => {
-            return HttpResponse::BadRequest().json(ErrorResponse {
-                error: e,
-                code: "INVALID_ROLE".to_string(),
-            });
-        }
-    };
-
-    let name = body
-        .name
-        .clone()
-        .unwrap_or_else(|| format!("Demo {}", role));
-
-    // Create demo user
-    let user = User {
-        id: uuid::Uuid::new_v4().to_string(),
-        username: Some(format!("demo_{}", role.to_string().to_lowercase())),
-        name: name.clone(),
-        role: role.clone(),
-        created_at: Utc::now(),
-        created_by: None,
-        linked_patient_id: None,
-        email: None,
-        phone: None,
-        department: None,
-        specialty: None,
-        license_number: None,
-        status: "active".to_string(),
-        last_login: None,
-    };
-
-    let user_id = user.id.clone();
-    data.users.write().unwrap().insert(user_id.clone(), user);
-
-    log::info!(
-        "[DEMO] Auto-registered demo user: id={}, role={}, name={}",
-        user_id,
-        role,
-        name
-    );
-
-    HttpResponse::Created().json(DemoLoginResponse {
-        success: true,
-        user_id,
-        role: role.to_string(),
-        name,
-        message: "Demo user created and logged in".to_string(),
-    })
-}
-
 /// Get demo info
 #[get("/api/demo")]
 pub async fn demo_info() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "project": "MediChain",
         "description": "National health ID system with NFC emergency access",
-        "auth_mode": "Wallet-based authentication (no seed data)",
-        "dev_mode": std::env::var("MEDICHAIN_DEV_MODE").map(|v| v == "true" || v == "1").unwrap_or(true),
-        "demo_login_endpoint": "POST /api/auth/demo-login (dev mode only - auto-creates users)",
+        "auth_mode": "Account password and optional TOTP",
+        "dev_mode": std::env::var("MEDICHAIN_DEV_MODE").map(|v| v == "true" || v == "1").unwrap_or(false),
         "demo_instructions": {
-            "step_1": "First admin must bootstrap by using /api/auth/register with their wallet",
-            "step_2": "Admin registers healthcare staff with wallet addresses",
+            "step_1": "First admin bootstraps with an operator secret and activates an account",
+            "step_2": "Admin registers healthcare staff and issues one-time activation codes",
             "step_3": "Healthcare staff can then register patients via /api/register",
-            "step_4": "All users authenticate with X-User-Id header containing SS58 wallet address"
-        },
-        "wallet_auth": {
-            "format": "SS58 encoded wallet address (starts with 5, 45-50 chars)",
-            "example": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-            "header": "X-User-Id: <wallet_address>",
-            "note": "Users must be registered by admin before accessing protected endpoints"
+            "step_4": "Users sign in with a login ID and password"
         },
         "features": [
-            "Wallet-based authentication",
+            "Account password and optional authenticator sign-in",
             "Role-Based Access Control (RBAC)",
             "Healthcare provider patient registration",
             "Read-only patient access",
@@ -263,12 +150,12 @@ pub async fn demo_info() -> impl Responder {
             "Sealed, signed audit trail",
             "Cryptographic consent management",
             "Complete audit trail",
-            "HIPAA/GDPR compliance ready"
+            "Patient-visible access history"
         ],
         "endpoints": {
             "auth": {
                 "register": "POST /api/auth/register (Admin only - register new users)",
-                "login": "POST /api/auth/login (Validate wallet and get user info)",
+                "login": "POST /api/auth/login (Validate credentials and establish a session)",
                 "me": "GET /api/auth/me (Get current user info)"
             },
             "patients": {
@@ -290,7 +177,7 @@ pub async fn demo_info() -> impl Responder {
             },
             "health": "GET /health"
         },
-        "auth_header": "Use 'X-User-Id' header with wallet address (SS58 format) for authentication"
+        "auth_header": "Use Authorization: Bearer <access-token> for protected endpoints"
     }))
 }
 
@@ -341,14 +228,10 @@ const DEMO_FIXTURE_LOGIN_IDS: &[&str] = &[
 ///
 /// # Why this exists
 ///
-/// The clinician portal's quick-login buttons used to call a wallet-lookup route
-/// and then set an authenticated state with no bearer token behind it. There is
-/// no honest way for a one-click button to mint a session: `POST /api/auth/jwt`
-/// verifies a real sr25519 signature over a single-use challenge in every mode,
-/// including demo. So the shortcut now fetches these credentials and runs the
-/// real credential flow, which unlocks a keystore, derives a signer, signs the
-/// challenge, and receives a genuine session. One authentication path, with a
-/// convenience in front of it -- not a second protocol.
+/// The clinician portal's quick-login buttons fetch only the named synthetic
+/// fixture credentials and run the ordinary password-proof login path. This
+/// convenience cannot mint a session without the normal verifier and durable
+/// session write.
 ///
 /// # Containment
 ///
@@ -411,8 +294,7 @@ pub async fn demo_credentials(data: web::Data<AppState>) -> impl Responder {
                 WHERE u.login_id = base OR u.login_id LIKE base || '.%'
                 LIMIT 1
               ) AS matched ON TRUE
-         WHERE u.encrypted_keystore IS NOT NULL
-           AND u.credential_verifier IS NOT NULL
+         WHERE u.credential_verifier IS NOT NULL
            AND u.status = 'active'
          ORDER BY matched.base, (u.login_id = matched.base) DESC, u.login_id",
     )

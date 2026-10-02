@@ -43,7 +43,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_patients)
         .service(get_patient_by_id)
         .service(demo_info)
-        .service(demo_login)
         .service(seed_demo_facilities)
         // Demo-only, booleans about the synthetic PAT-DEMO-001 fixture, so the
         // seed can re-run without audited chart reads. 403 outside dev+demo.
@@ -88,23 +87,16 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(set_my_avatar)
         .service(get_user_avatar)
         .service(get_my_records)
-        // Wallet authentication endpoints
-        .service(get_auth_challenge) // SEC-005: Auth challenge for signing
-        .service(bootstrap_admin)
-        .service(wallet_register)
-        // Legacy anonymous wallet lookup/login routes remain unregistered.
-        // Private account information is returned only after challenge proof.
-        // Staff credential sign-in: employee identifier + password proof.
-        // Enrolment is wallet-signed; login returns the client-openable
-        // keystore, never a session (see handlers/staff_credentials.rs).
-        .service(staff_login) // POST /api/auth/staff/login
-        .service(enrol_credentials) // POST /api/auth/credentials
-        // A rotation, not a reset: the client re-encrypts its own keystore and
-        // the server only swaps the verifier beside it.
-        .service(rotate_credentials) // POST /api/auth/staff/rotate-credentials
+        // Account provisioning and credential authentication.
+        .service(bootstrap_account)
+        .service(register_staff_account)
+        .service(reset_user_credential)
+        .service(reset_user_mfa)
+        .service(password_login) // POST /api/auth/login
+        .service(redeem_credential) // POST /api/auth/credentials/redeem
+        .service(change_password) // POST /api/auth/credentials/change
         // Session token endpoints
         // JWT auth (Phase 9.4)
-        .service(issue_jwt) // POST /api/auth/jwt
         .service(refresh_jwt) // POST /api/auth/jwt/refresh
         .service(logout) // POST /api/auth/logout
         .service(logout_all) // POST /api/auth/logout-all
@@ -114,6 +106,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(step_up_challenge) // POST /api/auth/step-up/challenge
         .service(step_up_verify) // POST /api/auth/step-up/verify
         .service(transaction_challenge) // POST /api/auth/transaction/challenge
+        .service(transaction_verify) // POST /api/auth/transaction/verify
         .service(session_assurance) // GET  /api/auth/assurance
         // Phase 1 identity contexts: work and personal health remain separate.
         .service(enter_work_context)

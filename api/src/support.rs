@@ -794,12 +794,6 @@ pub async fn ensure_not_restricted(
     }
 }
 
-/// Validate user id format (basic validation)
-pub fn is_valid_wallet_address(address: &str) -> bool {
-    // SS58 addresses start with 5 and are typically 48 characters
-    address.len() >= 45 && address.len() <= 50 && address.starts_with('5')
-}
-
 pub fn generate_qr_code_base64(data: &str) -> Option<String> {
     use image::Luma;
     use qrcode::QrCode;

@@ -266,6 +266,9 @@ fn validate_register_patient_request(
             patient_id: String::new(),
             nfc_tag_id: String::new(),
             message: e,
+            user_id: None,
+            activation_code: None,
+            activation_expires_at: None,
         })
     })
 }
@@ -380,6 +383,30 @@ pub(crate) fn build_new_patient(
     (patient, nfc_tag)
 }
 
+/// Issue a 128-bit random medical number in Crockford base32, independent of
+/// the patient record key, account ID, and national ID. The database enforces
+/// uniqueness and retains the issued number after a patient row is removed.
+fn issue_medical_id() -> String {
+    const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let random = Uuid::new_v4();
+    let mut result = String::with_capacity(31);
+    result.push_str("MCHI-");
+    let mut bits = 0u32;
+    let mut buffered = 0u8;
+    for byte in random.as_bytes() {
+        bits = (bits << 8) | u32::from(*byte);
+        buffered += 8;
+        while buffered >= 5 {
+            buffered -= 5;
+            result.push(ALPHABET[((bits >> buffered) & 31) as usize] as char);
+        }
+    }
+    if buffered > 0 {
+        result.push(ALPHABET[((bits << (5 - buffered)) & 31) as usize] as char);
+    }
+    result
+}
+
 /// Register a new patient (Healthcare providers only)
 #[post("/api/register")]
 pub async fn register_patient(
@@ -392,8 +419,7 @@ pub async fn register_patient(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header. Only healthcare providers can register patients."
-                    .to_string(),
+                error: "Sign in as a healthcare provider to register patients.".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -423,18 +449,6 @@ pub async fn register_patient(
         Ok(bt) => bt,
         Err(resp) => return resp,
     };
-    let patient_wallet = req
-        .wallet_address
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if patient_wallet.is_some_and(|wallet| !is_valid_wallet_address(wallet)) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "wallet_address must be a valid SS58 address".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
     // The deterministic path is for the opt-in fixture seeder only. Real
     // registrations keep server-generated identifiers.
     let demo_ids = match req.demo_seed_key.as_deref() {
@@ -461,29 +475,11 @@ pub async fn register_patient(
     let patient_id = demo_ids
         .as_ref()
         .map(|ids| ids.0.clone())
-        .unwrap_or_else(|| {
-            format!(
-                "PAT-{}",
-                Uuid::new_v4()
-                    .to_string()
-                    .split('-')
-                    .next()
-                    .unwrap_or("000")
-            )
-        });
+        .unwrap_or_else(|| format!("PAT-{}", Uuid::new_v4().simple()));
     let nfc_tag_id = demo_ids
         .as_ref()
         .map(|ids| ids.1.clone())
-        .unwrap_or_else(|| {
-            format!(
-                "NFC-{}",
-                Uuid::new_v4()
-                    .to_string()
-                    .split('-')
-                    .next()
-                    .unwrap_or("000")
-            )
-        });
+        .unwrap_or_else(|| format!("NFC-{}", Uuid::new_v4().simple()));
 
     // Re-running the deterministic seeder must not create a second patient,
     // a second NFC tag, or an extra registration event. A conflicting key is
@@ -499,6 +495,9 @@ pub async fn register_patient(
                     patient_id,
                     nfc_tag_id,
                     message: "Deterministic demo patient already exists.".to_string(),
+                    user_id: None,
+                    activation_code: None,
+                    activation_expires_at: None,
                 });
             }
             Ok(_) => {
@@ -518,7 +517,8 @@ pub async fn register_patient(
     // PHI encrypted at rest; full profile in encrypted blob for lossless reads. On
     // PostgreSQL both rows commit in one transaction so neither is orphaned on failure.
     {
-        let entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
+        let mut entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
+        entity.health_id = issue_medical_id();
         if let Err(e) = data
             .repositories
             .create_patient_with_nfc(entity, nfc_tag.into())
@@ -533,12 +533,13 @@ pub async fn register_patient(
         }
     }
 
-    // Create an account only when a real patient-owned wallet was supplied.
-    if let Some(wallet_address) = patient_wallet {
+    // Every patient receives an unactivated account, linked to the clinical
+    // record by an internal ID. The patient chooses a login name on redemption.
+    let (patient_user_id, activation) = {
         let patient_user_id = Uuid::new_v4().to_string();
         let patient_user = User {
             id: patient_user_id.clone(),
-            username: Some(req.full_name.to_lowercase().replace(' ', ".")),
+            username: None,
             name: req.full_name.clone(),
             role: Role::Patient,
             created_at: Utc::now(),
@@ -552,14 +553,7 @@ pub async fn register_patient(
             status: "active".to_string(),
             last_login: None,
         };
-        let provisioned = match data.persist_then_cache_user(patient_user).await {
-            Ok(()) => {
-                data.record_legacy_wallet(wallet_address, &patient_user_id)
-                    .await
-            }
-            Err(e) => Err(e),
-        };
-        if let Err(e) = provisioned {
+        if let Err(e) = data.persist_then_cache_user(patient_user).await {
             log::error!(
                 "Failed to persist auto-created patient user {}: {}",
                 patient_id,
@@ -571,9 +565,40 @@ pub async fn register_patient(
                 nfc_tag_id,
                 message: "Patient record was created, but account persistence failed; retry account provisioning"
                     .to_string(),
+                user_id: None,
+                activation_code: None,
+                activation_expires_at: None,
             });
         }
-    }
+        let Some(pool) = data.db_pool.as_ref() else {
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Patient account activation is unavailable".to_string(),
+                code: "AUTH_STORAGE_REQUIRED".to_string(),
+            });
+        };
+        let Some(user_uuid) = crate::actor_directory::parse_user_id(&patient_user_id) else {
+            return HttpResponse::ServiceUnavailable().finish();
+        };
+        let issuer = crate::actor_directory::parse_user_id(&current_user_id);
+        let activation = match crate::credentials::issue(
+            pool,
+            user_uuid,
+            crate::credentials::GrantPurpose::Activation,
+            issuer,
+        )
+        .await
+        {
+            Ok(grant) => grant,
+            Err(error) => {
+                log::error!("Patient activation grant failed: {error:?}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Patient record was created, but activation is unavailable".to_string(),
+                    code: "ACCOUNT_PROVISIONING_UNAVAILABLE".to_string(),
+                });
+            }
+        };
+        (patient_user_id, activation)
+    };
 
     log::info!(
         "Registered new patient: {} with NFC tag: {} by provider: {}",
@@ -594,6 +619,9 @@ pub async fn register_patient(
             nfc_tag_id,
             message: "Patient record was created, but its registration audit event could not be recorded."
                 .to_string(),
+            user_id: Some(patient_user_id),
+            activation_code: Some(activation.code),
+            activation_expires_at: Some(activation.expires_at),
         });
     }
 
@@ -608,6 +636,9 @@ pub async fn register_patient(
             nfc_tag_id,
             message: "Patient record was created, but the emergency capsule could not be stored and recorded."
                 .to_string(),
+            user_id: Some(patient_user_id),
+            activation_code: Some(activation.code),
+            activation_expires_at: Some(activation.expires_at),
         });
     }
 
@@ -616,6 +647,9 @@ pub async fn register_patient(
         patient_id,
         nfc_tag_id,
         message: "Patient registered successfully. NFC tag provisioned.".to_string(),
+        user_id: Some(patient_user_id),
+        activation_code: Some(activation.code),
+        activation_expires_at: Some(activation.expires_at),
     })
 }
 

@@ -283,6 +283,8 @@ const ESTABLISHES_IDENTITY: &[&str] = &[
     "/api/auth/jwt",
     "/api/auth/jwt/refresh",
     "/api/auth/staff/login",
+    "/api/auth/login",
+    "/api/auth/credentials/redeem",
     "/api/auth/register",
     "/api/auth/demo-login",
 ];
@@ -357,9 +359,9 @@ where
         // identity in the first place it is simply the normal case: sign-in has
         // no subject until it succeeds, so demanding one made every credential
         // login fail with IDEMPOTENCY_AUTH_REQUIRED the moment the client
-        // attached a key. Those endpoints carry their own replay protection --
-        // single-use challenges consumed in the same transaction that issues the
-        // token -- which is stronger than a client-supplied key would be.
+        // attached a key. Sign-in is rate limited, and credential redemption
+        // consumes a one-time code. Neither can be keyed by an authenticated
+        // subject before the identity is established.
         let establishes_identity = ESTABLISHES_IDENTITY.contains(&route.as_str());
         let participates = matches!(
             *req.method(),

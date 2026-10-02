@@ -102,7 +102,7 @@ pub async fn book_appointment(
 
     // User must be booking for themselves or be a healthcare provider/authorized relative.
     // Resolve the caller from the server-side account registry instead of trusting a
-    // legacy ID prefix: production wallet addresses do not encode a user's role.
+    // legacy ID prefix: account IDs do not encode a user's role.
     // `current_user_id` is an user id and `patient_id` is a `PAT-…` record
     // ID, so the direct comparison this used to make was never true for a real
     // patient account: booking for yourself fell through to the provider and

@@ -9,34 +9,30 @@ import './index.css';
 // Browser state left by earlier sign-in designs is removed by
 // `purgeLegacyIdentityStorage`, which `@medichain/shared` runs once when it loads.
 
-// Initialize app - restore session if needed
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+root.render(<div role="status" className="min-h-screen flex items-center justify-center">Restoring your session…</div>);
+
+/** Restore the cookie-backed session before protected pages request data. */
 async function initApp() {
   try {
-    // Try to restore session from localStorage and re-register with API if needed
     await useAuthStore.getState().restoreSession();
     console.log('[MediChain] Doctor Portal initialized');
   } catch (error) {
     console.warn('[MediChain] Session restore failed:', error);
+    useAuthStore.getState().logout();
   }
+  root.render(
+    <React.StrictMode>
+      <BrowserRouter
+        basename={import.meta.env.BASE_URL.replace(/\/$/, '')}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </BrowserRouter>
+    </React.StrictMode>
+  );
 }
 
-initApp();
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <BrowserRouter
-      // Derived from Vite's `base` (import.meta.env.BASE_URL) rather than
-      // hardcoded, so the router and the asset paths cannot disagree. Vite
-      // gives BASE_URL a trailing slash ("/doctor/"); react-router wants none.
-      basename={import.meta.env.BASE_URL.replace(/\/$/, '')}
-      future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-      }}
-    >
-      <ToastProvider>
-        <App />
-      </ToastProvider>
-    </BrowserRouter>
-  </React.StrictMode>
-);
+void initApp();
