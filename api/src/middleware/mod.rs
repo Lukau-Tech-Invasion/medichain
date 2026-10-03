@@ -12,7 +12,6 @@ pub mod authorized_user;
 pub mod encryption_policy;
 pub mod error_handling;
 pub mod idempotency;
-pub mod jwt_identity;
 pub mod metrics;
 pub mod phi_access_audit;
 pub mod rate_limit;

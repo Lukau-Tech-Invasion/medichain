@@ -89,7 +89,7 @@ interface AuthState {
     username: string;
     password: string;
   }) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setPatient: (patient: Patient) => void;
   clearError: () => void;
   restoreSession: () => Promise<boolean>;
@@ -205,11 +205,11 @@ export const usePatientAuthStore = create<AuthState>()(
           }
         },
 
-        logout: () => {
+        logout: async () => {
           clearStoredAuth();
-          // Revoke the session server-side too; `endSession` clears the local
-          // tokens whether or not the request reaches the API.
-          void getApiClient().endSession();
+          // Finish server revocation before navigation can cancel the request.
+          // `endSession` clears local tokens even if the network is unavailable.
+          await getApiClient().endSession();
           clearSessionMemory();
           set({
             patient: null,

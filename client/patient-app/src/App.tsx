@@ -105,6 +105,7 @@ function PageLoader() {
 function App() {
   useTextSize();
   const logout = usePatientAuthStore(state => state.logout);
+  const isAuthenticated = usePatientAuthStore(state => state.isAuthenticated);
   return (
     <I18nProvider>
     <ToastProvider>
@@ -119,7 +120,7 @@ function App() {
         path="/"
         element={
           <Suspense fallback={<PageLoader />}>
-            <Layout variant="patient" onLogout={logout} />
+            {isAuthenticated ? <Layout variant="patient" onLogout={logout} /> : <Navigate to="/login" replace />}
           </Suspense>
         }
       >

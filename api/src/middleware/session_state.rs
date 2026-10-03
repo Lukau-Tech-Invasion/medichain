@@ -11,8 +11,7 @@
 //! middleware confirms that session still exists, still belongs to the subject
 //! the token names, and has not been revoked.
 //!
-//! It runs *before* `JwtIdentityMiddleware`, so a revoked session never reaches
-//! the point where its subject would be injected as a downstream identity.
+//! It runs before route handlers, so a revoked session never reaches one.
 
 use actix_web::{
     body::EitherBody,

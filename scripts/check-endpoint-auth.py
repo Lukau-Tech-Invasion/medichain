@@ -33,6 +33,7 @@ AUTH_MARKERS = [
     'require_auth', 'require_known_user', 'AuthorizedUser',
     # Authorization helpers / role + ownership checks
     'require_admin', 'require_provider', 'require_demo_mode',
+    'authorized_admin(&data, &req)',
     'require_emergency_list_access', 'require_card_access',
     'require_surgical_list_access',
     'resolve_patient_access', 'is_healthcare_provider', 'is_admin(',
@@ -162,6 +163,8 @@ KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'Author
                  'get_current_claims', 'authenticated_session']
 # Checks what the caller is allowed to do at all.
 ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
+                # Account recovery delegates registered-Admin and assurance checks.
+                'authorized_admin(&data, &req)',
                 'can_edit_medical_records', 'can_view_medical_records', 'is_admin(',
                 'require_demo_mode', 'is_demo_mode',
                 # Resolves the caller, requires a clinical role, audits the read.

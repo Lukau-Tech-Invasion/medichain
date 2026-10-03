@@ -1,10 +1,7 @@
-//! Class B step-up and Class C transaction-authorization endpoints (ADR-0008).
+//! Class C transaction-authorization endpoints (ADR-0008).
 //!
-//! Both classes run through one challenge mechanism. A step-up is simply a
-//! challenge whose action is `session.step_up` and whose intent binds nothing
-//! but the session; an exact transaction authorization binds the mutation as
-//! well. Keeping one code path means the replay, expiry, session-binding and
-//! single-use guarantees cannot drift apart between the two.
+//! The Class B step-up uses the current TOTP endpoint in `auth_jwt`; the
+//! retired challenge routes are not part of the public API.
 //!
 //! Inherits shared imports from the parent module via `use super::*`.
 
@@ -12,8 +9,7 @@ use super::*;
 use crate::state::{TotpOutcome, TotpScope};
 use crate::transaction_authorization::{self as txn, ChallengeError, Factor, TransactionIntent};
 
-/// The action recorded for a Class B elevation, so a step-up signature can never
-/// be replayed as authorization for a real mutation.
+/// Reserved action: a transaction challenge cannot impersonate session elevation.
 const STEP_UP_ACTION: &str = "session.step_up";
 
 #[derive(Debug, Deserialize)]
@@ -194,110 +190,6 @@ async fn verify_challenge_factor(
         .await
         .map_err(|_| invalid_authorization())?;
     Ok((challenge_id, factor))
-}
-
-/// Begin a Class B step-up for the current session.
-#[post("/api/auth/step-up/challenge")]
-pub async fn step_up_challenge(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse {
-    let Some((user_id, sid)) = authenticated_session(&req) else {
-        return session_required();
-    };
-    let Some(pool) = data.db_pool.as_ref() else {
-        return storage_required();
-    };
-
-    // A step-up binds the verified session, without authorizing a mutation.
-    let intent = TransactionIntent {
-        action: STEP_UP_ACTION.to_string(),
-        method: "POST".to_string(),
-        path: "/api/auth/step-up/verify".to_string(),
-        body_digest: txn::body_digest(b""),
-        resource_id: None,
-        expected_state: None,
-        idempotency_key: None,
-    };
-
-    match txn::issue_transaction_challenge(pool, &user_id, sid, &intent).await {
-        Ok(challenge) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "challenge": challenge,
-        })),
-        Err(error) => challenge_error_response(pool, error, &user_id, sid, STEP_UP_ACTION).await,
-    }
-}
-
-/// Complete a Class B step-up, elevating the session for a short window.
-#[post("/api/auth/step-up/verify")]
-pub async fn step_up_verify(
-    data: web::Data<AppState>,
-    req: HttpRequest,
-    body: web::Json<StepUpVerifyRequest>,
-) -> HttpResponse {
-    let Some((user_id, sid)) = authenticated_session(&req) else {
-        return session_required();
-    };
-    let Some(pool) = data.db_pool.as_ref() else {
-        return storage_required();
-    };
-    let (challenge_id, factor) =
-        match verify_challenge_factor(&data, pool, &user_id, sid, &body).await {
-            Ok(result) => result,
-            Err(response) => return response,
-        };
-
-    let intent = TransactionIntent {
-        action: STEP_UP_ACTION.to_string(),
-        method: "POST".to_string(),
-        path: "/api/auth/step-up/verify".to_string(),
-        body_digest: txn::body_digest(b""),
-        resource_id: None,
-        expected_state: None,
-        idempotency_key: None,
-    };
-
-    match txn::authorize_transaction(
-        pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &user_id,
-            login_session_id: sid,
-        },
-        &intent,
-    )
-    .await
-    {
-        Ok(()) => match txn::record_step_up(pool, sid, factor).await {
-            Ok(true) => HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "step_up_expires_in": txn::STEP_UP_TTL_SECS,
-                "authenticator": factor.as_str(),
-            })),
-            // The session ended between authorization and elevation.
-            Ok(false) => HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "This session has ended; sign in again".to_string(),
-                code: "SESSION_REVOKED".to_string(),
-            }),
-            Err(error) => {
-                log::error!("Step-up could not be recorded: {error}");
-                storage_required()
-            }
-        },
-        Err(failure) => {
-            txn::record_security_event(
-                pool,
-                failure.security_event(),
-                Some(&user_id),
-                Some(sid),
-                Some(challenge_id),
-                Some(STEP_UP_ACTION),
-            )
-            .await;
-            HttpResponse::Unauthorized().json(ErrorResponse {
-                error: failure.client_message().to_string(),
-                code: "AUTHORIZATION_REJECTED".to_string(),
-            })
-        }
-    }
 }
 
 /// Begin a Class C authorization for one exact mutation.

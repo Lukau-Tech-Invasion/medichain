@@ -85,9 +85,9 @@ test('a request that names a patient by header alone is refused', async ({ reque
   const patient = readFixtures().patient;
 
   for (const claimed of [SS58_LOOKALIKE, 'PAT-STALE', patient.user_id]) {
-    const read = await api(request, 'GET', '/api/auth/me', { headers: { 'X-User-Id': claimed } });
-    expect(read.status, `GET /api/auth/me as X-User-Id: ${claimed}`).toBe(401);
-    const records = await api(request, 'GET', '/api/patients', { headers: { 'X-User-Id': claimed } });
-    expect(records.status, `GET /api/patients as X-User-Id: ${claimed}`).toBe(401);
+    const read = await api(request, 'GET', '/api/auth/me', { headers: { 'X-User-Id': claimed } }); // identity-header-negative-assertion
+    expect(read.status, `GET /api/auth/me as X-User-Id: ${claimed}`).toBe(401); // identity-header-negative-assertion
+    const records = await api(request, 'GET', '/api/patients', { headers: { 'X-User-Id': claimed } }); // identity-header-negative-assertion
+    expect(records.status, `GET /api/patients as X-User-Id: ${claimed}`).toBe(401); // identity-header-negative-assertion
   }
 });

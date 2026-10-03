@@ -21,7 +21,6 @@ use actix_web::{web, App, HttpServer};
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
-use crate::middleware::jwt_identity::JwtIdentityMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
@@ -664,9 +663,6 @@ async fn main() -> std::io::Result<()> {
             .wrap(rate_limit)
             // Identity for durable operation claims comes only from the verified JWT.
             .wrap(IdempotencyMiddleware)
-            // Bridges verified Bearer sessions to handlers still reading the
-            // legacy header; client-supplied values are always discarded.
-            .wrap(JwtIdentityMiddleware)
             .wrap(SessionStateMiddleware)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)

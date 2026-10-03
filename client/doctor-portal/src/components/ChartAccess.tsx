@@ -178,7 +178,7 @@ export function ReasonPrompt({ onDeclare, title, onCancel }: ReasonPromptProps) 
           placeholder={t('accessReason.otherPlaceholder')}
           className="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         />
-        <button type="submit" disabled={!trimmedOther} className={`${buttonClass} disabled:opacity-50`}>
+        <button type="submit" disabled={!trimmedOther} className={`${buttonClass} disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100`}>
           {t('accessReason.continue')}
         </button>
       </form>

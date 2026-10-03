@@ -40,7 +40,7 @@ import { useToastActions } from './Toast';
 
 interface LayoutProps {
   variant?: 'doctor' | 'patient';
-  onLogout?: () => void;
+  onLogout?: () => void | Promise<void>;
 }
 
 interface NavItem {
@@ -227,8 +227,8 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
   const navItems = variant === 'doctor' ? doctorNavItems : patientMainNav;
   const brandColor = variant === 'doctor' ? 'primary' : 'health';
 
-  const handleLogout = () => {
-    if (onLogout) onLogout();
+  const handleLogout = async () => {
+    if (onLogout) await onLogout();
     else localStorage.clear();
     navigate('/login');
   };

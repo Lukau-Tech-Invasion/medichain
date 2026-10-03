@@ -6,6 +6,7 @@ import { retiredTermsOnPage, skipFirstVisitReload } from './support';
  * The wallet is gone, and nothing about it works any more.
  *
  * Wallet identity ended in ADR-0010: no sr25519 keys, no recovery phrase, no
+ * identity-header-negative-assertion: the old header is tested only to prove refusal.
  * SS58 address as an account id, and no `X-User-Id` header as a way of saying
  * who you are. This proves it from the outside, in the three places a leftover
  * would show:
@@ -99,17 +100,17 @@ test('a request that names a user by header alone is refused', async ({ request 
   const doctor = fixtureStaff('Doctor');
 
   for (const claimed of [doctor.user_id, SS58_LOOKALIKE]) {
-    const read = await api(request, 'GET', '/api/auth/me', { headers: { 'X-User-Id': claimed } });
-    expect(read.status, `GET /api/auth/me as X-User-Id: ${claimed}`).toBe(401);
+    const read = await api(request, 'GET', '/api/auth/me', { headers: { 'X-User-Id': claimed } }); // identity-header-negative-assertion
+    expect(read.status, `GET /api/auth/me as X-User-Id: ${claimed}`).toBe(401); // identity-header-negative-assertion
 
-    const list = await api(request, 'GET', '/api/patients', { headers: { 'X-User-Id': claimed } });
-    expect(list.status, `GET /api/patients as X-User-Id: ${claimed}`).toBe(401);
+    const list = await api(request, 'GET', '/api/patients', { headers: { 'X-User-Id': claimed } }); // identity-header-negative-assertion
+    expect(list.status, `GET /api/patients as X-User-Id: ${claimed}`).toBe(401); // identity-header-negative-assertion
 
     const write = await api(request, 'POST', '/api/register', {
-      headers: { 'X-User-Id': claimed },
+      headers: { 'X-User-Id': claimed }, // identity-header-negative-assertion
       data: {},
     });
-    expect(write.status, `POST /api/register as X-User-Id: ${claimed}`).toBe(401);
+    expect(write.status, `POST /api/register as X-User-Id: ${claimed}`).toBe(401); // identity-header-negative-assertion
   }
 });
 
@@ -120,7 +121,7 @@ test('the header is ignored even beside a real session: identity is the token\'s
 
   const me = await api(request, 'GET', '/api/auth/me', {
     token,
-    headers: { 'X-User-Id': admin.user_id },
+    headers: { 'X-User-Id': admin.user_id }, // identity-header-negative-assertion
   });
   expect(me.status).toBe(200);
   const body = me.body?.user ?? me.body;
