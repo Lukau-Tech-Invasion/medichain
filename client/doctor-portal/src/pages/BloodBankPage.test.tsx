@@ -40,7 +40,7 @@ describe('BloodBankPage', () => {
         ok: true,
         headers: new Headers({ 'content-type': 'application/json' }),
         status: 200,
-        json: () => Promise.resolve({ orders: [] }),
+        json: () => Promise.resolve({ screens: [], transfusions: [] }),
       })
     );
   });
@@ -53,7 +53,7 @@ describe('BloodBankPage', () => {
       const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
       const body = url.includes('/api/patients')
         ? { success: true, patients: [] }
-        : { success: true, type_screens: { items: [] }, transfusions: { items: [] } };
+        : { screens: [], transfusions: [] };
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -91,5 +91,16 @@ describe('BloodBankPage', () => {
       expect(screen.getByPlaceholderText(/Order ID, patient, product/i)).toBeInTheDocument()
     );
     expect(screen.getByText(/All Statuses/i)).toBeInTheDocument();
+  });
+
+  it('shows a load error when the register response is malformed', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ orders: [] }),
+    });
+    render(<BloodBankPage />);
+    expect(await screen.findByText('Failed to load blood bank orders')).toBeInTheDocument();
   });
 });

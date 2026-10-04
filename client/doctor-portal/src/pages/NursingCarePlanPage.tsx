@@ -294,7 +294,7 @@ const NursingCarePlanPage: React.FC = () => {
     { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplMobilityGoal')], interventions: [t('docNursingCarePlan.tplMobilityIntervention1'), t('docNursingCarePlan.tplMobilityIntervention2')] },
   ];
 
-  const useTemplate = (template: CarePlanTemplate) => {
+  const applyTemplate = (template: CarePlanTemplate) => {
     setForm(current => ({
       ...current,
       diagnosis: template.diagnosis,
@@ -545,7 +545,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
                   <p className="text-xs text-content-muted">{t('docNursingCarePlan.goalsCount', { count: tpl.goals.length })} · {t('docNursingCarePlan.interventionsCount', { count: tpl.interventions.length })}</p>
                 </div>
-                <button type="button" onClick={() => useTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
+                <button type="button" onClick={() => applyTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>
             ))}
           </div>

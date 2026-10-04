@@ -4220,8 +4220,12 @@ export async function listBloodBank(): Promise<{
     screens?: unknown[];
     transfusions?: unknown[];
   }>('/api/platform/list/blood-bank');
-  const screens = response?.screens || [];
-  const transfusions = response?.transfusions || [];
+  // A malformed response must not look like an empty clinical register.
+  if (!Array.isArray(response?.screens) || !Array.isArray(response?.transfusions)) {
+    throw new Error('Blood-bank register response is invalid');
+  }
+  const screens = response.screens;
+  const transfusions = response.transfusions;
   return {
     success: true,
     type_screens: { total: screens.length, items: screens },

@@ -288,18 +288,26 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     // order raised on `BloodBankPage` and the transfusion documented against
     // it were invisible on the register that exists to show them. That
     // repository has been removed.
-    let ordered = data
-        .repositories
-        .blood_type_screen_records
-        .list_all()
-        .await
-        .unwrap_or_default();
-    let transfusions = data
-        .repositories
-        .transfusion_event_records
-        .list_all()
-        .await
-        .unwrap_or_default();
+    let ordered = match data.repositories.blood_type_screen_records.list_all().await {
+        Ok(records) => records,
+        Err(_) => {
+            log::error!("Blood-bank type-screen register unavailable");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Blood-bank records are temporarily unavailable.".to_string(),
+                code: "BLOOD_BANK_REGISTER_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let transfusions = match data.repositories.transfusion_event_records.list_all().await {
+        Ok(records) => records,
+        Err(_) => {
+            log::error!("Blood-bank transfusion register unavailable");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Blood-bank records are temporarily unavailable.".to_string(),
+                code: "BLOOD_BANK_REGISTER_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     let screens: Vec<serde_json::Value> = ordered.into_iter().map(|r| r.data).collect();
     let transfusions: Vec<serde_json::Value> = transfusions.into_iter().map(|r| r.data).collect();

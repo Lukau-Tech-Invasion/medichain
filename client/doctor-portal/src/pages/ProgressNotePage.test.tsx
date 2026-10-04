@@ -20,6 +20,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   listProgressNotes: vi.fn(),
   createProgressNote: vi.fn(),
+  openAccessContext: vi.fn(),
 }));
 
 describe('ProgressNotePage', () => {
@@ -35,6 +36,7 @@ describe('ProgressNotePage', () => {
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
     vi.mocked(shared.listProgressNotes).mockResolvedValue([]);
+    vi.mocked(shared.openAccessContext).mockResolvedValue({ access_context_id: 'CTX-TEST' } as Awaited<ReturnType<typeof shared.openAccessContext>>);
   });
 
   it('renders progress note page', async () => {
@@ -78,6 +80,8 @@ describe('ProgressNotePage', () => {
     fireEvent.click(screen.getByText(/New Note/i));
     fireEvent.focus(document.getElementById('progress-patient')!);
     fireEvent.click(await screen.findByRole('button', { name: /Ama Mensah/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Treatment' }));
+    await waitFor(() => expect(shared.openAccessContext).toHaveBeenCalledWith('PAT-1', 'treatment'));
     fireEvent.change(screen.getByLabelText(/Subjective/i), {
       target: { value: 'Slept poorly.' },
     });

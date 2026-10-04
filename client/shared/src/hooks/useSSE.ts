@@ -22,8 +22,10 @@ export function useSSE(): UseSSEReturn {
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryDelayRef = useRef(5000);
   /** The user id the live stream was opened for; null when not streaming. */
   const connectedUserRef = useRef<string | null>(null);
+  const connectedAuthRef = useRef<string | null>(null);
 
   const clearEvents = useCallback(() => {
     setEvents([]);
@@ -33,6 +35,9 @@ export function useSSE(): UseSSEReturn {
     const apiClient = getApiClient();
     const userId = apiClient.getUserId();
     const baseUrl = apiClient.getBaseUrl();
+    const sessionHeaders = apiClient.getSessionHeaders();
+
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
 
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -45,6 +50,7 @@ export function useSSE(): UseSSEReturn {
     // watcher in the effect below connects as soon as sign-in provides it.
     if (!userId || document.visibilityState === 'hidden' || !document.hasFocus()) {
       connectedUserRef.current = null;
+      connectedAuthRef.current = null;
       setIsConnected(false);
       setError(null);
       debugLog('useSSE', 'No authenticated user yet — deferring SSE connection');
@@ -54,12 +60,14 @@ export function useSSE(): UseSSEReturn {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     connectedUserRef.current = userId;
+    connectedAuthRef.current = sessionHeaders.Authorization ?? null;
+    let retryAfterMs = 0;
 
     try {
       debugLog('useSSE', `Connecting to SSE at ${baseUrl}/api/events ...`);
       const response = await fetch(`${baseUrl}/api/events`, {
         headers: {
-          ...apiClient.getSessionHeaders(),
+          ...sessionHeaders,
           'Accept': 'text/event-stream',
         },
         signal: controller.signal,
@@ -71,15 +79,21 @@ export function useSSE(): UseSSEReturn {
         // timer only produces a repeating 401 against a protected endpoint.
         // Stop, and let the identity watcher retry when the session changes.
         if (response.status === 401 || response.status === 403) {
-          connectedUserRef.current = null;
           setIsConnected(false);
           setError(`SSE not authorized: ${response.status}`);
           debugLog('useSSE', 'SSE rejected the session; waiting for re-authentication');
           return;
         }
+        if (response.status === 429) {
+          const seconds = Number(response.headers.get('Retry-After'));
+          if (Number.isFinite(seconds) && seconds > 0) {
+            retryAfterMs = Math.min(Math.max(seconds * 1000, 5000), 60000);
+          }
+        }
         throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
       }
 
+      retryDelayRef.current = 5000;
       setIsConnected(true);
       setError(null);
       debugLog('useSSE', 'SSE Connected');
@@ -104,8 +118,12 @@ export function useSSE(): UseSSEReturn {
           // Clear the connected identity so the watcher re-opens the stream.
           // Without this a server-side close left the hook permanently silent
           // while still reporting itself connected.
-          connectedUserRef.current = null;
           setIsConnected(false);
+          const delay = retryDelayRef.current;
+          retryDelayRef.current = Math.min(delay * 2, 60000);
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!controller.signal.aborted) void connect();
+          }, delay);
           break;
         }
 
@@ -147,15 +165,17 @@ export function useSSE(): UseSSEReturn {
         debugLog('useSSE', 'SSE transport unavailable; scheduling reconnect', err);
         setError(err instanceof Error ? err.message : 'SSE connection failed');
         setIsConnected(false);
-        connectedUserRef.current = null;
 
-        // Attempt reconnect after 5 seconds if not aborted
+        // Keep this identity marked as pending so the one-second watcher does
+        // not defeat rate-limit backoff. A changed session still reconnects.
+        const delay = Math.max(retryAfterMs, retryDelayRef.current);
+        retryDelayRef.current = Math.min(delay * 2, 60000);
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = setTimeout(() => {
           if (!controller.signal.aborted) {
-            connect();
+            void connect();
           }
-        }, 5000);
+        }, delay);
       }
     }
   }, []);
@@ -176,11 +196,12 @@ export function useSSE(): UseSSEReturn {
         abortControllerRef.current?.abort();
         abortControllerRef.current = null;
         connectedUserRef.current = null;
+        connectedAuthRef.current = null;
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
         setIsConnected(false);
         return;
       }
-      if (!connectedUserRef.current) void connect();
+      if (!connectedUserRef.current || connectedAuthRef.current !== (getApiClient().getSessionHeaders().Authorization ?? null)) void connect();
     };
     document.addEventListener('visibilitychange', syncActivity);
     window.addEventListener('focus', syncActivity);
@@ -188,11 +209,13 @@ export function useSSE(): UseSSEReturn {
     const watcher = setInterval(() => {
       if (document.visibilityState === 'hidden' || !document.hasFocus()) return;
       const currentUser = getApiClient().getUserId() ?? null;
-      if (currentUser === connectedUserRef.current) return;
+      const currentAuth = getApiClient().getSessionHeaders().Authorization ?? null;
+      if (currentUser === connectedUserRef.current && currentAuth === connectedAuthRef.current) return;
 
       if (!currentUser) {
         abortControllerRef.current?.abort();
         connectedUserRef.current = null;
+        connectedAuthRef.current = null;
         setIsConnected(false);
         setEvents([]);
         return;

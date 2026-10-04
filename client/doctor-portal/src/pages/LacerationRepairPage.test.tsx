@@ -15,6 +15,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   createLaceration: vi.fn(),
   getPatients: vi.fn(),
   getApiClient: vi.fn(),
+  openAccessContext: vi.fn(),
 }));
 
 describe('LacerationRepairPage', () => {
@@ -37,7 +38,11 @@ describe('LacerationRepairPage', () => {
     vi.mocked(shared.getApiClient).mockReturnValue({
       get: mockGet.mockResolvedValue([]),
       getSessionHeaders: vi.fn().mockReturnValue({}),
+      setPatientAccessContext: vi.fn(),
     } as unknown as ReturnType<typeof shared.getApiClient>);
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-LACERATIONS',
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({

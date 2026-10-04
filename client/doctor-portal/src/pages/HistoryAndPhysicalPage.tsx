@@ -185,7 +185,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
     'Endocrine', 'Hematologic/Lymphatic'
   ];
 
-  const useHistoryTemplate = (examType: HistoryAndPhysical['examType']) => {
+  const applyHistoryTemplate = (examType: HistoryAndPhysical['examType']) => {
     setEditingHpId(null);
     setFormData(current => ({ ...current, examType }));
     setCurrentSection(0);
@@ -1142,7 +1142,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   </div>
                   {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
-                <button type="button" onClick={() => useHistoryTemplate(template.type as HistoryAndPhysical['examType'])} className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
+                <button type="button" onClick={() => applyHistoryTemplate(template.type as HistoryAndPhysical['examType'])} className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
                   {t('docHistoryPhysical.useTemplate')}
                   <ChevronRight className="w-4 h-4" />
                 </button>

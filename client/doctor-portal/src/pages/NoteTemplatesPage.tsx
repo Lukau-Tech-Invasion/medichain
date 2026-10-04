@@ -6,7 +6,7 @@ import {
   deactivateNoteTemplate,
   getApiErrorMessage,
   getNoteTemplates,
-  useNoteTemplate,
+  useNoteTemplate as renderNoteTemplate,
   useTranslation,
   Alert,
   LoadingSpinner,
@@ -254,7 +254,7 @@ const NoteTemplatesPage: React.FC = () => {
 
   const handleUseTemplate = async (template: NoteTemplate) => {
     try {
-      const result = await useNoteTemplate({ template_id: template.templateId, variables: {} });
+      const result = await renderNoteTemplate({ template_id: template.templateId, variables: {} });
       const sections = result.rendered_sections
         ?? Object.entries(result.rendered_content).map(([title, content]) => ({ title, content: String(content) }));
       setRenderedTemplate({ name: template.name, sections });

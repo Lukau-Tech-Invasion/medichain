@@ -31,4 +31,22 @@ describe('live streams and background tabs', () => {
   await act(async () => { vi.advanceTimersByTime(6000); });
   expect(requests).toHaveLength(0);
  });
+ it('honours rate-limit backoff instead of retrying every watcher tick', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('', {
+   status: 429, headers: { 'Retry-After': '30' },
+  }))));
+  const fetchMock = vi.mocked(fetch);
+  renderHook(() => useSSE());
+  await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+ });
+ it('does not retry a rejected session every second', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response('', { status: 401 }))));
+  const fetchMock = vi.mocked(fetch);
+  renderHook(() => useSSE());
+  await act(async () => { await Promise.resolve(); vi.advanceTimersByTime(10000); });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+ });
 });
