@@ -39,6 +39,9 @@ jobs:
             - name: Every endpoint has an auth decision
               run: python scripts/check-endpoint-auth.py
 
+            - name: Production Compose isolates ports and configures backups
+              run: python scripts/check-production-compose.py
+
             # The gate above asks "is there an authorization decision here". It
             # cannot see a decision that is present and too permissive — it
             # counted the telehealth recording endpoint as properly authorized
@@ -705,16 +708,6 @@ jobs:
                     --health-timeout 5s
                     --health-retries 10
 
-            # Without IPFS the suite SKIPS its whole encrypted-record section
-            # (upload -> encrypt -> IPFS -> download -> decrypt) rather than
-            # failing, so a regression there would go unnoticed while the job
-            # still reported green. A skipped section is not a passing one.
-            ipfs:
-                image: ipfs/kubo:v0.29.0
-                ports:
-                    - 5001:5001
-                    - 8080:8080
-
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
@@ -761,8 +754,6 @@ jobs:
                   RUST_LOG: warn
                   # 127.0.0.1, not `localhost`: the latter can resolve to ::1
                   # first and the published port is not reachable there.
-                  IPFS_API_URL: http://127.0.0.1:5001
-                  IPFS_GATEWAY_URL: http://127.0.0.1:8080
               run: ./scripts/ci-start-api.sh
 
             - name: Start API (postgres backend)

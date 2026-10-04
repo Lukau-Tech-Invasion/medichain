@@ -26,11 +26,9 @@
 # - AUDIT_CHECKPOINT_SINK stays none and no signing key is set — batches are
 #   sealed unsigned and nothing is exported, so testing here can never write
 #   a checkpoint anywhere outside this disposable stack.
-# - Ports are NOT published to the host beyond what the API/nginx need for
-#   local test traffic — postgres/ipfs stay on the internal network only,
-#   unlike the dev compose file (which exposes them on host ports 5432/5001/
-#   8080/4001 for local developer convenience). Nothing here is reachable
-#   from outside this machine.
+# - PostgreSQL binds only to the host loopback at a separate synthetic-test
+#   port; the application uses the private Compose network. Nothing here is
+#   reachable from outside this machine.
 
 services:
   postgres:
@@ -57,10 +55,6 @@ services:
       POSTGRES_USER: medichain_horizon
       POSTGRES_PASSWORD: horizon-isolated-synthetic-only
       POSTGRES_DB: medichain_horizon
-
-  ipfs:
-    container_name: medichain_horizon_ipfs
-    ports: !override []  # internal-only
 
   api:
     container_name: medichain_horizon_api

@@ -69,6 +69,37 @@ pub fn validate_runtime_posture(
     Ok(())
 }
 
+/// A production process must use the persistent repository and explicit HTTPS
+/// browser origins. A connected database alone does not select that backend.
+pub fn validate_production_storage_and_origins(
+    app_env: &str,
+    storage: &str,
+    database_url: &str,
+    allowed_origins: &str,
+) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if !production {
+        return Ok(());
+    }
+    if storage.trim() != "postgres" || database_url.trim().is_empty() {
+        return Err(
+            "APP_ENV=production requires MEDICHAIN_STORAGE=postgres and DATABASE_URL".into(),
+        );
+    }
+    let origins: Vec<&str> = allowed_origins.split(',').map(str::trim).collect();
+    if origins.is_empty()
+        || origins
+            .iter()
+            .any(|origin| !origin.starts_with("https://") || origin.len() <= "https://".len())
+    {
+        return Err("APP_ENV=production requires explicit HTTPS ALLOWED_ORIGINS".into());
+    }
+    Ok(())
+}
+
 /// Refuse to start in production with an SMTP transport that would send a
 /// breach notification in clear text.
 ///
@@ -127,6 +158,12 @@ pub fn validate_production_secrets() -> Result<(), String> {
     let app_env = std::env::var("APP_ENV")
         .unwrap_or_else(|_| if is_demo { "development" } else { "production" }.to_string());
     validate_runtime_posture(&app_env, is_demo, require_signatures)?;
+    validate_production_storage_and_origins(
+        &app_env,
+        &std::env::var("MEDICHAIN_STORAGE").unwrap_or_default(),
+        &std::env::var("DATABASE_URL").unwrap_or_default(),
+        &std::env::var("ALLOWED_ORIGINS").unwrap_or_default(),
+    )?;
     validate_telehealth_configuration(&app_env)?;
     validate_identity_verification_configuration(&app_env)?;
     validate_smtp_configuration(&app_env)?;
@@ -586,7 +623,10 @@ mod clinic_offset_tests {
 
 #[cfg(test)]
 mod runtime_posture_tests {
-    use super::{validate_identity_verification_mode, validate_runtime_posture};
+    use super::{
+        validate_identity_verification_mode, validate_production_storage_and_origins,
+        validate_runtime_posture,
+    };
 
     #[test]
     fn production_rejects_demo_mode() {
@@ -603,6 +643,35 @@ mod runtime_posture_tests {
     #[test]
     fn production_accepts_secure_posture() {
         assert!(validate_runtime_posture("production", false, true).is_ok());
+    }
+
+    #[test]
+    fn production_requires_persistent_repositories_and_https_origins() {
+        let check = validate_production_storage_and_origins;
+        assert!(check(
+            "production",
+            "",
+            "postgres://host/db",
+            "https://clinic.example"
+        )
+        .is_err());
+        assert!(check("production", "postgres", "", "https://clinic.example").is_err());
+        assert!(check("production", "postgres", "postgres://host/db", "").is_err());
+        assert!(check(
+            "production",
+            "postgres",
+            "postgres://host/db",
+            "http://localhost"
+        )
+        .is_err());
+        assert!(check(
+            "production",
+            "postgres",
+            "postgres://host/db",
+            "https://clinic.example"
+        )
+        .is_ok());
+        assert!(check("development", "", "", "").is_ok());
     }
 
     #[test]

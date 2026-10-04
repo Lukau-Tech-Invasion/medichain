@@ -2,13 +2,15 @@
 # MediChain — Production overrides
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.backup.yml -f docker-compose.backup-offsite.yml -f docker-compose.prod.yml up -d --build
 #
 # REQUIRED before running:
 #   * Set strong POSTGRES_PASSWORD plus every required API secret below in .env.
 #     Compose rejects missing values and the API rejects known demo values.
 #   * Provide TLS certificates at ./nginx/certs/{fullchain.pem,privkey.pem}
 #     (e.g. from Let's Encrypt / certbot).
+#   * Configure the encrypted local and off-site pgBackRest repositories and
+#     rehearse a restore before admitting real data.
 # =============================================================================
 
 services:
@@ -19,10 +21,12 @@ services:
       REQUIRE_SIGNATURES: "true"
       APP_ENV: "production"
       MEDICHAIN_STORAGE: postgres
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS must list HTTPS origins}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS is required}
+      PATIENT_SEARCH_INDEX_KEY: ${PATIENT_SEARCH_INDEX_KEY:?PATIENT_SEARCH_INDEX_KEY is required}
       # The API fails closed outside demo mode without this value, but making it
       # required here prevents a production monitoring deployment that starts
       # successfully while every Prometheus scrape is rejected with 401.
@@ -55,6 +59,8 @@ services:
   # docker-compose.horizon-isolated.yml but never applied here.
   postgres:
     restart: always
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     # Do NOT publish the database to the host in production.
     ports: !override []
 
@@ -66,20 +72,9 @@ services:
     ports: !override []
     restart: "no"
 
-  ipfs:
-    restart: always
-    # The Kubo ADMIN API (5001) must never be reachable from a clinic network:
-    # it can read, write and pin arbitrary content and reconfigure the node.
-    # The base file publishes 4001/5001/8080; none of them belong on the host in
-    # production. The API container reaches IPFS over the internal Compose
-    # network, so nothing here needs host publication. Swarm (4001) should be
-    # opened deliberately at the firewall if peering is actually wanted.
-    ports: !override []
-
   nginx:
     restart: always
-    ports:
-      - "80:80"
+    ports: !override
       - "443:443"
     volumes:
       - ./nginx/default.prod.conf:/etc/nginx/conf.d/default.conf:ro
@@ -132,8 +127,9 @@ services:
       # administrator with a public default credential.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
-    ports:
-      - "3001:3000"
+    # Monitoring is reachable only through an operator-controlled tunnel or
+    # private network; never publish Grafana on the clinic host.
+    ports: !override []
     volumes:
       - ./docs/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./docs/observability/grafana-dashboard.json:/var/lib/grafana/dashboards/medichain-api.json:ro

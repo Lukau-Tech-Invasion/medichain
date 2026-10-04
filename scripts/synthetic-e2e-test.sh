@@ -555,13 +555,15 @@ check "patient reads own immunizations" 200 "$(code GET /api/clinical/immunizati
 check "anonymous CANNOT read immunizations" 401 "$(code GET /api/clinical/immunizations '')"
 
 # ---------------------------------------------------------------------------
-say "11. Encrypted record upload + download (IPFS, MyRecordsPage)"
+say "11. Encrypted record upload + download (PostgreSQL, MyRecordsPage)"
 
 # ALL SYNTHETIC. "SYNTHETIC TEST RECORD" base64-encoded.
 DOC_B64="U1lOVEhFVElDIFRFU1QgUkVDT1JE"
 code GET /api/ipfs/health '' >/dev/null
-IPFS_OK=$(jget ipfs_connected)
-if [ "$IPFS_OK" = "True" ] || [ "$IPFS_OK" = "true" ]; then
+STORAGE_BACKEND=$(jget storage_backend)
+STORAGE_OK=$(jget storage_connected | tr '[:upper:]' '[:lower:]')
+if [ "$STORAGE_BACKEND" = "postgres" ]; then
+  check "encrypted document storage is available" "true" "$STORAGE_OK"
   c=$(code POST /api/records/upload "{\"patient_id\":\"$PAT_ADULT\",\"filename\":\"synthetic-lab.txt\",\"content_type\":\"text/plain\",\"record_type\":\"lab_result\",\"content_base64\":\"$DOC_B64\",\"encrypted\":true}" "$DOCTOR")
   check "provider uploads an encrypted record" 201 "$c" "$(body)"
   CHASH=$(jget ipfs_hash)
@@ -575,7 +577,7 @@ if [ "$IPFS_OK" = "True" ] || [ "$IPFS_OK" = "true" ]; then
   check "downloading an unknown hash 404s" 404 "$(code GET "/api/records/Qm-nope/download" '' "$DOCTOR")"
   check "unencrypted upload is refused" 400 "$(code POST /api/records/upload "{\"patient_id\":\"$PAT_ADULT\",\"filename\":\"x\",\"content_type\":\"text/plain\",\"record_type\":\"lab_result\",\"content_base64\":\"$DOC_B64\",\"encrypted\":false}" "$DOCTOR")"
 else
-  echo "  SKIPPED — IPFS (kubo) not reachable; MyRecords upload/download needs it on :5001"
+  echo "  NOT APPLICABLE — memory-backend leg has no durable document store; the mandatory PostgreSQL leg tests the full round-trip"
 fi
 
 # ---------------------------------------------------------------------------

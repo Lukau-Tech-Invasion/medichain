@@ -128,6 +128,8 @@ commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers)
 - **Real patient data is blocked** behind seven documented gates, four of which
   are not engineering tasks. See
   [docs/PRODUCTION_READINESS_GATES.md](docs/PRODUCTION_READINESS_GATES.md).
+  The current deployment design, code gaps, and evidence needed for release are
+  tracked in [docs/PRODUCTION_RELEASE_PLAN.md](docs/PRODUCTION_RELEASE_PLAN.md).
 
 ---
 
