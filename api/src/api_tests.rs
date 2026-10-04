@@ -262,12 +262,9 @@ mod tests {
                     .database("unavailable"),
             );
         state.repositories.pool = Some(pool);
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .service(register_patient),
-        )
-        .await;
+        let state = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(register_patient)).await;
         let response = test::call_service(
             &app,
             test::TestRequest::post()
@@ -286,6 +283,13 @@ mod tests {
             body["error"]["code"], "PATIENT_REGISTRATION_UNAVAILABLE",
             "{body}"
         );
+        let patients = state
+            .repositories
+            .patients
+            .list(crate::repositories::traits::Pagination::first_page(10))
+            .await
+            .unwrap();
+        assert_eq!(patients.total, 0, "503 must not leave a patient behind");
     }
 
     /// A lookup yields only directory fields and one organisation audit event.

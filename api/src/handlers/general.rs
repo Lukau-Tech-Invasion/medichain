@@ -449,6 +449,18 @@ pub async fn register_patient(
         Ok(bt) => bt,
         Err(resp) => return resp,
     };
+    // Activation grants, the account, and the registration audit all require
+    // PostgreSQL. Refuse before creating a patient in memory and then failing
+    // halfway through account provisioning.
+    if data.db_pool.is_none()
+        || data.repositories.backend != crate::repositories::StorageBackend::Postgres
+    {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Patient registration requires persistent storage. Please try again later."
+                .to_string(),
+            code: "PATIENT_REGISTRATION_UNAVAILABLE".to_string(),
+        });
+    }
     // The deterministic path is for the opt-in fixture seeder only. Real
     // registrations keep server-generated identifiers.
     let demo_ids = match req.demo_seed_key.as_deref() {
