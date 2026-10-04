@@ -91,6 +91,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(bootstrap_account)
         .service(register_staff_account)
         .service(reset_user_credential)
+        .service(reissue_patient_activation_code)
         .service(reset_user_mfa)
         .service(password_login) // POST /api/auth/login
         .service(redeem_credential) // POST /api/auth/credentials/redeem

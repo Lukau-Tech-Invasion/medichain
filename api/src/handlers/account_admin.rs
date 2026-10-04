@@ -286,6 +286,70 @@ pub async fn reset_user_credential(
     }
 }
 
+/// Replace an unspent patient activation code for the registering clinician or an administrator.
+#[post("/api/patients/{patient_id}/activation-code")]
+pub async fn reissue_patient_activation_code(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> HttpResponse {
+    let actor = match require_registered_caller(&data, &req) {
+        Ok(user) if matches!(user.role, Role::Admin | Role::Doctor | Role::Nurse) => user,
+        Ok(_) => return HttpResponse::Forbidden().finish(),
+        Err(response) => return response,
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return provisioning_error();
+    };
+    let Ok(mut tx) = pool.begin().await else {
+        return provisioning_error();
+    };
+    let account: Option<(Uuid, Option<String>, Option<String>)> = match sqlx::query_as(
+        "SELECT id, created_by, credential_verifier FROM users
+         WHERE role = 'Patient' AND linked_patient_id = $1 FOR UPDATE",
+    )
+    .bind(path.as_str())
+    .fetch_optional(&mut *tx)
+    .await
+    {
+        Ok(row) => row,
+        Err(error) => {
+            log::error!("Patient activation account lookup failed: {error}");
+            return provisioning_error();
+        }
+    };
+    let Some((user_id, created_by, verifier)) = account else {
+        return HttpResponse::NotFound().finish();
+    };
+    if !actor.role.is_admin() && created_by.as_deref() != Some(actor.id.as_str()) {
+        return HttpResponse::Forbidden().finish();
+    }
+    if verifier.is_some() {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            error: "This patient account is already active".to_string(),
+            code: "ALREADY_ACTIVATED".to_string(),
+        });
+    }
+    let issuer = crate::actor_directory::parse_user_id(&actor.id);
+    let grant =
+        match credentials::issue_in(&mut tx, user_id, GrantPurpose::Activation, issuer).await {
+            Ok(grant) => grant,
+            Err(error) => {
+                log::error!("Patient activation reissue failed: {error:?}");
+                return provisioning_error();
+            }
+        };
+    if let Err(error) = tx.commit().await {
+        log::error!("Patient activation reissue commit failed: {error}");
+        return provisioning_error();
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "activation_code": grant.code,
+        "activation_expires_at": grant.expires_at,
+    }))
+}
+
 /// Remove a lost authenticator and revoke sessions before re-enrollment.
 #[post("/api/admin/users/{user_id}/mfa-reset")]
 pub async fn reset_user_mfa(

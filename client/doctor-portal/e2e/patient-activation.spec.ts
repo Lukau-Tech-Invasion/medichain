@@ -113,6 +113,13 @@ test('wrong codes kill the grant, an unknown patient looks the same, and re-issu
   const registered = await registerPatientViaApi(request, token, 'Activation Lockout');
   const username = `e2e.lock.${stamp()}`;
 
+  const nurseToken = await fixtureToken(request, fixtureStaff('Nurse'));
+  const unrelated = await api(request, 'POST', `/api/patients/${registered.patientId}/activation-code`, {
+    token: nurseToken,
+    data: {},
+  });
+  expect(unrelated.status, 'another clinician must not reissue this patient’s code').toBe(403);
+
   // An unknown patient id gets the same answer as a wrong code, so the form
   // cannot be used to discover which patient ids exist.
   const unknown = await apiRedeem(request, {
@@ -124,25 +131,18 @@ test('wrong codes kill the grant, an unknown patient looks the same, and re-issu
   expect(unknown.status).toBe(401);
   expect(errorCodeOf(unknown.body)).toBe('INVALID_GRANT');
 
-  // Wrong codes: refused as invalid until the grant is killed. The limit is the
-  // server's; the loop is bounded and asserts each early answer is the ordinary one.
-  let killedAfter = 0;
-  for (let attempt = 1; attempt <= 9; attempt += 1) {
+  // The fifth wrong code kills the grant. The response stays generic even
+  // when locked, so this endpoint cannot reveal whether a patient ID exists.
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
     const wrong = await apiRedeem(request, {
       identifier: registered.patientId,
       code: 'ZZZZ-ZZZZ-ZZZZ',
       username,
       password: PATIENT_PASSWORD,
     });
-    if (wrong.status === 429) {
-      expect(errorCodeOf(wrong.body)).toBe('GRANT_LOCKED');
-      killedAfter = attempt;
-      break;
-    }
     expect(wrong.status, `wrong code #${attempt}`).toBe(401);
     expect(errorCodeOf(wrong.body)).toBe('INVALID_GRANT');
   }
-  expect(killedAfter, 'nine wrong codes never killed the grant').toBeGreaterThan(1);
 
   // A dead grant does not redeem even with the right code.
   const rightButDead = await apiRedeem(request, {
