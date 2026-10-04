@@ -135,12 +135,16 @@ impl AppState {
         let security = crate::security::SecurityState::new(db_pool.clone());
         let emergency_grants = crate::emergency_grants::EmergencyGrantStore::new();
 
+        let document_client = match db_pool.as_ref() {
+            Some(pool) => IpfsClient::from_env().with_postgres(pool.clone()),
+            None => IpfsClient::from_env(),
+        };
         Self {
             db_pool,
             idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
             users: RwLock::new(HashMap::new()),
-            ipfs_client: IpfsClient::from_env(),
+            ipfs_client: document_client,
             audit_seal: crate::audit_seal::SealRuntime::unsigned_without_sink(),
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
@@ -258,12 +262,16 @@ impl AppState {
             _ => crate::device_lifecycle::DeviceLifecycleStore::new(),
         };
 
+        let document_client = match db_pool.as_ref() {
+            Some(pool) => IpfsClient::from_env().with_postgres(pool.clone()),
+            None => IpfsClient::from_env(),
+        };
         Self {
             db_pool,
             idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
             users: RwLock::new(HashMap::new()),
-            ipfs_client: IpfsClient::from_env(),
+            ipfs_client: document_client,
             audit_seal,
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,

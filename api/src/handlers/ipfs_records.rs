@@ -46,18 +46,26 @@ mod document_reason_tests {
 // IPFS Medical Record Endpoints
 // ============================================================================
 
-/// Check IPFS connection status
+/// Legacy health path retained for callers; report the active storage backend.
 #[get("/api/ipfs/health")]
 pub async fn ipfs_health_check(data: web::Data<AppState>) -> impl Responder {
     let connected = data.ipfs_client.health_check().await.unwrap_or(false);
 
-    // Report the *configured* endpoints, not hardcoded strings — this endpoint is
-    // used to diagnose IPFS connectivity, and echoing constants that may not match
-    // IPFS_API_URL/IPFS_GATEWAY_URL actively misleads that diagnosis.
+    let postgres = data.db_pool.is_some();
     HttpResponse::Ok().json(IpfsHealthResponse {
-        ipfs_connected: connected,
-        api_url: data.ipfs_client.api_url().to_string(),
-        gateway_url: data.ipfs_client.gateway_url().to_string(),
+        ipfs_connected: !postgres && connected,
+        api_url: if postgres {
+            String::new()
+        } else {
+            data.ipfs_client.api_url().to_string()
+        },
+        gateway_url: if postgres {
+            String::new()
+        } else {
+            data.ipfs_client.gateway_url().to_string()
+        },
+        storage_backend: if postgres { "postgres" } else { "ipfs" }.to_string(),
+        storage_connected: connected,
     })
 }
 

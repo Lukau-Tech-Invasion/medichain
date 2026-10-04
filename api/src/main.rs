@@ -157,7 +157,7 @@ fn init_logging() {
 /// Bring up the storage backend the environment names, or say why not.
 ///
 /// Extracted from `main` because startup is four separate decisions -- storage,
-/// chain, caches, background jobs -- and reading any one of them meant reading
+/// audit sealing, caches, background jobs -- and reading any one of them meant reading
 /// all four. See the register entry on the 60-line rule for the measurement
 /// that motivated this.
 async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
@@ -171,14 +171,6 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                 .ok()
                 .and_then(|v| v.parse().ok());
 
-            // Fail-closed outside demo mode. Previously a migration failure was a
-            // warning and a connection failure silently fell back to volatile
-            // in-memory storage, so the API could report "ready" while running on
-            // an incompatible schema — or while every clinical write was destined
-            // to vanish on restart. A health application must not advertise
-            // readiness in either state. In demo mode the fallback is retained
-            // deliberately: that profile is synthetic-data-only by definition.
-            let demo = crate::support::is_demo_mode();
             match db::create_pool_with_retry(&database_url, max_retries, None).await {
                 Ok(pool) => {
                     println!("  [OK] Database connection established");
@@ -186,45 +178,8 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                     // Run migrations
                     println!("  [DB] Running database migrations...");
                     if let Err(e) = db::run_migrations(&pool).await {
-                        if demo {
-                            // Demo mode still starts, but the previous message
-                            // ("Migration warning: ...", then a healthy boot)
-                            // was indistinguishable from success in a scrolling
-                            // log. It hid a database sitting 31 migrations
-                            // behind the code — 8 of 39 applied — because sqlx
-                            // halts the ENTIRE chain when one already-applied
-                            // migration's checksum changes. Endpoints then fail
-                            // on missing tables that look like ordinary bugs.
-                            let applied = db::applied_migration_count(&pool).await;
-                            let on_disk = db::available_migration_count();
-                            eprintln!("\n=================================================");
-                            eprintln!("  [WARN] DATABASE MIGRATIONS DID NOT APPLY");
-                            log::warn!("database migration did not apply: {e}");
-                            match (applied, on_disk) {
-                                (Some(a), Some(d)) if d > a => eprintln!(
-                                    "  Schema is STALE: {a} of {d} migrations applied — {} missing.\n  \
-                                     Tables added by the missing {} will not exist, and any endpoint \
-                                     touching them will fail at runtime.",
-                                    d - a, d - a
-                                ),
-                                _ => eprintln!(
-                                    "  Schema state is unknown; assume it does not match the code."
-                                ),
-                            }
-                            eprintln!(
-                                "  Starting anyway because IS_DEMO=true. This would ABORT startup \
-                                 in any non-demo deployment."
-                            );
-                            eprintln!("=================================================\n");
-                        } else {
-                            log::error!("startup aborted because database migrations failed: {e}");
-                            eprintln!(
-                                "        Starting now would serve clinical traffic against an \
-                                 unknown schema. Fix the migration, or set IS_DEMO=true for a \
-                                 synthetic-data demo."
-                            );
-                            return Err(std::io::Error::other("database migrations failed"));
-                        }
+                        log::error!("startup aborted because database migrations failed: {e}");
+                        return Err(std::io::Error::other("database migrations failed"));
                     } else {
                         println!("  [OK] Migrations completed");
                     }
@@ -232,53 +187,24 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                     Some(pool)
                 }
                 Err(e) => {
-                    if demo {
-                        // Loud on purpose. This branch silently turned a
-                        // postgres-configured deployment into an EMPTY in-memory
-                        // one while /health still answered "healthy", so the
-                        // first symptom was every demo login failing on a
-                        // stack that looked green.
-                        // The two-line warning it used to print was lost among
-                        // the startup banner and the demo-secret warnings.
-                        eprintln!("\n============================================================");
-                        eprintln!("  [DEGRADED] DATABASE_URL was set, but the database is");
-                        log::warn!("database configured but unreachable: {e}");
-                        eprintln!();
-                        eprintln!("  Falling back to EMPTY in-memory storage (demo mode).");
-                        eprintln!("  No seeded users, patients or records exist in this mode:");
-                        eprintln!("  every login will fail until accounts are available.");
-                        eprintln!();
-                        eprintln!("  If the database is merely slow to start (WAL replay after");
-                        eprintln!("  an unclean shutdown can exceed two minutes), restart the");
-                        eprintln!("  API once it is accepting connections, or raise");
-                        eprintln!("  DB_MAX_RETRIES.");
-                        eprintln!("============================================================\n");
-                        None
-                    } else {
-                        log::error!(
-                            "startup aborted because configured database is unreachable: {e}"
-                        );
-                        eprintln!(
-                            "        Refusing to fall back to volatile in-memory storage: \
-                             clinical writes would be lost on restart while the API reported \
-                             healthy. Fix connectivity, or set IS_DEMO=true for a \
-                             synthetic-data demo."
-                        );
-                        return Err(std::io::Error::other("database unreachable"));
-                    }
+                    log::error!("startup aborted because configured database is unreachable: {e}");
+                    return Err(std::io::Error::other("database unreachable"));
                 }
             }
         }
         Err(_) => {
             // No DATABASE_URL at all. Outside demo mode this is a configuration
             // error, not a default: it silently selects volatile storage.
-            if !crate::support::is_demo_mode() {
+            if !crate::support::is_demo_mode()
+                || crate::repositories::StorageBackend::from_env()
+                    == crate::repositories::StorageBackend::Postgres
+            {
                 eprintln!(
-                    "\n[ERROR] STARTUP ABORTED: no DATABASE_URL set and IS_DEMO is not true."
+                    "\n[ERROR] STARTUP ABORTED: PostgreSQL is required but DATABASE_URL is unset."
                 );
                 eprintln!(
-                    "        In-memory storage is a demo-only profile. Set DATABASE_URL for a \
-                     persistent deployment, or IS_DEMO=true to run on synthetic data."
+                    "        Set DATABASE_URL for persistent storage. In-memory storage is \
+                     available only for an explicit demo without PostgreSQL selected."
                 );
                 return Err(std::io::Error::other(
                     "no DATABASE_URL set outside demo mode",
@@ -292,9 +218,8 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
 
 /// Fill the in-process caches the authorization path reads from.
 ///
-/// Outside demo mode every one of these is fatal: an empty user cache is not a
-/// degraded service, it is an API that refuses every authenticated request
-/// while reporting healthy.
+/// A configured PostgreSQL deployment cannot claim readiness with empty auth,
+/// patient or security caches, even when its data is synthetic.
 async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> {
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
@@ -303,12 +228,11 @@ async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> 
             Ok(count) => {
                 println!("  [OK] Loaded {} demo users", count);
             }
-            Err(e) if !crate::support::is_demo_mode() => {
+            Err(e) => {
                 return Err(std::io::Error::other(format!(
                     "failed to initialize authorization users: {e}"
                 )));
             }
-            Err(e) => log::warn!("failed to load demo users: {e}"),
         }
 
         // Refill the health ID card registry.
@@ -329,24 +253,22 @@ async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> 
             Ok(count) => {
                 println!("  [OK] Loaded {} demo patients", count);
             }
-            Err(e) if !crate::support::is_demo_mode() => {
+            Err(e) => {
                 return Err(std::io::Error::other(format!(
                     "failed to initialize patient cache: {e}"
                 )));
             }
-            Err(e) => log::warn!("failed to load demo patients: {e}"),
         }
 
         // Load persisted MFA enrollments + recent security alerts (Phase 11.3/11.4)
         println!("  [INFO] Loading security state (MFA + alerts) from database...");
         match app_state.load_security_from_db().await {
             Ok(count) => println!("  [OK] Loaded {} MFA enrollments", count),
-            Err(e) if !crate::support::is_demo_mode() => {
+            Err(e) => {
                 return Err(std::io::Error::other(format!(
                     "failed to initialize MFA security state: {e}"
                 )));
             }
-            Err(e) => log::warn!("failed to load security state: {e}"),
         }
     }
 
@@ -482,13 +404,8 @@ async fn main() -> std::io::Result<()> {
     // the hardcoded availability figure it used to print.
     crate::middleware::metrics::mark_process_start();
 
-    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
-    // docker-compose publishes on the host. When the API bound 8080 it stole that
-    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
-    // resolved back to the API itself — every encrypted-record download fetched
-    // the API, got a 404, and surfaced as a misleading "Record content not found".
-    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
-    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
+    // The API defaults to 8090 for local development. Inside Docker it binds
+    // 8080 in its own namespace, set explicitly as `PORT` in docker-compose.yml.
     let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let bind_addr = format!("{}:{}", host, port);
@@ -524,8 +441,11 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Create shared state with optional database pool (using async version for PostgreSQL support)
+    let persistent_storage_requested = db_pool.is_some()
+        || crate::repositories::StorageBackend::from_env()
+            == crate::repositories::StorageBackend::Postgres;
     let state = AppState::new_with_pool_async(db_pool, audit_seal).await;
-    if !crate::support::is_demo_mode()
+    if persistent_storage_requested
         && state.repositories.backend != crate::repositories::StorageBackend::Postgres
     {
         return Err(std::io::Error::other(

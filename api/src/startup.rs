@@ -319,9 +319,12 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("  API Server starting on http://{}", bind_addr);
     println!("  Demo endpoint: http://{}/api/demo", bind_addr);
     println!("  Health check:  http://{}/health", bind_addr);
-    println!("  IPFS health:   http://{}/api/ipfs/health", bind_addr);
+    println!(
+        "  Document storage health (legacy path): http://{}/api/ipfs/health",
+        bind_addr
+    );
     println!();
-    println!("  IPFS Endpoints:");
+    println!("  Encrypted Document Endpoints:");
     println!("     POST /api/records/upload      - Upload encrypted medical record");
     println!("     POST /api/records/download    - Download decrypted record");
     println!("     GET  /api/records/{{patient}}  - List patient records");

@@ -63,8 +63,8 @@ graph TB
 
     subgraph Storage
         PG[("PostgreSQL 16<br/>179 tables — queryable clinical data")]
-        IPFS[("IPFS<br/>ChaCha20-Poly1305 encrypted documents")]
-        SEAL[("Sealed audit stream<br/>signed batches · exported checkpoints")]
+        BLOBS[("PostgreSQL encrypted document blobs<br/>ChaCha20-Poly1305")]
+        SEAL[("Sealed audit stream<br/>hash-chained batches · exported checkpoints")]
     end
 
     DP --> MW
@@ -72,13 +72,13 @@ graph TB
     NFC -.->|"sub-3s, no network"| MW
     MW --> H --> SVC
     SVC --> PG
-    SVC --> IPFS
+    SVC --> BLOBS
     SVC -->|"digests / commitments only"| SEAL
 ```
 
 **The load-bearing rule: no personal health information goes into the audit
 stream.** Only hashes, commitments, pointers, public keys and privacy-minimised
-audit entries. Encrypted documents live in IPFS; queryable clinical data lives in
+audit entries. Encrypted documents and queryable clinical data live in
 PostgreSQL. Sealed batches cannot honour a correction or deletion request, so
 nothing that might need correcting or deleting is put there.
 
@@ -166,9 +166,9 @@ Migrations run on boot. The isolated compose project is deliberately separate
 from any local dev stack — distinct container names, volume, credentials, and
 loopback-only port `55432`.
 
-> **Port note:** the standalone API defaults to 8090. Port 8080 is reserved for
-> the IPFS gateway. The isolated PostgreSQL script uses 8091 so it cannot be
-> mistaken for the ordinary local API.
+> **Port note:** the standalone API defaults to 8090. Inside Docker, nginx
+> proxies to the API on 8080. The isolated PostgreSQL script uses 8091 so it
+> cannot be mistaken for the ordinary local API.
 
 ### Frontend
 

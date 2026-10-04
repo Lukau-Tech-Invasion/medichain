@@ -190,7 +190,7 @@ export default function AdminDashboardPage() {
       setSystemStatus([
         { name: 'API Server', status: 'offline', lastCheck: new Date().toISOString(), message: 'Health check failed' },
         { name: 'Database', status: 'offline', lastCheck: new Date().toISOString() },
-        { name: 'IPFS Storage', status: 'offline', lastCheck: new Date().toISOString() },
+        { name: 'Encrypted Document Storage', status: 'offline', lastCheck: new Date().toISOString() },
       ]);
     } finally {
       setHealthLoading(false);

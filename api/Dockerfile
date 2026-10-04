@@ -64,6 +64,6 @@ EXPOSE 8080
 
 # Container-level health check (also lets `depends_on: condition: service_healthy` work).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -fsS http://localhost:8080/health || exit 1
+    CMD curl -fsS http://localhost:8080/health/ready || exit 1
 
 CMD ["medichain-api"]

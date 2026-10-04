@@ -244,7 +244,7 @@ const en_US: TranslationRecord = {
     viewed: 'Viewed',
     changed: 'Changed',
     sealExplainer:
-      'Sealing records a signed fingerprint of each entry in a chained audit stream so later changes to it can be detected. Your health information itself is never part of that fingerprint.',
+      'Sealing records a fingerprint of each entry in a chained audit stream so later changes to it can be detected. Your health information itself is never part of that fingerprint.',
     dashboardLink: 'Who viewed my records',
     breakGlassAccess: 'Emergency access (break-glass): this clinician had no care relationship with you and gave the reason above.',
     viaEncounter: 'Access through an appointment or consultation with you',
@@ -765,6 +765,7 @@ const en_US: TranslationRecord = {
 
   // Record verification against the sealed audit stream (WP8)
   verification: {
+    heading: 'Check record integrity',
     verify: 'Verify',
     verifying: 'Verifying...',
     failed: 'Verification could not be completed right now. This is not a finding about your record; please try again.',

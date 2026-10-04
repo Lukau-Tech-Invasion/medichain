@@ -105,6 +105,8 @@ describe('EmergencyCardPage (Patient)', () => {
       expect(screen.getByText(/Asthma/i)).toBeInTheDocument();
       expect(screen.getByText(/Jane Doe/i)).toBeInTheDocument();
     });
+    expect(screen.getByRole('heading', { name: 'Check record integrity' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Verify' })).toBeInTheDocument();
   });
 
   it('warns that an unknown blood type must be cross-matched', async () => {

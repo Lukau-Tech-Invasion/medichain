@@ -87,7 +87,7 @@ describe('AccessHistoryPage', () => {
     renderPage();
     await screen.findByTestId('access-session');
     expect(screen.queryByTestId('seal-badge')).not.toBeInTheDocument();
-    expect(screen.queryByText(/sealing records a signed fingerprint/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sealing records a fingerprint/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Verify' })).not.toBeInTheDocument();
   });
 
@@ -106,7 +106,7 @@ describe('AccessHistoryPage', () => {
     const badge = within(card).getByTestId('seal-badge');
     expect(badge).toHaveTextContent(new RegExp(`^${label}$`));
     expect(badge).toHaveAttribute('data-seal-status', status);
-    expect(screen.getByText(/sealing records a signed fingerprint/i)).toBeInTheDocument();
+    expect(screen.getByText(/sealing records a fingerprint/i)).toBeInTheDocument();
     expect(card).not.toHaveTextContent(/blockchain|on-chain|anchor|transaction/i);
   });
 

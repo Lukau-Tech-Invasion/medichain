@@ -22,6 +22,8 @@ use crate::encryption_keyring::EncryptionKeyring;
 use medichain_crypto::{decrypt, encrypt, CryptoError};
 use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use sqlx::Row;
 use std::time::Duration;
 
 /// Maximum file size for IPFS uploads (10 MB)
@@ -36,6 +38,8 @@ pub struct IpfsClient {
     gateway_url: String,
     /// HTTP client
     client: reqwest::Client,
+    /// PostgreSQL is the durable document store when a pool is configured.
+    pool: Option<sqlx::PgPool>,
 }
 
 /// Response from IPFS add operation. Kubo also sends `Name` and `Size`;
@@ -176,7 +180,14 @@ impl IpfsClient {
             api_url,
             gateway_url,
             client,
+            pool: None,
         }
+    }
+
+    /// Store new encrypted documents in PostgreSQL while retaining legacy CID reads.
+    pub fn with_postgres(mut self, pool: sqlx::PgPool) -> Self {
+        self.pool = Some(pool);
+        self
     }
 
     /// The configured IPFS API endpoint (for health/diagnostics reporting).
@@ -191,6 +202,12 @@ impl IpfsClient {
 
     /// Check if IPFS daemon is running and accessible
     pub async fn health_check(&self) -> Result<bool, IpfsError> {
+        if let Some(pool) = &self.pool {
+            return Ok(sqlx::query_scalar::<_, i32>("SELECT 1")
+                .fetch_one(pool)
+                .await
+                .is_ok());
+        }
         let url = format!("{}/api/v0/id", self.api_url);
 
         match self.client.post(&url).send().await {
@@ -312,6 +329,20 @@ impl IpfsClient {
 
     /// Upload raw bytes to IPFS (internal)
     async fn upload_raw(&self, data: &[u8], filename: &str) -> Result<String, IpfsError> {
+        if let Some(pool) = &self.pool {
+            let digest = Sha256::digest(data);
+            let hash = format!("pg-sha256-{}", hex::encode(digest));
+            sqlx::query(
+                "INSERT INTO encrypted_document_blobs (content_hash, encrypted_bytes) \
+                 VALUES ($1, $2) ON CONFLICT (content_hash) DO NOTHING",
+            )
+            .bind(&hash)
+            .bind(data)
+            .execute(pool)
+            .await
+            .map_err(|e| IpfsError::IoError(e.to_string()))?;
+            return Ok(hash);
+        }
         let url = format!("{}/api/v0/add", self.api_url);
 
         let part = Part::bytes(data.to_vec())
@@ -361,6 +392,30 @@ impl IpfsClient {
     /// uses — and it never redirects. The gateway stays as a fallback for a
     /// deployment that exposes only one of the two.
     async fn download_raw(&self, hash: &str) -> Result<Vec<u8>, IpfsError> {
+        if let Some(pool) = &self.pool {
+            let row = sqlx::query(
+                "SELECT encrypted_bytes FROM encrypted_document_blobs WHERE content_hash = $1",
+            )
+            .bind(hash)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| IpfsError::IoError(e.to_string()))?;
+            if let Some(row) = row {
+                let bytes: Vec<u8> = row
+                    .try_get("encrypted_bytes")
+                    .map_err(|e| IpfsError::IoError(e.to_string()))?;
+                if let Some(expected) = hash.strip_prefix("pg-sha256-") {
+                    let actual = hex::encode(Sha256::digest(&bytes));
+                    if actual != expected {
+                        return Err(IpfsError::IoError("document checksum mismatch".into()));
+                    }
+                }
+                return Ok(bytes);
+            }
+            if hash.starts_with("pg-sha256-") {
+                return Err(IpfsError::NotFound(hash.to_string()));
+            }
+        }
         let rpc_error = match self.download_via_rpc(hash).await {
             Ok(bytes) => return Ok(bytes),
             // A CID the node genuinely does not have is not worth a second
@@ -450,6 +505,11 @@ impl IpfsClient {
 
     /// Validate IPFS hash format (CIDv0 or CIDv1)
     fn validate_hash(hash: &str) -> Result<(), IpfsError> {
+        if let Some(digest) = hash.strip_prefix("pg-sha256-") {
+            if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Ok(());
+            }
+        }
         // CIDv0: Starts with "Qm" and is 46 characters
         // CIDv1: Starts with "b" and is variable length
         if hash.starts_with("Qm") && hash.len() == 46 {
@@ -464,6 +524,9 @@ impl IpfsClient {
     /// Pin content to ensure it persists on IPFS
     pub async fn pin(&self, hash: &str) -> Result<(), IpfsError> {
         Self::validate_hash(hash)?;
+        if hash.starts_with("pg-sha256-") && self.pool.is_some() {
+            return Ok(());
+        }
 
         let url = format!("{}/api/v0/pin/add?arg={}", self.api_url, hash);
 
@@ -483,6 +546,9 @@ impl IpfsClient {
     /// Unpin content from IPFS
     pub async fn unpin(&self, hash: &str) -> Result<(), IpfsError> {
         Self::validate_hash(hash)?;
+        if hash.starts_with("pg-sha256-") && self.pool.is_some() {
+            return Ok(());
+        }
 
         let url = format!("{}/api/v0/pin/rm?arg={}", self.api_url, hash);
 
@@ -540,6 +606,45 @@ mod tests {
     fn test_validate_hash_cidv1() {
         let valid_hash = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
         assert!(IpfsClient::validate_hash(valid_hash).is_ok());
+    }
+
+    #[test]
+    fn test_validate_postgres_document_digest() {
+        let valid = format!("pg-sha256-{}", "a".repeat(64));
+        assert!(IpfsClient::validate_hash(&valid).is_ok());
+        assert!(IpfsClient::validate_hash("pg-sha256-short").is_err());
+    }
+
+    #[tokio::test]
+    async fn encrypted_document_round_trips_through_postgres() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let keyring = EncryptionKeyring::from_env();
+        let client = IpfsClient::new("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into())
+            .with_postgres(pool.clone());
+        let metadata = EncryptedMetadata {
+            filename: "synthetic-result.txt".into(),
+            content_type: "text/plain".into(),
+            uploaded_at: 1,
+            patient_id: "PAT-TEST".into(),
+            uploaded_by: "DOC-TEST".into(),
+            record_type: "lab_result".into(),
+            key_version: String::new(),
+        };
+        let saved = client
+            .upload_encrypted(b"synthetic result", metadata, &keyring)
+            .await
+            .unwrap();
+        assert!(saved.ipfs_hash.starts_with("pg-sha256-"));
+        assert!(client.health_check().await.unwrap());
+        let restarted = IpfsClient::new("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into())
+            .with_postgres(pool.clone());
+        let downloaded = restarted
+            .download_decrypted(&saved.ipfs_hash, &saved.metadata_hash, &keyring)
+            .await
+            .unwrap();
+        assert_eq!(downloaded.content, b"synthetic result");
+        assert_eq!(downloaded.metadata.patient_id, "PAT-TEST");
+        pool.close().await;
     }
 
     #[test]

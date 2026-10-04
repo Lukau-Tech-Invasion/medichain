@@ -30,29 +30,6 @@ services:
       - medichain_network
 
   # =============================================================================
-  # IPFS Node (Kubo)
-  # API at http://localhost:5001
-  # Gateway at http://localhost:8080
-  # =============================================================================
-  ipfs:
-    image: ipfs/kubo:latest
-    container_name: medichain_ipfs
-    restart: unless-stopped
-    ports:
-      - "4001:4001"
-      - "5001:5001"
-      - "8080:8080"
-    volumes:
-      - ipfs_data:/data/ipfs
-    healthcheck:
-      test: ["CMD-SHELL", "ipfs id > /dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - medichain_network
-
-  # =============================================================================
   # MediChain API
   # =============================================================================
   api:
@@ -81,8 +58,6 @@ services:
       MEDICHAIN_STORAGE: postgres
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:-}
       PATIENT_SEARCH_INDEX_KEY: ${PATIENT_SEARCH_INDEX_KEY:-}
-      IPFS_API_URL: http://ipfs:5001
-      IPFS_GATEWAY_URL: http://ipfs:8080
       # Production secrets — set these in .env (no insecure defaults baked in).
       SESSION_SECRET: ${SESSION_SECRET:-}
       JWT_SECRET: ${JWT_SECRET:-}
@@ -242,8 +217,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ipfs:
-        condition: service_started
     networks:
       - medichain_network
 
@@ -323,6 +296,8 @@ volumes:
     driver: local
   pgadmin_data:
     driver: local
+  # Retain the old IPFS volume for recovery until its archived contents have
+  # been independently reviewed. No running service mounts it.
   ipfs_data:
     driver: local
   audit_checkpoints:

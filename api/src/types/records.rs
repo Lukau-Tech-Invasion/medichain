@@ -65,4 +65,6 @@ pub struct IpfsHealthResponse {
     pub ipfs_connected: bool,
     pub api_url: String,
     pub gateway_url: String,
+    pub storage_backend: String,
+    pub storage_connected: bool,
 }

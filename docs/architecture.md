@@ -47,7 +47,7 @@ graph TB
     NID["National ID registries<br/>Fayda · Ghana Card · NIN<br/>Smart ID · Huduma Namba"]
     SMS["SMS gateway<br/>Africa's Talking"]
     SINK["Checkpoint sink<br/>local directory now;<br/>write-once cloud store later"]
-    IPFS["IPFS<br/>encrypted document store"]
+    BLOBS["PostgreSQL<br/>encrypted document blobs"]
 
     PARAMEDIC -->|"taps NFC card"| MC
     CLINICIAN -->|"records care"| MC
@@ -56,8 +56,8 @@ graph TB
 
     MC -->|"verify identity<br/>or queue manual review"| NID
     MC -->|"notify"| SMS
-    MC -->|"export signed audit batches"| SINK
-    MC -->|"store encrypted blobs"| IPFS
+    MC -->|"export sealed audit batches"| SINK
+    MC -->|"store encrypted blobs"| BLOBS
 ```
 
 Demo-only integrations may be disabled, but production dependencies fail closed.
@@ -93,7 +93,7 @@ graph TB
     subgraph data["Data tier"]
         MEM[("<b>In-memory</b><br/>default · ephemeral")]
         PG[("<b>PostgreSQL 16</b><br/>38 migrations → 179 tables")]
-        IPFSN[("<b>IPFS (kubo)</b><br/>ChaCha20-Poly1305 blobs")]
+        BLOBS[("<b>PostgreSQL</b><br/>ChaCha20-Poly1305 blobs")]
     end
 
     subgraph seal["Audit sealing (background job)"]
@@ -106,7 +106,7 @@ graph TB
     MW --> HAND --> DOM --> REPO
     REPO --> MEM
     REPO --> PG
-    DOM --> IPFSN
+    DOM --> BLOBS
     PG -.->|"unsealed access + audit rows"| SJ
 ```
 
@@ -233,17 +233,17 @@ public keys and privacy-minimised entries.
 |---|---|---|
 | Emergency capsule (blood type, organ donor, DNR + provenance) | PostgreSQL, encrypted under the **server** keyring | Must be readable in an emergency without the patient online to approve a decryption |
 | Capsule commitment + version | `audit_events` row, then sealed | 32-byte digest makes tampering with the capsule detectable without publishing the values |
-| Clinical documents | IPFS, ChaCha20-Poly1305 | Content-addressed, encrypted at rest |
-| IPFS content hash / record content digest | `audit_events` row, then sealed | Proves the document has not been swapped |
+| Clinical documents | PostgreSQL `encrypted_document_blobs`, ChaCha20-Poly1305 | Content-addressed, encrypted at rest |
+| Encrypted blob identifier / record content digest | `audit_events` row, then sealed | Detects a swapped document |
 | Queryable clinical data | PostgreSQL | Needs indexes, joins, reporting — a sealed log cannot serve this |
 | National ID | Keyed digest only | Never stored in the clear; keyed so digests are not brute-forceable |
-| Access audit entries | PostgreSQL (`access_logs`), sealed in signed batches | Queryable in the database; each row is a Merkle leaf in a hash-chained, signed batch exported as a checkpoint |
+| Access audit entries | PostgreSQL (`access_logs`), sealed in batches | Queryable in the database; each row is a Merkle leaf in a hash-chained batch exported as a checkpoint. A signature is present only when a signing key is configured. |
 
 ```mermaid
 flowchart LR
     subgraph live["Correctable, deletable"]
         CAP["Emergency capsule<br/>(encrypted, versioned, revocable)"]
-        DOC["Clinical documents<br/>(encrypted in IPFS)"]
+        DOC["Clinical documents<br/>(encrypted in PostgreSQL)"]
         CLIN["Queryable clinical data"]
     end
 

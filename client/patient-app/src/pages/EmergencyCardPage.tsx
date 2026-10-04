@@ -30,6 +30,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
+import { CapsuleVerify } from '../components/CapsuleVerify';
 
 interface EmergencyData {
   patientId: string;
@@ -50,7 +51,6 @@ interface EmergencyData {
   dnrVerifiedBy: string | null;
   dnrVerifiedAt: string | null;
   dnrDocumentRef: string | null;
-  cardHash: string;
   lastUpdated: string | null;
 }
 
@@ -162,7 +162,6 @@ export function EmergencyCardPage() {
       dnrVerifiedBy: emergencyInfo.dnr_verified_by ?? null,
       dnrVerifiedAt: emergencyInfo.dnr_verified_at ?? null,
       dnrDocumentRef: emergencyInfo.dnr_document_ref ?? null,
-      cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
       lastUpdated: data.last_updated ?? null,
     };
     // `userId` went with the hand-rolled session headers; the typed
@@ -704,9 +703,15 @@ export function EmergencyCardPage() {
         )}
       </div>
 
+      {patientId && (
+        <section className="bg-surface rounded-xl border border-border p-4" aria-label={t('verification.heading')}>
+          <h2 className="font-semibold text-content mb-2">{t('verification.heading')}</h2>
+          <CapsuleVerify patientId={patientId} />
+        </section>
+      )}
+
       {/* Card Security Info */}
       <div className="text-center text-xs text-content-muted space-y-1">
-        <p>{t('emergency.cardHash')}: {emergencyData.cardHash.slice(0, 16)}...</p>
         <p>
           {t('emergency.lastUpdated')}: {emergencyData.lastUpdated
             ? formatDate(emergencyData.lastUpdated, locale)

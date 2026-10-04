@@ -184,22 +184,22 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         message: db_msg,
     });
 
-    // Check IPFS health
-    let ipfs_start = Instant::now();
-    let ipfs_connected = data.ipfs_client.health_check().await.unwrap_or(false);
-    let ipfs_latency = ipfs_start.elapsed().as_millis() as u64;
+    // Document bytes are stored encrypted in PostgreSQL on the durable backend.
+    let document_start = Instant::now();
+    let documents_connected = data.ipfs_client.health_check().await.unwrap_or(false);
+    let document_latency = document_start.elapsed().as_millis() as u64;
     services.push(ServiceHealth {
-        name: "IPFS Storage".to_string(),
-        status: if ipfs_connected {
+        name: "Encrypted Document Storage".to_string(),
+        status: if documents_connected {
             "online".to_string()
         } else {
             "offline".to_string()
         },
-        latency_ms: Some(ipfs_latency),
-        message: if ipfs_connected {
-            Some("IPFS daemon connected".to_string())
+        latency_ms: Some(document_latency),
+        message: if documents_connected {
+            Some("PostgreSQL encrypted document store available".to_string())
         } else {
-            Some("IPFS not available".to_string())
+            Some("Encrypted document store unavailable".to_string())
         },
     });
 
