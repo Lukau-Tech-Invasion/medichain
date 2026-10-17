@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { signIn, settle } from './support';
-import { auditContrast, setTheme, reportContrast } from './audit';
+import { auditContrast, setTheme, reportContrast, freezeMotion } from './audit';
 
 /**
  * One sign-in per spec file, on a page shared by every test in it.
@@ -21,6 +21,7 @@ let page: Page;
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
   await signIn(page);
+  await freezeMotion(page);
 });
 
 test.afterAll(async () => {

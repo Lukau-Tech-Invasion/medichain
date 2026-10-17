@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { signIn, settle } from './support';
+import { readFixtures } from './identity';
+import { openChartWithReason, signIn } from './support';
 
 /**
  * Who may act for a patient.
@@ -22,29 +20,19 @@ import { signIn, settle } from './support';
  */
 
 function fixturePatientId(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = join(here, '..', '..', '..');
-  const fx = JSON.parse(
-    readFileSync(join(root, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as { patient: { linked_patient_id: string }; patient_b: { user_id: string } };
-  return fx.patient.linked_patient_id;
+  return readFixtures().patient.linked_patient_id;
 }
 
 /** The guardian is the second fixture patient's account, named by user id. */
 function guardianUserId(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = join(here, '..', '..', '..');
-  const fx = JSON.parse(
-    readFileSync(join(root, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as { patient_b: { user_id: string } };
-  return fx.patient_b.user_id;
+  return readFixtures().patient_b.user_id;
 }
 
 test('a guardian is recorded, listed, and ended', async ({ browser }) => {
   test.setTimeout(240000);
   const page = await browser.newPage();
   await signIn(page, 'Admin');
-  await settle(page, `/patients/${fixturePatientId()}`);
+  await openChartWithReason(page, fixturePatientId());
 
   await page.getByRole('button', { name: /access/i }).first().click();
 

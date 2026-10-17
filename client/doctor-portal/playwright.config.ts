@@ -1,7 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const playwrightPort = process.env.PLAYWRIGHT_PORT || '5173';
-const playwrightBaseUrl = `http://localhost:${playwrightPort}`;
+const deployedUrl = process.env.E2E_DEPLOYED_URL;
+const playwrightBaseUrl = deployedUrl || `http://localhost:${playwrightPort}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -32,7 +33,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
+  webServer: deployedUrl ? undefined : {
     command: `npm run dev -- --port ${playwrightPort}`,
     url: playwrightBaseUrl,
     // A reused server can carry an arbitrary proxy target from a previous

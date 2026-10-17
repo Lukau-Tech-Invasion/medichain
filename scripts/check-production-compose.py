@@ -29,6 +29,7 @@ REQUIRED_PLACEHOLDERS = (
     "PGBACKREST_REPO2_AZURE_CONTAINER",
     "PGBACKREST_REPO2_AZURE_KEY",
     "PGBACKREST_REPO2_CIPHER_PASS",
+    "MEDICHAIN_BOOTSTRAP_KEY",
 )
 
 
@@ -60,7 +61,7 @@ def check(config: dict) -> list[str]:
     """List production exposure and posture defects in the merged stack."""
     services = config["services"]
     problems = []
-    for name in ("ipfs", "blockchain", "substrate"):
+    for name in ("ipfs", "blockchain", "substrate"):  # retired-term-negative-assertion
         if name in services:
             problems.append(f"removed service {name} is still configured")
     for name in ("api", "postgres", "pgadmin", "prometheus", "grafana"):
@@ -76,6 +77,8 @@ def check(config: dict) -> list[str]:
     for name, value in expected.items():
         if str(api_env.get(name)).lower() != value:
             problems.append(f"API {name} must be {value}")
+    if api_env.get("MEDICHAIN_BOOTSTRAP_KEY") != "compose-check-only":
+        problems.append("API bootstrap key must come from the deployment environment")
     if api_env.get("AUDIT_CHECKPOINT_SINK") != "filesystem":
         problems.append("API checkpoint sink must be configured")
     postgres = services["postgres"]
@@ -105,13 +108,14 @@ def main() -> int:
     unsafe["services"]["postgres"]["ports"] = [{"published": "5432"}]
     unsafe["services"]["postgres"]["command"] = ["postgres"]
     unsafe["services"]["nginx"]["ports"] = [{"published": "80"}]
+    unsafe["services"]["api"]["environment"]["MEDICHAIN_BOOTSTRAP_KEY"] = "fixed-example-key"
     negative = check(unsafe)
     if not all(any(marker in problem for problem in negative) for marker in (
-        "postgres publishes", "WAL archiving", "HTTPS port 443"
+        "postgres publishes", "WAL archiving", "HTTPS port 443", "bootstrap key"
     )):
         print("FAIL: production Compose gate did not detect its negative controls")
         return 1
-    print("PASS: production Compose exposes only HTTPS 443 and configures encrypted WAL backups")
+    print("PASS: production Compose HTTPS, encrypted WAL backups, and external bootstrap key")
     return 0
 
 

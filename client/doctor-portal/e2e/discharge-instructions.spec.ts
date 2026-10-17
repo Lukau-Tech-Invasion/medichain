@@ -31,7 +31,8 @@ test('filing a discharge also files the take-home instructions', async ({ browse
     }
   });
 
-  await signIn(page, 'Doctor');
+  // The primary fixture doctor has a patient-approved care grant.
+  await signIn(page, 'Doctor', 0);
   await settle(page, '/discharge');
 
   await page.getByRole('button', { name: /new discharge/i }).click();

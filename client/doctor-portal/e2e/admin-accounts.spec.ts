@@ -1,3 +1,4 @@
+import { portalPath } from './portal-path';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import {
   AdminApi,
@@ -13,7 +14,7 @@ import {
   stamp,
   type Throwaway,
 } from './identity';
-import { answerStepUp, expectSignedOut, settle, signInWithCredentials, signOut } from './support';
+import { answerStepUp, expectSignedOut, settle, signInWithCredentials, signOut, skipFirstVisitReload } from './support';
 
 /**
  * An administrator's control of other people's accounts, through the screen an
@@ -80,6 +81,7 @@ test.afterAll(async () => {
 /** One person's card on the user-management list, found by their (unique) name. */
 async function userCard(page: Page, name: string): Promise<Locator> {
   await settle(page, '/user-management');
+  await page.getByRole('button', { name: /^refresh$/i }).click();
   await page.locator('#user-search').fill(name);
   const card = page
     .locator('div.shadow-sm')
@@ -134,7 +136,8 @@ test('an administrator creates staff; the code is shown once; the person activat
   // The new person, on their own machine: activates with the code, choosing a password.
   const context = await browser.newContext();
   const person = await context.newPage();
-  await person.goto('/activate');
+  await skipFirstVisitReload(person);
+  await person.goto(portalPath('/activate'));
   await person.locator('#activate-identifier').fill(loginId);
   await person.locator('#activate-code').fill(code);
   await person.locator('#activate-password').fill(NEW_PASSWORD);
@@ -189,7 +192,8 @@ test('a credential reset ends every session, stops the old password, and the new
   // The person redeems the new code, choosing a password, in the browser.
   const context = await browser.newContext();
   const person = await context.newPage();
-  await person.goto('/activate');
+  await skipFirstVisitReload(person);
+  await person.goto(portalPath('/activate'));
   await person.locator('#activate-identifier').fill(resetTarget.loginId);
   await person.locator('#activate-code').fill(code);
   await person.locator('#activate-password').fill(RESET_PASSWORD);
@@ -224,9 +228,12 @@ test('an administrator resets a lost authenticator and the person signs in with 
   const card = await userCard(adminPage, mfaTarget.name);
   await card.getByRole('button', { name: 'Reset two-factor authentication' }).click();
   await confirmThenStepUp(adminPage);
-  await expect(adminPage.getByText(/two-factor authentication removed for/i)).toBeVisible({ timeout: 30000 });
 
   // After: a password alone is a sign-in, and the account reports no authenticator.
+  // The success toast is short lived and can disappear while step-up detection
+  // waits. The durable sign-in state is the behavior this case needs to prove.
+  await expect.poll(async () => (await apiLogin(api_, mfaTarget.loginId, mfaTarget.password)).status,
+    { timeout: 30000 }).toBe(200);
   const after = await apiLogin(api_, mfaTarget.loginId, mfaTarget.password);
   expect(after.status).toBe(200);
   const token = after.body?.access_token as string;
@@ -253,7 +260,9 @@ test('a person the administrator suspends can no longer sign in', async ({ brows
 
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto('/login');
+  // A fresh context gets the first-visit cache purge, whose reload wipes typed fields.
+  await skipFirstVisitReload(page);
+  await page.goto(portalPath('/login'));
   await page.locator('input#identifier').fill(target.loginId);
   await page.locator('input#password').fill(target.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();

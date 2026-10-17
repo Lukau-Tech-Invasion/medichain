@@ -1,3 +1,4 @@
+import { portalPath } from './portal-path';
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import {
   AdminApi,
@@ -9,7 +10,7 @@ import {
   tokenOf,
   type Throwaway,
 } from './identity';
-import { settle, signInWithCredentials, signOut } from './support';
+import { settle, signInWithCredentials, signOut, skipFirstVisitReload } from './support';
 
 /**
  * A clinician changes their own password from Settings.
@@ -122,8 +123,10 @@ test('changing it works, ends the other sessions, and the old password stops', a
 
 test('the original password chosen at activation is not remembered anywhere', async ({ page }) => {
   test.setTimeout(120_000);
-  // Sign in form, old password: the generic refusal, nothing more.
-  await page.goto('/login');
+  // Sign in form, old password: the generic refusal, nothing more. The
+  // first-visit cache purge reloads the page and would wipe what was typed.
+  await skipFirstVisitReload(page);
+  await page.goto(portalPath('/login'));
   await page.locator('input#identifier').fill(person.loginId);
   await page.locator('input#password').fill(NEW_PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();

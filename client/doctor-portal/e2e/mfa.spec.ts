@@ -83,6 +83,10 @@ test('a clinician enrols in two-factor and can turn it off again', async ({ brow
 
   // And off again — which requires a current code, so a live session alone
   // cannot strip the second factor off the account.
+  // A verified code is single-use. Wait for the next TOTP window before
+  // disabling, otherwise the API correctly rejects the replay.
+  const enabledCode = totp(secret);
+  await expect.poll(() => totp(secret), { timeout: 40_000, intervals: [1000] }).not.toBe(enabledCode);
   await page.locator('#mfa-disable-code').fill(totp(secret));
   await page.getByRole('button', { name: /turn off two-factor/i }).click();
   await expect(status).toHaveText(/^off$/i, { timeout: 20000 });

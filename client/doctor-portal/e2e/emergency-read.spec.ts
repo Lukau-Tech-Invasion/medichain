@@ -9,7 +9,7 @@ import { settle, signIn } from './support';
  * This is the product's headline claim, and the one thing the removal of the chain
  * must not have touched. Emergency access is a managed-device, work-context,
  * time-boxed grant (`POST /api/emergency/grants`), never a role. The sealed audit
- * stream that replaced the chain anchor is **off the request path**: the read must
+ * stream is **off the request path**: the read must
  * succeed whatever the checkpoint sink does. The test API runs with the sink set
  * to `none` -- no checkpoint leaves the host -- and this spec proves the read still
  * returns the emergency data and that the patient can see who opened their card.
@@ -28,9 +28,15 @@ import { settle, signIn } from './support';
 
 const fixtures = () => readFixtures();
 
-async function enrolDevice(admin: Page, name: string): Promise<string> {
+async function enrolDevice(
+  admin: Page,
+  name: string,
+  workLocation: { organization_id: string; facility_id: string }
+): Promise<string> {
   await settle(admin, '/devices');
   await expect(admin.getByRole('heading', { name: /approved devices/i })).toBeVisible({ timeout: 20000 });
+  await admin.locator('#device-org').selectOption(workLocation.organization_id);
+  await admin.locator('#device-facility').selectOption(workLocation.facility_id);
   await admin.locator('#device-name').fill(name);
   await admin.locator('#device-fingerprint').fill(`e2e-emergency-${Date.now()}`);
   await admin.getByRole('button', { name: /enrol device/i }).click();
@@ -43,6 +49,22 @@ async function enrolDevice(admin: Page, name: string): Promise<string> {
   await row.getByRole('button', { name: /provision key/i }).click();
   await expect(row).toContainText(/active/i, { timeout: 20000 });
   return deviceId;
+}
+
+/** Bind a test device to the clinician's real work assignment. */
+async function clinicianWorkLocation(request: Parameters<typeof api>[0]) {
+  const doctor = fixtures().staff.find((member) => member.role === 'Doctor');
+  expect(doctor, 'the fixture has no doctor').toBeTruthy();
+  const token = await fixtureToken(request, {
+    login_id: doctor!.login_id,
+    password: doctor!.password ?? '',
+  });
+  const response = await api(request, 'POST', '/api/identity/context/work', { token, data: {} });
+  expect(response.status).toBe(200);
+  const { organization_id, facility_id } = response.body.context ?? {};
+  expect(organization_id).toBeTruthy();
+  expect(facility_id).toBeTruthy();
+  return { organization_id: String(organization_id), facility_id: String(facility_id) };
 }
 
 test('a clinician taps a card and reads the emergency data; the patient can see it happened', async ({
@@ -68,12 +90,12 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
   const admin = await browser.newPage();
   await signIn(admin, 'Admin');
   const deviceName = `E2E emergency tablet ${Date.now()}`;
-  const deviceId = await enrolDevice(admin, deviceName);
+  const deviceId = await enrolDevice(admin, deviceName, await clinicianWorkLocation(request));
 
   try {
     // 2. The tap.
     const clinician = await browser.newPage();
-    await signIn(clinician, 'Doctor');
+    await signIn(clinician, 'Doctor', 0);
     await settle(clinician, '/emergency');
 
     const picker = clinician.locator('#approved-device');
@@ -94,7 +116,7 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     await expect(clinician.locator('main')).toContainText('O+');
     await expect(clinician.locator('main')).toContainText(/penicillin/i);
 
-    // No chain, no wallet, no anchoring on the card a stranger reads in a hurry.
+    // None of the retired ledger or identity wording on the card a stranger reads in a hurry.
     const text = await clinician.locator('main').innerText();
     expect(text).not.toMatch(/block\s?chain|on-chain|wallet|anchor(ed|ing)?|transaction hash/i);
     await clinician.close();
@@ -111,7 +133,7 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     expect(newest, 'the access log lists no access').toBeTruthy();
     expect(newest?.reason_code).toBe('emergency_nfc_access');
     expect(String(newest?.grant_id ?? ''), 'the read was not made under a grant').not.toBe('');
-    for (const retired of ['blockchain_tx_hash', 'tx_hash', 'chain_audit_status']) {
+    for (const retired of ['blockchain_tx_hash', 'tx_hash', 'chain_audit_status']) { // retired-term-negative-assertion
       expect(newest, `the access record carries ${retired}`).not.toHaveProperty(retired);
     }
 
@@ -138,16 +160,16 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
   }
 });
 
-test('a tag that belongs to no patient is refused, and refused plainly', async ({ browser }) => {
+test('a tag that belongs to no patient is refused, and refused plainly', async ({ browser, request }) => {
   test.setTimeout(240_000);
   const admin = await browser.newPage();
   await signIn(admin, 'Admin');
   const deviceName = `E2E emergency refusal ${Date.now()}`;
-  const deviceId = await enrolDevice(admin, deviceName);
+  const deviceId = await enrolDevice(admin, deviceName, await clinicianWorkLocation(request));
 
   try {
     const clinician = await browser.newPage();
-    await signIn(clinician, 'Doctor');
+    await signIn(clinician, 'Doctor', 0);
     await settle(clinician, '/emergency');
     await clinician.locator('#approved-device').selectOption(deviceId);
     await clinician.locator('#nfc-tag').fill(`NFC-NO-SUCH-${Date.now()}`);

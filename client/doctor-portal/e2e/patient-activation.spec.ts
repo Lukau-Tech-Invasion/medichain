@@ -67,7 +67,7 @@ test('a doctor registers a patient; the code is shown once, on the screen, and i
   await expect(page.getByText(/shown once/i).first()).toBeVisible();
   // The clinic is told it never sees the password.
   await expect(page.getByText(/never sees the password/i)).toBeVisible();
-  // No sign of a wallet, phrase or key beside the code.
+  // No sign of the retired identity material beside the code.
   expect(await page.locator('main').innerText()).not.toMatch(/wallet|recovery phrase|seed phrase/i);
 
   // Leaving the screen ends it: nothing brings the code back.

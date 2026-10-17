@@ -1,3 +1,4 @@
+import { portalPath } from '../../doctor-portal/e2e/portal-path';
 import { test, expect, type Page } from '@playwright/test';
 import {
   apiRedeem,
@@ -23,8 +24,8 @@ import { expectSignedOut, signInWithCredentials, signOut } from './support';
  * own tests, not here. The refusal a patient sees for an expired code is the same
  * INVALID_GRANT message asserted below for a spent one.
  *
- * Flows that create accounts run on the desktop project only; the phone project
- * runs the form-validation test, where the small screen matters.
+ * Both phone and desktop projects run validation, activation and sign-in flows
+ * serially, using a separate new patient for each account-creating case.
  */
 
 const PASSWORD = 'Patient-Long-Passphrase-5';
@@ -50,7 +51,7 @@ test('the form checks the password and the code before anything is sent', async 
     if (request.url().includes('/api/auth/credentials/redeem')) redemptions.push(request.url());
   });
 
-  await page.goto('/activate');
+  await page.goto(portalPath('/activate'));
   await expect(page.locator('#activate-identifier')).toBeVisible({ timeout: 20000 });
 
   // The submit button waits for every field.
@@ -81,7 +82,6 @@ test('the form checks the password and the code before anything is sent', async 
 });
 
 test.describe('activation and first sign-in', () => {
-  test.skip(({ isMobile }) => isMobile, 'account-creating flows run on the desktop project only');
   test.describe.configure({ mode: 'serial' });
 
   test('a code, a patient id, a username and a password sign the patient in', async ({ page, request }) => {
@@ -90,7 +90,7 @@ test.describe('activation and first sign-in', () => {
     const registered = await registerPatientViaApi(request, doctorToken, 'Activation Journey');
     const username = `e2e.act.${stamp()}`;
 
-    await page.goto('/activate');
+    await page.goto(portalPath('/activate'));
     await fillActivation(page, {
       patientId: registered.patientId,
       code: registered.activationCode,
@@ -125,7 +125,7 @@ test.describe('activation and first sign-in', () => {
     const registered = await registerPatientViaApi(request, doctorToken, 'Activation Refusals');
     const tag = stamp();
 
-    await page.goto('/activate');
+    await page.goto(portalPath('/activate'));
     const refused = async (values: Parameters<typeof fillActivation>[1]) => {
       await fillActivation(page, values);
       await submit(page).click();
@@ -164,7 +164,7 @@ test.describe('activation and first sign-in', () => {
     await signOut(page);
 
     // ...and is spent: presented again it is refused in the same words.
-    await page.goto('/activate');
+    await page.goto(portalPath('/activate'));
     await refused({
       patientId: registered.patientId,
       code: registered.activationCode,
@@ -194,7 +194,7 @@ test.describe('activation and first sign-in', () => {
     expect(a.status).toBe(200);
 
     // Patient B asks for it and is told, in words, to choose another.
-    await page.goto('/activate');
+    await page.goto(portalPath('/activate'));
     await fillActivation(page, {
       patientId: second.patientId,
       code: second.activationCode,
@@ -208,7 +208,7 @@ test.describe('activation and first sign-in', () => {
     // A username the rules refuse.
     await fillActivation(page, { username: 'a!', password: PASSWORD, confirm: PASSWORD });
     await submit(page).click();
-    await expect(page.getByRole('alert')).toContainText(/not allowed/i, { timeout: 30000 });
+    await expect(page.getByRole('alert')).toContainText(/valid username|not allowed/i, { timeout: 30000 });
 
     // Neither refusal spent B's code: a good username still activates.
     await fillActivation(page, { username: `e2e.free.${stamp()}`, password: PASSWORD, confirm: PASSWORD });

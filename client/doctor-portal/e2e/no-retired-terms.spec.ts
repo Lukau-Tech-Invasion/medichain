@@ -1,3 +1,4 @@
+import { portalPath } from './portal-path';
 import { test, expect, type Response } from '@playwright/test';
 import { fixturePatientId, ROLES, settle, signIn, sidebarRoutes, requestPacer, readablePageText, type RoleName } from './support';
 import { retiredTermsIn } from './identity';
@@ -84,7 +85,7 @@ for (const role of ROLES) {
 test('the sign-in and activation pages, before anyone is signed in, use none of them either', async ({ page }) => {
   test.setTimeout(120_000);
   for (const path of ['/login', '/activate']) {
-    await page.goto(path);
+    await page.goto(portalPath(path));
     await page.locator('form').first().waitFor({ state: 'visible', timeout: 20000 });
     expect(retiredTermsIn(await readablePageText(page)), path).toEqual([]);
   }

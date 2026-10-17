@@ -21,7 +21,7 @@ import {
  * is batched, hashed into a Merkle tree, chained to the previous batch and signed
  * with Ed25519 (`docs/BLOCKCHAIN_REMOVAL_PLAN.md`, Phase A). The screens show
  * where an entry stands in that stream -- "Sealing pending", "Sealed", "Sealed
- * and exported" -- and never a block, a transaction or a wallet.
+ * and exported" -- and never a block, a transaction or a retired identity.
  *
  *   * Access Logs: each row carries a seal badge.
  *   * Admin dashboard: the System Status card shows the audit-seal panel: how many
@@ -38,7 +38,7 @@ import {
 
 const SEAL_STATES = ['pending', 'sealed', 'exported'];
 /** The words the seal UI must never use: chain, block, transaction, anchor, finalised. */
-const NOT_SEAL_WORDS = /\banchor(ed|ing|s)?\b|finali[sz]ed|transaction hash|block number|on-chain|blockchain/i;
+const NOT_SEAL_WORDS = /\banchor(ed|ing|s)?\b|finali[sz]ed|transaction hash|block number|on-chain|blockchain/i; // retired-term-negative-assertion
 
 test('the admin dashboard shows the audit-seal panel, and says when nothing leaves the host', async ({
   browser,
@@ -148,7 +148,7 @@ test('the access-log API carries a seal state and none of the chain fields', asy
     if (row.seal_status !== undefined && row.seal_status !== null) {
       expect(SEAL_STATES).toContain(row.seal_status);
     }
-    for (const retired of ['blockchain_tx_hash', 'tx_hash', 'block_number', 'anchor_status']) {
+    for (const retired of ['blockchain_tx_hash', 'tx_hash', 'block_number', 'anchor_status']) { // retired-term-negative-assertion
       expect(row, `an access-log row carries ${retired}`).not.toHaveProperty(retired);
     }
   }

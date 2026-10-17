@@ -1,3 +1,4 @@
+import { portalPath } from '../../doctor-portal/e2e/portal-path';
 import { test, expect } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { signInAsFixturePatient } from './support';
@@ -55,7 +56,7 @@ test('every patient screen, and sign-in, is readable in both themes', async ({ p
   const results: RouteResult[] = [];
 
   // Sign-in first, before any session exists.
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('main, form').first().waitFor({ state: 'visible', timeout: 20000 });
   await freezeMotion(page);
   const login: RouteResult = { path: '/login', reached: true };
@@ -65,7 +66,7 @@ test('every patient screen, and sign-in, is readable in both themes', async ({ p
   await signInAsFixturePatient(page);
   for (const path of ROUTES) {
     const result: RouteResult = { path, reached: false };
-    await page.goto(path);
+    await page.goto(portalPath(path));
     result.reached = await page
       .locator('main')
       .first()

@@ -137,7 +137,7 @@ async function main(): Promise<void> {
   // whatever ran next.
   const journeys: Array<[string, string[], () => Promise<void>]> = [
     ['doctor', ['doctor', 'doctor2'], () => doctorJourney(j, sessions.doctor, sessions.doctor2, m)],
-    ['nurse', ['nurse', 'nurse2'], () => nurseJourney(j, sessions.nurse, sessions.nurse2, m)],
+    ['nurse', ['nurse', 'nurse2', 'patient'], () => nurseJourney(j, sessions.nurse, sessions.nurse2, sessions.patient, m)],
     ['labtech', ['labtech', 'doctor'], () => labTechJourney(j, sessions.labtech, sessions.doctor, m)],
     [
       'pharmacist',

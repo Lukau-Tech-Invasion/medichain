@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { signIn, settle } from './support';
+import { readFixtures } from './identity';
+import { openChartWithReason, signIn } from './support';
 
 /**
  * The emergency capsule, through the screen.
@@ -19,39 +17,42 @@ import { signIn, settle } from './support';
  * unverifiable. `GET /api/patients/{id}/emergency-capsule` is new.
  */
 function fixturePatientId(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = join(here, '..', '..', '..');
-  const fixtures = JSON.parse(
-    readFileSync(join(root, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as { patient: { linked_patient_id: string } };
-  return fixtures.patient.linked_patient_id;
+  return readFixtures().patient.linked_patient_id;
 }
 
 test('a capsule version is published, seen, and revoked', async ({ browser }) => {
   test.setTimeout(240000);
   const page = await browser.newPage();
-  await signIn(page, 'Doctor');
-  await settle(page, `/patients/${fixturePatientId()}`);
+  await signIn(page, 'Doctor', 0);
+  await openChartWithReason(page, fixturePatientId());
 
   await page.getByRole('button', { name: /access/i }).first().click();
   await expect(page.getByText(/Emergency capsule/i).first()).toBeVisible({ timeout: 20000 });
 
   const rows = page.locator('[data-testid="capsule-version-list"] li');
-  const before = await rows.count();
 
   await page.getByRole('button', { name: /publish a new version/i }).click();
-  await expect(page.getByRole('status')).toContainText(/is now in force/i, { timeout: 20000 });
-  await expect.poll(() => rows.count(), { timeout: 20000 }).toBeGreaterThan(before);
+  const status = page.getByRole('status');
+  await expect(status).toContainText(/is now in force/i, { timeout: 20000 });
 
-  // The newest row is the one this run published.
-  const newest = rows.first();
-  await newest.getByRole('button', { name: /^Revoke$/i }).click();
+  // The row this run published, by the version number the notice names. Not
+  // `rows.first()` after a count: the count was taken while the history was
+  // still loading, so on 2026-10-13 the poll passed on the stale list and the
+  // test revoked the previous version instead of its own.
+  const version = Number(/Version (\d+)/.exec((await status.innerText()) ?? '')?.[1]);
+  expect(version).toBeGreaterThan(0);
+  const published = rows.filter({ hasText: new RegExp(`^\\s*Version ${version}\\b`) });
+  await expect(published).toHaveCount(1, { timeout: 20000 });
+  await published.getByRole('button', { name: /^Revoke$/i }).click();
 
   // Revoking is never deletion: a directive having been in force between two
   // dates is part of the clinical record.
-  await expect(page.getByRole('status')).toContainText(/Its record stays/i, { timeout: 20000 });
-  await expect.poll(() => rows.count(), { timeout: 20000 }).toBeGreaterThan(before);
-  await expect(newest.getByText(/Revoked/i)).toBeVisible();
+  await expect(status).toContainText(new RegExp(`Version ${version} was revoked. Its record stays`, 'i'), {
+    timeout: 20000,
+  });
+  await expect(published).toHaveCount(1);
+  await expect(published.getByText(/Revoked/i)).toBeVisible();
+  await expect(published.getByRole('button', { name: /^Revoke$/i })).toHaveCount(0);
 
   await page.close();
 });
@@ -82,7 +83,7 @@ test('a failed capsule read says so instead of showing a blank card', async ({ b
         }),
       })
   );
-  await settle(page, `/patients/${fixturePatientId()}`);
+  await openChartWithReason(page, fixturePatientId());
   await page.getByRole('button', { name: /access/i }).first().click();
 
   await expect(page.getByText(/not an empty card/i)).toBeVisible({ timeout: 20000 });

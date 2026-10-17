@@ -55,7 +55,7 @@ test('a prescription is sent, received, filled in two parts, and the patient can
 
   // Doctor: write and send.
   const doctor = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await signIn(doctor, 'Doctor');
+  await signIn(doctor, 'Doctor', 0);
   await settle(doctor, '/e-prescribe');
   await pickPatientById(doctor, '#patient_id', patient.linked_patient_id);
   await doctor.locator('#medication_name').fill(DRUG);

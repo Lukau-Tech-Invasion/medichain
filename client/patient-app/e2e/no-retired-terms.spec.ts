@@ -1,3 +1,4 @@
+import { portalPath } from '../../doctor-portal/e2e/portal-path';
 import { test, expect, type Response } from '@playwright/test';
 import { retiredTermsIn } from '../../doctor-portal/e2e/identity';
 import { readablePageText, requestPacer, signInAsFixturePatient } from './support';
@@ -55,7 +56,7 @@ test('every patient screen is free of chain and wallet words and fields', async 
   for (const path of ROUTES) {
     await pace();
     current = path;
-    await page.goto(path);
+    await page.goto(portalPath(path));
     const reached = await page
       .locator('main')
       .first()

@@ -119,6 +119,9 @@ test('a privileged action is held until a good code is given, then runs once', a
   target = await provisionStaff(api_, admin, 'Nurse');
   await admin.ensureEnrolled();
 
+  // The previous case leaves this SPA on User Management. Re-enter it so its
+  // directory fetch includes the account just provisioned through the API.
+  await settle(adminPage, '/dashboard');
   await settle(adminPage, '/user-management');
   await adminPage.locator('#user-search').fill(target.name);
   const card = adminPage
@@ -221,6 +224,7 @@ test('Class C over the API asks for the password when there is no authenticator'
 
 test('Class B over the API: assurance rises with a code, and Class C then asks for it', async () => {
   test.setTimeout(300_000);
+  classUser = await provisionStaff(api_, admin, 'Doctor');
   classUserDevice = await enrolTotp(api_, classUser.token);
 
   // Enrolled but not stepped up: the session is not elevated.
@@ -239,7 +243,7 @@ test('Class B over the API: assurance rises with a code, and Class C then asks f
     token: elevated,
     data: { action: 'e2e.probe', method: 'POST', path: '/api/e2e/probe' },
   });
-  expect(challenge.status).toBe(200);
+  expect(challenge.status, JSON.stringify(challenge.body)).toBe(200);
   const issued = challenge.body?.challenge ?? challenge.body;
   expect(issued.required_factor).toBe('totp');
 

@@ -38,7 +38,7 @@ const SEAL_STATES = ['pending', 'sealed', 'exported'];
 const CAPSULE_STATES = ['match', 'mismatch', 'unsealed', 'none'];
 const SIGNATURES = ['valid', 'unsigned', 'invalid'];
 /** The words the seal UI must never use: chain, block, transaction, anchor, finalised. */
-const NOT_SEAL_WORDS = /\banchor(ed|ing|s)?\b|finali[sz]ed|transaction hash|block number|on-chain|blockchain/i;
+const NOT_SEAL_WORDS = /\banchor(ed|ing|s)?\b|finali[sz]ed|transaction hash|block number|on-chain|blockchain/i; // retired-term-negative-assertion
 
 test('the access history shows who opened the record, with a seal badge and no chain words', async ({
   page,
@@ -95,7 +95,7 @@ test('the access history shows who opened the record, with a seal badge and no c
   await expect(badges.first()).toContainText(/sealing pending|sealed|sealed and exported|partly sealed/i);
 
   // Sealing is explained, and explained without the chain.
-  await expect(page.getByText(/signed fingerprint of each entry/i)).toBeVisible();
+  await expect(page.getByText(/sealing records a fingerprint of each entry/i)).toBeVisible();
   const text = await readablePageText(page);
   expect(text, 'the access history uses chain vocabulary').not.toMatch(NOT_SEAL_WORDS);
   expect(retiredTermsIn(text)).toEqual([]);
@@ -153,7 +153,7 @@ test('the emergency card can be verified against its seal, and the answer is hon
       expect(row.signature, 'batches sealed without a key must not read as validly signed').not.toBe('valid');
     }
     expect(row.signature, 'a sealed batch failed its signature check').not.toBe('invalid');
-    for (const retired of ['tx_hash', 'block_number', 'anchor_status', 'blockchain_tx_hash']) {
+    for (const retired of ['tx_hash', 'block_number', 'anchor_status', 'blockchain_tx_hash']) { // retired-term-negative-assertion
       expect(row, `a verification row carries ${retired}`).not.toHaveProperty(retired);
     }
   }

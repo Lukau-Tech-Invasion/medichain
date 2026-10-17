@@ -22,7 +22,7 @@ import { signIn, settle, selectPatient } from './support';
 test('a doctor documents a laceration repair and it appears on the list', async ({ browser }) => {
   test.setTimeout(180000);
   const page = await browser.newPage();
-  await signIn(page, 'Doctor');
+  await signIn(page, 'Doctor', 0);
   await settle(page, '/laceration-repair');
 
   const site = `Right forearm, dorsal aspect (e2e ${Date.now()})`;
@@ -64,7 +64,7 @@ test('a doctor documents a laceration repair and it appears on the list', async 
 test('a repair with no length is refused before it is sent', async ({ browser }) => {
   test.setTimeout(120000);
   const page = await browser.newPage();
-  await signIn(page, 'Doctor');
+  await signIn(page, 'Doctor', 0);
   await settle(page, '/laceration-repair');
   await page.getByRole('button', { name: /new repair/i }).click();
 

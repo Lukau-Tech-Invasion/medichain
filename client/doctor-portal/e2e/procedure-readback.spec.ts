@@ -127,12 +127,12 @@ test('an anaesthetic record saves at all, and survives a return visit', async ({
 
   // Before the fix this never appeared: the request 400'd on every submission.
   await openHistory(page);
-  await expect(page.getByText(procedure, { exact: false })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(`Procedure: ${procedure}`, { exact: true })).toBeVisible({ timeout: 20000 });
 
   await settle(page, '/dashboard');
   await settle(page, '/anesthesia');
   await openHistory(page);
-  await expect(page.getByText(procedure, { exact: false })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(`Procedure: ${procedure}`, { exact: true })).toBeVisible({ timeout: 20000 });
 
   await page.close();
 });

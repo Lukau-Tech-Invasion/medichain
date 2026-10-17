@@ -1,3 +1,4 @@
+import { portalPath } from './portal-path';
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import {
   AdminApi,
@@ -20,7 +21,7 @@ import { expectSignedOut, signInWithCredentials, signOut, skipFirstVisitReload }
  * Staff sign-in: Employee ID and password, an authenticator code when the
  * account has one, and what the form says when it refuses.
  *
- * There is no wallet, no recovery phrase and no keystore any more (ADR-0010).
+ * There is no client-held key or keystore any more (ADR-0010).
  * A clinician types the Employee ID an administrator gave them and a password
  * they chose when they redeemed their one-time code. The password is stretched
  * in the browser and only a proof of it travels; the server holds an Argon2id
@@ -93,7 +94,7 @@ test('a session survives a reload, and signing out ends it for good', async ({ p
   await expectSignedOut(page);
 
   // A protected route no longer opens; it sends the visitor back to sign-in.
-  await page.goto('/dashboard');
+  await page.goto(portalPath('/dashboard'));
   await expectSignedOut(page);
   await expect(page).toHaveURL(/\/login/);
 });
@@ -102,7 +103,7 @@ test('a wrong password and an unknown Employee ID get the same generic error', a
   test.setTimeout(120_000);
   const doctor = fixtureStaff('Doctor');
   await skipFirstVisitReload(page);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
 
   const attempt = async (loginId: string, password: string): Promise<string> => {
     await page.locator('input#identifier').fill(loginId);
@@ -150,7 +151,7 @@ test('repeated failures lock the account and the form says so, even for the righ
 
   // And the form tells the person, in words, rather than showing "not correct".
   await skipFirstVisitReload(page);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#identifier').fill(lockTarget.loginId);
   await page.locator('input#password').fill(lockTarget.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -163,7 +164,7 @@ test('repeated failures lock the account and the form says so, even for the righ
 test('an account with an authenticator is asked for its code; a wrong code is refused', async ({ page }) => {
   test.setTimeout(240_000);
   await skipFirstVisitReload(page);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
 
   // Password first: no session yet, only a request for the code.
   await page.locator('input#identifier').fill(totpTarget.loginId);

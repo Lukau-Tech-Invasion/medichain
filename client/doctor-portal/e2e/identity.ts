@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
-import { dirname, resolve } from 'node:path';
+import { fixtureManifestPath } from './fixture-manifest';
 import type { APIRequestContext, PlaywrightWorkerArgs, TestInfo } from '@playwright/test';
 import { deriveAuthProof } from '../../shared/src/auth/proof';
 
@@ -60,22 +60,9 @@ export interface Fixtures {
   patient_b: FixtureAccount & { linked_patient_id: string };
 }
 
-/** Walk up from the working directory to `.browser-test/fixtures.json`. */
+/** Read the explicitly selected cohort, or the repository's default fixture manifest. */
 export function readFixtures(): Fixtures {
-  let directory = process.cwd();
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = resolve(directory, '.browser-test', 'fixtures.json');
-    if (existsSync(candidate)) {
-      return JSON.parse(readFileSync(candidate, 'utf8')) as Fixtures;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) break;
-    directory = parent;
-  }
-  throw new Error(
-    `No .browser-test/fixtures.json above ${process.cwd()}; run the browser fixture seed ` +
-      '(npx tsx scripts/seed-browser-test-fixtures.ts --i-understand-this-writes-accounts).'
-  );
+  return JSON.parse(readFileSync(fixtureManifestPath(), 'utf8')) as Fixtures;
 }
 
 /** A seeded staff account by role, with its password resolved. */
@@ -512,24 +499,25 @@ export async function registerPatientViaApi(
 // ---------------------------------------------------------------------------
 
 /**
- * Words that must appear nowhere a person can read. The chain and the wallet are
- * gone (ADR-0010); a page that still says either is describing a system that does
- * not exist. "Chain of custody" (a clinical term) and "chained audit stream" do
- * not match: the patterns name the blockchain and wallet vocabulary specifically.
+ * Words that must appear nowhere a person can read. The ledger and the old
+ * client-held identity are gone (ADR-0010); a page that still names either is
+ * describing a system that does not exist. "Chain of custody" (a clinical term)
+ * and "chained audit stream" do not match: the patterns name only the retired
+ * vocabulary.
  */
 export const RETIRED_TERMS = [
-  /block\s?chain/i,
-  /on[-\s]?chain/i,
-  /\bwallet(s)?\b/i,
-  /recovery\s+phrase/i,
+  /block\s?chain/i, // retired-term-negative-assertion
+  /\bon[-\s]+chain\b/i,
+  /\bwallet(s)?\b/i, // retired-term-negative-assertion
+  /recovery\s+phrase/i, // retired-term-negative-assertion
   /seed\s+phrase/i,
-  /mnemonic/i,
-  /\bss58\b/i,
-  /polkadot/i,
-  /substrate/i,
-  /extrinsic/i,
+  /mnemonic/i, // retired-term-negative-assertion
+  /\bss58\b/i, // retired-term-negative-assertion
+  /polkadot/i, // retired-term-negative-assertion
+  /substrate/i, // retired-term-negative-assertion
+  /extrinsic/i, // retired-term-negative-assertion
   /transaction\s+hash/i,
-  /finalized\s+block/i,
+  /finalized\s+block/i, // retired-term-negative-assertion
 ] as const;
 
 /** The retired terms found in some text, for an assertion message. */

@@ -1,7 +1,6 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { settle } from './support';
+import { readFixtures } from './identity';
+import { declareAccessReason, settle, signIn, type RoleName } from './support';
 
 /**
  * Cross-role workflows, each proved by the person who needs to read the result.
@@ -10,9 +9,8 @@ import { settle } from './support';
  * clinician who writes it to the colleague or patient who acts on it, because a
  * write that only its author can read back proves nothing.
  *
- * Staff sign in through the Quick Login buttons, the app's own demo path; the
- * patient reads through the patient app, signed in with the username and
- * password the seeder chose for the fixture patient.
+ * Staff sign in with the accounts provisioned by the fixture seeder; the
+ * patient reads through the patient app with its seeded credentials.
  */
 
 type QuickRole = 'Doctor' | 'Nurse' | 'Lab Technician' | 'Pharmacist' | 'Administrator';
@@ -22,23 +20,20 @@ const PATIENT_APP = process.env.PATIENT_APP_URL || 'http://127.0.0.1/patient';
 function fixtures(): {
   patient: { login_id: string; password: string; linked_patient_id: string };
 } {
-  let dir = process.cwd();
-  for (let i = 0; i < 6; i += 1) {
-    try {
-      return JSON.parse(readFileSync(resolve(dir, '.browser-test', 'fixtures.json'), 'utf8'));
-    } catch {
-      dir = resolve(dir, '..');
-    }
-  }
-  throw new Error('No .browser-test/fixtures.json; run the fixture seeder.');
+  return readFixtures();
 }
 
 const PATIENT_A = () => fixtures().patient.linked_patient_id;
 
 async function quickLogin(page: Page, role: QuickRole) {
-  await page.goto('/login');
-  await page.getByRole('button').filter({ hasText: role }).first().click();
-  await expect(page.getByRole('navigation', { name: /sidebar/i })).toBeVisible({ timeout: 30000 });
+  const fixtureRole: Record<QuickRole, RoleName> = {
+    Doctor: 'Doctor',
+    Nurse: 'Nurse',
+    'Lab Technician': 'LabTechnician',
+    Pharmacist: 'Pharmacist',
+    Administrator: 'Admin',
+  };
+  await signIn(page, fixtureRole[role], 0);
 }
 
 /**
@@ -59,6 +54,7 @@ async function pickPatient(page: Page, selector: string, patientId: string) {
     .filter({ hasText: patientId });
   await expect(option.first()).toBeVisible({ timeout: 20000 });
   await option.first().click();
+  await declareAccessReason(page);
 }
 
 /** The seeded patient, reading their own app: a real sign-in, as a patient does it. */
@@ -70,24 +66,32 @@ async function patientPage(browser: Browser): Promise<Page> {
   await page.locator('input#username').fill(fx.login_id);
   await page.locator('input#password').fill(fx.password);
   await page.locator('button[type="submit"]').click();
+  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30000 });
   await page.locator('main').first().waitFor({ state: 'visible', timeout: 30000 });
   return page;
 }
 
 async function patientSees(browser: Browser, route: string, text: string | RegExp) {
   const page = await patientPage(browser);
-  await expect
-    .poll(
-      async () => {
-        await page.goto(`${PATIENT_APP}/${route}`);
-        await page.locator('main').first().waitFor({ timeout: 20000 });
-        await page.waitForTimeout(2500);
-        const body = await page.locator('main').first().innerText();
-        return typeof text === 'string' ? body.includes(text) : text.test(body);
-      },
-      { timeout: 60000, intervals: [3000, 5000, 8000] }
-    )
-    .toBe(true);
+  // The patient session is held in memory. A full navigation discards it and
+  // silently returns to sign-in, so follow the app's own router link.
+  let link = page.locator(`a[href$="/${route}"]:visible`).first();
+  if (!(await link.isVisible().catch(() => false))) {
+    await page.getByRole('button', { name: 'All pages' }).click();
+    link = page.locator(`dialog[open] a[href$="/${route}"]`).first();
+  }
+  await link.click();
+  let lastBody = '';
+  const shows = async () => {
+    await page.locator('main').first().waitFor({ timeout: 20000 });
+    lastBody = await page.locator('main').first().innerText();
+    return typeof text === 'string' ? lastBody.includes(text) : text.test(lastBody);
+  };
+  // The message is built after polling, so it reports what the page last showed.
+  await expect.poll(shows, { timeout: 60000, intervals: [3000, 5000, 8000] }).toBe(true)
+    .catch((error: unknown) => {
+      throw new Error(`Patient ${route} did not show expected record; visible content: ${lastBody.slice(0, 2000)}`, { cause: error });
+    });
   await page.context().close();
 }
 
@@ -170,7 +174,7 @@ test('a nurse triages a patient and they join the triage queue', async ({ page }
   await quickLogin(page, 'Nurse');
   await settle(page, '/triage');
   await page.getByPlaceholder(/search patient/i).fill('Thandiwe');
-  await page.getByText('Thandiwe Browser-Test').first().click();
+  await page.getByText('Thandiwe Ndlovu').first().click();
   await page.getByRole('button', { name: /^3\s*Urgent/i }).click();
   await page.locator('#triage-chief-complaint').fill('Abdominal pain, vomiting since morning');
   await page.locator('#triage-heart-rate').fill('102');
@@ -189,9 +193,24 @@ test('a doctor books a telehealth session and can show its join QR', async ({ pa
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   await page.locator('#telehealth-date').fill(tomorrow);
   await page.locator('#telehealth-time').fill('10:30');
+  await expect(page.locator('#telehealth-date')).toHaveValue(tomorrow);
+  await expect(page.locator('#telehealth-time')).toHaveValue('10:30');
+  const created = page.waitForResponse((r) => r.url().endsWith('/api/telehealth/sessions') && r.request().method() === 'POST');
   await page.getByRole('button', { name: /schedule|create|book/i }).last().click();
-  // The booking clinician's own list shows the session without a search.
-  await expect(page.locator('main')).toContainText('Thandiwe', { timeout: 20000 });
+  const response = await created;
+  // `ErrorResponse` serialises to the canonical `{ error: { code, message } }`; accept the flat shape too.
+  const body = response.status() === 503 ? await response.json().catch(() => ({})) : {};
+  const code = body?.error?.code ?? body?.code;
+  if (response.status() === 503 && code === 'TELEHEALTH_UNAVAILABLE') {
+    // A deployment with telehealth switched off must say so, not blame the network.
+    await expect(page.getByText('The telehealth session could not be created')).toBeVisible();
+    await expect(page.getByText(/failed to connect to server/i)).toHaveCount(0);
+    test.skip(true, 'Telehealth is disabled on this deployment; booking needs a telehealth-enabled stack');
+  }
+  expect(response.status(), 'telehealth session was refused').toBeLessThan(300);
+  await expect(page.getByRole('heading', { name: /schedule new telehealth session/i })).toHaveCount(0);
+  // The booking clinician's own list shows the persisted session without a search.
+  await expect(page.getByRole('button', { name: /join qr|qr/i }).first()).toBeVisible({ timeout: 20000 });
   await page.getByRole('button', { name: /join qr|qr/i }).first().click();
   await expect(page.locator('#join-qr img, img[alt*="QR" i]').first()).toBeVisible({ timeout: 20000 });
 });
@@ -218,7 +237,7 @@ test('a doctor registers a patient who can then be found', async ({ page }) => {
 
   await settle(page, '/patients');
   await page.getByPlaceholder(/search/i).first().fill('Lerato');
-  await expect(page.locator('main')).toContainText(name, { timeout: 20000 });
+  await expect(page.locator('#main-content')).toContainText(name, { timeout: 20000 });
 });
 
 test('a lab result is entered, approved, and reaches the patient and their trends', async ({ page, browser }) => {
@@ -231,18 +250,27 @@ test('a lab result is entered, approved, and reaches the patient and their trend
   const panelValue = await panel.locator('option').nth(1).getAttribute('value');
   await panel.selectOption(panelValue as string);
   await page.locator('input[id^="lab-value-"]').first().fill('5.4');
-  await page.locator('#lab-entry-notes').fill(`Workflow result ${stamp()}`);
+  // The fictional report states adult-female ranges; the group is never inferred.
+  await page.getByRole('combobox', { name: /Reference range group from the laboratory report/i })
+    .selectOption({ label: 'Adult female' });
+  const note = `Workflow result ${stamp()}`;
+  await page.locator('#lab-entry-notes').fill(note);
+  // Proof of submission is the server's answer, not text that also matches a tab label.
+  const submitted = page.waitForResponse((r) => r.url().endsWith('/api/lab/submit') && r.request().method() === 'POST');
   await page.getByRole('button', { name: /submit for review/i }).click();
-  await expect(page.getByText(/submitted|review/i).first()).toBeVisible({ timeout: 20000 });
+  expect((await submitted).status(), 'lab submission was refused').toBeLessThan(300);
 
   const doctor = await browser.newPage();
   await quickLogin(doctor, 'Doctor');
   await settle(doctor, '/lab-review');
-  await expect(doctor.locator('main')).toContainText('Thandiwe', { timeout: 30000 });
-  await doctor.getByRole('button', { name: /approve/i }).first().click();
+  // Approve this run's submission, never whichever happens to be first in the queue.
+  const ours = doctor.locator('li[data-testid^="lab-submission-"]').filter({ hasText: note });
+  await expect(ours).toHaveCount(1, { timeout: 30000 });
+  await expect(ours).toContainText('Thandiwe');
+  await ours.getByRole('button', { name: /^approve$/i }).click();
   const confirm = doctor.getByRole('dialog').getByRole('button', { name: /approve|confirm/i });
   if (await confirm.isVisible().catch(() => false)) await confirm.click();
-  await expect(doctor.getByText(/approved/i).first()).toBeVisible({ timeout: 20000 });
+  await expect(ours).toHaveCount(0, { timeout: 20000 });
   await doctor.close();
 
   await patientSees(browser, 'lab-results', '5.4');
@@ -256,8 +284,6 @@ test('an untyped patient registers with blood group Unknown, not a guess', async
   await settle(page, '/register');
   await page.locator('#register-full-name').fill(name);
   await page.locator('#register-date-of-birth').fill('1988-02-02');
-  await page.getByRole('button', { name: /^generate$/i }).click();
-  await page.getByRole('checkbox', { name: /the patient has this phrase/i }).check();
   await page.locator('#register-national-id').fill(`88020${String(Date.now()).slice(-8)}`);
   await page.locator('#register-blood-type').selectOption('Unknown');
   await page.locator('#register-emergency-contact-name').fill('Kin Workflow');
@@ -273,9 +299,34 @@ test('an untyped patient registers with blood group Unknown, not a guess', async
 
   await settle(page, '/patients');
   await page.getByPlaceholder(/search/i).first().fill('Untyped');
-  const main = page.locator('main');
+  const main = page.locator('#main-content');
   await expect(main).toContainText(name, { timeout: 20000 });
-  await expect(main).toContainText('Unknown');
+  const patientLink = page.getByRole('link', { name: new RegExp(name) });
+  const patientId = (await patientLink.getAttribute('href'))?.split('/').pop();
+  expect(patientId).toBeTruthy();
+  await settle(page, '/appointments');
+  await page.getByRole('button', { name: /new appointment/i }).first().click();
+  await pickPatient(page, '#patient_id', patientId!);
+  // Give this run its own business-hours slot. Other workflow cases book the
+  // same clinician, so a fixed time makes this test depend on suite order.
+  const slot = Math.floor(Date.now() / 1000) % (180 * 36);
+  const dayOffset = 2 + Math.floor(slot / 36);
+  const quarterHour = slot % 36;
+  const appointmentDate = new Date(Date.now() + dayOffset * 86400000).toISOString().slice(0, 10);
+  const appointmentTime = `${String(8 + Math.floor(quarterHour / 4)).padStart(2, '0')}:${String((quarterHour % 4) * 15).padStart(2, '0')}`;
+  await page.locator('#preferred_date').fill(appointmentDate);
+  await page.locator('#preferred_time').fill(appointmentTime);
+  await page.locator('#reason').fill('Clinical assessment after registration');
+  await page.getByRole('button', { name: /book appointment/i }).click();
+  await expect(page.getByRole('heading', { name: /schedule new appointment/i })).toHaveCount(0);
+  await settle(page, '/patients');
+  await page.getByPlaceholder(/search/i).first().fill('Untyped');
+  // The directory intentionally excludes clinical fields. Open this patient's
+  // chart and declare the treatment purpose before checking the blood group.
+  await page.getByRole('link', { name: new RegExp(name) }).click();
+  await expect(page.getByTestId('access-reason-gate')).toBeVisible({ timeout: 10000 });
+  await declareAccessReason(page);
+  await expect(page.locator('#main-content')).toContainText('Blood: Unknown', { timeout: 20000 });
 });
 
 test('glucose is entered in mmol/L: 110 is refused as mg/dL, 5.4 is recorded', async ({ page }) => {

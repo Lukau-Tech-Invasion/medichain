@@ -56,17 +56,19 @@
  */
 
 import { deriveAuthProof, type LoginBody } from './lib/auth';
+import { isAbsolute } from 'node:path';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://localhost/api';
-const BOOTSTRAP_KEY =
-  process.env.MEDICHAIN_BOOTSTRAP_KEY ?? 'medichain-dev-bootstrap-2024';
+const BOOTSTRAP_KEY = process.env.MEDICHAIN_BOOTSTRAP_KEY;
 /** An existing administrator to use instead of bootstrapping one. */
 const ADMIN_LOGIN_ID = process.env.MEDICHAIN_ADMIN_LOGIN_ID;
 const ADMIN_PASSWORD = process.env.MEDICHAIN_ADMIN_PASSWORD;
 const FORCE = process.argv.includes('--i-understand-this-writes-accounts');
+/** Keep isolated QA credentials separate from the existing database's fixture cohort. */
+const FIXTURE_MANIFEST = process.env.MEDICHAIN_FIXTURE_MANIFEST;
 
-/** Fixture password. Deliberately weak and deliberately printed: it is a test key. */
-const PASSWORD = 'BrowserTest!2026';
+/** Fixture password supplied for a remotely accessible synthetic demo. */
+const PASSWORD = process.env.MEDICHAIN_FIXTURE_PASSWORD ?? 'BrowserTest!2026';
 
 interface StaffFixture {
   key:
@@ -78,10 +80,11 @@ interface StaffFixture {
     | 'pharmacist'
     | 'pharmacist2'
     | 'labtech'
-    | 'labtech2';
+    | 'labtech2'
+    | 'paramedic';
   loginId: string;
   name: string;
-  role: 'Doctor' | 'Nurse' | 'Admin' | 'Pharmacist' | 'LabTechnician';
+  role: 'Doctor' | 'Nurse' | 'Admin' | 'Pharmacist' | 'LabTechnician' | 'Paramedic';
 }
 
 /**
@@ -101,31 +104,32 @@ const sfx = (base: string) => (SUFFIX ? `${base}${SUFFIX}` : base);
  * administrator turns out to be.
  */
 const STAFF: StaffFixture[] = [
-  { key: 'doctor', loginId: sfx('bt.doctor'), name: 'Dr Browser Test', role: 'Doctor' },
+  { key: 'doctor', loginId: sfx('bt.doctor'), name: 'Dr Lindiwe Mokoena', role: 'Doctor' },
   // A SECOND doctor, and not a convenience. Every maker-checker workflow in
   // MediChain refuses self-approval, so a single clinician cannot exercise one:
   // with one Doctor fixture, `/api/lab/review` correctly answers
   // SELF_REVIEW_FORBIDDEN and the approval path stays untested. Proving the
   // rule and proving the workflow need two people.
-  { key: 'doctor2', loginId: sfx('bt.doctor2'), name: 'Dr Browser Test Two', role: 'Doctor' },
-  { key: 'nurse', loginId: sfx('bt.nurse'), name: 'Nurse Browser Test', role: 'Nurse' },
+  { key: 'doctor2', loginId: sfx('bt.doctor2'), name: 'Dr Yusuf Patel', role: 'Doctor' },
+  { key: 'nurse', loginId: sfx('bt.nurse'), name: 'Nurse Nomsa Dlamini', role: 'Nurse' },
   // A SECOND nurse, for the same reason there is a second doctor. A shift
   // handoff is a transfer of responsibility between two people: with one nurse
   // fixture the outgoing and incoming nurse are the same account, and "the
   // ward was handed over" degrades into "the record I wrote is still there".
   // The interesting failure — a handoff that persists but never reaches the
   // person taking over — is invisible without a second identity.
-  { key: 'nurse2', loginId: sfx('bt.nurse2'), name: 'Nurse Browser Test Two', role: 'Nurse' },
+  { key: 'nurse2', loginId: sfx('bt.nurse2'), name: 'Nurse Kabelo Molefe', role: 'Nurse' },
   // Pharmacist and LabTechnician exist in `Role` and gate real endpoints, but
   // had no fixture, so neither role had ever been exercised — the 2026-08-26
   // campaign recorded both as untestable for exactly this reason.
-  { key: 'pharmacist', loginId: sfx('bt.pharm'), name: 'Pharm Browser Test', role: 'Pharmacist' },
-  { key: 'pharmacist2', loginId: sfx('bt.pharm2'), name: 'Pharm Browser Test Two', role: 'Pharmacist' },
-  { key: 'labtech', loginId: sfx('bt.lab'), name: 'Lab Browser Test', role: 'LabTechnician' },
+  { key: 'pharmacist', loginId: sfx('bt.pharm'), name: 'Pharmacist Ayesha Khan', role: 'Pharmacist' },
+  { key: 'pharmacist2', loginId: sfx('bt.pharm2'), name: 'Pharmacist Pieter van der Merwe', role: 'Pharmacist' },
+  { key: 'labtech', loginId: sfx('bt.lab'), name: 'Lab Scientist Sipho Nkosi', role: 'LabTechnician' },
   // And a second lab technician, so specimen collection and the QC/rejection
   // review that follows it can be performed by different people. Several lab
   // controls are maker-checker in the same way the clinical ones are.
-  { key: 'labtech2', loginId: sfx('bt.lab2'), name: 'Lab Browser Test Two', role: 'LabTechnician' },
+  { key: 'labtech2', loginId: sfx('bt.lab2'), name: 'Lab Scientist Lerato Morake', role: 'LabTechnician' },
+  { key: 'paramedic', loginId: sfx('bt.paramedic'), name: 'Paramedic Themba Sithole', role: 'Paramedic' },
 ];
 
 // There is deliberately no 'EmergencyResponder' fixture.
@@ -138,7 +142,7 @@ const STAFF: StaffFixture[] = [
 
 /** The synthetic patient the patient fixture is bound to. */
 const PATIENT = {
-  full_name: 'Thandiwe Browser-Test',
+  full_name: 'Thandiwe Ndlovu',
   date_of_birth: '1988-04-12',
   national_id: sfx('BT-PATIENT-0001'),
   phone: '+27000000100',
@@ -146,7 +150,7 @@ const PATIENT = {
   allergies: ['penicillin'],
   current_medications: ['metformin 500mg'],
   chronic_conditions: ['type 2 diabetes'],
-  emergency_contact_name: 'Sipho Browser-Test',
+  emergency_contact_name: 'Sipho Ndlovu',
   emergency_contact_phone: '+27000000101',
   emergency_contact_relationship: 'spouse',
   organ_donor: true,
@@ -163,7 +167,7 @@ const PATIENT = {
  * reaches Patient B's record, and that needs a B.
  */
 const PATIENT_B = {
-  full_name: 'Naledi Browser-Test',
+  full_name: 'Naledi Maseko',
   date_of_birth: '1975-11-30',
   national_id: sfx('BT-PATIENT-0002'),
   phone: '+27000000200',
@@ -171,7 +175,7 @@ const PATIENT_B = {
   allergies: ['sulfa'],
   current_medications: ['amlodipine 5mg'],
   chronic_conditions: ['hypertension'],
-  emergency_contact_name: 'Lerato Browser-Test',
+  emergency_contact_name: 'Lerato Maseko',
   emergency_contact_phone: '+27000000201',
   emergency_contact_relationship: 'sibling',
   organ_donor: false,
@@ -196,7 +200,7 @@ async function call(
   // A fresh key per call is right here: these are one-shot provisioning
   // requests, not retries, so replaying one would mean something has gone
   // wrong and should surface rather than be absorbed.
-  if (method !== 'GET') {
+  if (method !== 'GET' && token) {
     headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
   }
   const res = await fetch(`${API}${path}`, {
@@ -240,6 +244,26 @@ interface Account {
   token: string;
   role: string;
   linkedPatientId: string;
+}
+
+/** Have the primary patient approve the staff who must open their chart in browser tests. */
+async function ensurePatientAccess(patientId: string, patient: Account, provider: Account): Promise<void> {
+  const existing = await call('GET', `/access/patient/${patientId}/grants`, undefined, patient.token);
+  if (!ok(existing.status)) fail('read patient grants', existing.status, existing.json);
+  const grants = Array.isArray(existing.json.grants) ? existing.json.grants as Json[] : [];
+  const active = grants.some((grant) =>
+    grant.provider_id === provider.userId && !grant.revoked_at &&
+    Date.parse(String(grant.expires_at ?? '')) > Date.now()
+  );
+  if (active) return;
+
+  const request = await call('POST', `/access/patient/${patientId}/requests`,
+    { reason: 'Synthetic browser verification of clinical care' }, provider.token);
+  const requestId = String((request.json.request as Json | undefined)?.id ?? '');
+  if (request.status !== 201 || !requestId) fail('request patient access', request.status, request.json);
+  const approval = await call('POST', `/access/requests/${requestId}/approve`,
+    { expires_at: new Date(Date.now() + 7 * 86400000).toISOString() }, patient.token);
+  if (!ok(approval.status)) fail('patient approves access', approval.status, approval.json);
 }
 
 /** The fields of a sign-in or redeem answer this script reads. */
@@ -397,11 +421,13 @@ async function obtainAdmin(): Promise<Account> {
     return earlier;
   }
 
-  const authProof = await deriveAuthProof(PASSWORD, fixtureLogin);
+  if (!BOOTSTRAP_KEY) {
+    console.error('\n  Set MEDICHAIN_BOOTSTRAP_KEY to the API bootstrap key for a fresh database.\n');
+    process.exit(1);
+  }
   const bootstrap = await call('POST', '/auth/bootstrap', {
     login_id: fixtureLogin,
-    name: 'Browser Test Bootstrap Admin',
-    auth_proof: authProof,
+    name: 'Administrator Zanele Khumalo',
     secret_key: BOOTSTRAP_KEY,
   });
   if (!ok(bootstrap.status)) {
@@ -413,8 +439,9 @@ async function obtainAdmin(): Promise<Account> {
     );
     process.exit(1);
   }
-  const admin = await tryLogin(fixtureLogin, PASSWORD);
-  if (!admin) fail(`sign in as the bootstrapped administrator ${fixtureLogin}`, bootstrap.status, bootstrap.json);
+  const code = credentialCodeOf(bootstrap.json);
+  if (!code) fail(`bootstrap ${fixtureLogin} returned no credential code`, bootstrap.status, bootstrap.json);
+  const admin = await redeem('bootstrap administrator', fixtureLogin, code, fixtureLogin);
   console.log(`  · bootstrapped administrator ${fixtureLogin}`);
   return admin;
 }
@@ -446,10 +473,23 @@ async function provisionStaff(admin: Account, fixture: StaffFixture): Promise<Ac
  * the patient does: choosing a username and a password.
  */
 async function provisionPatient(
+  admin: Account,
   doctor: Account,
   record: Json,
   username: string
 ): Promise<{ account: Account; patientId: string; nfcTagId: string }> {
+  const existing = await tryLogin(username, PASSWORD);
+  if (existing) {
+    const patientId = existing.linkedPatientId;
+    if (!patientId) fail(`existing patient ${username} has no linked record`, 0, {});
+    const dashboard = await call('GET', '/dashboard/admin', undefined, admin.token);
+    if (!ok(dashboard.status)) fail(`read NFC tags for ${username}`, dashboard.status, dashboard.json);
+    const tags = ((dashboard.json.nfc_cards as Json | undefined)?.cards ?? []) as Json[];
+    const tag = tags.find((item) => item.patient_id === patientId && item.is_active === true);
+    const nfcTagId = String(tag?.id ?? '');
+    if (!nfcTagId) fail(`existing patient ${username} has no active NFC tag`, dashboard.status, {});
+    return { account: existing, patientId, nfcTagId };
+  }
   const created = await call('POST', '/register', record, doctor.token);
   if (!ok(created.status)) fail(`register synthetic patient ${username}`, created.status, created.json);
   const patientId = String(created.json.patient_id ?? '');
@@ -462,7 +502,29 @@ async function provisionPatient(
   return { account, patientId, nfcTagId };
 }
 
+/** The issuance-registry shape every patient's medical ID has. */
+const MEDICAL_ID_SHAPE = /^MCHI-[0-9A-Z]{10,}$/;
+
+/**
+ * The medical ID the registry issued for `patientId`, read the way the patient
+ * reads their own card. A patient fixture without one is refused: a patient is
+ * identified by an issued medical ID, never by an account key.
+ */
+async function issuedMedicalId(patientId: string, token: string): Promise<string> {
+  const card = await call('GET', `/medical-id/${patientId}`, undefined, token);
+  if (!ok(card.status)) fail(`read the medical ID for ${patientId}`, card.status, card.json);
+  const medicalId = String(card.json.national_health_id ?? '');
+  if (!MEDICAL_ID_SHAPE.test(medicalId)) {
+    fail(`patient ${patientId} has no issued medical ID`, card.status, { national_health_id: medicalId || '(unset)' });
+  }
+  return medicalId;
+}
+
 async function main(): Promise<void> {
+  if (FIXTURE_MANIFEST && !isAbsolute(FIXTURE_MANIFEST)) {
+    console.error('MEDICHAIN_FIXTURE_MANIFEST must be an absolute path.');
+    process.exit(1);
+  }
   await assertLocalDemoDeployment();
   console.log(`\nProvisioning browser-test fixtures against ${API}\n`);
 
@@ -506,7 +568,7 @@ async function main(): Promise<void> {
   const pharmacist = staffBy(sfx('bt.pharm'));
 
   // ---- Patient record + bound patient account -----------------------------
-  const a = await provisionPatient(doctor, PATIENT, sfx('btpatient'));
+  const a = await provisionPatient(admin, doctor, PATIENT, sfx('btpatient'));
   const patientId = a.patientId;
   console.log(`  · Patient ${a.account.loginId} (${a.account.userId}) -> ${patientId}`);
 
@@ -517,7 +579,8 @@ async function main(): Promise<void> {
   console.log('\nPreflight');
 
   for (const s of [admin, ...staff]) {
-    const again = await tryLogin(s.loginId, PASSWORD);
+    const password = s.loginId === admin.loginId ? (ADMIN_PASSWORD ?? PASSWORD) : PASSWORD;
+    const again = await tryLogin(s.loginId, password);
     if (!again) fail(`preflight login ${s.loginId}`, 0, { note: 'the fixture credential does not sign in' });
     console.log(`  ✓ ${s.loginId} signs in`);
   }
@@ -538,18 +601,42 @@ async function main(): Promise<void> {
     });
   }
   console.log('  ✓ linked_patient_id matches the seeded record');
+  const medicalId = await issuedMedicalId(patientId, patientSession.token);
+  console.log(`  ✓ patient carries issued medical ID ${medicalId}`);
 
   // ---- Second patient, for wrong-patient authorization tests --------------
-  const b = await provisionPatient(doctor, PATIENT_B, sfx('btpatientb'));
+  const b = await provisionPatient(admin, doctor, PATIENT_B, sfx('btpatientb'));
   console.log(`  · Patient B ${b.account.loginId} (${b.account.userId}) -> ${b.patientId}`);
+  const patientBSession = await tryLogin(b.account.loginId, PASSWORD);
+  if (!patientBSession) fail(`preflight login ${b.account.loginId}`, 0, {});
+  const medicalIdB = await issuedMedicalId(b.patientId, patientBSession.token);
+  console.log(`  ✓ patient B carries issued medical ID ${medicalIdB}`);
+
+  // These are patient-approved, time-bounded grants. The unrelated second
+  // patient has no grant, so wrong-patient denial checks remain meaningful.
+  for (const provider of [
+    doctor,
+    staffBy(sfx('bt.doctor2')),
+    staffBy(sfx('bt.nurse')),
+    staffBy(sfx('bt.nurse2')),
+    lab,
+    staffBy(sfx('bt.lab2')),
+    pharmacist,
+    staffBy(sfx('bt.pharm2')),
+    admin,
+  ]) {
+    await ensurePatientAccess(patientId, patientSession, provider);
+  }
+  console.log('  ✓ primary patient approved browser clinicians for seven days');
 
   const workflows = await seedClinicalWorkflows(patientId, doctor, lab, pharmacist);
   console.log('  ✓ seeded lab recollection and dual-pharmacist browser workflows');
 
   // ---- Fixture contract ---------------------------------------------------
   //
-  // {user_id, login_id, password, linked_patient_id, nfc_tag_id}: no key
-  // material. Every consumer signs in with `login_id` + `password`.
+  // {user_id, login_id, password, linked_patient_id, medical_id, nfc_tag_id}:
+  // no key material. Every consumer signs in with `login_id` + `password`, and
+  // every patient is identified by its issued `medical_id`.
   const signIn = 'POST /api/auth/login (login id + auth proof derived from the password)';
   const adminEntry = {
     role: 'Admin',
@@ -584,6 +671,7 @@ async function main(): Promise<void> {
       login_id: b.account.loginId,
       password: PASSWORD,
       linked_patient_id: b.patientId,
+      medical_id: medicalIdB,
       nfc_tag_id: b.nfcTagId,
       purpose: 'the unrelated patient every wrong-patient authorization probe needs',
       expected_dashboard: {
@@ -597,6 +685,7 @@ async function main(): Promise<void> {
       login_id: a.account.loginId,
       password: PASSWORD,
       linked_patient_id: patientId,
+      medical_id: medicalId,
       nfc_tag_id: a.nfcTagId,
       sign_in: signIn,
       expected_dashboard: {
@@ -617,19 +706,20 @@ async function main(): Promise<void> {
   // silently wrote the manifest to `client/.browser-test/` while every reader
   // looked for it at the repository root.
   const outDir = join(dirname(dirname(fileURLToPath(import.meta.url))), '.browser-test');
-  mkdirSync(outDir, { recursive: true });
-  writeFileSync(join(outDir, 'fixtures.json'), JSON.stringify(manifest, null, 2));
+  const manifestPath = FIXTURE_MANIFEST ?? join(outDir, 'fixtures.json');
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
   const rows = manifest.staff
     .map((s) => `  ${s.role.padEnd(13)}  ${s.login_id.padEnd(14)} / ${'password' in s ? s.password : '(MEDICHAIN_ADMIN_PASSWORD)'}`)
     .join('\n');
 
   console.log(`
-Fixtures written to .browser-test/fixtures.json
+Fixtures written to ${manifestPath}
 
 ${rows}
   Patient        ${a.account.loginId.padEnd(14)} / ${PASSWORD}
-                 linked to ${patientId}
+                 linked to ${patientId}, medical ID ${medicalId}
 
 Teardown: drop the test database volume, or delete these accounts. Do not carry
 them into any image that serves real patients.

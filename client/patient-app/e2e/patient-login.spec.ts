@@ -1,3 +1,4 @@
+import { portalPath } from '../../doctor-portal/e2e/portal-path';
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { deriveAuthProof } from '../../shared/src/auth/proof';
 import {
@@ -109,13 +110,13 @@ test('a session survives a reload; signing out ends it, and a protected page sen
   await page.reload();
   await expectSignedOut(page);
 
-  await page.goto('/records');
+  await page.goto(portalPath('/records'));
   await expectSignedOut(page);
 });
 
 test('a wrong password and an unknown username get the same generic message', async ({ page }) => {
   test.setTimeout(120_000);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
 
   const attempt = async (username: string, password: string): Promise<string> => {
     await page.locator('input#username').fill(username);
@@ -155,7 +156,7 @@ test('repeated failures lock the account and the form says so, even for the righ
   }
   expect(lockedAfter, 'twelve wrong passwords never locked the account').toBeGreaterThan(1);
 
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#username').fill(lockTarget.username);
   await page.locator('input#password').fill(lockTarget.password);
   await page.locator('button[type="submit"]').click();
@@ -165,7 +166,7 @@ test('repeated failures lock the account and the form says so, even for the righ
 
 test('a patient with an authenticator is asked for its code; a wrong code is refused', async ({ page }) => {
   test.setTimeout(240_000);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#username').fill(totpTarget.username);
   await page.locator('input#password').fill(totpTarget.password);
   await page.locator('button[type="submit"]').click();

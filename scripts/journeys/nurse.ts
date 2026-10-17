@@ -42,11 +42,36 @@ export async function nurseJourney(
   j: Journal,
   nurse: Session,
   incoming: Session,
+  patientSession: Session,
   m: Manifest
 ): Promise<void> {
   j.journey('Nurse — one shift, handed over to the next');
   const patient = m.patient.linked_patient_id;
   const stamp = Date.now();
+
+  // Chart reads require patient authority. The fixture patient explicitly
+  // approves this nurse's request before the shift starts.
+  const existing = await http('GET', `/access/patient/${patient}/grants`, { token: patientSession.token });
+  const grants = rowsOf(existing.json, 'grants');
+  const hasGrant = Array.isArray(grants) && grants.some((grant) => fieldAt(grant, 'provider_id') === nurse.userId);
+  if (!hasGrant) {
+    const request = await http('POST', `/access/patient/${patient}/requests`, {
+      token: nurse.token,
+      body: { reason: 'Nursing care during this verification shift' },
+    });
+    const requestId = String(fieldAt(request.json, 'request.id') ?? '');
+    if (request.status !== 201 || !requestId) {
+      j.record('the patient authorizes this nurse to read their chart', false, JSON.stringify(request.json));
+    } else {
+      const approval = await http('POST', `/access/requests/${requestId}/approve`, {
+        token: patientSession.token,
+        body: { expires_at: new Date(Date.now() + 86400000).toISOString() },
+      });
+      j.status('the patient authorizes this nurse to read their chart', approval.status, 200, approval.json);
+    }
+  } else {
+    j.record('the patient authorizes this nurse to read their chart', true, 'existing effective grant');
+  }
 
   // --- Triage -------------------------------------------------------------
   // TriagePage.tsx: POST /api/clinical/triage

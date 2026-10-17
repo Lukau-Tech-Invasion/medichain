@@ -1,12 +1,10 @@
+import { portalPath } from '../../doctor-portal/e2e/portal-path';
 import { expect, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { deriveAuthProof } from '../../shared/src/auth/proof';
 // The API-level identity helpers live once, beside the doctor portal's specs,
 // and are imported by both suites: a second copy of the TOTP and provisioning
 // code would drift from the first.
-import { retiredTermsIn } from '../../doctor-portal/e2e/identity';
+import { readFixtures, retiredTermsIn } from '../../doctor-portal/e2e/identity';
 
 /**
  * Shared harness for the patient-app browser suites.
@@ -35,12 +33,7 @@ interface Fixtures {
 }
 
 function fixtures(): Fixtures {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // e2e/ -> patient-app/ -> client/ -> repo root
-  const root = join(here, '..', '..', '..');
-  return JSON.parse(
-    readFileSync(join(root, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as Fixtures;
+  return readFixtures();
 }
 
 /**
@@ -67,7 +60,7 @@ export async function signInAsFixturePatient(
   const fx = fixtures()[which];
   if (!fx.password) throw new Error(`The ${which} fixture has no password; re-run the seeder.`);
 
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#username').fill(fx.login_id);
   await page.locator('input#password').fill(fx.password);
   await page.locator('button[type="submit"]').click();
@@ -97,7 +90,7 @@ export async function signIn(page: Page) {
  * /api/events, so the network never goes idle and that wait can only time out.
  */
 export async function settle(page: Page, path: string) {
-  await page.goto(path);
+  await page.goto(portalPath(path));
   await page.locator('main').first().waitFor({ state: 'visible', timeout: 15000 });
   // Let late-arriving data paint. A list that fills in after the audit runs is
   // a list the audit never checked.
@@ -122,7 +115,7 @@ export async function signInWithCredentials(
   password: string,
   totp?: () => Promise<string>
 ) {
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#username').fill(username);
   await page.locator('input#password').fill(password);
   await page.locator('button[type="submit"]').click();
@@ -172,7 +165,7 @@ export async function readablePageText(page: Page): Promise<string> {
   });
 }
 
-/** The retired (blockchain and wallet) terms visible on the current page. */
+/** The retired ledger and identity terms visible on the current page. */
 export async function retiredTermsOnPage(page: Page): Promise<string[]> {
   return retiredTermsIn(await readablePageText(page));
 }
@@ -239,7 +232,8 @@ export function testFixtures(): Fixtures {
  */
 export async function seedDoctorMessage(
   request: { post: (url: string, options: Record<string, unknown>) => Promise<{ ok(): boolean; status(): number; json(): Promise<unknown> }> },
-  apiBase = 'http://127.0.0.1'
+  // An empty prefix uses this test's configured request-context origin.
+  apiBase = ''
 ): Promise<string> {
   const data = fixtures();
   const doctor = data.staff?.find((member) => member.role === 'Doctor');

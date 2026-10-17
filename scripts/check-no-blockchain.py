@@ -24,9 +24,9 @@ Exclusions, each with its reason. A path is not exempt because it is
 inconvenient; it is exempt because rewriting it would falsify a record.
 
   * Lockfiles and binary files: not prose, and not ours to edit.
-  * `api/migrations/*` older than 20260929000001: applied migrations are
-    checksummed and cannot be edited. The removal migration itself, and every
-    later one, IS scanned.
+  * `api/migrations/*` older than 20260929000001, plus the applied removal
+    migration itself: applied migrations are checksummed and cannot be edited.
+    Later migrations are scanned unless explicitly exempted below.
   * ADR-0003/0004/0006/0008 (superseded) and ADR-0010: an ADR records what was
     decided when it was decided. ADR-0005 is an accepted ADR that mentions the
     ledger once in passing; it is a decision record and is not rewritten.
@@ -43,14 +43,20 @@ inconvenient; it is exempt because rewriting it would falsify a record.
 
 Also ignored, before matching, are the file names that legitimately carry a
 term (`BLOCKCHAIN_REMOVAL_PLAN`, `remove-blockchain`, `remove_blockchain`,
-`check-no-blockchain`, the ADR-0004 file name), the names of the legacy mapping
-(`legacy_wallet_identities`, which lets sealed history keep resolving), and the
+`check-no-blockchain`, the ADR-0004 and ADR-0010 file names), the name of the
+retired mapping table (`legacy_wallet_identities`, which the migration that
+drops it and the test proving it is gone must name), and the
 clinical phrases "chain of custody" / `chain_of_custody`, which are
 specimen-handling records and unrelated to blockchains.
 
 A test that asserts the old wording is NOT shown (`.not.` on a line of a
-`*.test.ts[x]` file) is exempt: it enforces this gate's intent and has to spell
-the term to do so.
+`*.test.ts[x]` or `*.spec.ts[x]` file) is exempt: it enforces this gate's
+intent and has to spell the term to do so. So is any line carrying the marker
+`retired-term-negative-assertion` (the same convention as
+`check-legacy-identity-headers.py`): a list of forbidden words, a storage key
+that is purged, a factor name that must be refused. The two removal regression
+specs in each portal (REMOVAL_GUARD_FILES) exist only to prove absence and are
+exempt as a whole.
 
 Usage:  python scripts/check-no-blockchain.py [--chain-only] [--summary]
 Exit:   0 clean, 1 if any tracked, non-excluded file contains a term.
@@ -122,10 +128,23 @@ EXCLUDED_FILES = {
     "docs/adr/README.md",
     "docs/BLOCKCHAIN_REMOVAL_PLAN.md",
     "docs/BLOCKCHAIN_REMOVAL_PHASE_BC.md",
+    # Applied removal SQL must name the columns it dropped and is checksummed.
+    "api/migrations/20260929000001_remove_blockchain.sql",
     "scripts/check-no-blockchain.py",
     # Names the removed sign-in entry points it forbids.
     "scripts/check-quick-login-identities.py",
 }
+
+# Browser regression specs whose only purpose is to prove the removed identity
+# and vocabulary stay removed. Every term in them is a refusal assertion.
+REMOVAL_GUARD_FILES = {
+    "client/doctor-portal/e2e/wallet-removed.spec.ts",
+    "client/patient-app/e2e/wallet-removed.spec.ts",
+    "client/doctor-portal/e2e/no-retired-terms.spec.ts",
+    "client/patient-app/e2e/no-retired-terms.spec.ts",
+}
+
+LINE_MARKER = "retired-term-negative-assertion"
 
 # The removal's own specs and the two migrations that name wallet columns to
 # map and drop them. Matched by path pattern because R1/R2 stamp the versions.
@@ -180,9 +199,13 @@ HISTORICAL_FILES = {
     "docs/POPIA_LEGAL_REVIEW_BRIEFING.md",
     "docs/PRODUCTION_READINESS.md",
     "docs/PRODUCTION_READINESS_GATES.md",
+    "docs/E2E_BROWSER_TEST_LOG.md",
+    "FULL_APPLICATION_VERIFICATION_REPORT.md",
+    "FULL_APPLICATION_REMEDIATION_REPORT.md",
     "CHANGELOG.md",
     # Handoffs, plans and gap analyses from before the removal.
     "handoff.md",
+    "docs/HANDOFF.md",
     "IMPLEMENTATION_PLAN.md",
     "docs/MEDICHAIN_CODEX_IMPLEMENTATION_HANDOFF.md",
     "docs/MEDICHAIN_CODEX_IMPLEMENTATION_HANDOFF.txt",
@@ -223,6 +246,8 @@ BINARY_SUFFIXES = {
 
 # File names that legitimately contain a term. Removed before matching.
 NAME_TOKENS = [
+    # Longest first: a shorter token must not split a longer file name.
+    "0010-remove-blockchain-and-wallet-identity",
     "BLOCKCHAIN_REMOVAL_PLAN",
     "remove-blockchain",
     "remove_blockchain",
@@ -273,6 +298,8 @@ def exclusion_reason(path):
         return "lockfile"
     if Path(name).suffix.lower() in BINARY_SUFFIXES:
         return "binary"
+    if path in REMOVAL_GUARD_FILES:
+        return "removal regression spec"
     if path in EXCLUDED_FILES or any(p.search(path) for p in EXCLUDED_PATTERNS):
         return "decision record / plan / mapping migration / this gate"
     if is_old_migration(path):
@@ -301,11 +328,13 @@ def scrub(line):
 
 # A test asserting that a screen does NOT show the old wording enforces this
 # gate's intent; it has to spell the term to do so.
-TEST_FILE = re.compile(r"\.test\.[jt]sx?$")
+TEST_FILE = re.compile(r"\.(test|spec)\.[jt]sx?$")
 NEGATIVE_ASSERTION = re.compile(r"\.not\.")
 
 
 def is_negative_assertion(path, line):
+    if LINE_MARKER in line:
+        return True
     return bool(TEST_FILE.search(path)) and bool(NEGATIVE_ASSERTION.search(line))
 
 

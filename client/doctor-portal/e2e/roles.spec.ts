@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { portalPath } from './portal-path';
 import { signIn, settle, ROLES, ROLE_HOME, type RoleName } from './support';
 import { auditContrast, auditTargetSize, setTheme, reportContrast, freezeMotion } from './audit';
 
@@ -62,6 +63,7 @@ const FORBIDDEN: Record<RoleName, string> = {
   // was never "should this be refused?" but "why does the navigation say one
   // thing and the router another?".
   Admin: '/mar',
+  Paramedic: '/admin',
 };
 
 /** Read what this account can actually navigate to, from its own sidebar. */
@@ -152,7 +154,7 @@ for (const role of ROLES) {
       await page.evaluate((p) => {
         window.history.pushState({}, '', p);
         window.dispatchEvent(new PopStateEvent('popstate'));
-      }, forbidden);
+      }, portalPath(forbidden));
       await page.waitForTimeout(1500);
 
       const body = (await page.locator('body').innerText().catch(() => '')).toLowerCase();

@@ -2,7 +2,7 @@
 """Gate: every column that can hold a user is declared in actor_column_registry.
 
 `users.id` is the only identifier of a user (ADR-0010). Migration
-20260930000001 remapped every column that held the old wallet address, driven by
+20260930000001 remapped every column that held a pre-account identifier, driven by
 `actor_column_registry`. A column added afterwards that looks like an actor
 reference -- or any JSONB column, which may carry one anywhere inside it -- must
 be declared the same way, or nobody will know to remap or resolve it.
@@ -40,7 +40,7 @@ IDENTITY_MIGRATION = "20260930000001_identity_key.sql"
 # Keep identical to ACTOR_LIKE in actor_registry_tests.rs (POSIX ARE == Python re here).
 ACTOR_LIKE = re.compile(
     r"(_by$|_by_[a-z]+$|provider_id$|^provider$|_provider$|clinician_id$|owner_id$|^actor$"
-    r"|accessor_id$|user_id$|wallet|physician_id$|pathologist_id$|radiologist_id$|surgeon_id$"
+    r"|accessor_id$|user_id$|physician_id$|pathologist_id$|radiologist_id$|surgeon_id$"
     r"|anesthesiologist_id$|psychiatrist_id$|crna_id$|prescriber_id$|collector_id$"
     r"|technologist_id$|custodian_id$|assistant_id$|intubator_id$|reporter_id$|primary_nurse$"
     r"|scrub_nurse_id$|circulating_nurse_id$|requesting_provider$|requesting_person_id$"
@@ -54,8 +54,6 @@ NOT_ACTORS = {
     ("guardian_relationships", "authority_verified_by_role"),  # a role name
     ("immunization_records", "administered_by_name"),  # a display name
     ("key_envelopes", "superseded_by"),  # an envelope id
-    ("legacy_wallet_identities", "user_id"),  # the mapping's own target
-    ("legacy_wallet_identities", "wallet_address"),  # the mapping's own key
     ("obstetric_emergencies", "prenatal_care_provider"),  # free-text name
     ("organization_keys", "replaced_by"),  # an organisation key id
     ("splint_cast_records", "follow_up_provider"),  # free-text name

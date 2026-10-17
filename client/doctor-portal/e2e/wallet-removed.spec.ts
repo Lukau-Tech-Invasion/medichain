@@ -1,5 +1,6 @@
+import { portalPath } from './portal-path';
 import { test, expect } from '@playwright/test';
-import { api, apiLogin, fixtureStaff, retiredTermsIn, tokenOf } from './identity';
+import { api, apiLogin, errorCodeOf, fixtureStaff, retiredTermsIn, tokenOf } from './identity';
 import { retiredTermsOnPage, skipFirstVisitReload } from './support';
 
 /**
@@ -30,7 +31,7 @@ test('sign-in and activation offer no wallet, phrase or key', async ({ page }) =
   await skipFirstVisitReload(page);
 
   for (const path of ['/login', '/activate']) {
-    await page.goto(path);
+    await page.goto(portalPath(path));
     await page.locator('form').first().waitFor({ state: 'visible', timeout: 20000 });
 
     expect(await retiredTermsOnPage(page), `${path} still uses retired wording`).toEqual([]);
@@ -44,7 +45,7 @@ test('sign-in and activation offer no wallet, phrase or key', async ({ page }) =
   }
 
   // The sign-in form is exactly an Employee ID and a password.
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await expect(page.locator('input#identifier')).toBeVisible();
   await expect(page.locator('input#password')).toBeVisible();
   await expect(page.locator('form input:visible')).toHaveCount(2);
@@ -53,7 +54,7 @@ test('sign-in and activation offer no wallet, phrase or key', async ({ page }) =
 test('what an earlier build left in localStorage is purged and signs nobody in', async ({ page }) => {
   test.setTimeout(90_000);
   await skipFirstVisitReload(page);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#identifier').waitFor({ state: 'visible', timeout: 20000 });
 
   // The old world's residue: the wallet, its account list, a chain cache key, a
@@ -91,7 +92,7 @@ test('what an earlier build left in localStorage is purged and signs nobody in',
   expect(left.provider, 'an address-shaped provider session survived the load').toBeNull();
 
   // And none of it signed anyone in: a protected route sends the visitor to sign-in.
-  await page.goto('/dashboard');
+  await page.goto(portalPath('/dashboard'));
   await expect(page.locator('input#identifier')).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('navigation', { name: /sidebar/i })).toHaveCount(0);
 });
@@ -110,7 +111,11 @@ test('a request that names a user by header alone is refused', async ({ request 
       headers: { 'X-User-Id': claimed }, // identity-header-negative-assertion
       data: {},
     });
-    expect(write.status, `POST /api/register as X-User-Id: ${claimed}`).toBe(401); // identity-header-negative-assertion
+    // The idempotency guard rejects the anonymous keyed mutation before the
+    // route's auth check. Its explicit code proves the identity header did not
+    // establish a subject; the GETs above still prove the route-level 401.
+    expect(write.status, `POST /api/register as X-User-Id: ${claimed}`).toBe(409); // identity-header-negative-assertion
+    expect(errorCodeOf(write.body)).toBe('IDEMPOTENCY_AUTH_REQUIRED');
   }
 });
 

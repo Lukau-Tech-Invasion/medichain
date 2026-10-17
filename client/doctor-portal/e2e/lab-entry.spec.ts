@@ -66,6 +66,12 @@ test('a lab technician enters a result and it reaches the review queue', async (
   const note = `Entered from the portal (e2e ${Date.now()})`;
   await page.locator('#lab-entry-notes').fill(note);
   await page.getByRole('button', { name: /submit for review/i }).click();
+  await expect(page.getByRole('alert')).toContainText(/Select the reference group stated on the laboratory report/i);
+  // This fictional report explicitly uses adult-female ranges; never infer a
+  // reference group from the selected patient's name or missing demographics.
+  await page.getByRole('combobox', { name: /Reference range group from the laboratory report/i })
+    .selectOption({ label: 'Adult female' });
+  await page.getByRole('button', { name: /submit for review/i }).click();
 
   // The page switches to the pending queue and re-reads it from the API.
   await expect
@@ -91,6 +97,8 @@ test('a lab technician enters a result and it reaches the review queue', async (
   await page.getByRole('tab', { name: /enter result/i }).click();
   await selectPatient(page, '#lab-entry-patient', patientName);
   await page.locator('#lab-entry-panel').selectOption(panelValue as string);
+  await page.getByRole('combobox', { name: /Reference range group from the laboratory report/i })
+    .selectOption({ label: 'Adult female' });
   // Every analyte left blank this time.
   await page.getByRole('button', { name: /submit for review/i }).click();
   await expect(page.getByRole('alert')).toContainText(/at least one value/i);

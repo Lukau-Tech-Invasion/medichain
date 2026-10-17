@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle } from './support';
+import { fixturePatientId, pickPatientById, signIn, settle } from './support';
 
 /**
  * A nurse records a Glasgow Coma Scale assessment.
@@ -28,12 +28,7 @@ test('a nurse records a GCS assessment and the server scores it', async ({ brows
   // Choosing a patient is what reveals the assessment card. `PatientSelect` is
   // a searchable combobox -- a text input over a dropdown of buttons -- not a
   // native <select>, so it is opened and clicked rather than selectOption'd.
-  const patientSearch = page.locator('#vitals-patient-select');
-  await expect(patientSearch).toBeVisible({ timeout: 20000 });
-  await patientSearch.click();
-  const firstPatient = page.locator('button', { hasText: /PAT-/ }).first();
-  await expect(firstPatient).toBeVisible({ timeout: 20000 });
-  await firstPatient.click();
+  await pickPatientById(page, '#vitals-patient-select', fixturePatientId());
 
   // The card only renders once the catalogue has loaded, so its presence is
   // itself the assertion that the scale reached the screen.

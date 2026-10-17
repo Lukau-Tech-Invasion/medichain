@@ -1,7 +1,8 @@
 import { expect, type Page } from '@playwright/test';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { fixtureManifestPath as findFixtureFile } from './fixture-manifest';
 import { retiredTermsIn } from './identity';
+import { portalPath } from './portal-path';
 
 /** Where the shared signed-in session is stored between projects. */
 export const AUTH_STATE = 'e2e/.auth/doctor.json';
@@ -27,7 +28,7 @@ export const AUTH_STATE = 'e2e/.auth/doctor.json';
  * refuse self-approval; it is not a distinct role to audit, so it is absent
  * here.
  */
-export const ROLES = ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin'] as const;
+export const ROLES = ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin', 'Paramedic'] as const;
 export type RoleName = (typeof ROLES)[number];
 
 interface StaffFixture {
@@ -38,47 +39,25 @@ interface StaffFixture {
 
 const fixtureCursor = new Map<RoleName, number>();
 
-/**
- * Locate `.browser-test/fixtures.json` from wherever the run was launched.
- *
- * This was `resolve(cwd, '..', ...)`, which only resolves when the suite is
- * started from inside `client/doctor-portal`. Started from the repository root
- * -- which is how the documented `npx playwright test --config=...` line reads,
- * and how CI invokes it -- every test failed with a bare ENOENT naming a
- * `client/.browser-test` that has never existed, and the failure reads as
- * "nobody seeded the fixtures" rather than "the harness looked in the wrong
- * place". Walking up is cwd-independent and bounded by the filesystem root.
- */
-function findFixtureFile(): string {
-  let directory = process.cwd();
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = resolve(directory, '.browser-test', 'fixtures.json');
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
-  }
-  throw new Error(
-    `No .browser-test/fixtures.json above ${process.cwd()}; run the browser fixture seed ` +
-      '(npx tsx scripts/seed-browser-test-fixtures.ts --i-understand-this-writes-accounts).'
-  );
-}
-
 /** Read the exact synthetic account produced by the current seed run. */
-function getStaffFixture(role: RoleName): StaffFixture {
+function getStaffFixture(role: RoleName, index?: number): StaffFixture {
   const fixturePath = findFixtureFile();
   const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8')) as { staff?: StaffFixture[] };
   const candidates = fixtures.staff?.filter((staff) => staff.role === role) ?? [];
   if (candidates.length === 0) {
     throw new Error(`No ${role} account exists in ${fixturePath}; run the browser fixture seed.`);
   }
-  const cursor = fixtureCursor.get(role) ?? 0;
-  fixtureCursor.set(role, cursor + 1);
-  return candidates[cursor % candidates.length];
+  const cursor = index ?? fixtureCursor.get(role) ?? 0;
+  if (index === undefined) fixtureCursor.set(role, cursor + 1);
+  const fixture = candidates[cursor % candidates.length];
+  if (role === 'Admin' && !fixture.password) {
+    const password = process.env.MEDICHAIN_ADMIN_PASSWORD;
+    if (!password) {
+      throw new Error('MEDICHAIN_ADMIN_PASSWORD is required for main database admin browser tests.');
+    }
+    return { ...fixture, password };
+  }
+  return fixture;
 }
 
 /** The seeded patient's record id, for the routes that show one patient. */
@@ -109,6 +88,7 @@ export const ROLE_HOME: Record<RoleName, string> = {
   Pharmacist: '/dashboard',
   LabTechnician: '/dashboard',
   Admin: '/dashboard',
+  Paramedic: '/ems-handoff',
 };
 
 /**
@@ -137,7 +117,7 @@ export const ROLE_HOME: Record<RoleName, string> = {
  * it, and the suite would go back to racing without anyone knowing why.
  */
 export async function skipFirstVisitReload(page: Page) {
-  const response = await page.request.get('/index.html');
+  const response = await page.request.get(portalPath('/index.html'));
   const version = /APP_VERSION\s*=\s*'([^']+)'/.exec(await response.text())?.[1];
   expect(
     version,
@@ -153,10 +133,10 @@ export async function skipFirstVisitReload(page: Page) {
   }, version);
 }
 
-export async function signIn(page: Page, role: RoleName = 'Doctor') {
+export async function signIn(page: Page, role: RoleName = 'Doctor', fixtureIndex?: number) {
   await skipFirstVisitReload(page);
-  await page.goto('/login');
-  const fixture = getStaffFixture(role);
+  await page.goto(portalPath('/login'));
+  const fixture = getStaffFixture(role, fixtureIndex);
   await page.getByRole('textbox', { name: 'Employee ID or work email' }).fill(fixture.login_id);
   await page.getByRole('textbox', { name: 'Password' }).fill(fixture.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -237,7 +217,7 @@ export async function settle(page: Page, path: string) {
     // It also still covers the original case this comment was written for: at
     // 320px the sidebar collapses, so the link exists in the DOM and is not
     // visible, and the reflow tests must not stall on it.
-    const link = page.locator(`a[href="${path}"]:visible`).first();
+    const link = page.locator(`a[href="${portalPath(path)}"]:visible`).first();
     const clickable = (await link.count()) > 0;
     // A short timeout, then fall back. "Visible" is not the same as "inside the
     // viewport", and a click on an off-screen element retries until the whole
@@ -255,7 +235,7 @@ export async function settle(page: Page, path: string) {
       await page.evaluate(p => {
         window.history.pushState({}, '', p);
         window.dispatchEvent(new PopStateEvent('popstate'));
-      }, path);
+      }, portalPath(path));
     }
   }
 
@@ -295,9 +275,9 @@ export async function settle(page: Page, path: string) {
  * specs went on driving the old control, failing in a way that looks exactly
  * like a broken page.
  *
- * `search` narrows the list; omitting it opens the picker and takes whatever
- * the server offers first, which is what the specs that deliberately do not
- * name a fixture want. Returns the chosen patient's visible name.
+ * `search` narrows the list; omitting it selects the named primary fixture.
+ * The unrelated second patient exists for denial tests and must not become
+ * the subject of a positive clinical workflow because list order changed.
  */
 export async function selectPatient(
   page: Page,
@@ -316,24 +296,26 @@ export async function selectPatient(
   await expect(input).toBeVisible({ timeout: 20000 });
   await input.click();
   // Typing drives the query; an empty search still opens the list.
-  await input.fill(search ?? '');
+  await input.fill(search ?? fixturePatientId());
 
   // The picker debounces, and the options are buttons inside the dropdown that
   // follows the input's own container.
   const options = page
     .locator('div.absolute.z-50 button[type="button"]')
     .or(page.locator('[role="listbox"] button'));
-  await expect(options.first()).toBeVisible({ timeout: 20000 });
+  const matchingOption = options.filter({ hasText: search ?? fixturePatientId() }).first();
+  await expect(matchingOption).toBeVisible({ timeout: 20000 });
 
   // An option renders as: the avatar initial, then the full name, then
   // "PAT-... • HID-...". Taking line 0 yields the single-letter initial, which
   // is not the patient's name and is useless as a later search term.
   const chosen =
-    (await options.first().innerText())
+    (await matchingOption.innerText())
       .split('\n')
       .map((line) => line.trim())
       .find((line) => line.length > 1 && !line.startsWith('PAT-')) ?? '';
-  await options.first().click();
+  await matchingOption.click();
+  await declareAccessReason(page);
 
   // The control collapses to the chosen patient once the selection lands.
   await expect(page.getByText(chosen, { exact: false }).first()).toBeVisible({
@@ -370,7 +352,7 @@ export async function signInWithCredentials(
   totp?: () => Promise<string>
 ) {
   await skipFirstVisitReload(page);
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#identifier').fill(loginId);
   await page.locator('input#password').fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -412,6 +394,14 @@ export async function openChartWithReason(
   reason: 'Treatment' | 'Referral' | 'Emergency' | 'Administrative' = 'Treatment'
 ) {
   await settle(page, `/patients/${patientId}`);
+  await declareAccessReason(page, reason);
+}
+
+/** Complete the chart's required purpose prompt before checking chart content. */
+export async function declareAccessReason(
+  page: Page,
+  reason: 'Treatment' | 'Referral' | 'Emergency' | 'Administrative' = 'Treatment'
+) {
   const gate = page.getByTestId('access-reason-gate');
   if (await gate.isVisible().catch(() => false)) {
     await gate.getByRole('button', { name: reason, exact: true }).click();
@@ -439,6 +429,7 @@ export async function pickPatientById(page: Page, selector: string, patientId: s
     .filter({ hasText: patientId });
   await expect(option.first()).toBeVisible({ timeout: 20000 });
   await option.first().click();
+  await declareAccessReason(page);
 }
 
 /**

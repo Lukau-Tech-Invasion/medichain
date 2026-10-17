@@ -1,3 +1,4 @@
+import { portalPath } from '../../doctor-portal/e2e/portal-path';
 import { test, expect } from '@playwright/test';
 import { api, readFixtures } from '../../doctor-portal/e2e/identity';
 import { retiredTermsOnPage, expectSignedOut } from './support';
@@ -21,7 +22,7 @@ const SS58_LOOKALIKE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
 test('sign-in and activation offer no wallet, phrase or demo account', async ({ page }) => {
   for (const path of ['/login', '/activate']) {
-    await page.goto(path);
+    await page.goto(portalPath(path));
     await page.locator('form').first().waitFor({ state: 'visible', timeout: 20000 });
 
     expect(await retiredTermsOnPage(page), `${path} still uses retired wording`).toEqual([]);
@@ -33,7 +34,7 @@ test('sign-in and activation offer no wallet, phrase or demo account', async ({ 
   }
 
   // The sign-in form is exactly a username and a password.
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await expect(page.locator('input#username')).toBeVisible();
   await expect(page.locator('input#password')).toBeVisible();
   await expect(page.locator('form input:visible')).toHaveCount(2);
@@ -42,7 +43,7 @@ test('sign-in and activation offer no wallet, phrase or demo account', async ({ 
 });
 
 test('what an earlier build left in localStorage is purged and signs nobody in', async ({ page }) => {
-  await page.goto('/login');
+  await page.goto(portalPath('/login'));
   await page.locator('input#username').waitFor({ state: 'visible', timeout: 20000 });
 
   await page.evaluate((address) => {
@@ -77,7 +78,7 @@ test('what an earlier build left in localStorage is purged and signs nobody in',
   expect(left.session, 'an address-shaped patient session survived the load').toBeNull();
 
   // None of it signed anyone in.
-  await page.goto('/dashboard');
+  await page.goto(portalPath('/dashboard'));
   await expectSignedOut(page);
 });
 
