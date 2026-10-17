@@ -138,10 +138,11 @@ describe('InsurancePage (Patient)', () => {
     fireEvent.click(await screen.findByText(/Add New/i));
     fireEvent.change(screen.getByLabelText(/Insurance Provider/i), { target: { value: 'Acme Health' } });
     fireEvent.change(screen.getByLabelText(/Member ID/i), { target: { value: 'MEM-123' } });
+    fireEvent.change(screen.getByLabelText(/Primary Care Copay/i), { target: { value: '12.50' } });
     fireEvent.click(screen.getByRole('button', { name: /Add Insurance Card/i }));
 
     await waitFor(() => expect(shared.createInsuranceCard).toHaveBeenCalledWith(
-      expect.objectContaining({ patient_id: mockPatient.healthId, providerName: 'Acme Health', memberId: 'MEM-123' })
+      expect.objectContaining({ patient_id: mockPatient.healthId, providerName: 'Acme Health', memberId: 'MEM-123', copay: { primaryCare: 12.5, specialist: null, urgentCare: null, emergency: null }, deductible: { individual: null, family: null, met: null } })
     ));
   });
 

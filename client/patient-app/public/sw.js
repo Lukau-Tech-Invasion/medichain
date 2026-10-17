@@ -57,6 +57,10 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // External providers own their network and TLS errors; this app must not
+  // replace their scripts or media requests with its offline fallback.
+  if (url.origin !== APP_BASE_URL.origin) return;
+
   if (request.method !== 'GET') return;
 
   // DevTools and extensions may issue chrome-extension:// requests from a

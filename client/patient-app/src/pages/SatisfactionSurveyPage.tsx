@@ -6,6 +6,7 @@ import {
   type Appointment,
   type SatisfactionSurveyResponseInput,
   useTranslation,
+  localDateInput,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -127,6 +128,10 @@ const SatisfactionSurveyPage: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isStepComplete([...visitQuestions, ...staffQuestions, ...facilityQuestions]) || !overallRating || wouldRecommend === null) {
+      setSubmitError('Answer all required questions before submitting feedback.');
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -147,7 +152,7 @@ const SatisfactionSurveyPage: React.FC = () => {
 
       await createSatisfactionSurvey({
         visit_id: recentVisit?.appointment_id,
-        visit_date: recentVisit?.scheduled_date ?? new Date().toISOString().slice(0, 10),
+        visit_date: recentVisit?.scheduled_date ?? localDateInput(),
         department: recentVisit?.appointment_type ?? 'General care',
         survey_type: 'PostVisit',
         responses: apiResponses,
@@ -427,7 +432,8 @@ const SatisfactionSurveyPage: React.FC = () => {
               </button>
               <button
                 onClick={() => setStep('feedback')}
-                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover flex items-center justify-center gap-2"
+                disabled={!isStepComplete(facilityQuestions)}
+                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {t('survey.continue')}
                 <ChevronRight className="w-5 h-5" />

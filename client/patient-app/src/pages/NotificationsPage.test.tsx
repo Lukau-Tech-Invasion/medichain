@@ -8,7 +8,7 @@ import * as shared from '@medichain/shared';
 
 vi.mock('@medichain/shared', async importOriginal => {
   const actual = await importOriginal<typeof import('@medichain/shared')>();
-  return { ...actual, getNotifications: vi.fn(), getPatientCdsAlerts: vi.fn() };
+  return { ...actual, getNotifications: vi.fn(), getPatientCdsAlerts: vi.fn(), markNotificationsRead: vi.fn() };
 });
 
 // Mock the auth store
@@ -94,4 +94,73 @@ describe('NotificationsPage (Patient)', () => {
       expect(screen.getByText(/Your last reading was high/i)).toBeInTheDocument();
     });
   });
+
+  it('preserves the inbox when alerts fail and retries only the failed resource', async () => {
+    vi.mocked(shared.getPatientCdsAlerts).mockRejectedValueOnce(new Error('Synthetic alert outage'));
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByText('Your lab results are ready')).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Clinical alerts could not be loaded');
+    fireEvent.click(screen.getByRole('button', { name: /Clinical Alerts/ }));
+    expect(screen.queryByText('No clinical alerts')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry clinical alerts' }));
+    expect(await screen.findByText('High Blood Pressure')).toBeVisible();
+    expect(shared.getNotifications).toHaveBeenCalledOnce();
+    expect(shared.getPatientCdsAlerts).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps available clinical alerts visible when the inbox fails without claiming caught up', async () => {
+    vi.mocked(shared.getNotifications).mockRejectedValueOnce(new Error('Synthetic inbox outage'));
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Notifications could not be loaded');
+    expect(screen.queryByText('All caught up')).not.toBeInTheDocument();
+    expect(screen.queryByText('No notifications')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Clinical Alerts/ }));
+    expect(await screen.findByText('High Blood Pressure')).toBeVisible();
+  });
+
+  it('renders an entry as read using the persisted marker instead of absent per-entry flags', async () => {
+    vi.mocked(shared.getNotifications).mockResolvedValueOnce({
+      success: true, count: 1, unread_count: 0, read_at: 200,
+      notifications: [{ id: 'read-entry', type: 'information', priority: 'low', title: 'Previously read notice', timestamp: 100 }],
+    });
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByText('Previously read notice')).toBeVisible();
+    expect(screen.getByText('Read')).toBeVisible();
+    expect(screen.getByText('All caught up')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Mark all as read' })).not.toBeInTheDocument();
+  });
+
+  it('reports a failed mark-read write and retains the unread state', async () => {
+    vi.mocked(shared.markNotificationsRead).mockRejectedValueOnce(new Error('Synthetic write outage'));
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark all as read' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be marked read');
+    expect(screen.getByText('1 unread')).toBeVisible();
+    expect(shared.getNotifications).toHaveBeenCalledOnce();
+  });
+  it('keeps the inbox usable while clinical alerts are still pending', async () => {
+    let resolveAlerts!: (value: Awaited<ReturnType<typeof shared.getPatientCdsAlerts>>) => void;
+    vi.mocked(shared.getPatientCdsAlerts).mockImplementationOnce(() => new Promise(resolve => { resolveAlerts = resolve; }));
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByText('Your lab results are ready')).toBeVisible();
+    expect(screen.queryByText('No clinical alerts')).not.toBeInTheDocument();
+    resolveAlerts({ success: true, patient_id: 'HEALTH123', alerts: [], count: 0 });
+    fireEvent.click(await screen.findByRole('button', { name: 'Clinical Alerts (0)' }));
+    expect(await screen.findByText('No clinical alerts')).toBeVisible();
+  });
+
+  it('discards a late inbox response after the patient changes', async () => {
+    let resolveInbox!: (value: Awaited<ReturnType<typeof shared.getNotifications>>) => void;
+    vi.mocked(shared.getNotifications).mockImplementationOnce(() => new Promise(resolve => { resolveInbox = resolve; }));
+    const view = render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    await screen.findByRole('button', { name: 'Clinical Alerts (1)' });
+    vi.mocked(shared.getNotifications).mockResolvedValueOnce({ success: true, notifications: [], count: 0, unread_count: 0, read_at: 0 });
+    (usePatientAuthStore as unknown as Mock).mockReturnValue({ patient: { ...mockPatient, userId: 'second-user', healthId: 'HEALTH456' }, isAuthenticated: true });
+    view.rerender(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    await screen.findByText('No notifications');
+    resolveInbox({ success: true, notifications: [{ id: 'old', title: 'Previous patient notice', type: 'test', priority: 'low', timestamp: 100 }], count: 1, unread_count: 1, read_at: 0 });
+    await waitFor(() => expect(screen.getByText('No notifications')).toBeVisible());
+    expect(screen.queryByText('Previous patient notice')).not.toBeInTheDocument();
+  });
+
 });

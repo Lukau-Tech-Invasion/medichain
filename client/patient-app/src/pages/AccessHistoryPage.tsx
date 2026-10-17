@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Eye, FlaskConical, PencilLine } from 'lucide-react';
 import { getAccessLogs, useTranslation, formatTimestamp, SealStatusBadge } from '@medichain/shared';
 import type { AccessLogEntry } from '@medichain/shared';
@@ -24,12 +24,21 @@ const PAGE_SIZE = 100;
  * worst possible mistake on this page.
  */
 export function AccessHistoryPage() {
-  const { t } = useTranslation();
   const patientId = usePatientAuthStore((state) => state.patient?.healthId ?? null);
+  return patientId ? <PatientAccessHistory key={patientId} patientId={patientId} /> : null;
+}
+
+/** Load history owned by one authenticated patient; changing owner resets all state. */
+function PatientAccessHistory({ patientId }: { patientId: string }) {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState<AccessLogEntry[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [pending, setPending] = useState(false);
+  const [failedPage, setFailedPage] = useState(1);
+  const busy = useRef(false);
+  const generation = useRef(0);
 
   /**
    * Load one page of access-log rows and append it.
@@ -38,16 +47,28 @@ export function AccessHistoryPage() {
    */
   const loadPage = useCallback(
     async (nextPage: number) => {
-      if (!patientId) return;
+      if (busy.current) return;
+      busy.current = true;
+      setPending(true);
+      const requestGeneration = generation.current;
       try {
         const body = await getAccessLogs(patientId, { page: nextPage, limit: PAGE_SIZE });
+        if (requestGeneration !== generation.current) return;
+        if (body.patient_id !== patientId) throw new Error('Access history owner mismatch');
         setEntries((previous) => (nextPage === 1 ? body.access_logs : [...previous, ...body.access_logs]));
         setTotal(body.total_accesses);
         setPage(nextPage);
         setStatus('ready');
       } catch (error) {
+        if (requestGeneration !== generation.current) return;
         console.error('Access history could not be loaded', error);
+        setFailedPage(nextPage);
         setStatus('failed');
+      } finally {
+        if (requestGeneration === generation.current) {
+          busy.current = false;
+          setPending(false);
+        }
       }
     },
     [patientId],
@@ -55,6 +76,10 @@ export function AccessHistoryPage() {
 
   useEffect(() => {
     void loadPage(1);
+    return () => {
+      generation.current += 1;
+      busy.current = false;
+    };
   }, [loadPage]);
 
   const sessions = groupAccessSessions(entries);
@@ -75,7 +100,8 @@ export function AccessHistoryPage() {
           <p className="text-sm text-content">{t('accessHistory.failed')}</p>
           <button
             type="button"
-            onClick={() => void loadPage(1)}
+            onClick={() => void loadPage(failedPage)}
+            disabled={pending}
             className="mt-3 px-3 py-2 rounded-lg border border-border text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             {t('accessHistory.retry')}
@@ -87,7 +113,7 @@ export function AccessHistoryPage() {
         <p className="text-sm text-content-muted">{t('accessHistory.empty')}</p>
       )}
 
-      {status === 'ready' && sessions.length > 0 && (
+      {sessions.length > 0 && (
         <ul className="space-y-3" data-testid="access-history-list">
           {sessions.map((session) => (
             <SessionCard key={session.key} session={session} />
@@ -99,6 +125,8 @@ export function AccessHistoryPage() {
         <button
           type="button"
           onClick={() => void loadPage(page + 1)}
+          disabled={pending}
+          aria-busy={pending}
           className="mt-4 w-full px-3 py-2 rounded-lg border border-border text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           {t('accessHistory.loadOlder')}
@@ -167,9 +195,9 @@ function SessionCard({ session }: { session: AccessSession }) {
         <KindIcon className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
         <span>
           <span className="text-content-muted">
-            {session.kind === 'viewed' ? t('accessHistory.viewed') : t('accessHistory.changed')}:{' '}
+            {session.kind === 'requested' ? t('accessHistory.receiptRequested') : session.kind === 'viewed' ? t('accessHistory.viewed') : t('accessHistory.changed')}:{' '}
           </span>
-          {session.resources.join(', ')}
+          {session.resources.map(resource => resource === 'shift_handoff' ? t('accessHistory.shiftHandoff') : resource).join(', ')}
         </span>
       </p>
       <AuthorityLine session={session} />

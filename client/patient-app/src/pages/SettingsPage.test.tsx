@@ -1,14 +1,18 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getUserSettings,
   saveUserSettings,
   updateMedicalIdPreferences,
+  DialogHost,
 } from '@medichain/shared';
 import * as shared from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { SettingsPage } from './SettingsPage';
+
+// This suite renders a real MemoryRouter so navigation assertions must use its actual hooks.
+vi.mock('react-router-dom', async importOriginal => importOriginal<typeof import('react-router-dom')>());
 
 vi.mock('@medichain/shared', async importOriginal => {
   const actual = await importOriginal<typeof import('@medichain/shared')>();
@@ -16,6 +20,7 @@ vi.mock('@medichain/shared', async importOriginal => {
     ...actual,
     debugLog: vi.fn(),
     getUserSettings: vi.fn(),
+    getResearchConsent: vi.fn(),
     saveUserSettings: vi.fn(),
     updateMedicalIdPreferences: vi.fn(),
     listMyMobileDevices: vi.fn(),
@@ -34,17 +39,19 @@ const patient = {
   firstName: 'Settings',
   createdAt: '2026-01-01T00:00:00Z',
 };
+const originalLogout = usePatientAuthStore.getState().logout;
 
 describe('SettingsPage (Patient)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.getResearchConsent).mockResolvedValue(null);
     vi.mocked(shared.listMyMobileDevices).mockResolvedValue({
       success: true,
       count: 0,
       devices: [],
     } as never);
     vi.mocked(shared.mfaStatus).mockResolvedValue({ success: true, enrolled: false, enabled: false });
-    usePatientAuthStore.setState({ patient, isAuthenticated: true });
+    usePatientAuthStore.setState({ patient, isAuthenticated: true, logout: originalLogout });
     vi.mocked(getUserSettings).mockResolvedValue({
       notifications: { emailNotifications: true },
       privacy: { allowEmergencyAccess: true },
@@ -60,6 +67,56 @@ describe('SettingsPage (Patient)', () => {
       preferences: {},
       message: 'saved',
     });
+  });
+
+  it('opens Personal Information within the patient router base', async () => {
+    render(<MemoryRouter basename="/patient" initialEntries={['/patient/settings']}><Routes>
+      <Route path="settings" element={<SettingsPage />} />
+      <Route path="profile" element={<h1>Patient profile destination</h1>} />
+    </Routes></MemoryRouter>);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Personal Information Update your name/i }));
+    expect(await screen.findByRole('heading', { name: 'Patient profile destination' })).toBeVisible();
+    expect(saveUserSettings).not.toHaveBeenCalled();
+  });
+
+  it('describes password authentication and names the language selector', async () => {
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled());
+    expect(screen.getByText('Sign in with your password. You can add an authenticator app for two-factor authentication.')).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeVisible();
+  });
+
+  it('offers an accessible sign-out dialog and preserves the session when cancelled', async () => {
+    const logout = vi.fn().mockResolvedValue(undefined);
+    usePatientAuthStore.setState({ logout });
+    render(<MemoryRouter><DialogHost /><SettingsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: /^Sign Out$/ }));
+    const dialog = await screen.findByRole('alertdialog', { name: 'Sign Out?' });
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+    expect(logout).not.toHaveBeenCalled();
+  });
+
+  it('confirms once and waits for session revocation before navigating', async () => {
+    let finishLogout!: () => void;
+    const logout = vi.fn(() => new Promise<void>(resolve => { finishLogout = resolve; }));
+    usePatientAuthStore.setState({ logout });
+    render(<MemoryRouter initialEntries={['/settings']}><DialogHost /><Routes>
+      <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/login" element={<h1>Signed out destination</h1>} />
+    </Routes></MemoryRouter>);
+    const opener = await screen.findByRole('button', { name: /^Sign Out$/ });
+    fireEvent.click(opener);
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Sign Out$/ }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Signed out destination')).not.toBeInTheDocument();
+    await act(async () => finishLogout());
+    expect(await screen.findByText('Signed out destination')).toBeVisible();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
   it('applies each text size immediately and includes it in saved settings', async () => {

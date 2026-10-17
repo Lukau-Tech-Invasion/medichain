@@ -29,13 +29,14 @@ vi.mock('@medichain/shared/src/api/client', async () => {
   const actual = await vi.importActual<typeof import('@medichain/shared/src/api/client')>('@medichain/shared/src/api/client');
   return {
     ...actual,
-    getApiClient: () => ({ replayQueuedMutation: replay }),
+    getApiClient: () => ({ replayQueuedMutation: replay, getUserId: () => 'qa-owner' }),
   };
 });
 
 function item(id: string, timestamp: number, method = 'POST') {
   return {
     id,
+    ownerUserId: 'qa-owner',
     action: 'update',
     endpoint: `/api/reminders/adherence`,
     method,
@@ -56,6 +57,14 @@ beforeEach(() => {
 });
 
 describe('replayQueue', () => {
+  it('never replays another account or a legacy item without an owner', async () => {
+    items.push({ ...item('other', 1), ownerUserId: 'different-owner' });
+    items.push({ ...item('legacy', 2), ownerUserId: undefined });
+    const outcome = await replayQueue();
+    expect(replay).not.toHaveBeenCalled();
+    expect(statuses).toEqual([]);
+    expect(outcome.sent).toBe(0);
+  });
   it('sends each item under its own id as the idempotency key', async () => {
     items.push(item('sync_a', 2), item('sync_b', 1));
     replay.mockResolvedValue({});

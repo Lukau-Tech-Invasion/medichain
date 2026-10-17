@@ -17,9 +17,8 @@ export const SESSION_GAP_MINUTES = 30;
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 
-/** Whether a session disclosed information or changed the record. */
-/** A disclosure, a change, or inclusion in a de-identified research export. */
-export type AccessKind = 'viewed' | 'changed' | 'research';
+/** A disclosure, change, receipt request, or de-identified research inclusion. */
+export type AccessKind = 'viewed' | 'changed' | 'requested' | 'research';
 
 /** One grouped access session, ready to render. */
 export interface AccessSession {
@@ -55,19 +54,20 @@ const REASON_UNKNOWN = 'Not stated';
 const RESOURCE_UNKNOWN = 'Medical record';
 
 /**
- * Classify a stored action as a disclosure or a change.
+ * Classify a stored action without implying that a request committed a change.
  *
- * Mirrors the server's alert allowlist (`support::access_alert_for`): reads are
- * named, everything else is a change. An allowlist of reads, not of writes, so a
- * new write action can never be shown to a patient as "viewed".
+ * Reads are named explicitly; other actions default to changes except the
+ * request and research actions below. A new write cannot silently become a read.
  *
  * Inclusion in a research export is its own kind: it is neither a person
  * reading the record nor a change to it, and the patient is told exactly that.
  *
  * @param action - The stored `access_type`.
- * @returns `'research'` for export inclusion, `'viewed'` for reads, otherwise `'changed'`.
+ * Receipt requests record an attempt, not proof of a successful record change.
+ * @returns The recorded action kind, keeping receipt requests distinct from changes.
  */
 export function kindOf(action: string): AccessKind {
+  if (action === 'handoff_receipt_requested') return 'requested';
   if (action === 'research_export_included') return 'research';
   const isRead =
     action.startsWith('view') ||

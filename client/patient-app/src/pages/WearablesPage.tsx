@@ -561,6 +561,7 @@ const WearablesPage: React.FC = () => {
           </div>
           <button
             onClick={handleSync}
+            aria-label={t('common.refresh')}
             disabled={isSyncing}
             className="p-2 bg-surface/20 rounded-full hover:bg-surface/30"
           >
@@ -820,10 +821,11 @@ const WearablesPage: React.FC = () => {
             </div>
 
             {/* Bluetooth Scan */}
-            <button className="w-full bg-surface rounded-lg shadow p-4 flex items-center justify-center gap-2 text-content-secondary font-medium hover:bg-surface-sunken">
+            <button disabled aria-describedby="wearable-bluetooth-unavailable" className="w-full bg-surface rounded-lg shadow p-4 flex items-center justify-center gap-2 text-content-secondary font-medium disabled:opacity-60 disabled:cursor-not-allowed">
               <Bluetooth className="w-5 h-5" />
               {t('wearables.scanBluetooth')}
             </button>
+            <p id="wearable-bluetooth-unavailable" className="text-sm text-content-muted">Bluetooth pairing is unavailable. Registering a device does not connect its provider or import measurements.</p>
           </div>
         )}
 

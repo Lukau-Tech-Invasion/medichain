@@ -45,20 +45,20 @@ export interface InsuranceCard {
   /** ISO 4217 code for every monetary field on this card (copay/deductible/oopMax). */
   currency: string;
   copay: {
-    primaryCare: number;
-    specialist: number;
-    urgentCare: number;
-    emergency: number;
+    primaryCare: number | null;
+    specialist: number | null;
+    urgentCare: number | null;
+    emergency: number | null;
   };
   deductible: {
-    individual: number;
-    family: number;
-    met: number;
+    individual: number | null;
+    family: number | null;
+    met: number | null;
   };
   outOfPocketMax: {
-    individual: number;
-    family: number;
-    met: number;
+    individual: number | null;
+    family: number | null;
+    met: number | null;
   };
   frontImageUrl: string | null;
   backImageUrl: string | null;
@@ -66,6 +66,18 @@ export interface InsuranceCard {
   providerPortalUrl: string;
   isPrimary: boolean;
   lastVerified: string;
+}
+
+/** Parse a patient-entered optional amount; missing or invalid values remain unknown. */
+function optionalAmount(value: string): number | null {
+  if (!value.trim()) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
+/** Format a recorded amount without turning an unknown benefit into zero coverage. */
+function amountLabel(value: number | null, currency: string, locale: Parameters<typeof formatCurrency>[2]): string {
+  return value == null ? 'Not recorded' : formatCurrency(value, currency, locale);
 }
 
 export interface InsuranceClaim {
@@ -186,10 +198,10 @@ const InsurancePage: React.FC = () => {
     subscriberId: '',
     effectiveDate: '',
     customerServicePhone: '',
-    copayPrimary: '25',
-    copaySpecialist: '50',
-    deductible: '1500',
-    outOfPocketMax: '6000'
+    copayPrimary: '',
+    copaySpecialist: '',
+    deductible: '',
+    outOfPocketMax: ''
   });
 
   const loadInsuranceData = useCallback(async () => {
@@ -377,20 +389,20 @@ const InsurancePage: React.FC = () => {
       // platform's own default currency rather than silently omitting it.
       currency: DEFAULT_CURRENCY,
       copay: {
-        primaryCare: parseInt(newInsurance.copayPrimary) || 0,
-        specialist: parseInt(newInsurance.copaySpecialist) || 0,
-        urgentCare: 75,
-        emergency: 250
+        primaryCare: optionalAmount(newInsurance.copayPrimary),
+        specialist: optionalAmount(newInsurance.copaySpecialist),
+        urgentCare: null,
+        emergency: null
       },
       deductible: {
-        individual: parseInt(newInsurance.deductible) || 0,
-        family: (parseInt(newInsurance.deductible) || 0) * 2,
-        met: 0
+        individual: optionalAmount(newInsurance.deductible),
+        family: null,
+        met: null
       },
       outOfPocketMax: {
-        individual: parseInt(newInsurance.outOfPocketMax) || 0,
-        family: (parseInt(newInsurance.outOfPocketMax) || 0) * 2,
-        met: 0
+        individual: optionalAmount(newInsurance.outOfPocketMax),
+        family: null,
+        met: null
       },
       frontImageUrl: null,
       backImageUrl: null,
@@ -422,10 +434,10 @@ const InsurancePage: React.FC = () => {
       subscriberId: '',
       effectiveDate: '',
       customerServicePhone: '',
-      copayPrimary: '25',
-      copaySpecialist: '50',
-      deductible: '1500',
-      outOfPocketMax: '6000'
+      copayPrimary: '',
+      copaySpecialist: '',
+      deductible: '',
+      outOfPocketMax: ''
     });
     setActiveTab('cards');
   };
@@ -573,19 +585,19 @@ const InsurancePage: React.FC = () => {
                         <h4 className="text-xs font-semibold text-content-muted mb-2">{t('insurance.copaysHeading')}</h4>
                         <div className="grid grid-cols-4 gap-2 text-center text-xs">
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.primaryCare, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.primaryCare, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayPrimaryLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.specialist, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.specialist, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copaySpecialistLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.urgentCare, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.urgentCare, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayUrgentLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.emergency, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.emergency, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayErLabel')}</div>
                           </div>
                         </div>
@@ -597,12 +609,12 @@ const InsurancePage: React.FC = () => {
                       <div className="mb-4">
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-content-muted">{t('insurance.deductibleProgressLabel')}</span>
-                          <span className="font-medium">{formatCurrency(card.deductible.met, card.currency, locale)} / {formatCurrency(card.deductible.individual, card.currency, locale)}</span>
+                          <span className="font-medium">{amountLabel(card.deductible.met, card.currency, locale)} / {amountLabel(card.deductible.individual, card.currency, locale)}</span>
                         </div>
                         <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
                           <div
                             className="h-full bg-teal-500 transition-all"
-                            style={{ width: `${Math.min((card.deductible.met / card.deductible.individual) * 100, 100)}%` }}
+                            style={{ width: `${card.deductible.met !== null && card.deductible.individual !== null && card.deductible.individual > 0 ? Math.min((card.deductible.met / card.deductible.individual) * 100, 100) : 0}%` }}
                           />
                         </div>
                       </div>
@@ -654,12 +666,15 @@ const InsurancePage: React.FC = () => {
                         )}
                       </button>
                       <a
-                        href={`tel:${card.customerServicePhone}`}
+                        aria-label={card.customerServicePhone ? `Call ${card.providerName}` : `No contact number recorded for ${card.providerName}`}
+                        aria-disabled={!card.customerServicePhone}
+                        href={card.customerServicePhone ? `tel:${card.customerServicePhone}` : undefined}
                         className="flex items-center justify-center gap-2 px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm hover:bg-surface-sunken transition-colors"
                       >
                         <Phone className="w-4 h-4" />
                       </a>
                       <button
+                        aria-label={`Remove insurance card ${card.providerName}`}
                         onClick={() => void handleDeleteCard(card.id)}
                         className="flex items-center justify-center px-3 py-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       >

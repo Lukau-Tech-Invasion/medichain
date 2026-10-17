@@ -98,6 +98,14 @@ describe('WearablesPage (Patient)', () => {
     });
   });
 
+  it('labels refresh and explains that Bluetooth pairing and provider import are unavailable', async () => {
+    render(<WearablesPage />);
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /^devices$/i }));
+    expect(screen.getByRole('button', { name: 'Scan for Bluetooth Devices' })).toBeDisabled();
+    expect(screen.getByText(/Registering a device does not connect its provider/)).toBeInTheDocument();
+  });
+
   it('allows switching to devices tab', async () => {
     render(<WearablesPage />);
 
@@ -123,7 +131,7 @@ describe('WearablesPage (Patient)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /devices/i }));
     fireEvent.click(screen.getByRole('button', { name: /apple health/i }));
     fireEvent.change(screen.getByLabelText(/which apple device/i), { target: { value: 'Watch Series 9' } });
-    fireEvent.click(screen.getByRole('button', { name: /^connect$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^register device$/i }));
 
     await waitFor(() => expect(shared.registerWearableDevice).toHaveBeenCalledWith({
       device_type: 'smartwatch', manufacturer: 'Apple', model: 'Watch Series 9',

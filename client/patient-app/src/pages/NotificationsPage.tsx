@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getNotifications,
@@ -31,16 +31,9 @@ interface Notification {
   timestamp?: string | number;
 }
 
-interface CdsAlert {
-  alert_id?: string;
-  id?: string;
-  title?: string;
-  description?: string;
-  message?: string;
-  severity?: 'high' | 'medium' | 'low' | string;
-  alert_type?: string;
-  created_at?: string | number;
-  is_acknowledged?: boolean;
+interface ClinicalNotification {
+  alert_id?: string; id?: string; title?: string; description?: string; message?: string;
+  severity?: string; created_at?: string | number;
 }
 
 /**
@@ -53,129 +46,101 @@ interface CdsAlert {
  *
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
-export function NotificationsPage() {
+function useNotificationsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [alerts, setAlerts] = useState<CdsAlert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'notifications' | 'alerts'>('notifications');
-  /**
-   * When this patient last read their notifications, in Unix seconds.
-   *
-   * The unread count used to filter on `is_read` / `read`, two fields the
-   * notification endpoint has never sent, so every entry counted as unread for
-   * ever and nothing could clear the number. The server keeps a per-user read
-   * marker; an entry is unread when it is newer than that.
-   */
-  const [readAt, setReadAt] = useState(0);
-
+  const inboxLoad = useCallback(() => getNotifications(), []);
+  const patientId = patient?.healthId ?? '';
+  const alertsLoad = useCallback(() => getPatientCdsAlerts(patientId), [patientId]);
+  const owner = `${patient?.userId}:${patient?.healthId}:${isAuthenticated}`;
+  const enabled = !!patient && isAuthenticated;
+  const inbox = useNotificationRead(inboxLoad, owner, enabled);
+  const clinical = useNotificationRead(alertsLoad, owner, enabled);
+  const notifications: Notification[] = inbox.data?.notifications ?? [];
+  const alerts: ClinicalNotification[] = clinical.data?.alerts ?? [];
+  const readAt = inbox.data?.read_at ?? 0;
+  const inboxError = inbox.status === 'failed';
+  const alertsError = clinical.status === 'failed';
+  const [markError, setMarkError] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const markPending = useRef(false);
+  const currentOwner = useRef(owner);
+  currentOwner.current = owner;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const loadAll = (only?: 'inbox' | 'alerts') => {
+    if (only !== 'alerts') void inbox.reload();
+    if (only !== 'inbox') void clinical.reload();
+  };
   useEffect(() => {
-    if (!isAuthenticated || !patient) {
-      navigate('/login');
-    }
+    if (!isAuthenticated || !patient) navigate('/login');
+    setMarkError(false);
   }, [isAuthenticated, patient, navigate]);
-
-  const loadAll = useCallback(async () => {
-    if (!patient) return;
-    setLoading(true);
-    try {
-      const [notificationResponse, alertResponse] = await Promise.all([
-        getNotifications(),
-        getPatientCdsAlerts(patient.healthId),
-      ]);
-      setNotifications(notificationResponse.notifications);
-      setReadAt(notificationResponse.read_at || 0);
-      setAlerts(alertResponse.alerts);
-      setApiConnected(true);
-    } catch (err) {
-      console.error('Failed to load notifications:', err);
-      setApiConnected(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [patient]);
-
-  useEffect(() => {
-    if (patient) {
-      loadAll();
-    }
-  }, [patient, loadAll]);
-
-  const formatTime = (value?: string | number) => {
-    if (value === undefined) return '';
-    // API timestamps are Unix seconds. Treating them as JavaScript milliseconds
-    // displayed recent clinical alerts as dates in January 1970.
-    const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
-    const diff = Date.now() - date.getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return t('notifications.minsAgoShort', { count: mins });
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return t('notifications.hoursAgoShort', { count: hours });
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const getSeverityBadge = (severity?: string) => {
-    switch ((severity || '').toLowerCase()) {
-      case 'high':
-        return (
-          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-critical-subtle text-critical-subtle-fg">
-            <AlertTriangle className="w-3 h-3" />
-            {t('notifications.sevHigh')}
-          </span>
-        );
-      case 'medium':
-        return (
-          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-caution-subtle text-caution-subtle-fg">
-            <AlertTriangle className="w-3 h-3" />
-            {t('notifications.sevMedium')}
-          </span>
-        );
-      case 'low':
-        return (
-          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-notice-subtle text-notice-subtle-fg">
-            <Info className="w-3 h-3" />
-            {t('notifications.sevLow')}
-          </span>
-        );
-      default:
-        return null;
-    }
-  };
 
   const isUnread = (entry: Notification) => Number(entry.timestamp ?? 0) > readAt;
   const unreadCount = notifications.filter(isUnread).length;
 
   const handleMarkAllRead = async () => {
+    if (markPending.current) return;
+    markPending.current = true;
+    setMarking(true);
+    setMarkError(false);
+    const requestOwner = owner;
     try {
-      await markNotificationsRead();
+      const response = await markNotificationsRead();
+      if (!response.success) throw new Error('Read acknowledgement failed');
     } catch (err) {
       console.error('Failed to mark notifications read:', err);
+      if (mounted.current && requestOwner === currentOwner.current) setMarkError(true);
       return;
+    } finally {
+      markPending.current = false;
+      setMarking(false);
     }
-    await loadAll();
+    if (mounted.current && requestOwner === currentOwner.current) await inbox.reload();
   };
   const highAlerts = alerts.filter(a => (a.severity || '').toLowerCase() === 'high').length;
 
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-brand animate-spin" />
-      </div>
-    );
-  }
+  return { t, activeTab, setActiveTab, inbox, clinical, notifications, alerts, inboxError, alertsError, markError, marking, loadAll, handleMarkAllRead, isUnread, unreadCount, highAlerts };
+}
+/** Independently load a resource, invalidating old responses on retry, owner change and unmount. */
+function useNotificationRead<T extends { success: boolean }>(load: () => Promise<T>, owner: string, enabled: boolean) {
+  const generation = useRef(0);
+  const [state, setState] = useState<{ owner: string; data: T | null; status: 'loading' | 'ready' | 'failed' }>({ owner, data: null, status: 'loading' });
+  const reload = useCallback(async () => {
+    if (!enabled) return;
+    const request = ++generation.current;
+    setState({ owner, data: null, status: 'loading' });
+    try {
+      const data = await load();
+      if (!data.success) throw new Error('Notification resource read failed');
+      if (request === generation.current) setState({ owner, data, status: 'ready' });
+    } catch (error) {
+      console.error('Notification resource read failed:', error);
+      if (request === generation.current) setState({ owner, data: null, status: 'failed' });
+    }
+  }, [load, owner, enabled]);
+  useEffect(() => {
+    void reload();
+    return () => { generation.current += 1; };
+  }, [reload]);
+  return { ...(state.owner === owner ? state : { data: null, status: 'loading' as const }), reload };
+}
 
-  return (
-    <div className="p-4 md:p-6 space-y-6">
+type NotificationModel = ReturnType<typeof useNotificationsPage>;
+
+/** Render NotificationHeader using the current account resource states. */
+function NotificationHeader(model: NotificationModel) {
+  const { t, inbox, clinical, inboxError, alertsError, markError, marking, loadAll, handleMarkAllRead, unreadCount, highAlerts } = model;
+  return <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-content">{t('notifications.title')}</h1>
           <p className="text-content-muted">
-            {unreadCount > 0 ? t('notifications.unread', { count: unreadCount }) : t('notifications.allCaughtUp')}
+            {inbox.status !== 'ready' ? t('common.dataUnavailable') : unreadCount > 0 ? t('notifications.unread', { count: unreadCount }) : t('notifications.allCaughtUp')}
             {highAlerts > 0 ? ` • ${t('notifications.highPriorityCount', { count: highAlerts })}` : ''}
           </p>
         </div>
@@ -183,19 +148,21 @@ export function NotificationsPage() {
           {unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
+              disabled={marking}
               className="px-3 py-1.5 bg-brand hover:bg-brand-hover text-brand-fg rounded-lg text-xs font-semibold"
             >
               {t('notifications.markAllRead')}
             </button>
           )}
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
+            inbox.status === 'ready' && clinical.status === 'ready' ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
-            {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('common.live') : t('common.dataUnavailable')}
+            {inbox.status === 'ready' && clinical.status === 'ready' ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {inbox.status === 'ready' && clinical.status === 'ready' ? t('common.live') : t('common.dataUnavailable')}
           </span>
           <button
-            onClick={loadAll}
+            onClick={() => void loadAll()}
+            aria-label={t('common.refresh')}
             className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg"
           >
             <RefreshCw className="w-5 h-5" />
@@ -203,6 +170,17 @@ export function NotificationsPage() {
         </div>
       </div>
 
+      {markError && <p role="alert">{t('notifications.markReadFailed')}</p>}
+      {inboxError && <div role="alert" className="patient-card"><p>{t('notifications.inboxFailed')}</p><button onClick={() => void loadAll('inbox')}>{t('notifications.retryInbox')}</button></div>}
+      {alertsError && <div role="alert" className="patient-card"><p>{t('notifications.alertsFailed')}</p><button onClick={() => void loadAll('alerts')}>{t('notifications.retryAlerts')}</button></div>}
+      {(inbox.status === 'loading' || clinical.status === 'loading') && <p role="status"><Loader2 className="inline w-4 h-4 animate-spin" />{t('notifications.loading')}</p>}
+  </>;
+}
+
+/** Render NotificationBanner using the current account resource states. */
+function NotificationBanner(model: NotificationModel) {
+  const { t, highAlerts } = model;
+  return <>
       {/* High Priority Alert Banner */}
       {highAlerts > 0 && (
         <div className="bg-critical-subtle border border-critical rounded-xl p-4 flex items-start gap-3">
@@ -218,6 +196,13 @@ export function NotificationsPage() {
         </div>
       )}
 
+  </>;
+}
+
+/** Render NotificationTabs using the current account resource states. */
+function NotificationTabs(model: NotificationModel) {
+  const { t, activeTab, setActiveTab, inbox, clinical, notifications, alerts, unreadCount, highAlerts } = model;
+  return <>
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border">
         <button
@@ -228,7 +213,7 @@ export function NotificationsPage() {
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
-          {t('notifications.tabNotifications', { count: notifications.length })}
+          {inbox.status === 'ready' ? t('notifications.tabNotifications', { count: notifications.length }) : t('notifications.title')}
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 text-white text-xs rounded-full flex items-center justify-center">
               {unreadCount}
@@ -243,7 +228,7 @@ export function NotificationsPage() {
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
-          {t('notifications.tabAlerts', { count: alerts.length })}
+          {clinical.status === 'ready' ? t('notifications.tabAlerts', { count: alerts.length }) : t('notifications.clinicalTitle')}
           {highAlerts > 0 && (
             <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 text-white text-xs rounded-full flex items-center justify-center">
               {highAlerts}
@@ -252,8 +237,16 @@ export function NotificationsPage() {
         </button>
       </div>
 
+  </>;
+}
+
+/** Render NotificationInbox using the current account resource states. */
+function NotificationInbox(model: NotificationModel) {
+  const { t, activeTab, inbox, notifications, isUnread } = model;
+  const formatTime = useNotificationTime();
+  return <>
       {/* Notifications Tab */}
-      {activeTab === 'notifications' && (
+      {activeTab === 'notifications' && inbox.status === 'ready' && (
         <div className="space-y-3">
           {notifications.length === 0 ? (
             <div className="text-center py-12">
@@ -264,13 +257,13 @@ export function NotificationsPage() {
             notifications.map((n, idx) => (
               <div
                 key={n.notification_id || n.id || idx}
-                className={`patient-card ${!n.is_read && !n.read ? 'border-l-4 border-l-primary-400' : ''}`}
+                className={`patient-card ${isUnread(n) ? 'border-l-4 border-l-primary-400' : ''}`}
               >
                 <div className="flex items-start gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    !n.is_read && !n.read ? 'bg-brand-subtle' : 'bg-surface-sunken'
+                    isUnread(n) ? 'bg-brand-subtle' : 'bg-surface-sunken'
                   }`}>
-                    <Bell className={`w-4 h-4 ${!n.is_read && !n.read ? 'text-brand' : 'text-content-muted'}`} />
+                    <Bell className={`w-4 h-4 ${isUnread(n) ? 'text-brand' : 'text-content-muted'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     {n.title && (
@@ -284,8 +277,8 @@ export function NotificationsPage() {
                       </p>
                     )}
                   </div>
-                  {(n.is_read || n.read) && (
-                    <CheckCircle className="w-4 h-4 text-content-muted flex-shrink-0 mt-0.5" />
+                  {!isUnread(n) && (
+                    <span className="text-xs text-content-muted">{t('notifications.read')}<CheckCircle className="w-4 h-4" /></span>
                   )}
                 </div>
               </div>
@@ -294,8 +287,15 @@ export function NotificationsPage() {
         </div>
       )}
 
-      {/* Clinical Alerts Tab */}
-      {activeTab === 'alerts' && (
+  </>;
+}
+
+/** Render ClinicalAlerts using the current account resource states. */
+function ClinicalAlerts(model: NotificationModel) {
+  const { t, activeTab, clinical, alerts } = model;
+  const formatTime = useNotificationTime();
+  const getSeverityBadge = useSeverityBadge();
+  return <>      {activeTab === 'alerts' && clinical.status === 'ready' && (
         <div className="space-y-3">
           {alerts.length === 0 ? (
             <div className="text-center py-12">
@@ -349,6 +349,72 @@ export function NotificationsPage() {
           )}
         </div>
       )}
-    </div>
-  );
+  </>;
+}
+
+/** Show independently recoverable inbox and clinical alert resources for the signed-in patient. */
+export function NotificationsPage() {
+  const model = useNotificationsPage();
+  return <div className="p-4 md:p-6 space-y-6">
+    <NotificationHeader {...model} />
+    <NotificationBanner {...model} />
+    <NotificationTabs {...model} />
+    <NotificationInbox {...model} />
+    <ClinicalAlerts {...model} />
+  </div>;
+}
+
+
+/** Format optional event timestamps for display. */
+function useNotificationTime() {
+  const { t } = useTranslation();
+  const formatTime = (value?: string | number) => {
+    if (value === undefined) return '';
+    // API timestamps are Unix seconds. Treating them as JavaScript milliseconds
+    // displayed recent clinical alerts as dates in January 1970.
+    const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const diff = Date.now() - date.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return t('notifications.minsAgoShort', { count: mins });
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return t('notifications.hoursAgoShort', { count: hours });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  return formatTime;
+}
+
+/** Render the supported clinical severity labels. */
+function useSeverityBadge() {
+  const { t } = useTranslation();
+  const getSeverityBadge = (severity?: string) => {
+    switch ((severity || '').toLowerCase()) {
+      case 'high':
+        return (
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-critical-subtle text-critical-subtle-fg">
+            <AlertTriangle className="w-3 h-3" />
+            {t('notifications.sevHigh')}
+          </span>
+        );
+      case 'medium':
+        return (
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-caution-subtle text-caution-subtle-fg">
+            <AlertTriangle className="w-3 h-3" />
+            {t('notifications.sevMedium')}
+          </span>
+        );
+      case 'low':
+        return (
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-notice-subtle text-notice-subtle-fg">
+            <Info className="w-3 h-3" />
+            {t('notifications.sevLow')}
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return getSeverityBadge;
 }

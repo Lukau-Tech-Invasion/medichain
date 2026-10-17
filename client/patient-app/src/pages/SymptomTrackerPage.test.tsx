@@ -95,6 +95,20 @@ describe('SymptomTrackerPage (Patient)', () => {
     expect(screen.getByText(/Respiratory/i)).toBeInTheDocument();
   });
 
+  it('clears a previous symptom when changing category before saving', async () => {
+    render(<MemoryRouter><SymptomTrackerPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Log New Symptom' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pain' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Abdominal pain' }));
+    expect(screen.getByRole('button', { name: 'Save Entry' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Respiratory' }));
+    expect(screen.getByRole('button', { name: 'Save Entry' })).toBeDisabled();
+    expect(shared.logSymptom).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cough' }));
+    expect(screen.getByRole('button', { name: 'Save Entry' })).toBeEnabled();
+  });
+
   it('retracts an entry through the API instead of only hiding it locally', async () => {
     render(
       <MemoryRouter>

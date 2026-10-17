@@ -26,6 +26,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
 describe('OfflineSyncPage (Patient)', () => {
   const mockPatient = {
     id: '1',
+    userId: 'qa-owner',
     healthId: 'HEALTH123',
   };
 
@@ -55,6 +56,19 @@ describe('OfflineSyncPage (Patient)', () => {
     });
   });
 
+  it('withholds cached records from another account and legacy records with no owner', async () => {
+    const cached = { id: 'foreign', category: 'medical-records', name: 'Other patient card', data: {}, size: 10, lastSynced: Date.now(), expiresAt: Date.now() + 10000, priority: 'high' as const };
+    vi.mocked(shared.getAllCachedItems).mockResolvedValue([
+      { ...cached, ownerUserId: 'different-owner' },
+      { ...cached, id: 'legacy', name: 'Unowned patient card' },
+    ]);
+    render(<OfflineSyncPage />);
+    await waitFor(() => expect(screen.getByText(/Local data belonging to another/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Cache' }));
+    expect(screen.queryByText('Other patient card')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unowned patient card')).not.toBeInTheDocument();
+  });
+
   it('allows switching to cache management tab', async () => {
     render(<OfflineSyncPage />);
 
@@ -68,6 +82,19 @@ describe('OfflineSyncPage (Patient)', () => {
     await waitFor(() => {
       expect(screen.getAllByText(/Cache/i).length).toBeGreaterThan(0);
     });
+  });
+
+  it('does not present unsupported automatic sync preferences as active', async () => {
+    render(<OfflineSyncPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+    expect(screen.getByText(/Automatic sync and these preferences are not implemented/)).toBeInTheDocument();
+    const controls = screen.getAllByRole('checkbox');
+    expect(controls).toHaveLength(5);
+    controls.forEach(control => {
+      expect(control).toBeDisabled();
+      expect(control).not.toBeChecked();
+    });
+    expect(screen.queryByText('Service Worker Active')).not.toBeInTheDocument();
   });
 
   it('shows online status correctly', async () => {
@@ -98,3 +125,4 @@ describe('OfflineSyncPage (Patient)', () => {
     expect(screen.queryByText(/Medical History Summary/i)).not.toBeInTheDocument();
   });
 });
+

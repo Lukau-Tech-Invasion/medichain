@@ -56,6 +56,14 @@ describe('groupAccessSessions', () => {
     expect(sessions.map((s) => s.kind).sort()).toEqual(['changed', 'viewed']);
   });
 
+  it('does not merge a receipt request into a confirmed record-change session', () => {
+    const sessions = groupAccessSessions([
+      row('request', 0, { access_type: 'handoff_receipt_requested', resource_type: 'shift_handoff' }),
+      row('write', 1, { access_type: 'create_soap_note' }),
+    ]);
+    expect(sessions.map(session => session.kind).sort()).toEqual(['changed', 'requested']);
+  });
+
   it('says "Not stated" when no reason was recorded', () => {
     expect(groupAccessSessions([row('a', 0, { access_reason: null })])[0].reason).toBe('Not stated');
   });

@@ -166,7 +166,7 @@ export function SymptomTrackerPage() {
   }, [patient, loadEntries]);
 
   const addEntry = async () => {
-    if (!newEntry.symptom || !newEntry.category) return;
+    if (!newEntry.symptom || !newEntry.category || !categories.find(category => category.id === newEntry.category)?.symptoms.includes(newEntry.symptom)) return;
 
     const entry: SymptomEntry = {
       id: `SYM-${Date.now()}`,
@@ -508,7 +508,7 @@ export function SymptomTrackerPage() {
                       key={category.id}
                       onClick={() => {
                         setSelectedCategory(category.id);
-                        setNewEntry(prev => ({ ...prev, category: category.id }));
+                        setNewEntry(prev => ({ ...prev, category: category.id, symptom: '' }));
                       }}
                       className="p-4 border-2 border-border rounded-xl hover:border-brand transition-colors text-left"
                     >

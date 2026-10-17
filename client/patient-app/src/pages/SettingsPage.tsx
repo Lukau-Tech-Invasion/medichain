@@ -1,8 +1,9 @@
 import { applyTextSize } from '../hooks/useTextSize';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   debugLog,
+  confirmDialog,
   getApiErrorMessage,
   listMyMobileDevices,
   mfaDisable,
@@ -113,7 +114,7 @@ export function SettingsPage() {
   const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [supportNotice, setSupportNotice] = useState<string | null>(null);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const logoutPending = useRef(false);
   const [mfaEnrolled, setMfaEnrolled] = useState<boolean | null>(null);
   const [mfaSecret, setMfaSecret] = useState<string | null>(null);
   const [mfaQr, setMfaQr] = useState<string | null>(null);
@@ -189,9 +190,23 @@ export function SettingsPage() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  /** Confirm once, then finish session revocation before leaving the page. */
+  const handleLogout = async () => {
+    if (logoutPending.current) return;
+    logoutPending.current = true;
+    try {
+      const confirmed = await confirmDialog({
+        title: t('settings.signOutConfirm'),
+        message: t('settings.signOutConfirmBody'),
+        confirmLabel: t('settings.signOut'),
+        destructive: true,
+      });
+      if (!confirmed) return;
+      await logout();
+      navigate('/login');
+    } finally {
+      logoutPending.current = false;
+    }
   };
 
   const beginMfaEnrollment = async () => {
@@ -401,7 +416,7 @@ export function SettingsPage() {
             icon={User}
             label={t('settings.personalInfo')}
             description={t('settings.personalInfoDesc')}
-            onClick={() => window.location.href = '/profile'}
+            onClick={() => navigate('/profile')}
           />
 
           <SettingRow
@@ -743,11 +758,12 @@ export function SettingsPage() {
                 <Globe className="w-5 h-5 text-content-muted" />
               </div>
               <div>
-                <div className="font-medium text-content">{t('settings.language')}</div>
+                <label htmlFor="settings-language" className="font-medium text-content">{t('settings.language')}</label>
                 <div className="text-sm text-content-muted">{t('settings.languageDesc')}</div>
               </div>
             </div>
             <select
+              id="settings-language"
               value={appSettings.language}
               onChange={(e) => setAppSettings(s => ({ ...s, language: e.target.value }))}
               className="w-full px-4 py-3 border border-border-interactive rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -827,7 +843,7 @@ export function SettingsPage() {
 
       {/* Logout Button */}
       <button
-        onClick={() => setShowLogoutConfirm(true)}
+        onClick={() => void handleLogout()}
         className="w-full flex items-center justify-center gap-2 py-4 text-critical-subtle-fg hover:bg-critical-subtle rounded-xl transition-colors"
       >
         <LogOut className="w-5 h-5" />
@@ -840,39 +856,7 @@ export function SettingsPage() {
         <p>{t('common.copyright')}</p>
       </div>
 
-      {/* Logout Confirmation Modal */}
-      {showLogoutConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-2xl w-full max-w-sm p-6">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-critical-subtle rounded-full flex items-center justify-center mx-auto mb-4">
-                <LogOut className="w-8 h-8 text-critical-subtle-fg" />
-              </div>
-              <h3 className="text-xl font-semibold text-content mb-2">
-                {t('settings.signOutConfirm')}
-              </h3>
-              <p className="text-content-muted">
-                {t('settings.signOutConfirmBody')}
-              </p>
-            </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowLogoutConfirm(false)}
-                className="flex-1 py-3 border border-border rounded-xl font-medium text-content-secondary hover:bg-surface-sunken transition-colors"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex-1 py-3 bg-critical text-critical-fg rounded-xl font-medium hover:bg-critical transition-colors"
-              >
-                {t('settings.signOut')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { I18nProvider } from '@medichain/shared';
 import type { AccessLogEntry } from '@medichain/shared';
@@ -49,6 +49,7 @@ function renderPage() {
   );
 }
 
+
 describe('AccessHistoryPage', () => {
   beforeEach(() => {
     vi.mocked(shared.getEmergencyCapsuleAccessLog).mockResolvedValue({
@@ -60,6 +61,72 @@ describe('AccessHistoryPage', () => {
     vi.mocked(usePatientAuthStore).mockImplementation(((selector: (state: unknown) => unknown) =>
       selector({ patient: { healthId: PATIENT_ID } })) as never);
   });
+
+  it('blocks repeated older-page reads until the pending read finishes', async () => {
+    let resolvePage!: (value: Awaited<ReturnType<typeof shared.getAccessLogs>>) => void;
+    const pendingPage = new Promise<Awaited<ReturnType<typeof shared.getAccessLogs>>>(resolve => { resolvePage = resolve; });
+    vi.mocked(shared.getAccessLogs)
+      .mockResolvedValueOnce({ patient_id: PATIENT_ID, total_accesses: 2, access_logs: [row('first', 0)] })
+      .mockReturnValue(pendingPage);
+    renderPage();
+    const older = await screen.findByRole('button', { name: 'Show older entries' });
+    fireEvent.click(older);
+    fireEvent.click(older);
+    expect(older).toBeDisabled();
+    expect(shared.getAccessLogs).toHaveBeenCalledTimes(2);
+    await act(async () => resolvePage({ patient_id: PATIENT_ID, total_accesses: 2, access_logs: [row('second', 1)] }));
+    expect(screen.queryByRole('button', { name: 'Show older entries' })).not.toBeInTheDocument();
+  });
+
+  it('ignores a previous patient response after the signed-in patient changes', async () => {
+    let resolveOld!: (value: Awaited<ReturnType<typeof shared.getAccessLogs>>) => void;
+    vi.mocked(shared.getAccessLogs)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ patient_id: 'PAT-002', total_accesses: 0, access_logs: [] });
+    const view = renderPage();
+    vi.mocked(usePatientAuthStore).mockImplementation(((selector: (state: unknown) => unknown) =>
+      selector({ patient: { healthId: 'PAT-002' } })) as never);
+    view.rerender(<BrowserRouter><I18nProvider><AccessHistoryPage /></I18nProvider></BrowserRouter>);
+    await screen.findByText('No recorded access entries to display.');
+    await act(async () => resolveOld({ patient_id: PATIENT_ID, total_accesses: 1, access_logs: [row('old', 0)] }));
+    expect(screen.queryByText('Dr N. Dlamini')).not.toBeInTheDocument();
+  });
+
+  it('retains successful history and retries the failed older page', async () => {
+    vi.mocked(shared.getAccessLogs)
+      .mockResolvedValueOnce({ patient_id: PATIENT_ID, total_accesses: 2, access_logs: [row('first', 0)] })
+      .mockRejectedValueOnce(new Error('Unavailable'))
+      .mockResolvedValueOnce({ patient_id: PATIENT_ID, total_accesses: 2, access_logs: [row('second', 1)] });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Show older entries' }));
+    await screen.findByRole('alert');
+    expect(screen.getByTestId('access-history-list')).toHaveTextContent('Dr N. Dlamini');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(shared.getAccessLogs).toHaveBeenLastCalledWith(PATIENT_ID, { page: 2, limit: 100 });
+    expect(screen.queryByRole('button', { name: 'Show older entries' })).not.toBeInTheDocument();
+  });
+
+  it('refuses a response naming another patient', async () => {
+    vi.mocked(shared.getAccessLogs).mockResolvedValue({
+      patient_id: 'PAT-002', total_accesses: 1, access_logs: [row('wrong-owner', 0)],
+    });
+    renderPage();
+    await screen.findByRole('alert');
+    expect(screen.queryByTestId('access-history-list')).not.toBeInTheDocument();
+  });
+
+  it('labels receipt requests without claiming a clinical record was changed', async () => {
+  vi.mocked(shared.getAccessLogs).mockResolvedValue({
+    patient_id: PATIENT_ID, total_accesses: 1,
+    access_logs: [row('receipt-request', 2, { access_type: 'handoff_receipt_requested', resource_type: 'shift_handoff' })],
+  });
+  renderPage();
+  const card = await screen.findByTestId('access-session');
+  expect(card).toHaveTextContent('Receipt acknowledgment requested:');
+  expect(card).toHaveTextContent('Shift handoff');
+  expect(card).not.toHaveTextContent('Changed:');
+});
 
   it('shows who, where, why and what for one grouped chart session', async () => {
     vi.mocked(shared.getAccessLogs).mockResolvedValue({
@@ -150,10 +217,10 @@ describe('AccessHistoryPage', () => {
     renderPage();
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('could not be loaded');
-    expect(screen.queryByText(/Nobody other than you/)).not.toBeInTheDocument();
+    expect(screen.queryByText('No recorded access entries to display.')).not.toBeInTheDocument();
   });
 
-  it('says so plainly when nobody else has viewed the record', async () => {
+  it('reports an empty recorded audit without claiming that nobody viewed the record', async () => {
     vi.mocked(shared.getAccessLogs).mockResolvedValue({
       patient_id: PATIENT_ID,
       total_accesses: 0,
@@ -161,7 +228,7 @@ describe('AccessHistoryPage', () => {
     });
     renderPage();
     await waitFor(() =>
-      expect(screen.getByText('Nobody other than you has viewed your health information.')).toBeInTheDocument(),
+      expect(screen.getByText('No recorded access entries to display.')).toBeInTheDocument(),
     );
   });
 

@@ -1,3 +1,4 @@
+import { getEmergencyNumber } from '@medichain/shared';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Stethoscope,
@@ -331,7 +332,7 @@ const SymptomCheckerPage: React.FC = () => {
           recommendations: [
             t('symptomChecker.fbUrgentRec1'),
             t('symptomChecker.fbUrgentRec2'),
-            t('symptomChecker.fbUrgentRec3', { emergencyNumber: t('common.emergencyNumber') })
+            t('symptomChecker.fbUrgentRec3', { emergencyNumber: getEmergencyNumber() })
           ],
           possibleConditions: [
             t('symptomChecker.fbUrgentCond1'),
@@ -502,7 +503,7 @@ const SymptomCheckerPage: React.FC = () => {
               <div>
                 <h4 className="font-medium text-caution-subtle-fg">{t('symptomChecker.disclaimerTitle')}</h4>
                 <p className="text-sm text-caution-subtle-fg mt-1">
-                  {t('symptomChecker.disclaimerBody', { emergencyNumber: t('common.emergencyNumber') })}
+                  {t('symptomChecker.disclaimerBody', { emergencyNumber: getEmergencyNumber() })}
                 </p>
               </div>
             </div>
@@ -613,6 +614,8 @@ const SymptomCheckerPage: React.FC = () => {
                 className="flex-1 border border-border-interactive rounded-full px-4 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
               />
               <button
+                aria-label="Send symptom message"
+                disabled={!inputValue.trim()}
                 onClick={handleSendMessage}
                 className="p-2 bg-purple-600 text-white rounded-full hover:bg-purple-700"
               >
@@ -698,17 +701,13 @@ const SymptomCheckerPage: React.FC = () => {
           {/* Action Buttons */}
           <div className="space-y-3">
             {(triageResult.severity === 'emergency' || triageResult.severity === 'urgent') && (
-              // 911 is the North American emergency number and connects to
-              // nothing in any country this product ships to. The number now
-              // comes from the active locale (10177 in South Africa, 999 in
-              // Kenya, 112 in Nigeria, 907 in Ethiopia), so a patient tapping
-              // this in an emergency reaches a service that answers.
+              // Emergency routing follows the deployment region, not the display language.
               <a
-                href={`tel:${t('common.emergencyNumber')}`}
+                href={`tel:${getEmergencyNumber()}`}
                 className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2"
               >
                 <Phone className="w-5 h-5" />
-                {t('symptomChecker.call911', { emergencyNumber: t('common.emergencyNumber') })}
+                {t('symptomChecker.call911', { emergencyNumber: getEmergencyNumber() })}
               </a>
             )}
             <a
@@ -718,13 +717,18 @@ const SymptomCheckerPage: React.FC = () => {
               <Clock className="w-5 h-5" />
               {t('symptomChecker.schedule')}
             </a>
-            <a
-              href={`${import.meta.env.BASE_URL}appointments`}
-              className="w-full py-3 border border-border-strong text-content-secondary rounded-lg font-semibold flex items-center justify-center gap-2"
+            <button
+              type="button"
+              disabled
+              aria-describedby="nearby-care-unavailable"
+              className="w-full py-3 border border-border-strong text-content-muted rounded-lg font-semibold flex items-center justify-center gap-2"
             >
               <MapPin className="w-5 h-5" />
               {t('symptomChecker.findCare')}
-            </a>
+            </button>
+            <p id="nearby-care-unavailable" className="text-sm text-content-muted">
+              Nearby provider search is not available. Use Schedule Appointment to choose a listed provider.
+            </p>
             <button
               onClick={() => {
                 setStep('intro');

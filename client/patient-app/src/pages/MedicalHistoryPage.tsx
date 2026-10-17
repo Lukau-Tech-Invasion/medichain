@@ -4,7 +4,7 @@ import {
   getMyFamilyHistory,
   getMyImmunizations,
   getPatientRecords,
-  downloadMedicalRecord,
+  downloadRecordContent,
   useTranslation,
 } from '@medichain/shared';
 import type { FamilyHistoryMember, ImmunizationRecord, MedicalRecordReference } from '@medichain/shared';
@@ -27,20 +27,37 @@ interface FamilyHistoryEntry {
   condition: string;
   age_of_onset?: number;
   notes?: string;
-  deceased: boolean;
+  deceased: boolean | null;
+  relative_name?: string | null;
+  relative_notes?: string | null;
+  current_age?: number | null;
+  age_at_death?: number | null;
+  cause_of_death?: string | null;
+  consanguineous?: boolean | null;
+  category?: string | null;
+  severity?: string | null;
 }
 
 type Tab = 'immunizations' | 'family-history' | 'documents';
 
 function flattenFamilyHistory(members: FamilyHistoryMember[]): FamilyHistoryEntry[] {
   return members.flatMap((member, memberIndex) =>
-    member.conditions.map((condition, conditionIndex) => ({
-      id: `${memberIndex}-${conditionIndex}-${condition.condition}`,
-      relationship: member.relationship,
-      condition: condition.condition,
-      age_of_onset: condition.age_at_diagnosis ?? undefined,
-      notes: condition.notes ?? undefined,
-      deceased: !member.living,
+    (member.conditions.length ? member.conditions : [null]).map((condition, conditionIndex) => ({
+      id: `${member.member_id || memberIndex}-${conditionIndex}`,
+      relationship: member.relationship.replace(/([a-z])([A-Z])/g, '$1 $2'),
+      condition: condition?.condition || '',
+      age_of_onset: condition?.age_at_diagnosis ?? undefined,
+      notes: condition?.notes ?? undefined,
+      category: condition?.category,
+      severity: condition?.severity,
+      relative_name: member.name,
+      relative_notes: member.notes,
+      current_age: member.current_age,
+      age_at_death: member.age_at_death,
+      cause_of_death: member.cause_of_death,
+      consanguineous: member.consanguineous,
+      deceased: member.living === true ? false
+        : member.living === false && (member.member_id || member.age_at_death != null || member.cause_of_death) ? true : null,
     }))
   );
 }
@@ -116,15 +133,12 @@ export function MedicalHistoryPage() {
     setDownloadingHash(record.content_hash);
     setDownloadError(null);
     try {
-      const response = await downloadMedicalRecord({
-        content_hash: record.content_hash,
-        metadata_hash: record.metadata_hash,
-      });
-      const bytes = Uint8Array.from(atob(response.content_base64), (character) => character.charCodeAt(0));
-      const blob = new Blob([bytes], { type: response.content_type || 'application/octet-stream' });
-      const filename = response.filename
-        .replace(/[\\/:*?"<>|\u0000-\u001F]/g, '_')
-        .slice(0, 180) || 'medical-record';
+      const { blob, contentType } = await downloadRecordContent(record.content_hash);
+      const extension = contentType.includes('pdf') ? '.pdf' : contentType.includes('json') ? '.json'
+        : contentType.includes('text/plain') ? '.txt' : '';
+      const filename = Array.from(`${record.record_type}-${record.content_hash}${extension}`, (character) =>
+        character.charCodeAt(0) < 32 || /[\\/:*?"<>|]/.test(character) ? '_' : character,
+      ).join('').slice(0, 180) || 'medical-record';
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -172,6 +186,7 @@ export function MedicalHistoryPage() {
           </span>
           <button
             onClick={loadAll}
+            aria-label="Refresh medical history"
             className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg"
           >
             <RefreshCw className="w-5 h-5" />
@@ -258,12 +273,21 @@ export function MedicalHistoryPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-content">{entry.condition}</h3>
-                      {entry.deceased && (
+                      <h3 className="font-semibold text-content">{entry.condition || t('medicalHistory.familyMember')}</h3>
+                      {entry.deceased === true && (
                         <span className="text-xs text-content-muted">{t('medicalHistory.deceased')}</span>
                       )}
+                      {entry.deceased === null && <span className="text-xs text-content-muted">{t('medicalHistory.vitalStatusUnknown')}</span>}
                     </div>
                     <p className="text-sm text-content-muted mt-0.5">{entry.relationship}</p>
+                    {entry.relative_name && <p className="text-sm">{entry.relative_name}</p>}
+                    {entry.current_age != null && <p className="text-sm">{t('medicalHistory.currentAge', { age: entry.current_age })}</p>}
+                    {entry.age_at_death != null && <p className="text-sm">{t('medicalHistory.ageAtDeath', { age: entry.age_at_death })}</p>}
+                    {entry.cause_of_death && <p className="text-sm">{t('medicalHistory.causeOfDeath', { cause: entry.cause_of_death })}</p>}
+                    {entry.consanguineous != null && <p className="text-sm">{t('medicalHistory.consanguineous', { answer: t(entry.consanguineous ? 'common.yes' : 'common.no') })}</p>}
+                    {entry.relative_notes && <p className="text-sm">{t('medicalHistory.relativeNotes', { notes: entry.relative_notes })}</p>}
+                    {entry.category && <p className="text-sm">{t('medicalHistory.conditionCategory', { category: entry.category })}</p>}
+                    {entry.severity && <p className="text-sm">{t('medicalHistory.conditionSeverity', { severity: entry.severity })}</p>}
                     {entry.age_of_onset != null && (
                       <p className="text-xs text-content-muted mt-0.5">
                         {t('medicalHistory.ageOfOnset', { age: entry.age_of_onset })}

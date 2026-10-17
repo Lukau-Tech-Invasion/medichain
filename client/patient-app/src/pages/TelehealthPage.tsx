@@ -246,7 +246,7 @@ export function TelehealthPage() {
             {activeTab === 'upcoming' && (
               <button
                 onClick={() => handleJoin(session)}
-                className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-brand text-brand-fg rounded-lg font-medium hover:brightness-95 transition-colors flex items-center justify-center gap-2"
               >
                 <Video className="w-4 h-4" />
                 {t('telehealth.joinCall')}

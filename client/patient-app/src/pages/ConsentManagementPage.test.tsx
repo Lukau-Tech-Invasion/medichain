@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { ConsentManagementPage } from './ConsentManagementPage';
 import { usePatientAuthStore } from '../store/authStore';
+import * as shared from '@medichain/shared';
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
@@ -165,5 +166,72 @@ describe('ConsentManagementPage (Patient)', () => {
     fireEvent.change(searchInput, { target: { value: 'Dr. Jones' } });
 
     expect(screen.queryByText(/Dr. Smith/i)).not.toBeInTheDocument();
+  });
+
+  it('identifies the exact grant and provider, explains its scope and allows cancellation without revoking', async () => {
+    render(<MemoryRouter><ConsentManagementPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: /Dr. Smith/ }));
+    expect(screen.getByText('Recorded disclosures using this grant')).toBeVisible();
+    expect(screen.getByText(/Counts retained audit entries explicitly linked to this grant, not visits/)).toBeVisible();
+    expect(screen.queryByText('Total Accesses')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke Access' }));
+    expect(screen.getByRole('heading', { name: 'Revoke this access grant?' })).toBeVisible();
+    expect(screen.getByText('PROV1')).toBeVisible();
+    expect(screen.getByText('grant1')).toBeVisible();
+    expect(screen.getByText(/this grant will no longer authorize new record requests by Dr. Smith/)).toBeVisible();
+    expect(screen.getByText(/Other authorized access may still apply/)).toBeVisible();
+    expect(screen.queryByText(/does not automatically block access/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('heading', { name: 'Revoke this access grant?' })).not.toBeInTheDocument();
+    expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith('/api/access/grants/grant1/revoke'))).toBe(false);
+  });
+
+  it('presents grant details and the revoke confirmation as modal dialogs with keyboard handling', async () => {
+    render(<MemoryRouter><ConsentManagementPage /></MemoryRouter>);
+    const card = await screen.findByRole('button', { name: /Dr. Smith/ });
+    card.focus();
+    fireEvent.click(card);
+
+    const details = screen.getByRole('dialog', { name: 'Access Details' });
+    expect(details).toHaveAttribute('aria-modal', 'true');
+    expect(details).toContainElement(document.activeElement as HTMLElement);
+    expect(screen.getByRole('button', { name: 'Close' })).toBeVisible();
+
+    // Tab from the last control wraps to the first instead of leaving the dialog.
+    const revoke = screen.getByRole('button', { name: 'Revoke Access' });
+    revoke.focus();
+    fireEvent.keyDown(revoke, { key: 'Tab' });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }));
+
+    // The destructive confirmation is an alert dialog, and Cancel takes focus.
+    fireEvent.click(revoke);
+    const confirm = screen.getByRole('alertdialog', { name: 'Revoke this access grant?' });
+    expect(confirm).toHaveAttribute('aria-modal', 'true');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.keyDown(confirm, { key: 'Escape' });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    // Escape closes the details too, and focus goes back to the card that opened them.
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Access Details' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(card);
+    expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith('/api/access/grants/grant1/revoke'))).toBe(false);
+  });
+
+  it('shows unavailable access with retry instead of zero counts or an empty grant claim', async () => {
+    const original = shared.listPatientAccessGrants;
+    const read = vi.spyOn(shared, 'listPatientAccessGrants')
+      .mockImplementation(original).mockRejectedValueOnce(new Error('Synthetic outage'));
+    try {
+      render(<MemoryRouter><ConsentManagementPage /></MemoryRouter>);
+      expect(await screen.findByRole('alert')).toHaveTextContent('Who has access could not be loaded');
+      expect(screen.queryByText('No active access grants')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Active (0)' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(await screen.findByRole('button', { name: /Dr. Smith/ })).toBeVisible();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } finally {
+      read.mockRestore();
+    }
   });
 });

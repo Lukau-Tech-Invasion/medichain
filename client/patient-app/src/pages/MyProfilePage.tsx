@@ -8,6 +8,7 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { validInsuranceDates } from './insuranceDates';
 import {
   User,
   Heart,
@@ -125,8 +126,10 @@ export function MyProfilePage() {
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailsDraft, setDetailsDraft] = useState({ phone: '', gender: '', languages: '' });
   const [editingAddress, setEditingAddress] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
   const [addressDraft, setAddressDraft] = useState<PatientAddress>(EMPTY_ADDRESS);
   const [editingInsurance, setEditingInsurance] = useState(false);
+  const [insuranceError, setInsuranceError] = useState<string | null>(null);
   const [insuranceDraft, setInsuranceDraft] = useState<PatientInsurance>(EMPTY_INSURANCE);
 
   const loadProfile = useCallback(async () => {
@@ -331,6 +334,7 @@ export function MyProfilePage() {
   };
 
   const beginEditAddress = () => {
+    setAddressError(null);
     setAddressDraft(profile?.address ?? EMPTY_ADDRESS);
     setEditingAddress(true);
   };
@@ -338,11 +342,11 @@ export function MyProfilePage() {
   const handleSaveAddress = async () => {
     if (!profile) return;
     if (!addressDraft.city.trim() || !addressDraft.country.trim()) {
-      setError(t('profile.addressIncomplete'));
+      setAddressError(t('profile.addressIncomplete'));
       return;
     }
     setIsSaving(true);
-    setError(null);
+    setAddressError(null);
     try {
       await updateDemographics(profile.patientId, {
         address: {
@@ -359,13 +363,14 @@ export function MyProfilePage() {
       flash(t('profile.detailsSaved'));
     } catch (err) {
       console.error('Failed to save address:', err);
-      setError(t('profile.saveFailedRetry'));
+      setAddressError(t('profile.addressSaveFailed'));
     } finally {
       setIsSaving(false);
     }
   };
 
   const beginEditInsurance = () => {
+    setInsuranceError(null);
     setInsuranceDraft(profile?.insurance ?? EMPTY_INSURANCE);
     setEditingInsurance(true);
   };
@@ -373,11 +378,15 @@ export function MyProfilePage() {
   const handleSaveInsurance = async () => {
     if (!profile) return;
     if (!insuranceDraft.provider.trim() || !insuranceDraft.policyNumber.trim()) {
-      setError(t('profile.insuranceIncomplete'));
+      setInsuranceError(t('profile.insuranceIncomplete'));
+      return;
+    }
+    if (!validInsuranceDates(insuranceDraft.validFrom, insuranceDraft.validTo)) {
+      setInsuranceError(t('profile.insuranceDatesInvalid'));
       return;
     }
     setIsSaving(true);
-    setError(null);
+    setInsuranceError(null);
     try {
       await updateDemographics(profile.patientId, {
         insurance: {
@@ -399,7 +408,7 @@ export function MyProfilePage() {
       flash(t('profile.detailsSaved'));
     } catch (err) {
       console.error('Failed to save insurance:', err);
-      setError(t('profile.saveFailedRetry'));
+      setInsuranceError(t('profile.insuranceSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -800,6 +809,7 @@ export function MyProfilePage() {
                 <input
                   type="text"
                   id="address-city"
+                  aria-describedby={addressError ? 'address-error' : undefined}
                   value={addressDraft.city}
                   onChange={(e) => setAddressDraft({ ...addressDraft, city: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -824,6 +834,7 @@ export function MyProfilePage() {
                 <input
                   type="text"
                   id="address-country"
+                  aria-describedby={addressError ? 'address-error' : undefined}
                   value={addressDraft.country}
                   onChange={(e) => setAddressDraft({ ...addressDraft, country: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -843,6 +854,7 @@ export function MyProfilePage() {
                 />
               </div>
               </div>
+            {addressError && <p id="address-error" role="alert" className="text-critical-subtle-fg">{addressError}</p>}
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setEditingAddress(false)}
@@ -968,6 +980,7 @@ export function MyProfilePage() {
                 <input
                   type="date"
                   id="insurance-from"
+                  aria-describedby={insuranceError ? 'insurance-error' : undefined}
                   value={insuranceDraft.validFrom}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validFrom: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -980,6 +993,7 @@ export function MyProfilePage() {
                 <input
                   type="date"
                   id="insurance-to"
+                  aria-describedby={insuranceError ? 'insurance-error' : undefined}
                   value={insuranceDraft.validTo}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validTo: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -995,6 +1009,7 @@ export function MyProfilePage() {
               />
               {t('profile.insuranceActive')}
             </label>
+            {insuranceError && <p id="insurance-error" role="alert" className="text-critical-subtle-fg">{insuranceError}</p>}
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setEditingInsurance(false)}

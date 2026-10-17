@@ -120,7 +120,6 @@ const LabTrendsPage: React.FC = () => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const transformed: LabTrend[] = response.trends.flatMap((apiTrend: any) => {
             // Map API data points to LabResult format
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             // Newest first: everything below reads results[0] as the latest.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const points = [...(apiTrend.data_points || [])].sort((a: any, b: any) => b.collected_at - a.collected_at);

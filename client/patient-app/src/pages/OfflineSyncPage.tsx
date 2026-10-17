@@ -24,11 +24,10 @@ import {
   getAllCachedItems,
   getAllSyncItems,
   getStorageInfo,
-  clearStore,
+  clearCachedDataForOwner,
   clearCachedDataByCategory,
   clearCompletedSyncItems,
   clearExpiredCache,
-  STORES,
   type SyncQueueItem as IndexedDBSyncItem,
   type CachedDataItem,
   replayQueue,
@@ -122,6 +121,7 @@ const OfflineSyncPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
   const [loading, setLoading] = useState(true);
   const [offlineDataUnavailable, setOfflineDataUnavailable] = useState(false);
+  const [unownedDataWithheld, setUnownedDataWithheld] = useState(false);
 
   // --- Devices holding a copy of my records ----------------------------------
   //
@@ -162,7 +162,8 @@ const OfflineSyncPage: React.FC = () => {
     try {
       // Load cached items from IndexedDB
       const dbCachedItems = await getAllCachedItems();
-      const mappedItems: CachedItem[] = dbCachedItems.map((item: CachedDataItem) => ({
+      const ownedCache = dbCachedItems.filter(item => patient?.userId && item.ownerUserId === patient.userId);
+      const mappedItems: CachedItem[] = ownedCache.map((item: CachedDataItem) => ({
         id: item.id,
         category: item.category as DataCategory,
         name: item.name,
@@ -174,7 +175,9 @@ const OfflineSyncPage: React.FC = () => {
       
       // Load sync queue from IndexedDB
       const dbSyncItems = await getAllSyncItems();
-      const mappedQueue: SyncQueue[] = dbSyncItems.map((item: IndexedDBSyncItem) => ({
+      const ownedQueue = dbSyncItems.filter(item => patient?.userId && item.ownerUserId === patient.userId);
+      setUnownedDataWithheld(ownedCache.length !== dbCachedItems.length || ownedQueue.length !== dbSyncItems.length);
+      const mappedQueue: SyncQueue[] = ownedQueue.map((item: IndexedDBSyncItem) => ({
         id: item.id,
         action: item.action === 'upload' ? 'upload' : 'download' as 'upload' | 'download',
         description: item.description,
@@ -220,7 +223,7 @@ const OfflineSyncPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [patient?.userId]);
 
   // Load server-detected sync conflicts (last-write-wins, from /api/sync/conflicts)
   const loadConflicts = useCallback(async () => {
@@ -278,7 +281,7 @@ const OfflineSyncPage: React.FC = () => {
   };
 
   const handleSync = async () => {
-    if (!isOnline) return;
+    if (!isOnline || !patient?.userId) return;
     setIsSyncing(true);
     setSyncStatus('syncing');
 
@@ -296,10 +299,10 @@ const OfflineSyncPage: React.FC = () => {
 
       // Only now is there anything to clear: an item reaches `completed` by
       // being accepted, not by the sync button being pressed.
-      await clearCompletedSyncItems();
+      await clearCompletedSyncItems(patient?.userId);
 
       // Clear expired cache entries
-      await clearExpiredCache();
+      await clearExpiredCache(patient?.userId);
 
       // Reload data
       await loadOfflineData();
@@ -333,12 +336,13 @@ const OfflineSyncPage: React.FC = () => {
   };
 
   const handleClearCache = async (category?: DataCategory) => {
+    if (!patient?.userId) return;
     try {
       if (category) {
-        await clearCachedDataByCategory(category);
+        await clearCachedDataByCategory(category, patient.userId);
         setCachedItems(prev => prev.filter(item => item.category !== category));
       } else {
-        await clearStore(STORES.CACHED_DATA);
+        await clearCachedDataForOwner(patient.userId);
         setCachedItems([]);
       }
     } catch (error) {
@@ -385,6 +389,7 @@ const OfflineSyncPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {unownedDataWithheld && <p role="status" className="p-4 text-content-muted">Local data belonging to another or unidentified account is withheld and will not be replayed by this account.</p>}
       {/* Devices holding a copy of my records */}
       <div className="patient-card mb-4">
         <h2 className="text-lg font-semibold text-content mb-1">{t('offlineSync.devicesHeading')}</h2>
@@ -441,7 +446,7 @@ const OfflineSyncPage: React.FC = () => {
       <div className="p-4 -mt-4 space-y-2">
         <button
           onClick={handleSync}
-          disabled={!isOnline || isSyncing}
+          disabled={!isOnline || isSyncing || !patient?.userId}
           className={`w-full py-4 rounded-lg shadow flex items-center justify-center gap-3 font-semibold transition-all ${
             isOnline && !isSyncing
               ? 'bg-surface text-notice-subtle-fg hover:bg-notice-subtle'
@@ -728,35 +733,35 @@ const OfflineSyncPage: React.FC = () => {
                 <h3 className="font-medium text-content">{t('offlineSync.autoSync')}</h3>
                 <p className="text-sm text-content-muted">{t('offlineSync.autoSyncDesc')}</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 text-notice-subtle-fg rounded" />
+              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.autoSync')} className="w-5 h-5 rounded opacity-50" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-content">{t('offlineSync.backgroundSync')}</h3>
                 <p className="text-sm text-content-muted">{t('offlineSync.backgroundSyncDesc')}</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 text-notice-subtle-fg rounded" />
+              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.backgroundSync')} className="w-5 h-5 rounded opacity-50" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-content">{t('offlineSync.downloadLab')}</h3>
                 <p className="text-sm text-content-muted">{t('offlineSync.downloadLabDesc')}</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 text-notice-subtle-fg rounded" />
+              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.downloadLab')} className="w-5 h-5 rounded opacity-50" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-content">{t('offlineSync.syncMobile')}</h3>
                 <p className="text-sm text-content-muted">{t('offlineSync.syncMobileDesc')}</p>
               </div>
-              <input type="checkbox" className="w-5 h-5 text-notice-subtle-fg rounded" />
+              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.syncMobile')} className="w-5 h-5 rounded opacity-50" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-content">{t('offlineSync.highPriorityOnly')}</h3>
                 <p className="text-sm text-content-muted">{t('offlineSync.highPriorityOnlyDesc')}</p>
               </div>
-              <input type="checkbox" className="w-5 h-5 text-notice-subtle-fg rounded" />
+              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.highPriorityOnly')} className="w-5 h-5 rounded opacity-50" />
             </div>
           </div>
 
@@ -765,9 +770,9 @@ const OfflineSyncPage: React.FC = () => {
             <div className="flex items-start gap-3">
               <Settings className="w-5 h-5 text-notice-subtle-fg mt-0.5" />
               <div>
-                <h4 className="font-medium text-notice-subtle-fg">{t('offlineSync.swActive')}</h4>
+                <h4 className="font-medium text-notice-subtle-fg">Manual offline controls</h4>
                 <p className="text-sm text-notice-subtle-fg mt-1">
-                  {t('offlineSync.swActiveDesc')}
+                  Automatic sync and these preferences are not implemented. Use Sync Now to retry your queued changes while online. Cached data availability does not establish that every feature works offline.
                 </p>
               </div>
             </div>

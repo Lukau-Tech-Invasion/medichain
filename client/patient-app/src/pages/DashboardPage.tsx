@@ -229,14 +229,14 @@ export function DashboardPage() {
 
       {/* Health Status Card */}
       <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-surface/20 rounded-xl flex items-center justify-center">
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-12 h-12 shrink-0 bg-surface/20 rounded-xl flex items-center justify-center">
               <Heart className="w-7 h-7" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="font-semibold text-lg">{t('dashboard.healthIdActive')}</h2>
-              <p className="text-white text-sm">{patientData?.healthId}</p>
+              <p className="break-all text-white text-sm">{patientData?.healthId}</p>
             </div>
           </div>
           <div className="health-indicator !bg-surface" />

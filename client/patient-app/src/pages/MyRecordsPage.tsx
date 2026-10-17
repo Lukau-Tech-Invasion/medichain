@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, clickable, formatTimestamp, SealStatusBadge } from '@medichain/shared';
 import type { SealStatus } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -21,10 +21,11 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
+import { RecordModal } from '../components/RecordModal';
 
 interface MedicalRecord {
   id: string;
-  type: 'lab_result' | 'imaging' | 'prescription' | 'consultation' | 'discharge_summary' | 'vaccination' | 'other';
+  type: 'lab_result' | 'imaging' | 'prescription' | 'consultation' | 'procedure' | 'discharge_summary' | 'vaccination' | 'vital_signs' | 'assessment' | 'other';
   title: string;
   description: string;
   provider: string;
@@ -73,12 +74,20 @@ function timestampDate(value?: number | string): string {
 
 function medicalRecordType(value: string): MedicalRecord['type'] {
   const supported: MedicalRecord['type'][] = [
-    'lab_result', 'imaging', 'prescription', 'consultation',
-    'discharge_summary', 'vaccination', 'other',
+    'lab_result', 'imaging', 'prescription', 'consultation', 'procedure',
+    'discharge_summary', 'vaccination', 'vital_signs', 'assessment', 'other',
   ];
   return supported.includes(value as MedicalRecord['type'])
     ? value as MedicalRecord['type']
     : 'other';
+}
+
+/** Use recorded procedure descriptions; fall back to the document type when none was entered. */
+function procedureDescription(item: Record<string, unknown>, label: string): string {
+  const captured = item.data && typeof item.data === 'object' && !Array.isArray(item.data)
+    ? item.data as Record<string, unknown> : {};
+  return String(item.location || item.procedure_name || item.scheduled_surgery || item.procedure_type
+    || captured.procedure || captured.procedureName || item.anesthesia_type || label);
 }
 
 /**
@@ -168,6 +177,7 @@ export function MyRecordsPage() {
         amaData,
         gcsData,
         emsData,
+        immunizationData,
       ] = await Promise.all([
         settle('lab', getPatientLabSubmissions(patientId), []),
         settle('documents', getPatientRecords(patientId), []),
@@ -229,6 +239,7 @@ export function MyRecordsPage() {
         ),
         // What the ambulance crew found and did before the hospital door.
         section('ems-handoffs'),
+        section('immunizations'),
       ]);
 
       const labRecords = labData.map(sub => ({
@@ -466,7 +477,8 @@ export function MyRecordsPage() {
       ];
       allRecords.push(...bloodRecords);
 
-      // Five kinds of procedure, one list. A patient asking what was done to
+      // Surgical assessments and procedures share the patient-scoped record list.
+      // A patient asking what was done to
       // them does not distinguish an intubation from a splint by which
       // endpoint served it.
       const procedureBody = procedureData as Record<string, Array<Record<string, unknown>> | undefined>;
@@ -476,18 +488,19 @@ export function MyRecordsPage() {
         ['splints_and_casts', 'Splint or cast'],
         ['burn_assessments', 'Burn assessment'],
         ['anesthesia_records', 'Anaesthesia'],
+        ['pre_op_assessments', 'Pre-operative assessment'],
+        ['operative_notes', 'Operative note'],
+        ['post_op_notes', 'Post-operative note'],
       ];
       const procedureRecords = procedureKinds.flatMap(([key, label]) =>
         (procedureBody[key] || []).map(item => ({
           id: String(item.id),
-          type: 'consultation' as const,
+          type: ['pre_op_assessments', 'burn_assessments'].includes(key) ? 'assessment' as const : 'procedure' as const,
           title: label,
-          description: String(
-            item.location || item.procedure_type || item.anesthesia_type || label
-          ),
-          provider: String(item.performed_by || item.anesthesiologist_id || 'MediChain provider'),
+          description: procedureDescription(item, label),
+          provider: String(item.performed_by || item.assessed_by || item.surgeon_id || item.provider_id || item.anesthesiologist_id || 'MediChain provider'),
           date: timestampDate(
-            (item.performed_at ?? item.created_at) as string | number | undefined
+            (item.performed_at ?? item.assessed_at ?? item.note_date ?? item.created_at) as string | number | undefined
           ),
           contentHash: `procedure-${key}-${item.id}`,
           metadataHash: String(item.id),
@@ -515,7 +528,7 @@ export function MyRecordsPage() {
 
       const gcsRecords = (gcsData.assessments ?? []).map(assessment => ({
         id: assessment.assessment_id,
-        type: 'consultation' as const,
+        type: 'assessment' as const,
         title: `Glasgow Coma Scale ${assessment.total_score ?? ''}`.trim(),
         // The server's interpretation, not a phrase composed here. The total
         // and its meaning are scored server-side and displayed as returned.
@@ -566,6 +579,19 @@ export function MyRecordsPage() {
       }));
       allRecords.push(...progressRecords);
 
+      const immunizationRecords = ((immunizationData.immunizations as Array<Record<string, unknown>>) || []).map(record => ({
+        id: String(record.id),
+        type: 'vaccination' as const,
+        title: String(record.vaccine_name || 'Vaccination'),
+        description: [record.dose_number != null ? `Dose ${record.dose_number}` : null,
+          record.lot_number ? `Lot ${record.lot_number}` : null].filter(Boolean).join(' · '),
+        provider: String(record.administered_by_name || record.administered_by || 'Provider not recorded'),
+        date: timestampDate(record.administration_date as string | undefined),
+        contentHash: `immunization-${record.id}`,
+        metadataHash: String(record.id),
+      }));
+      allRecords.push(...immunizationRecords);
+
       const woundRecords = (((woundData as { wounds?: Array<Record<string, unknown>> })
         .wounds) || []).map(wound => ({
         id: String(wound.id),
@@ -581,7 +607,7 @@ export function MyRecordsPage() {
 
       const vitalsRecords = vitalsData.readings.map(v => ({
         id: v.reading_id,
-        type: 'lab_result' as const,
+        type: 'vital_signs' as const,
         title: 'Vital signs',
         description: [
           v.heart_rate ? `HR ${v.heart_rate}` : null,
@@ -626,6 +652,8 @@ export function MyRecordsPage() {
         return <Pill className="w-5 h-5" />;
       case 'consultation':
         return <Stethoscope className="w-5 h-5" />;
+      case 'procedure':
+        return <FileCheck className="w-5 h-5" />;
       case 'discharge_summary':
         return <FileCheck className="w-5 h-5" />;
       case 'vaccination':
@@ -645,6 +673,8 @@ export function MyRecordsPage() {
         return 'bg-ok-subtle text-ok-subtle-fg';
       case 'consultation':
         return 'bg-brand-subtle text-brand';
+      case 'procedure':
+        return 'bg-info-light text-info';
       case 'discharge_summary':
         return 'bg-caution-subtle text-caution';
       case 'vaccination':
@@ -665,8 +695,11 @@ export function MyRecordsPage() {
       imaging: t('records.typeImaging'),
       prescription: t('records.typePrescription'),
       consultation: t('records.typeConsultation'),
+      procedure: t('records.typeProcedure'),
       discharge_summary: t('records.typeDischarge'),
       vaccination: t('records.typeVaccination'),
+      vital_signs: t('records.typeVitalSigns'),
+      assessment: t('records.typeAssessment'),
       other: t('records.typeOther'),
     };
     return map[type] || formatRecordType(type);
@@ -696,32 +729,47 @@ export function MyRecordsPage() {
     contentType: string;
   } | null>(null);
   const [isViewing, setIsViewing] = useState<string | null>(null);
+  const previewReturnFocus = useRef<HTMLElement | null>(null);
+  const viewRequest = useRef(0);
+  useEffect(() => () => { viewRequest.current += 1; }, []);
+  const previewUrl = preview?.url;
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  /** Revoke the object URL when the preview closes, so blobs are not leaked. */
+  /** Dismiss the preview; its lifecycle cleanup revokes any object URL. */
   const closePreview = () => {
-    setPreview(current => {
-      if (current?.url) URL.revokeObjectURL(current.url);
-      return null;
-    });
+    setPreview(null);
   };
 
-  const handleView = async (record: MedicalRecord) => {
+  /** Dismiss details and invalidate pending preview results before another record is opened. */
+  const closeDetails = () => {
+    viewRequest.current += 1;
+    setIsViewing(null);
+    closePreview();
+    setSelectedRecord(null);
+  };
+
+  const handleView = async (record: MedicalRecord, trigger: HTMLElement) => {
+    const ticket = ++viewRequest.current;
+    previewReturnFocus.current = trigger;
     setIsViewing(record.id);
     try {
       let download: { blob: Blob; contentType: string };
       try {
         download = await downloadRecordContent(record.contentHash);
       } catch {
-        showError(t('records.viewFailed', { title: record.title }));
+        if (viewRequest.current === ticket) showError(t('records.viewFailed', { title: record.title }));
         return;
       }
+      if (viewRequest.current !== ticket) return;
       const { blob, contentType } = download;
 
       if (contentType.startsWith('text/') || contentType.includes('json')) {
+        const text = await blob.text();
+        if (viewRequest.current !== ticket) return;
         setPreview({
           title: record.title,
           kind: 'text',
-          text: await blob.text(),
+          text,
           contentType,
         });
       } else if (contentType.startsWith('image/')) {
@@ -743,9 +791,9 @@ export function MyRecordsPage() {
         setPreview({ title: record.title, kind: 'unsupported', contentType });
       }
     } catch {
-      showError(t('records.viewError', { title: record.title }));
+      if (viewRequest.current === ticket) showError(t('records.viewError', { title: record.title }));
     } finally {
-      setIsViewing(null);
+      if (viewRequest.current === ticket) setIsViewing(null);
     }
   };
 
@@ -777,12 +825,12 @@ export function MyRecordsPage() {
   const filteredRecords = records.filter(record => {
     const needle = searchQuery.toLowerCase();
     const hit = (value: unknown) => String(value ?? '').toLowerCase().includes(needle);
-    const matchesSearch = hit(record.title) || hit(providerName(record.provider));
+    const matchesSearch = hit(record.title) || hit(record.description) || hit(record.id) || hit(providerName(record.provider));
     const matchesFilter = filterType === 'all' || record.type === filterType;
     return matchesSearch && matchesFilter;
   });
 
-  const recordTypes = ['all', 'lab_result', 'imaging', 'prescription', 'consultation', 'vaccination'];
+  const recordTypes = ['all', 'lab_result', 'imaging', 'prescription', 'consultation', 'procedure', 'discharge_summary', 'vaccination', 'vital_signs', 'assessment', 'other'];
 
   if (isLoading) {
     return (
@@ -897,13 +945,13 @@ export function MyRecordsPage() {
 
       {/* Record Detail Modal */}
       {selectedRecord && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+        <RecordModal label={t('records.recordDetails')} onClose={closeDetails} className="items-end sm:items-center">
           <div className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
             <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
               <h2 className="text-xl font-bold text-content">{t('records.recordDetails')}</h2>
               <button
                 aria-label={t('common.close')}
-                onClick={() => setSelectedRecord(null)}
+                onClick={closeDetails}
                 className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
               >
                 <X className="w-6 h-6 text-content-muted" />
@@ -978,16 +1026,18 @@ export function MyRecordsPage() {
                             <td className="px-4 py-2 text-content">{result.parameter}</td>
                             <td className="px-4 py-2 text-right">
                               <span className={`font-medium ${
-                                result.flag === 'High' ? 'text-critical-subtle-fg' :
-                                result.flag === 'Low' ? 'text-caution' :
+                                result.flag?.toLowerCase().startsWith('critical') ? 'text-critical-subtle-fg' :
+                                ['high', 'low'].includes(result.flag?.toLowerCase() ?? '') ? 'text-caution-subtle-fg' :
                                 'text-content'
                               }`}>
                                 {result.value} {result.unit}
                               </span>
                               {result.flag && (
                                 <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                                  result.flag === 'High' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                  'bg-caution-subtle text-caution'
+                                  result.flag.toLowerCase() === 'normal' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                  result.flag.toLowerCase().startsWith('critical') ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                  ['high', 'low'].includes(result.flag.toLowerCase()) ? 'bg-caution-subtle text-caution-subtle-fg' :
+                                  'bg-surface-sunken text-content-secondary'
                                 }`}>
                                   {result.flag}
                                 </span>
@@ -1023,7 +1073,7 @@ export function MyRecordsPage() {
                   {t('records.download')}
                 </button>
                 <button
-                  onClick={() => void handleView(selectedRecord)}
+                  onClick={event => void handleView(selectedRecord, event.currentTarget)}
                   disabled={isViewing === selectedRecord.id}
                   className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
                 >
@@ -1037,16 +1087,11 @@ export function MyRecordsPage() {
               </div>
             </div>
           </div>
-        </div>
+        </RecordModal>
       )}
 
       {preview && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={preview.title}
-        >
+        <RecordModal label={preview.title} onClose={closePreview} returnFocus={previewReturnFocus.current} className="items-center p-4">
           <div className="bg-surface rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-border">
               <h2 className="font-semibold text-content truncate">{preview.title}</h2>
@@ -1077,7 +1122,7 @@ export function MyRecordsPage() {
               )}
             </div>
           </div>
-        </div>
+        </RecordModal>
       )}
     </div>
   );
