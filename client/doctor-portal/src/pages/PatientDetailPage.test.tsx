@@ -22,6 +22,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   updateGuardianPermissions: vi.fn(),
   updatePatient: vi.fn(),
   getPatientRecords: vi.fn().mockResolvedValue([]),
+  listPedsForPatient: vi.fn().mockResolvedValue([]),
 }));
 
 describe('PatientDetailPage', () => {
@@ -133,6 +134,43 @@ describe('PatientDetailPage', () => {
       expect(screen.getByText(/Lisinopril/i)).toBeInTheDocument();
       expect(screen.getByText(/Hypertension/i)).toBeInTheDocument();
     });
+  });
+
+  it.each([undefined, { allergies: [], current_medications: [], chronic_conditions: [] }])(
+    'does not infer negative clinical history from absent or empty lists %s', async emergencyInfo => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ...mockPatientData, emergency_info: emergencyInfo }),
+      });
+      render(<MemoryRouter initialEntries={['/patients/PAT-001']}>
+        <Routes><Route path="/patients/:patientId" element={<PatientDetailPage />} /></Routes>
+      </MemoryRouter>);
+      expect(await screen.findByText('Allergy history not recorded')).toBeInTheDocument();
+      expect(screen.getByText('Medication history not recorded')).toBeInTheDocument();
+      expect(screen.getByText('Chronic condition history not recorded')).toBeInTheDocument();
+      expect(screen.queryByText('No known allergies')).not.toBeInTheDocument();
+      expect(screen.queryByText('No current medications')).not.toBeInTheDocument();
+      expect(screen.queryByText('No chronic conditions')).not.toBeInTheDocument();
+    });
+
+  it('shows patient-maintained administrative fields without asserting eligibility', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ ...mockPatientData, phone: '+27000000001',
+        address: { street: 'QA Address', city: 'Johannesburg', country: 'ZA' },
+        insurance: { provider: 'QA Cover', policy_number: 'QA-POLICY', coverage_type: 'Private', is_active: false },
+      }),
+    });
+    render(<MemoryRouter initialEntries={['/patients/PAT-001']}>
+      <Routes><Route path="/patients/:patientId" element={<PatientDetailPage />} /></Routes>
+    </MemoryRouter>);
+    const panel = await screen.findByRole('region', { name: 'Administrative details' });
+    expect(within(panel).getByText('QA Address, Johannesburg, ZA')).toBeVisible();
+    expect(within(panel).getByText('QA Cover')).toBeVisible();
+    expect(within(panel).getByText('QA-POLICY')).toBeVisible();
+    expect(within(panel).getByText('Reported inactive')).toBeVisible();
+    expect(within(panel).getByText(/not verified eligibility/i)).toBeVisible();
+    expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
   });
 
   it('warns staff to cross-match when the blood group is unknown', async () => {

@@ -18,6 +18,7 @@ import {
   User, Activity, Stethoscope, Pill, Calendar
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { StoredSoapDetails } from '../components/StoredSoapDetails';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface PhysicalExamFinding {
@@ -131,7 +132,7 @@ function SOAPNotePage() {
   // `PatientSelect` queries the server as the clinician types.
 
   // Existing SOAP notes
-  const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}}>>([]);
+  const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}; [key: string]: unknown}>>([]);
   const [showNotesList, setShowNotesList] = useState(true);
 
   // --- Amending a note after the fact ----------------------------------------
@@ -166,6 +167,7 @@ function SOAPNotePage() {
       // Read the note back rather than trusting the write: this page could not
       // fetch a stored note at all until `getSoapNote` was added.
       const stored = await getSoapNote(noteId);
+      setExistingNotes(notes => notes.map(note => note.note_id === noteId ? { ...note, ...stored } : note));
       const addenda = (stored as { addenda?: unknown[] }).addenda ?? [];
       setAddendumNotice(
         t('docSOAPNote.addendumCount', { count: String(addenda.length) })
@@ -190,10 +192,14 @@ function SOAPNotePage() {
   
   // Fetch existing SOAP notes when patient is selected
   useEffect(() => {
+    let active = true;
+    setExistingNotes([]);
+    setAddendumFor(null);
+    setAddendumText('');
     if (!user || !selectedPatientId) return;
     const fetchNotes = async () => {
       try {
-        setExistingNotes(
+        if (active) setExistingNotes(
           (await listPatientSoapNotes(selectedPatientId)) as unknown as typeof existingNotes
         );
       } catch (err) {
@@ -201,6 +207,7 @@ function SOAPNotePage() {
       }
     };
     fetchNotes();
+    return () => { active = false; };
   }, [selectedPatientId, user]);
   
   // SUBJECTIVE
@@ -478,6 +485,7 @@ function SOAPNotePage() {
                     </div>
                   </div>
 
+                  <StoredSoapDetails note={note} />
                   {addendumFor === note.note_id && (
                     <div className="mt-3">
                       {/* Deliberately an addendum and not an edit. A signed note

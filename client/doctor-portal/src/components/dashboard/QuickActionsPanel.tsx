@@ -90,12 +90,12 @@ export default function QuickActionsPanel({
             <Link
               key={action.id}
               to={action.href}
-              className={`${colors.bg} ${colors.hover} rounded-xl p-6 text-white transition-all group`}
+              className={`${colors.bg} ${colors.hover} min-w-0 rounded-xl p-4 text-white transition-all group`}
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Icon size={24} />
-                  <div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Icon size={24} className="shrink-0" />
+                  <div className="min-w-0 break-words">
                     <h3 className="text-lg font-semibold">{action.label}</h3>
                     {action.description && (
                       <p className={`${colors.text} text-sm`}>
@@ -104,7 +104,7 @@ export default function QuickActionsPanel({
                     )}
                   </div>
                 </div>
-                <ArrowRight className="group-hover:translate-x-1 transition-transform" size={24} />
+                <ArrowRight className="shrink-0 group-hover:translate-x-1 transition-transform" size={24} />
               </div>
             </Link>
           );

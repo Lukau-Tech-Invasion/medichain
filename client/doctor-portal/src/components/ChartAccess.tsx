@@ -8,6 +8,7 @@ import {
   openAccessContext,
   useTranslation,
 } from '@medichain/shared';
+import { DocumentAccessRequest } from './DocumentAccessRequest';
 
 /** Reason codes the server maps to fixed wording for the patient. */
 const REASON_CODES = ['treatment', 'referral', 'emergency', 'administrative'] as const;
@@ -27,11 +28,24 @@ export interface DeclaredAccess {
  * does not ask again. Held in memory only: a reason is a statement about *this*
  * visit, and must not survive a reload or leak to a later session.
  */
-const declared = new Map<string, DeclaredAccess>();
+const declared = new Map<string, {
+  access: DeclaredAccess;
+  ownerId: string | undefined;
+  sessionRevision: number;
+  expiresAt: number;
+}>();
 
 /** The access already declared for `patientId` in this tab, if any. */
 export function declaredAccessFor(patientId: string | undefined): DeclaredAccess | undefined {
-  return patientId ? declared.get(patientId) : undefined;
+  if (!patientId) return undefined;
+  const saved = declared.get(patientId);
+  const client = getApiClient();
+  if (!saved) return undefined;
+  if (saved.ownerId !== client.getUserId() || saved.sessionRevision !== client.getSessionRevision() || saved.expiresAt <= Date.now()) {
+    declared.delete(patientId);
+    return undefined;
+  }
+  return saved.access;
 }
 
 /** Send `access` with every read of `patientId` until cleared. */
@@ -72,11 +86,23 @@ export function ChartAccessPrompt({ patientId, title, onReady, onCancel }: Chart
   const [step, setStep] = useState<Step>({ kind: 'ask' });
 
   const open = async (reason: string) => {
+    const client = getApiClient();
+    const ownerId = client.getUserId();
+    const sessionRevision = client.getSessionRevision();
     setStep({ kind: 'opening' });
     try {
       const context = await openAccessContext(patientId, reason);
+      if (ownerId !== client.getUserId() || sessionRevision !== client.getSessionRevision()) {
+        setStep({ kind: 'failed', reason, message: t('accessReason.openFailed') });
+        return;
+      }
+      const expiresAt = Date.parse(context.expires_at);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        setStep({ kind: 'failed', reason, message: t('accessReason.openFailed') });
+        return;
+      }
       const access = { reason, contextId: context.access_context_id };
-      declared.set(patientId, access);
+      declared.set(patientId, { access, ownerId, sessionRevision, expiresAt });
       onReady(access);
     } catch (err) {
       if (err instanceof ApiClientError && err.code === CARE_RELATIONSHIP_REQUIRED) {
@@ -97,7 +123,14 @@ export function ChartAccessPrompt({ patientId, title, onReady, onCancel }: Chart
     );
   }
   if (step.kind === 'break_glass') {
-    return <BreakGlassPanel patientId={patientId} onOpened={() => void open(step.reason)} />;
+    return <div className="space-y-6">
+      <section aria-label="Patient-approved chart access" className="rounded-xl border border-border bg-surface p-6">
+        <h2 className="font-semibold">Ask the patient for chart access</h2>
+        <DocumentAccessRequest key={patientId} patientId={patientId} scope="chart" onCheckAccess={() => void open(step.reason)} />
+      </section>
+      <BreakGlassPanel patientId={patientId} onOpened={() => void open(step.reason)} />
+      {onCancel && <button type="button" onClick={onCancel} className={buttonClass}>{t('accessReason.cancel')}</button>}
+    </div>;
   }
   if (step.kind === 'failed') {
     return (
@@ -160,10 +193,12 @@ export function ReasonPrompt({ onDeclare, title, onCancel }: ReasonPromptProps) 
           </button>
         ))}
       </div>
-      <form
+      <div
         className="mt-4 flex gap-2"
-        onSubmit={(event) => {
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return;
           event.preventDefault();
+          event.stopPropagation();
           if (trimmedOther) onDeclare(trimmedOther);
         }}
       >
@@ -178,10 +213,10 @@ export function ReasonPrompt({ onDeclare, title, onCancel }: ReasonPromptProps) 
           placeholder={t('accessReason.otherPlaceholder')}
           className="flex-1 px-3 py-2 rounded-lg border border-border bg-surface text-sm text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         />
-        <button type="submit" disabled={!trimmedOther} className={`${buttonClass} disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100`}>
+        <button type="button" onClick={() => { if (trimmedOther) onDeclare(trimmedOther); }} disabled={!trimmedOther} className={`${buttonClass} disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100`}>
           {t('accessReason.continue')}
         </button>
-      </form>
+      </div>
       {onCancel && (
         <button type="button" onClick={onCancel} className={`${buttonClass} mt-3`}>
           {t('accessReason.cancel')}

@@ -71,10 +71,11 @@ export default function SepsisPage() {
   const [elapsedMinutes, setElapsedMinutes] = useState(0);
 
   // qSOFA Scoring
-  const [respiratoryRate, setRespiratoryRate] = useState<number>(0);
-  const [systolicBP, setSystolicBP] = useState<number>(120);
-  const [gcsScore, setGcsScore] = useState<number>(15);
+  const [respiratoryRate, setRespiratoryRate] = useState<number | null>(null);
+  const [systolicBP, setSystolicBP] = useState<number | null>(null);
+  const [gcsScore, setGcsScore] = useState<number | null>(null);
   const [qsofaScore, setQsofaScore] = useState(0);
+  const qsofaComplete = respiratoryRate !== null && systolicBP !== null && gcsScore !== null;
 
   // SOFA Scoring for ICU
   // SOFA inputs. Empty, not pre-filled with normal values.
@@ -133,9 +134,9 @@ export default function SepsisPage() {
   useEffect(() => {
     // Calculate qSOFA
     let score = 0;
-    if (respiratoryRate >= 22) score++;
-    if (systolicBP <= 100) score++;
-    if (gcsScore < 15) score++;
+    if (respiratoryRate !== null && respiratoryRate >= 22) score++;
+    if (systolicBP !== null && systolicBP <= 100) score++;
+    if (gcsScore !== null && gcsScore < 15) score++;
     setQsofaScore(score);
   }, [respiratoryRate, systolicBP, gcsScore]);
 
@@ -479,20 +480,20 @@ export default function SepsisPage() {
                         <Wind className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaRR')}
                       </span>
-                      <span className={`font-bold ${respiratoryRate >= 22 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {respiratoryRate >= 22 ? '1' : '0'}
+                      <span className={`font-bold ${respiratoryRate !== null && respiratoryRate >= 22 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {respiratoryRate === null ? '—' : respiratoryRate >= 22 ? '1' : '0'}
                       </span>
                     </label>
                     <input
                       id="sepsis-respiratory-rate"
-                      type="range"
+                      type="number"
                       min="10"
                       max="40"
-                      value={respiratoryRate}
-                      onChange={(e) => setRespiratoryRate(parseInt(e.target.value))}
+                      value={respiratoryRate ?? ''}
+                      onChange={(e) => setRespiratoryRate(e.target.value === '' ? null : Number(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-content-muted text-center">{respiratoryRate} {t('docSepsis.perMin')}</p>
+                    <p className="text-xs text-content-muted text-center">{respiratoryRate ?? '—'} {t('docSepsis.perMin')}</p>
                   </div>
                   <div>
                     <label htmlFor="sepsis-systolic-bp" className="flex items-center justify-between">
@@ -500,20 +501,20 @@ export default function SepsisPage() {
                         <Heart className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaSBP')}
                       </span>
-                      <span className={`font-bold ${systolicBP <= 100 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {systolicBP <= 100 ? '1' : '0'}
+                      <span className={`font-bold ${systolicBP !== null && systolicBP <= 100 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {systolicBP === null ? '—' : systolicBP <= 100 ? '1' : '0'}
                       </span>
                     </label>
                     <input
                       id="sepsis-systolic-bp"
-                      type="range"
+                      type="number"
                       min="60"
                       max="180"
-                      value={systolicBP}
-                      onChange={(e) => setSystolicBP(parseInt(e.target.value))}
+                      value={systolicBP ?? ''}
+                      onChange={(e) => setSystolicBP(e.target.value === '' ? null : Number(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-content-muted text-center">{systolicBP} {t('docSepsis.mmHg')}</p>
+                    <p className="text-xs text-content-muted text-center">{systolicBP ?? '—'} {t('docSepsis.mmHg')}</p>
                   </div>
                   <div>
                     <label htmlFor="sepsis-gcs-score" className="flex items-center justify-between">
@@ -521,30 +522,30 @@ export default function SepsisPage() {
                         <Brain className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaGCS')}
                       </span>
-                      <span className={`font-bold ${gcsScore < 15 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {gcsScore < 15 ? '1' : '0'}
+                      <span className={`font-bold ${gcsScore !== null && gcsScore < 15 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {gcsScore === null ? '—' : gcsScore < 15 ? '1' : '0'}
                       </span>
                     </label>
                     <input
                       id="sepsis-gcs-score"
-                      type="range"
+                      type="number"
                       min="3"
                       max="15"
-                      value={gcsScore}
-                      onChange={(e) => setGcsScore(parseInt(e.target.value))}
+                      value={gcsScore ?? ''}
+                      onChange={(e) => setGcsScore(e.target.value === '' ? null : Number(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-content-muted text-center">{t('docSepsis.gcsLabel', { score: gcsScore })}</p>
+                    <p className="text-xs text-content-muted text-center">{t('docSepsis.gcsLabel', { score: gcsScore ?? '—' })}</p>
                   </div>
                 </div>
                 <div className={`mt-4 p-4 rounded-lg text-center ${
-                  qsofaScore >= 2 ? 'bg-critical-subtle' : 'bg-ok-subtle'
+                  !qsofaComplete ? 'bg-surface-sunken' : qsofaScore >= 2 ? 'bg-critical-subtle' : 'bg-ok-subtle'
                 }`}>
                   <p className="text-sm font-medium text-content-secondary">{t('docSepsis.qsofaScore')}</p>
-                  <p className={`text-4xl font-bold ${qsofaScore >= 2 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                    {qsofaScore}/3
+                  <p className={`text-4xl font-bold ${!qsofaComplete ? 'text-content-muted' : qsofaScore >= 2 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
+                    {qsofaComplete ? `${qsofaScore}/3` : '—'}
                   </p>
-                  {qsofaScore >= 2 && (
+                  {qsofaComplete && qsofaScore >= 2 && (
                     <p className="flex items-center gap-1 text-xs text-critical-subtle-fg mt-1">
                       <AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.qsofaHighRisk')}
                     </p>

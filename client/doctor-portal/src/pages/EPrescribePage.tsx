@@ -225,6 +225,7 @@ export default function EPrescribePage() {
               onChange={(patientId) => setFormData(prev => ({...prev, patient_id: patientId}))}
               placeholder={t('docEPrescribe.patientPlaceholder')}
               required
+              error={errors.patient_id}
             />
             <div>
               <label htmlFor="pharmacy_name" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.pharmacy')}</label>

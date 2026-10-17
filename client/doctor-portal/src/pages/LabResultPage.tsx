@@ -1,3 +1,4 @@
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   FlaskConical,
@@ -24,8 +25,8 @@ import StaffName from '../components/StaffName';
  * Implements lab results table, filtering, and result details modal.
  */
 
-type ResultStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled';
-type ResultFlag = 'normal' | 'abnormal-low' | 'abnormal-high' | 'critical-low' | 'critical-high';
+type ResultStatus = 'pending' | 'in-progress' | 'completed' | 'rejected';
+type ResultFlag = 'normal' | 'abnormal-low' | 'abnormal-high' | 'critical-low' | 'critical-high' | 'unknown';
 
 interface LabTest {
   testCode: string;
@@ -71,6 +72,11 @@ const downloadLabResult = (result: LabResult) => {
 
 /** A lab submission row, in either of the two casings it is stored under. */
 interface RawLabSubmission {
+  test_name?: string;
+  submitted_at?: string;
+  reviewed_at?: string;
+  submitted_by?: string;
+  results?: { parameter: string; value: string; unit: string; reference_range: string; flag?: string | null }[];
   id?: string; submission_id?: string;
   patient_id?: string; patientId?: string;
   patient_name?: string; patientName?: string;
@@ -86,7 +92,17 @@ interface RawLabSubmission {
   notes?: string;
 }
 
+/** Convert server classifications without treating an absent finding as normal. */
+function normalizeResultFlag(flag?: string | null): ResultFlag {
+  const flags: Record<string, ResultFlag> = {
+    normal: 'normal', low: 'abnormal-low', high: 'abnormal-high',
+    critical_low: 'critical-low', critical_high: 'critical-high',
+  };
+  return flags[flag ?? ''] ?? 'unknown';
+}
+
 const LabResultPage: React.FC = () => {
+  const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'results' | 'pending' | 'critical'>('results');
   const [results, setResults] = useState<LabResult[]>([]);
@@ -107,14 +123,21 @@ const LabResultPage: React.FC = () => {
         id: s.id || s.submission_id || '',
         patientId: s.patient_id || s.patientId || '',
         patientName: s.patient_name || s.patientName || t('docLabResult.unknownPatient'),
-        mrn: s.mrn || '',
-        orderDate: new Date(s.order_date || s.orderDate || Date.now()),
+        mrn: s.patient_id || s.patientId || '',
+        orderDate: new Date(s.submitted_at || ''),
         collectionDate: s.collection_date || s.collectionDate ? new Date(s.collection_date || s.collectionDate!) : undefined,
-        resultDate: s.result_date || s.resultDate ? new Date(s.result_date || s.resultDate!) : undefined,
-        panelName: s.panel_name || s.panelName || t('docLabResult.unknownPanel'),
-        status: (s.status as ResultStatus) || 'pending',
-        orderedBy: s.ordered_by || s.orderedBy || '',
-        tests: s.tests || [],
+        resultDate: s.reviewed_at ? new Date(s.reviewed_at) : undefined,
+        panelName: s.test_name || t('docLabResult.unknownPanel'),
+        status: s.status === 'approved' ? 'completed' : s.status === 'rejected' ? 'rejected' : 'pending',
+        orderedBy: s.submitted_by || '',
+        tests: (s.results || []).map(result => ({
+          testCode: result.parameter,
+          testName: result.parameter,
+          result: result.value,
+          unit: result.unit,
+          referenceRange: result.reference_range,
+          flag: normalizeResultFlag(result.flag),
+        })),
         specimen: s.specimen || '',
         notes: s.notes,
       }));
@@ -136,14 +159,14 @@ const LabResultPage: React.FC = () => {
       'pending': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
       'in-progress': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <RefreshCw className="w-3 h-3" /> },
       'completed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
-      'cancelled': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <XCircle className="w-3 h-3" /> }
+      'rejected': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <XCircle className="w-3 h-3" /> }
     };
     const s = styles[status];
     const labels: Record<ResultStatus, string> = {
       'pending': t('docLabResult.statusPending'),
       'in-progress': t('docLabResult.statusInProgress'),
       'completed': t('docLabResult.statusCompleted'),
-      'cancelled': t('docLabResult.statusCancelled'),
+      'rejected': t('docLabResult.statusRejected'),
     };
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
@@ -158,12 +181,13 @@ const LabResultPage: React.FC = () => {
       'abnormal-low': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <TrendingDown className="w-3 h-3" /> },
       'abnormal-high': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <TrendingUp className="w-3 h-3" /> },
       'critical-low': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <TrendingDown className="w-3 h-3" /> },
-      'critical-high': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <TrendingUp className="w-3 h-3" /> }
+      'critical-high': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <TrendingUp className="w-3 h-3" /> },
+      'unknown': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <Minus className="w-3 h-3" /> }
     };
     const s = styles[flag];
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${s.bg} ${s.text}`}>
-        {s.icon}
+        {s.icon} {flag === 'unknown' ? t('docLabResult.flagUnknown') : null}
       </span>
     );
   };
@@ -186,6 +210,7 @@ const LabResultPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Laboratory result" record={printRecord} onClose={() => setPrintRecord(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -328,7 +353,7 @@ const LabResultPage: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => downloadLabResult(selectedResult)} aria-label="Download lab result as CSV" className="p-2 hover:bg-surface-sunken rounded"><Download className="w-5 h-5" /></button>
-                <button type="button" onClick={() => window.print()} aria-label="Print lab result" className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
+                <button type="button" onClick={() => setPrintRecord(selectedResult)} aria-label="Print lab result" className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
                 <button onClick={() => setSelectedResult(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>
@@ -366,7 +391,7 @@ const LabResultPage: React.FC = () => {
                     </thead>
                     <tbody>
                       {selectedResult.tests.map(test => (
-                        <tr key={test.testCode} className={`border-t ${test.flag.includes('critical') ? 'bg-critical-subtle' : test.flag !== 'normal' ? 'bg-caution-subtle' : ''}`}>
+                        <tr key={test.testCode} className={`border-t ${test.flag.includes('critical') ? 'bg-critical-subtle' : test.flag !== 'normal' && test.flag !== 'unknown' ? 'bg-caution-subtle' : ''}`}>
                           <td className="p-3">
                             <p className="font-medium">{test.testName}</p>
                             <p className="text-xs text-content-muted">{test.testCode}</p>

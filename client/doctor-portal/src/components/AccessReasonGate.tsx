@@ -27,21 +27,22 @@ interface AccessReasonGateProps {
 export function AccessReasonGate({ patientId, children }: AccessReasonGateProps) {
   const { t } = useTranslation();
   const [access, setAccess] = useState<DeclaredAccess | undefined>(() => declaredAccessFor(patientId));
+  const currentAccess = access?.contextId === declaredAccessFor(patientId)?.contextId ? access : undefined;
 
   useEffect(() => {
     setAccess(declaredAccessFor(patientId));
   }, [patientId]);
 
   useLayoutEffect(() => {
-    if (!patientId || !access) return undefined;
-    applyAccess(patientId, access);
+    if (!patientId || !currentAccess) return undefined;
+    applyAccess(patientId, currentAccess);
     return () => getApiClient().setPatientAccessContext(undefined);
-  }, [patientId, access]);
+  }, [patientId, currentAccess]);
 
-  if (!patientId || access) {
+  if (!patientId || currentAccess) {
     return <>{children}</>;
   }
-  return <ChartAccessPrompt patientId={patientId} title={t('accessReason.title')} onReady={setAccess} />;
+  return <ChartAccessPrompt key={patientId} patientId={patientId} title={t('accessReason.title')} onReady={setAccess} />;
 }
 
 /**

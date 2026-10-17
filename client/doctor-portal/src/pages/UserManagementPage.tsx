@@ -152,7 +152,7 @@ const UserManagementPage: React.FC = () => {
       }
       
       // Map API response to SystemUser interface
-      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; linked_patient_id?: string; login_id?: string; username?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
+      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; linked_patient_id?: string; login_id?: string; username?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialty?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
         userId: u.user_id || '',
         linkedPatientId: u.linked_patient_id,
         loginId: u.login_id || u.username,
@@ -163,7 +163,7 @@ const UserManagementPage: React.FC = () => {
         status: (u.status as UserStatus) || 'active',
         department: u.department,
         licenseNumber: u.license_number || u.licenseNumber,
-        specialization: u.specialization,
+        specialization: u.specialty || u.specialization,
         createdAt: u.created_at || u.createdAt || new Date().toISOString(),
         lastLogin: u.last_login || u.lastLogin,
         permissions: u.permissions || [],
@@ -518,6 +518,15 @@ const UserManagementPage: React.FC = () => {
 
       {activeTab === 'users' && (
         <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => void fetchUsers()}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg border border-border-interactive px-3 py-2 text-content-secondary disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {t('common.refresh')}
+          </button>
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -923,12 +932,15 @@ const UserManagementPage: React.FC = () => {
               <label htmlFor="new-user-notes" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.notesLabel')}</label>
               <textarea
                 id="new-user-notes"
+                disabled
+                aria-describedby="new-user-notes-unavailable"
                 value={newUser.notes}
                 onChange={(e) => setNewUser({ ...newUser, notes: e.target.value })}
                 placeholder={t('docUserManagement.notesPlaceholder')}
                 rows={3}
                 className="w-full border border-border-interactive rounded-lg px-3 py-2"
               />
+              <p id="new-user-notes-unavailable" className="text-sm text-content-muted mt-1">{t('docUserManagement.staffNotesUnavailable')}</p>
             </div>
 
             <button
@@ -1125,11 +1137,14 @@ const UserManagementPage: React.FC = () => {
                 <label htmlFor="usermgmt-notes" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.notesLabel')}</label>
                 <textarea
                   id="usermgmt-notes"
+                  disabled
+                  aria-describedby="usermgmt-notes-unavailable"
                   value={selectedUser.notes || ''}
                   onChange={(e) => setSelectedUser({ ...selectedUser, notes: e.target.value })}
                   rows={3}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
+                <p id="usermgmt-notes-unavailable" className="text-sm text-content-muted mt-1">{t('docUserManagement.staffNotesUnavailable')}</p>
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -1178,6 +1193,9 @@ const UserManagementPage: React.FC = () => {
               <p className="text-sm text-content-secondary mt-1">
                 {t('docUserManagement.selectedPermissionsCount', { selected: selectedUser.permissions.length, total: availablePermissions.length })}
               </p>
+              <p role="status" className="text-sm text-content-secondary mt-2">
+                {t('docUserManagement.permissionOverridesUnavailable')}
+              </p>
             </div>
 
             <div className="space-y-6">
@@ -1198,6 +1216,7 @@ const UserManagementPage: React.FC = () => {
                           </div>
                           <button
                             onClick={() => handleTogglePermission(perm.id)}
+                            disabled
                             className={`ml-4 px-4 py-2 rounded-lg font-semibold transition-colors ${
                               selectedUser.permissions.includes(perm.id)
                                 ? 'bg-green-700 text-white hover:bg-green-800'
@@ -1227,9 +1246,8 @@ const UserManagementPage: React.FC = () => {
               <button
                 onClick={() => {
                   setShowPermissionsModal(false);
-                  setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
                   setSelectedUser(null);
-                  showSuccess(t('docUserManagement.permissionsUpdatedSuccess'));
+                  showError(t('docUserManagement.permissionOverridesUnavailable'));
                 }}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors"
               >

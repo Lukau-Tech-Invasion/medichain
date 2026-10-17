@@ -699,6 +699,8 @@ const NoteTemplatesPage: React.FC = () => {
                           )}
                         </div>
                         <button
+                          type="button"
+                          aria-label={`${t('common.remove')} ${section.title}`}
                           onClick={() => handleDeleteSection(section.sectionId)}
                           className="text-critical-subtle-fg hover:text-critical-subtle-fg"
                         >

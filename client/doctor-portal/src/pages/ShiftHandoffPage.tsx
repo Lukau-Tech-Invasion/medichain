@@ -7,10 +7,13 @@ import {
   getPatients,
   useTranslation,
   clickable,
-  Input,
   useValidatedForm,
   shiftHandoffSchema,
+  localDateInput,
+  formatTimestamp,
 } from '@medichain/shared';
+import StaffName from '../components/StaffName';
+import StaffSelect from '../components/StaffSelect';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   ArrowRightLeft,
@@ -36,7 +39,6 @@ interface PatientHandoff {
   patientId: string;
   patientName: string;
   room: string;
-  admitDate: string;
   diagnosis: string;
   codeStatus: string;
   isolation?: string;
@@ -108,6 +110,7 @@ const SAFETY_RISK_KEYS: Record<string, string> = {
 };
 
 const CODE_STATUS_KEYS: Record<string, string> = {
+  'Not recorded': 'not-recorded',
   'Full Code': 'full-code',
   'DNR': 'dnr',
   'DNR/DNI': 'dnr-dni',
@@ -125,7 +128,24 @@ const CODE_STATUS_KEYS: Record<string, string> = {
  * genuinely inconsistent about enveloping -- so naming it changes nothing at
  * run time and makes the reads checkable.
  */
-type HandoffList = { handoffs?: ShiftHandoff[] } | ShiftHandoff[];
+interface SavedHandoff {
+  id: string;
+  patient_id: string;
+  outgoing_provider_id: string;
+  incoming_provider_id: string;
+  handoff_datetime: string;
+  location_from?: string;
+  code_status?: string;
+  situation: string;
+  background: string;
+  assessment: string;
+  recommendation: string;
+  acknowledged_by_incoming: boolean;
+  acknowledged_at?: string;
+  data?: { shift_direction?: ShiftType; patient?: Partial<PatientHandoff> & { patient_name?: string } };
+}
+
+type HandoffList = { handoffs?: SavedHandoff[] } | SavedHandoff[];
 
 /** How far back the History tab reaches. The API caps it at 30. */
 const HANDOFF_HISTORY_DAYS = 14;
@@ -145,7 +165,7 @@ export default function ShiftHandoffPage() {
   // Handoff data
   const [handoff, setHandoff] = useState<Partial<ShiftHandoff>>({
     shiftType: 'day-to-evening',
-    handoffDate: new Date().toISOString().split('T')[0],
+    handoffDate: localDateInput(),
     handoffTime: new Date().toTimeString().slice(0, 5),
     outgoingNurse: user?.userId || '',
     incomingNurse: '',
@@ -156,14 +176,34 @@ export default function ShiftHandoffPage() {
   const [patientHandoffs, setPatientHandoffs] = useState<PatientHandoff[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [showAddPatient, setShowAddPatient] = useState(false);
-  const [handoffHistory, setHandoffHistory] = useState<ShiftHandoff[]>([]);
+  const [handoffHistory, setHandoffHistory] = useState<SavedHandoff[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [historyAttempt, setHistoryAttempt] = useState(0);
+  const [receiptPending, setReceiptPending] = useState<string | null>(null);
+  const [receiptError, setReceiptError] = useState('');
+
+  /** Persist receipt for one saved record, then re-read authoritative history. */
+  const acknowledgeReceipt = async (id: string) => {
+    if (receiptPending) return;
+    setReceiptPending(id);
+    setReceiptError('');
+    try {
+      await getApiClient().put(`/api/emergency/handoff/${encodeURIComponent(id)}/receipt`, {});
+      setHistoryAttempt(attempt => attempt + 1);
+    } catch (error) {
+      console.error('Handoff receipt could not be confirmed', error);
+      setReceiptError(t('docShiftHandoff.receiptFailed'));
+    } finally {
+      setReceiptPending(null);
+    }
+  };
 
   // New patient form
   const [newPatientHandoff, setNewPatientHandoff] = useState<Partial<PatientHandoff>>({
     room: '',
     diagnosis: '',
-    codeStatus: 'Full Code',
+    codeStatus: 'Not recorded',
     priority: 'routine',
     sbar: {
       situation: '',
@@ -204,7 +244,7 @@ export default function ShiftHandoffPage() {
     'DVT Risk', 'MRSA', 'C. Diff', 'Contact Isolation', 'Droplet Isolation'
   ];
 
-  const codeStatuses = ['Full Code', 'DNR', 'DNR/DNI', 'Comfort Measures Only', 'Limited Code'];
+  const codeStatuses = ['Not recorded', 'Full Code', 'DNR', 'DNR/DNI', 'Comfort Measures Only', 'Limited Code'];
 
   useEffect(() => {
     const fetchData = async () => {
@@ -218,10 +258,14 @@ export default function ShiftHandoffPage() {
     fetchData();
   }, []);
 
+  useEffect(() => { setHandoffHistory([]); }, [user?.userId]);
+
   useEffect(() => {
+    let active = true;
     if (activeTab === 'history' && user) {
       const fetchHistory = async () => {
         setHistoryLoading(true);
+        setHistoryError('');
         try {
           // Fetch recent handoffs (use user ID as the handoff ID reference)
           // The history tab asked for today only, because that was all the
@@ -230,16 +274,20 @@ export default function ShiftHandoffPage() {
           const data = await getApiClient().get<HandoffList>(
             `/api/clinical/shift-handoff/${user.userId}?days=${HANDOFF_HISTORY_DAYS}`
           );
-          setHandoffHistory(Array.isArray(data) ? data : (data.handoffs || []));
+          const rows = Array.isArray(data) ? data : data.handoffs;
+          if (!Array.isArray(rows)) throw new Error('Invalid handoff history response');
+          if (active) setHandoffHistory(rows);
         } catch (err) {
           console.error('Failed to fetch handoff history:', err);
+          if (active) setHistoryError(t('docShiftHandoff.errorHistoryLoad'));
         } finally {
-          setHistoryLoading(false);
+          if (active) setHistoryLoading(false);
         }
       };
       fetchHistory();
     }
-  }, [activeTab, user]);
+    return () => { active = false; };
+  }, [activeTab, user?.userId, historyAttempt, t]);
 
   const filteredPatients = patients.filter(p => 
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -265,9 +313,8 @@ export default function ShiftHandoffPage() {
       patientId: patient.patient_id,
       patientName: patient.full_name,
       room: newPatientHandoff.room || '',
-      admitDate: new Date().toISOString().split('T')[0],
       diagnosis: newPatientHandoff.diagnosis || '',
-      codeStatus: newPatientHandoff.codeStatus || 'Full Code',
+      codeStatus: newPatientHandoff.codeStatus || 'Not recorded',
       priority: newPatientHandoff.priority || 'routine',
       sbar: {
         situation: newPatientHandoff.sbar?.situation || '',
@@ -301,7 +348,7 @@ export default function ShiftHandoffPage() {
     setNewPatientHandoff({
       room: '',
       diagnosis: '',
-      codeStatus: 'Full Code',
+      codeStatus: 'Not recorded',
       priority: 'routine',
       sbar: { situation: '', background: '', assessment: '', recommendation: '' },
       ivAccess: '',
@@ -357,7 +404,7 @@ export default function ShiftHandoffPage() {
   };
 
 
-  const { errors, validate, validateField, clearField } = useValidatedForm(shiftHandoffSchema);
+  const { errors, validate, clearField } = useValidatedForm(shiftHandoffSchema);
   const handleSave = async () => {
     // A handover with nobody named as receiving it records that care was handed
     // to no one, which is the gap a handover exists to close.
@@ -379,6 +426,7 @@ export default function ShiftHandoffPage() {
         shift_type: handoff.shiftType,
         handoff_date: handoff.handoffDate,
         handoff_time: handoff.handoffTime,
+        handoff_datetime: new Date(`${handoff.handoffDate}T${handoff.handoffTime}`).toISOString(),
         outgoing_nurse: handoff.outgoingNurse,
         incoming_nurse: handoff.incomingNurse,
         unit: handoff.unit,
@@ -414,10 +462,10 @@ export default function ShiftHandoffPage() {
                 <p className="text-white">{t('docShiftHandoff.subtitle')}</p>
               </div>
             </div>
-            <div className="text-right text-white">
+            {activeTab === 'handoff' && <div className="text-right text-white">
               <p className="font-medium">{new Date().toLocaleDateString()}</p>
               <p className="text-sm">{shiftTypes[handoff.shiftType as ShiftType]?.label}</p>
-            </div>
+            </div>}
           </div>
         </div>
 
@@ -429,7 +477,7 @@ export default function ShiftHandoffPage() {
         )}
 
         {error && (
-          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
+          <div role="alert" className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
@@ -530,25 +578,23 @@ export default function ShiftHandoffPage() {
                     <input
                       id="handoff-outgoing-nurse"
                       type="text"
-                      value={handoff.outgoingNurse}
-                      onChange={(e) => setHandoff({ ...handoff, outgoingNurse: e.target.value })}
+                      value={user?.username || handoff.outgoingNurse}
                       className="w-full p-2 border border-border-interactive rounded-lg bg-surface-sunken text-content"
                       readOnly
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="handoff-incoming-nurse" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.incomingNurseLabel')}</label>
-                    <Input
+                    <StaffSelect
                       id="handoff-incoming-nurse"
-                      type="text"
-                      value={handoff.incomingNurse}
-                      onChange={(e) => { clearField('incomingNurse'); setHandoff({ ...handoff, incomingNurse: e.target.value }); }}
-                      onBlur={() => validateField('incomingNurse', handoff)}
-                      error={errors.incomingNurse}
+                      label={t('docShiftHandoff.incomingNurseLabel')}
+                      roleFilter="Nurse"
+                      value={handoff.incomingNurse || ''}
+                      onChange={(id) => { clearField('incomingNurse'); setHandoff({ ...handoff, incomingNurse: id }); }}
                       placeholder={t('docShiftHandoff.incomingNursePlaceholder')}
                       required
                     />
+                    {errors.incomingNurse && <p role="alert" className="mt-1 text-sm text-critical">{errors.incomingNurse}</p>}
                   </div>
                 </div>
               </div>
@@ -1018,9 +1064,14 @@ export default function ShiftHandoffPage() {
               <History className="h-6 w-6 mr-2 text-purple-500" />
               {t('docShiftHandoff.handoffHistoryTitle')}
             </h2>
+            {historyError && <div role="alert" className="mb-4 rounded-lg border border-critical bg-critical-subtle p-4 text-critical-subtle-fg">
+              <p>{historyError}</p>
+              <button type="button" onClick={() => setHistoryAttempt(attempt => attempt + 1)} className="mt-2 rounded-lg border border-current px-3 py-2 font-semibold focus-visible:outline focus-visible:outline-2">{t('docShiftHandoff.retryHistory')}</button>
+            </div>}
+            {receiptError && <p role="alert" className="mb-4 rounded-lg border border-critical bg-critical-subtle p-4 text-critical-subtle-fg">{receiptError}</p>}
             {historyLoading ? (
               <div className="text-center py-8 text-content-muted">{t('docShiftHandoff.loadingHistory')}</div>
-            ) : handoffHistory.length === 0 ? (
+            ) : handoffHistory.length === 0 && !historyError ? (
               <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{t('docShiftHandoff.noHistoryAvailable')}</p>
@@ -1032,24 +1083,44 @@ export default function ShiftHandoffPage() {
                   <div key={h.id} className="border rounded-lg p-4">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-bold">{shiftTypes[h.shiftType].label}</p>
+                        <p className="font-bold">{h.data?.shift_direction ? shiftTypes[h.data.shift_direction]?.label ?? h.data.shift_direction : 'Shift handoff'}</p>
                         <p className="text-sm text-content-muted">
-                          {t('docShiftHandoff.dateTimeUnit', { date: h.handoffDate, time: h.handoffTime, unit: h.unit })}
+                          {formatTimestamp(h.handoff_datetime)} · {h.location_from || 'Unit not recorded'}
                         </p>
                         <p className="text-sm">
-                          {t('docShiftHandoff.nurseArrow', { outgoing: h.outgoingNurse, incoming: h.incomingNurse })}
+                          <StaffName id={h.outgoing_provider_id} /> → <StaffName id={h.incoming_provider_id} />
                         </p>
                       </div>
                       <span className={`px-3 py-1 rounded text-sm ${
-                        h.status === 'acknowledged' ? 'bg-ok-subtle text-ok-subtle-fg' :
-                        h.status === 'accepted' ? 'bg-notice-subtle text-notice-subtle-fg' :
-                        h.status === 'pending' ? 'bg-caution-subtle text-caution-subtle-fg' :
-                        'bg-surface-sunken text-content-secondary'
+                        h.acknowledged_by_incoming ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
                       }`}>
-                        {t(`docShiftHandoff.status_${h.status}`)}
+                        {t(`docShiftHandoff.status_${h.acknowledged_by_incoming ? 'acknowledged' : 'pending'}`)}
                       </span>
                     </div>
-                    <p className="text-sm text-content-muted mt-2">{t('docShiftHandoff.patientsCount', { count: h.patients.length })}</p>
+                    <p className="text-sm text-content-muted mt-2">{patients.find(patient => patient.patient_id === h.patient_id)?.full_name || h.data?.patient?.patientName || h.data?.patient?.patient_name || h.patient_id} · {h.code_status || 'Not recorded'}</p>
+                    {h.acknowledged_at && <p className="mt-2 text-sm">{t('docShiftHandoff.receiptAcknowledged', { time: formatTimestamp(h.acknowledged_at) })}</p>}
+                    {h.incoming_provider_id === user?.userId && !h.acknowledged_by_incoming && <div className="mt-3">
+                      <p className="text-sm text-content-muted">{t('docShiftHandoff.receiptExplanation')}</p>
+                      <button type="button" disabled={receiptPending !== null || historyLoading} onClick={() => acknowledgeReceipt(h.id)} className="mt-2 rounded-lg border border-border-interactive px-3 py-2 font-semibold focus-visible:outline focus-visible:outline-2 disabled:opacity-50">
+                        {t(receiptPending === h.id ? 'docShiftHandoff.acknowledgingReceipt' : 'docShiftHandoff.acknowledgeReceipt')}
+                      </button>
+                    </div>}
+                    <details className="mt-3">
+                      <summary className="cursor-pointer">View saved SBAR</summary>
+                      <dl className="mt-2 space-y-2">
+                        {(['situation', 'background', 'assessment', 'recommendation'] as const).map(field => (
+                          <div key={field}><dt className="font-semibold capitalize">{field}</dt><dd className="whitespace-pre-wrap">{h[field] || 'Not recorded'}</dd></div>
+                        ))}
+                        {(['room', 'diagnosis', 'priority', 'ivAccess', 'diet', 'activity', 'pendingLabs', 'pendingTests', 'pendingOrders', 'familyUpdates', 'additionalNotes'] as const).map(field => (
+                          <div key={field}><dt className="font-semibold">{t(`docShiftHandoff.${field}Label`)}</dt><dd className="whitespace-pre-wrap">{h.data?.patient?.[field] || t('docNursing.notRecorded')}</dd></div>
+                        ))}
+                        {(['scheduled', 'prn', 'drips'] as const).map(field => (
+                          <div key={field}><dt className="font-semibold">{t(`docShiftHandoff.${field}Label`)}</dt><dd className="whitespace-pre-wrap">{h.data?.patient?.medications?.[field] || t('docNursing.notRecorded')}</dd></div>
+                        ))}
+                        <div><dt className="font-semibold">{t('docShiftHandoff.safetyRisksTitle')}</dt><dd>{h.data?.patient?.safetyRisks?.length ? h.data.patient.safetyRisks.join(', ') : t('docNursing.notRecorded')}</dd></div>
+                        <div><dt className="font-semibold">{t('docShiftHandoff.isolationLabel')}</dt><dd>{h.data?.patient?.isolation || t('docNursing.notRecorded')}</dd></div>
+                      </dl>
+                    </details>
                   </div>
                 ))}
               </div>

@@ -1,3 +1,4 @@
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import React, { useState, useEffect } from 'react';
 import {
   Droplets,
@@ -17,7 +18,6 @@ import {
 import PatientSelect from '../components/PatientSelect';
 import {
   createIntakeOutput,
-  getApiClient,
   listIntakeOutput,
   useTranslation,
   clickable,
@@ -47,19 +47,12 @@ interface IOEntry {
   timestamp: Date;
   type: 'intake' | 'output';
   category: IntakeType | OutputType;
-  amount: number;
+  amount: number | null;
   unit: 'ml' | 'cc' | 'oz';
   source?: string;
   notes?: string;
   recordedBy: string;
 }
-
-/** A stored intake/output entry: `timestamp` may be the write time or the
- *  time the nurse recorded it, depending on which writer produced the row. */
-type RawIOEntry = Omit<IOEntry, 'timestamp'> & {
-  timestamp?: string | number | Date;
-  recorded_at?: string;
-};
 
 interface PatientIO {
   patientId: string;
@@ -67,15 +60,15 @@ interface PatientIO {
   mrn: string;
   room: string;
   entries: IOEntry[];
-  totalIntake24h: number;
-  totalOutput24h: number;
-  netBalance: number;
+  totalIntake24h: number | null;
+  totalOutput24h: number | null;
+  netBalance: number | null;
   alerts: string[];
 }
 
 /** Build the exact trend table the clinician sees; CSV values are quoted. */
 export const intakeOutputTrendCsv = (date: string, rows: PatientIO[]) => {
-  const quote = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+  const quote = (value: string | number | null) => `"${String(value ?? '').replace(/"/g, '""')}"`;
   return [
     ['Date', 'Patient', 'Patient ID', 'Room', 'Intake (mL)', 'Output (mL)', 'Balance (mL)'],
     ...rows.map(row => [date, row.patientName, row.patientId, row.room, row.totalIntake24h, row.totalOutput24h, row.netBalance]),
@@ -91,18 +84,17 @@ interface IoRecordRow {
   total_intake: number | null;
   total_output: number | null;
   net_balance: number | null;
-  intake_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string }> | null;
-  output_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string }> | null;
+  intake_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string; notes?: string; source?: string; recorded_by?: string }> | null;
+  output_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string; notes?: string; source?: string; recorded_by?: string }> | null;
 }
 
 /** Fold a patient's stored fluid records into the shape the ward list renders. */
-function toPatientIO(
+export function toPatientIO(
   person: { patient_id: string; full_name: string },
-  rows: IoRecordRow[]
+  rows: IoRecordRow[],
+  window = { start: Date.now() - 24 * 60 * 60 * 1000, end: Date.now() }
 ): PatientIO {
   const mine = rows.filter(r => r.patient_id === person.patient_id);
-  const sum = (pick: (r: IoRecordRow) => number | null) =>
-    mine.reduce((total, r) => total + (pick(r) || 0), 0);
   const entries: IOEntry[] = mine.flatMap(r =>
     [
       ...(r.intake_items || []).map(item => ({ item, type: 'intake' as const })),
@@ -113,16 +105,19 @@ function toPatientIO(
       // Categories are stored as "intake:oral" so the two directions cannot be
       // confused when totals are recomputed; show just the category.
       category: (item.category || '').split(':').pop() || '',
-      amount: item.amount_ml || 0,
+      amount: typeof item.amount_ml === 'number' && Number.isFinite(item.amount_ml) ? item.amount_ml : null,
       unit: 'ml',
-      source: '',
-      notes: '',
-      timestamp: new Date(item.recorded_at || r.record_date || Date.now()),
-      recordedBy: '',
+      source: item.source || '',
+      notes: item.notes || '',
+      timestamp: new Date(item.recorded_at || r.record_date),
+      recordedBy: item.recorded_by || '',
     })) as IOEntry[]
-  );
-  const totalIntake24h = sum(r => r.total_intake);
-  const totalOutput24h = sum(r => r.total_output);
+  ).filter(entry => entry.timestamp.getTime() >= window.start && entry.timestamp.getTime() < window.end);
+  const sum = (type: IOEntry['type']): number | null => !entries.length ? null : entries
+    .filter(entry => entry.type === type).reduce<number | null>((total, entry) =>
+      total === null || entry.amount === null ? null : total + entry.amount, 0);
+  const totalIntake24h = sum('intake');
+  const totalOutput24h = sum('output');
   return {
     patientId: person.patient_id,
     patientName: person.full_name,
@@ -131,35 +126,35 @@ function toPatientIO(
     entries,
     totalIntake24h,
     totalOutput24h,
-    netBalance: totalIntake24h - totalOutput24h,
+    netBalance: totalIntake24h === null || totalOutput24h === null ? null : totalIntake24h - totalOutput24h,
     alerts: [],
   };
 }
 
 
-/**
- * What this endpoint returns, as this page already reads it.
- *
- * `res.json()` was `any`, so a field this endpoint does not return typechecked
- * anyway and showed up as a blank panel instead of a compile error. The union
- * below is the one the call site already handles -- the list endpoints are
- * genuinely inconsistent about enveloping -- so naming it changes nothing at
- * run time and makes the reads checkable.
- */
-type IoPayload = { entries?: Record<string, unknown>[]; intake?: unknown; output?: unknown };
-
 const IntakeOutputPage: React.FC = () => {
+  const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
   const { catalog } = useScoringCatalog();
   const [activeTab, setActiveTab] = useState<'patients' | 'entry' | 'trends'>('patients');
   const [patients, setPatients] = useState<PatientIO[]>([]);
+  const [storedRows, setStoredRows] = useState<IoRecordRow[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientIO | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [entryType, setEntryType] = useState<'intake' | 'output'>('intake');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  // Calendar-day trends use local midnight; bedside cards use the last 24 hours.
+  const dayStart = new Date(`${selectedDate}T00:00:00`);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setDate(dayEnd.getDate() + 1);
+  const trendPatients = patients.map(person => toPatientIO({
+    patient_id: person.patientId, full_name: person.patientName,
+  }, storedRows, { start: dayStart.getTime(), end: dayEnd.getTime() }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [readAttempt, setReadAttempt] = useState(0);
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
 
@@ -173,7 +168,7 @@ const IntakeOutputPage: React.FC = () => {
   });
 
   const exportTrendCsv = () => {
-    const blob = new Blob([intakeOutputTrendCsv(selectedDate, patients)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([intakeOutputTrendCsv(selectedDate, trendPatients)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -183,66 +178,40 @@ const IntakeOutputPage: React.FC = () => {
   };
 
   useEffect(() => {
+    let active = true;
     const fetchIntakeOutput = async () => {
       if (!user?.userId) {
         setLoading(false);
         return;
       }
       
+      setLoading(true);
+      setError(null);
       try {
         // The ward list is the patient roster with each patient's fluid record
         // folded in — not the raw io_records rows, which carry no patient name
         // and left every card rendering the untranslated `{{mrn}}` placeholder.
         const [roster, records] = await Promise.all([
           getPatients({ limit: 100 }),
-          listIntakeOutput().catch(() => []),
+          listIntakeOutput(),
         ]);
 
-        const rows = (Array.isArray(records) ? records : []) as unknown as IoRecordRow[];
+        if (!Array.isArray(records)) throw new Error('Invalid I/O response');
+        const rows = records as unknown as IoRecordRow[];
+        if (!active) return;
+        setStoredRows(rows);
         setPatients(roster.map(person => toPatientIO(person, rows)));
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
-        setError(t('docIntakeOutput.errorLoad'));
+        if (active) setError(t('docIntakeOutput.errorLoad'));
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
     
     fetchIntakeOutput();
-  }, [user, t]);
-
-  // Fetch detailed I/O for selected patient/date
-  useEffect(() => {
-    if (!selectedPatient || !user?.userId) return;
-    const fetchDetailedIO = async () => {
-      const shift = 'day'; // Default shift
-      try {
-        // Route is `/api/emergency/io/{patient_id}/{type}/{timestamp}` — there is
-        // no `/api/clinical/io/...`, so this 404'd. The handler reads the 1st and
-        // 3rd segments (`IO-{patient_id}-{date}`) and ignores the middle, so the
-        // shift goes in the middle slot and the date must be last — sending
-        // (patient, date, shift) put the shift where the date belongs.
-        const data = await getApiClient().get<IoPayload>(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`);
-        if (data && (data.entries || data.intake || data.output)) {
-          // Update the selected patient's entries with fresh data
-          const rawEntries = Array.isArray(data.entries)
-            ? data.entries
-            : [
-                ...(Array.isArray(data.intake) ? data.intake : []),
-                ...(Array.isArray(data.output) ? data.output : []),
-              ];
-          const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
-            ...e,
-            timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-          }));
-          setSelectedPatient(prev => prev ? { ...prev, entries } : null);
-        }
-      } catch (err) {
-        console.error('Failed to fetch I/O detail:', err);
-      }
-    };
-    fetchDetailedIO();
-  }, [selectedPatient?.patientId, selectedDate, user, selectedPatient]);
+    return () => { active = false; };
+  }, [user, t, readAttempt]);
 
   const getIntakeCategories = (): IntakeType[] => ['oral', 'iv', 'tube-feeding', 'blood-products', 'other-intake'];
   const getOutputCategories = (): OutputType[] => ['urine', 'stool', 'emesis', 'drainage', 'blood-loss', 'other-output'];
@@ -292,9 +261,14 @@ const IntakeOutputPage: React.FC = () => {
   // result was a green "balanced" card carrying grey placeholder text at 3.59:1
   // against it, which is both below WCAG AA and a claim the page had no band to
   // make.
+  /** Display absent observations separately from incomplete recorded entries. */
+  const displayVolume = (value: number | null, patient: PatientIO) =>
+    value ?? t(patient.entries.length ? 'docIntakeOutput.volumeUnknown' : 'docIntakeOutput.noEntriesRecorded');
+
   const getBalanceStatus = (
-    balance: number
+    balance: number | null, hasEntries = true
   ): { color: string; surface: string; icon: React.ReactNode; label: string } => {
+    if (balance === null) return { color: 'text-content-muted', surface: 'bg-surface-sunken', icon: <AlertCircle className="w-4 h-4" />, label: t(hasEntries ? 'docIntakeOutput.volumeUnknown' : 'docIntakeOutput.noEntriesRecorded') };
     switch (fluidBalanceBand(balance, catalog)) {
       case 'positive_high':
         return { color: 'text-critical-subtle-fg', surface: 'bg-critical-subtle', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
@@ -352,31 +326,16 @@ const IntakeOutputPage: React.FC = () => {
       await createIntakeOutput(payload);
       showSuccess(t('docIntakeOutput.recordedSuccess', { type: t(`docIntakeOutput.typeLabel_${newEntry.type}`) }));
       
-      // Refresh list
-      const data = await listIntakeOutput();
-      if (Array.isArray(data)) {
-        setPatients(data.map((p) => ({
-          ...(p as unknown as PatientIO),
-          // `timestamp` on a stored entry may be the write time or the time the
-          // nurse recorded it; the row carries whichever the writer set.
-          entries: (((p.entries ?? []) as RawIOEntry[])).map((e) => ({
-            ...e,
-            timestamp: new Date(e.timestamp || e.recorded_at || Date.now()),
-          })),
-        })) as unknown as PatientIO[]);
-        
-        // Update selected patient too
-        const updatedSelected = (data as unknown as NonNullable<typeof selectedPatient>[]).find(p => p.patientId === selectedPatient.patientId);
-        if (updatedSelected) {
-          setSelectedPatient({
-            ...updatedSelected,
-            entries: ((updatedSelected.entries || []) as unknown as RawIOEntry[]).map((e) => ({
-              ...e,
-              timestamp: new Date(e.timestamp || e.recorded_at || Date.now()),
-            })) as typeof updatedSelected.entries
-          });
-        }
-      }
+      // Reuse the persisted-row mapping used on initial load; raw rows are
+      // not patient cards and must not replace names or the selected identity.
+      const records = await listIntakeOutput();
+      const rows = records as unknown as IoRecordRow[];
+      setStoredRows(rows);
+      const refreshed = patients.map(person => toPatientIO({
+        patient_id: person.patientId, full_name: person.patientName,
+      }, rows));
+      setPatients(refreshed);
+      setSelectedPatient(refreshed.find(person => person.patientId === selectedPatient.patientId) || null);
 
       setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
     } catch (err) {
@@ -389,6 +348,7 @@ const IntakeOutputPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Intake/output summary" record={printRecord} onClose={() => setPrintRecord(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -408,11 +368,11 @@ const IntakeOutputPage: React.FC = () => {
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
+        <div role="alert" className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-critical flex-shrink-0" />
           <div>
             <p className="text-sm text-critical-subtle-fg">{error}</p>
-            <p className="text-xs text-critical mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
+            <button type="button" onClick={() => setReadAttempt(attempt => attempt + 1)} className="mt-2 rounded-lg border border-current px-3 py-2 font-semibold focus-visible:outline focus-visible:outline-2">{t('docIntakeOutput.retryLoad')}</button>
           </div>
         </div>
       )}
@@ -455,12 +415,12 @@ const IntakeOutputPage: React.FC = () => {
 
               <div className="space-y-4">
                 {filteredPatients.map((patient, pIdx) => {
-                  const balanceStatus = getBalanceStatus(patient.netBalance);
+                  const balanceStatus = getBalanceStatus(patient.netBalance, patient.entries.length > 0);
                   return (
                     <div
                       key={patient.patientId ?? `p-${pIdx}`}
                       className="bg-surface rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-                      {...clickable(() => setSelectedPatient(patient))}
+                      {...clickable(() => { setSelectedPatient(patient); setDetailOpen(true); })}
                     >
                       <div className="p-6">
                         <div className="flex items-start justify-between mb-4">
@@ -482,7 +442,7 @@ const IntakeOutputPage: React.FC = () => {
                           <ArrowDown className="w-4 h-4" />
                           <span className="text-xs font-medium">{t('docIntakeOutput.intakeLabel')}</span>
                         </div>
-                        <p className="text-xl font-bold text-notice-subtle-fg">{patient.totalIntake24h}</p>
+                        <p className="text-xl font-bold text-notice-subtle-fg">{displayVolume(patient.totalIntake24h, patient)}</p>
                         <p className="text-xs text-notice-subtle-fg">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
                       <div className="bg-caution-subtle rounded-lg p-3 text-center">
@@ -490,7 +450,7 @@ const IntakeOutputPage: React.FC = () => {
                           <ArrowUp className="w-4 h-4" />
                           <span className="text-xs font-medium">{t('docIntakeOutput.outputLabel')}</span>
                         </div>
-                        <p className="text-xl font-bold text-caution-subtle-fg">{patient.totalOutput24h}</p>
+                        <p className="text-xl font-bold text-caution-subtle-fg">{displayVolume(patient.totalOutput24h, patient)}</p>
                         <p className="text-xs text-caution-subtle-fg">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
                       <div className={`rounded-lg p-3 text-center ${balanceStatus.surface}`}>
@@ -499,7 +459,7 @@ const IntakeOutputPage: React.FC = () => {
                           <span className="text-xs font-medium">{t('docIntakeOutput.balanceLabel')}</span>
                         </div>
                         <p className={`text-xl font-bold ${balanceStatus.color}`}>
-                          {patient.netBalance > 0 ? '+' : ''}{patient.netBalance}
+                          {patient.netBalance !== null && patient.netBalance > 0 ? '+' : ''}{displayVolume(patient.netBalance, patient)}
                         </p>
                         <p className={`text-xs ${balanceStatus.color}`}>{t('docIntakeOutput.mlUnit')}</p>
                       </div>
@@ -658,9 +618,9 @@ const IntakeOutputPage: React.FC = () => {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold">{t('docIntakeOutput.ioTrendsHeading')}</h2>
               <div className="flex gap-2">
-                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2" />
+                <input type="date" aria-label="Reporting date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2" />
                 <button type="button" onClick={exportTrendCsv} aria-label={t('docIntakeOutput.exportTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Download className="w-5 h-5" /></button>
-                <button type="button" onClick={() => window.print()} aria-label={t('docIntakeOutput.printTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
+                <button type="button" onClick={() => setPrintRecord({ reportingDate: selectedDate, reportingWindow: 'Local calendar day', patients: trendPatients.map(patient => ({ patientId: patient.patientId, patientName: patient.patientName, room: patient.room, intakeMl: patient.totalIntake24h, outputMl: patient.totalOutput24h, balanceMl: patient.netBalance })) })} aria-label={t('docIntakeOutput.printTrend')} className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
               </div>
             </div>
 
@@ -677,16 +637,16 @@ const IntakeOutputPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {patients.map(p => {
-                    const status = getBalanceStatus(p.netBalance);
+                  {trendPatients.map(p => {
+                    const status = getBalanceStatus(p.netBalance, p.entries.length > 0);
                     return (
                       <tr key={p.patientId} className="border-b hover:bg-surface-sunken">
                         <td className="p-3 font-medium">{p.patientName}</td>
                         <td className="p-3">{p.room}</td>
-                        <td className="p-3 text-right text-notice-subtle-fg">{p.totalIntake24h}</td>
-                        <td className="p-3 text-right text-caution-subtle-fg">{p.totalOutput24h}</td>
+                        <td className="p-3 text-right text-notice-subtle-fg">{displayVolume(p.totalIntake24h, p)}</td>
+                        <td className="p-3 text-right text-caution-subtle-fg">{displayVolume(p.totalOutput24h, p)}</td>
                         <td className={`p-3 text-right font-semibold ${status.color}`}>
-                          {p.netBalance > 0 ? '+' : ''}{p.netBalance}
+                          {p.netBalance !== null && p.netBalance > 0 ? '+' : ''}{displayVolume(p.netBalance, p)}
                         </td>
                         <td className="p-3 text-center">
                           <span className={`inline-flex items-center gap-1 ${status.color}`}>
@@ -705,7 +665,7 @@ const IntakeOutputPage: React.FC = () => {
       )}
 
       {/* Patient Detail Modal */}
-      {selectedPatient && (
+      {detailOpen && selectedPatient && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
@@ -714,7 +674,7 @@ const IntakeOutputPage: React.FC = () => {
                 <p className="text-sm text-content-muted">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
+                <button onClick={() => setDetailOpen(false)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>
 
@@ -722,19 +682,19 @@ const IntakeOutputPage: React.FC = () => {
               {/* Summary */}
               <div className="grid grid-cols-3 gap-4 mb-6">
                 <div className="bg-notice-subtle rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-notice-subtle-fg">{selectedPatient.totalIntake24h}</p>
+                  <p className="text-2xl font-bold text-notice-subtle-fg">{displayVolume(selectedPatient.totalIntake24h, selectedPatient)}</p>
                   <p className="text-sm text-notice-subtle-fg">{t('docIntakeOutput.totalIntake24h')}</p>
                 </div>
                 <div className="bg-caution-subtle rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-caution-subtle-fg">{selectedPatient.totalOutput24h}</p>
+                  <p className="text-2xl font-bold text-caution-subtle-fg">{displayVolume(selectedPatient.totalOutput24h, selectedPatient)}</p>
                   <p className="text-sm text-caution-subtle-fg">{t('docIntakeOutput.totalOutput24h')}</p>
                 </div>
                 {(() => {
-                  const detail = getBalanceStatus(selectedPatient.netBalance);
+                  const detail = getBalanceStatus(selectedPatient.netBalance, selectedPatient.entries.length > 0);
                   return (
                     <div className={`rounded-lg p-4 text-center ${detail.surface}`}>
                       <p className={`text-2xl font-bold ${detail.color}`}>
-                        {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
+                        {selectedPatient.netBalance !== null && selectedPatient.netBalance > 0 ? '+' : ''}{displayVolume(selectedPatient.netBalance, selectedPatient)}
                       </p>
                       <p className={`text-sm ${detail.color}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
                     </div>
@@ -770,8 +730,8 @@ const IntakeOutputPage: React.FC = () => {
                             {getCategoryLabel(entry.category)}
                           </span>
                         </td>
-                        <td className="p-3 text-right font-medium">{entry.amount} {entry.unit}</td>
-                        <td className="p-3 text-content-muted">{entry.source || entry.notes || '-'}</td>
+                        <td className="p-3 text-right font-medium">{entry.amount ?? t('docIntakeOutput.volumeUnknown')} {entry.amount !== null ? entry.unit : ''}</td>
+                        <td className="p-3 text-content-muted">{[entry.source, entry.notes].filter(Boolean).join(' — ') || '-'}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
   Baby,
@@ -13,6 +14,7 @@ import {
   FileSignature
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import PediatricGrowthChart from '../components/PediatricGrowthChart';
 import {
   createPeds,
   listPedsForPatient,
@@ -22,6 +24,8 @@ import {
   Input,
   useValidatedForm,
   pediatricAssessmentSchema,
+  ApiClientError,
+  CARE_RELATIONSHIP_REQUIRED,
 } from '@medichain/shared';
 
 /**
@@ -32,16 +36,17 @@ import {
  */
 
 type AgeGroup = 'newborn' | 'infant' | 'toddler' | 'preschool' | 'school-age' | 'adolescent';
-type DevelopmentStatus = 'on-track' | 'monitor' | 'concern';
+type DevelopmentStatus = 'unknown' | 'on-track' | 'monitor' | 'concern';
 
 interface GrowthData {
-  date: Date;
-  weight: number;
-  height: number;
+  date: Date | null;
+  ageMonths: number | null;
+  weight: number | null;
+  height: number | null;
   headCircumference?: number;
   bmi?: number;
-  weightPercentile: number;
-  heightPercentile: number;
+  weightPercentile: number | null;
+  heightPercentile: number | null;
 }
 
 interface PediatricPatient {
@@ -51,9 +56,9 @@ interface PediatricPatient {
   dob: Date;
   ageMonths: number;
   ageGroup: AgeGroup;
-  gender: 'male' | 'female';
+  gender: string;
   growthData: GrowthData[];
-  vaccinesUpToDate: boolean;
+  vaccinesUpToDate: boolean | null;
   developmentStatus: DevelopmentStatus;
   alerts: string[];
 }
@@ -68,6 +73,46 @@ interface PediatricPatient {
 const latestGrowthOf = (patient: PediatricPatient): GrowthData | undefined =>
   patient.growthData.length > 0 ? patient.growthData[patient.growthData.length - 1] : undefined;
 
+/** Parse recorded numeric values without coercing missing, blank or boolean values to zero. */
+function recordedNumber(value: unknown): number | null {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/** Read canonical and legacy measurement names while preserving absent dates and percentiles. */
+function recordedGrowth(item: unknown): GrowthData | null {
+  const wrapper = item as Record<string, unknown>;
+  const record = (wrapper.data ?? wrapper) as Record<string, unknown>;
+  const weight = recordedNumber(record.weight_kg ?? wrapper.weight_kg);
+  const height = recordedNumber(record.length_cm ?? record.height_cm ?? wrapper.length_cm);
+  if (weight === null && height === null) return null;
+  const rawDate = wrapper.assessment_datetime ?? record.assessment_datetime ?? wrapper.created_at;
+  const date = typeof rawDate === 'string' ? new Date(rawDate) : null;
+  const recordedAge = recordedNumber(wrapper.age_months ?? record.age_months);
+  return { weight, height, ageMonths: recordedAge !== null && recordedAge >= 0 ? recordedAge : null,
+    date: date && Number.isFinite(date.getTime()) ? date : null,
+    headCircumference: recordedNumber(record.head_circumference_cm) ?? undefined,
+    weightPercentile: recordedNumber(record.weight_percentile),
+    heightPercentile: recordedNumber(record.height_percentile) };
+}
+
+/** Apply authoritative history to one patient; an empty history clears cached observations. */
+function withRecordedHistory(patient: PediatricPatient, rows: unknown[]): PediatricPatient {
+  const growthData = rows.map(recordedGrowth)
+    .filter((point): point is GrowthData => point !== null)
+    .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
+  const latest = rows[0] as Record<string, unknown> | undefined;
+  const recorded = (latest?.data ?? latest) as Record<string, unknown> | undefined;
+  const development = recorded?.developmental_status;
+  const vaccine = latest?.immunizations_up_to_date ?? recorded?.immunizations_up_to_date;
+  return { ...patient, growthData,
+    developmentStatus: ['on-track', 'monitor', 'concern'].includes(String(development))
+      ? development as DevelopmentStatus : 'unknown',
+    vaccinesUpToDate: typeof vaccine === 'boolean' ? vaccine : null };
+}
+
 const PediatricsPage: React.FC = () => {
   // Toasts, not `alert()`. A native alert is a blocking modal: it freezes the
   // tab until dismissed, ignores the app's styling and focus handling, and
@@ -75,9 +120,39 @@ const PediatricsPage: React.FC = () => {
   // exists "to replace browser alert() calls"; these three pages were missed.
   const { showSuccess, showError } = useToastActions();
   const { t } = useTranslation();
+  const { user } = useAuthStore();
+  const savePending = useRef(false);
+  const saveConfirmed = useRef(false);
+  const saveOperation = useRef<{ signature: string; key: string;
+    payload: { patient_id: string; [key: string]: unknown } } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [summaryError, setSummaryError] = useState<{ patientId: string; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'patients' | 'assessment' | 'growth'>('patients');
   const [patients, setPatients] = useState<PediatricPatient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PediatricPatient | null>(null);
+  const selectedPatientId = selectedPatient?.id;
+  const [historyPage, setHistoryPage] = useState(1);
+  const [hasOlderHistory, setHasOlderHistory] = useState(false);
+  const historyRows = useRef<unknown[]>([]);
+  /** Start a fresh read when opening a child's accumulated growth history. */
+  const openGrowth = (patient: PediatricPatient): void => {
+    setHistoryPage(1);
+    historyRows.current = [];
+    setSelectedPatient(patient);
+  };
+  const growthDialog = useRef<HTMLDialogElement>(null);
+  /** Native modal behavior contains focus; restore the opening control when details close. */
+  useEffect(() => {
+    if (!selectedPatientId) return;
+    const openingControl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    growthDialog.current?.showModal();
+    return () => openingControl?.focus();
+  }, [selectedPatientId]);
+  const [growthLoading, setGrowthLoading] = useState(false);
+  const [growthError, setGrowthError] = useState('');
+  const [growthAccessDenied, setGrowthAccessDenied] = useState(false);
+  const [growthRetry, setGrowthRetry] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [assessmentForm, setAssessmentForm] = useState({
     patientId: '',
@@ -86,10 +161,10 @@ const PediatricsPage: React.FC = () => {
     heartRate: '',
     respiratoryRate: '',
     temperature: '',
-    patAppearance: 'normal',
-    patWorkOfBreathing: 'normal',
-    patCirculation: 'normal',
-    developmentalStatus: 'on-track',
+    patAppearance: '',
+    patWorkOfBreathing: '',
+    patCirculation: '',
+    developmentalStatus: '',
     notes: ''
   });
 
@@ -139,11 +214,12 @@ const PediatricsPage: React.FC = () => {
               dob,
               ageMonths,
               ageGroup: ageGroupFor(ageMonths),
-              gender: String(raw.gender ?? '').toLowerCase() === 'female' ? 'female' : 'male',
+              gender: String(raw.gender ?? '').trim() || 'Gender not recorded',
               // Filled in from the child's own assessments on selection.
               growthData: [],
-              vaccinesUpToDate: Boolean(raw.vaccines_up_to_date ?? false),
-              developmentStatus: 'on-track',
+              vaccinesUpToDate: typeof raw.vaccines_up_to_date === 'boolean' ? raw.vaccines_up_to_date : null,
+              developmentStatus: ['on-track', 'monitor', 'concern'].includes(String(raw.developmental_status))
+                ? raw.developmental_status as DevelopmentStatus : 'unknown',
               alerts: [],
             } as PediatricPatient;
           })
@@ -159,48 +235,56 @@ const PediatricsPage: React.FC = () => {
 
   /** Load the selected child's recorded growth points. */
   useEffect(() => {
-    if (!selectedPatient || selectedPatient.growthData.length > 0) return;
+    if (!selectedPatientId) return;
     let cancelled = false;
+    setGrowthLoading(true);
+    setGrowthError('');
+    setGrowthAccessDenied(false);
     const loadGrowth = async () => {
       try {
-        const rows = await listPedsForPatient(selectedPatient.id);
+        const pageRows = await listPedsForPatient(selectedPatientId, historyPage);
         if (cancelled) return;
-        const points: GrowthData[] = rows
-          .map((item) => {
-            const wrapper = item as { data?: Record<string, unknown>; created_at?: string };
-            const record = wrapper.data ?? (item as Record<string, unknown>);
-            const weight = Number(record.weight_kg ?? 0);
-            const height = Number(record.height_cm ?? 0);
-            if (!weight && !height) return null;
-            return {
-              date: new Date(wrapper.created_at ?? Date.now()),
-              weight,
-              height,
-              headCircumference: record.head_circumference_cm
-                ? Number(record.head_circumference_cm)
-                : undefined,
-              weightPercentile: Number(record.weight_percentile ?? 0),
-              heightPercentile: Number(record.height_percentile ?? 0),
-            } as GrowthData;
-          })
-          .filter((point): point is GrowthData => point !== null)
-          .sort((a, b) => a.date.getTime() - b.date.getTime());
-        if (points.length > 0) {
-          setSelectedPatient((current) =>
-            current && current.id === selectedPatient.id
-              ? { ...current, growthData: points }
-              : current,
-          );
-        }
+        historyRows.current = historyPage === 1 ? pageRows : [...historyRows.current, ...pageRows];
+        const rows = historyRows.current;
+        setHasOlderHistory(pageRows.length === 100);
+        setSummaryError(current => current?.patientId === selectedPatientId ? null : current);
+        const update = (patient: PediatricPatient): PediatricPatient => patient.id !== selectedPatientId
+          ? patient : withRecordedHistory(patient, rows);
+        setSelectedPatient(current => current ? update(current) : current);
+        setPatients(current => current.map(update));
       } catch (err) {
+        if (cancelled) return;
         console.error('Failed to load growth history:', err);
+        const careRequired = err instanceof ApiClientError && err.code === CARE_RELATIONSHIP_REQUIRED;
+        setGrowthAccessDenied(careRequired);
+        setGrowthError(careRequired
+          ? 'A care relationship is required to view this history. Use the normal care-assignment workflow before opening it.'
+          : 'Growth history could not be loaded. Recorded measurements are unavailable until you retry.');
+      } finally {
+        if (!cancelled) setGrowthLoading(false);
       }
     };
     loadGrowth();
     return () => {
       cancelled = true;
     };
-  }, [selectedPatient]);
+  }, [selectedPatientId, growthRetry, historyPage]);
+
+  /** Refresh a committed patient's summary without treating a failed read as a failed save. */
+  const refreshSavedSummary = async (patientId: string): Promise<void> => {
+    setSelectedPatient(null);
+    const update = (rows: unknown[]) => setPatients(current => current.map(patient =>
+      patient.id === patientId ? withRecordedHistory(patient, rows) : patient));
+    update([]);
+    try {
+      update(await listPedsForPatient(patientId));
+      setSummaryError(current => current?.patientId === patientId ? null : current);
+    } catch (error) {
+      console.error('Saved pediatric summary could not be refreshed:', error);
+      setSummaryError({ patientId,
+        message: 'Assessment saved. Growth summary could not be refreshed. Open the patient\'s growth details to retry.' });
+    }
+  };
 
   const getAgeDisplay = (months: number): string => {
     if (months < 1) return 'Newborn';
@@ -224,6 +308,7 @@ const PediatricsPage: React.FC = () => {
 
   const getDevelopmentBadge = (status: DevelopmentStatus) => {
     const styles: Record<DevelopmentStatus, { bg: string; text: string; icon: React.ReactNode }> = {
+      'unknown': { bg: 'bg-surface-sunken', text: 'text-content-muted', icon: null },
       'on-track': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
       'monitor': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Activity className="w-3 h-3" /> },
       'concern': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
@@ -231,7 +316,7 @@ const PediatricsPage: React.FC = () => {
     const s = styles[status];
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
-        {s.icon} {t(`docPediatrics.devStatus_${status}`)}
+        {s.icon} {status === 'unknown' ? 'Development not recorded' : t(`docPediatrics.devStatus_${status}`)}
       </span>
     );
   };
@@ -244,6 +329,7 @@ const PediatricsPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(pediatricAssessmentSchema);
   const handleSubmitAssessment = async () => {
+    if (savePending.current || saveConfirmed.current) return;
     // Weight is bounded as well as required: paediatric dosing is per
     // kilogram, so a weight in pounds entered as kilograms roughly doubles
     // every dose calculated from it, and 250 kg is not a child.
@@ -251,6 +337,9 @@ const PediatricsPage: React.FC = () => {
       return;
     }
 
+    savePending.current = true;
+    setSaving(true);
+    setSaveError('');
     try {
       // Only what the form collects, under the names the handler reads.
       //
@@ -276,19 +365,21 @@ const PediatricsPage: React.FC = () => {
       // A temperature nobody entered also became 37.0 and a weight nobody
       // entered became 0. Absent is what these are, and absent is what they
       // send now.
+      const assessmentPatient = patients.find(patient => patient.id === assessmentForm.patientId);
       const assessmentData = {
-        patient_id: selectedPatient?.id || assessmentForm.patientId,
-        age_months: selectedPatient?.ageMonths,
+        patient_id: assessmentForm.patientId,
+        age_months: assessmentPatient?.ageMonths,
         weight_kg: assessmentForm.weightKg ? parseFloat(assessmentForm.weightKg) : null,
         length_cm: assessmentForm.heightCm ? parseFloat(assessmentForm.heightCm) : null,
         // The Paediatric Assessment Triangle, which the form does collect.
-        appearance_score: assessmentForm.patAppearance === 'normal' ? 'Normal' : 'Abnormal',
-        work_of_breathing: assessmentForm.patWorkOfBreathing === 'normal' ? 'Normal' : 'Abnormal',
-        circulation_to_skin: assessmentForm.patCirculation === 'normal' ? 'Normal' : 'Abnormal',
+        appearance_score: assessmentForm.patAppearance ? assessmentForm.patAppearance === 'normal' ? 'Normal' : 'Abnormal' : null,
+        work_of_breathing: assessmentForm.patWorkOfBreathing ? assessmentForm.patWorkOfBreathing === 'normal' ? 'Normal' : 'Abnormal' : null,
+        circulation_to_skin: assessmentForm.patCirculation ? assessmentForm.patCirculation === 'normal' ? 'Normal' : 'Abnormal' : null,
+        developmental_status: assessmentForm.developmentalStatus || null,
         developmental_concerns:
           assessmentForm.developmentalStatus === 'on-track'
             ? null
-            : assessmentForm.developmentalStatus,
+            : assessmentForm.developmentalStatus || null,
         // Vital signs as recorded. No interpretation: the form has no control
         // for one, and a vital sign labelled "Normal" by the page rather than
         // by a clinician is a finding nobody made.
@@ -300,25 +391,50 @@ const PediatricsPage: React.FC = () => {
           temperature_celsius: assessmentForm.temperature
             ? parseFloat(assessmentForm.temperature)
             : null,
-          appearance: assessmentForm.patAppearance,
-          work_of_breathing: assessmentForm.patWorkOfBreathing,
-          circulation: assessmentForm.patCirculation,
+          appearance: assessmentForm.patAppearance || null,
+          work_of_breathing: assessmentForm.patWorkOfBreathing || null,
+          circulation: assessmentForm.patCirculation || null,
         },
         notes: assessmentForm.notes,
       };
 
-      await createPeds(assessmentData);
+      // Derived metadata must not change the retried payload when the entered draft is unchanged.
+      const signature = JSON.stringify(assessmentForm);
+      if (saveOperation.current?.signature !== signature) {
+        saveOperation.current = { signature, key: crypto.randomUUID(), payload: assessmentData };
+      }
+      const operation = saveOperation.current;
+      try {
+        const result = await createPeds(operation.payload, operation.key);
+        if (!result.success) throw new Error('Unconfirmed pediatric submission');
+      } catch (error) {
+        if (!(error instanceof ApiClientError) || error.code !== 'IDEMPOTENCY_DUPLICATE') throw error;
+        const rows = await listPedsForPatient(operation.payload.patient_id);
+        const recovered = rows.some(raw => {
+          const record = raw as { assessed_by?: string; data?: { client_operation_id?: string } };
+          return Boolean(user?.userId) && record.assessed_by === user?.userId
+            && record.data?.client_operation_id === operation.key;
+        });
+        if (!recovered) throw error;
+      }
+      saveConfirmed.current = true;
+      await refreshSavedSummary(operation.payload.patient_id);
       showSuccess(t('docPediatrics.submittedSuccess'));
       setActiveTab('patients');
       // Reset form
       setAssessmentForm({
         patientId: '', weightKg: '', heightCm: '', heartRate: '', respiratoryRate: '', temperature: '',
-        patAppearance: 'normal', patWorkOfBreathing: 'normal', patCirculation: 'normal',
-        developmentalStatus: 'on-track', notes: ''
+        patAppearance: '', patWorkOfBreathing: '', patCirculation: '',
+        developmentalStatus: '', notes: ''
       });
     } catch (error) {
       console.error('Failed to submit pediatric assessment:', error);
-      showError(t('docPediatrics.submitError'));
+      const message = 'Save could not be confirmed. Your draft is retained. Retry without changing it to recover the original save.';
+      setSaveError(message);
+      showError(message);
+    } finally {
+      savePending.current = false;
+      setSaving(false);
     }
   };
 
@@ -364,7 +480,15 @@ const PediatricsPage: React.FC = () => {
           {(['patients', 'assessment', 'growth'] as const).map(tab => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              disabled={saving}
+              onClick={() => {
+                if (tab === 'assessment' && saveConfirmed.current) {
+                  saveConfirmed.current = false;
+                  saveOperation.current = null;
+                  setSaveError('');
+                }
+                setActiveTab(tab);
+              }}
               className={`flex-1 py-4 text-sm font-medium capitalize ${
                 activeTab === tab ? 'text-notice-subtle-fg border-b-2 border-sky-700' : 'text-content-muted'
               }`}
@@ -375,6 +499,8 @@ const PediatricsPage: React.FC = () => {
         </div>
       </div>
 
+      {saveError && <p role="alert" className="m-4 bg-critical-subtle text-critical-subtle-fg p-3 rounded">{saveError}</p>}
+      {summaryError && <p role="alert" className="m-4 bg-critical-subtle text-critical-subtle-fg p-3 rounded">{summaryError.message}</p>}
       {/* Patients Tab */}
       {activeTab === 'patients' && (
         <div className="p-4">
@@ -395,7 +521,7 @@ const PediatricsPage: React.FC = () => {
               return (
                 <div
                   key={patient.id}
-                  {...clickable(() => setSelectedPatient(patient))}
+                  {...clickable(() => openGrowth(patient))}
                   className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                     patient.alerts.length > 0 ? 'border-l-4 border-l-yellow-500' : ''
                   }`}
@@ -428,7 +554,7 @@ const PediatricsPage: React.FC = () => {
                     </div>
                     <div className="bg-surface-sunken rounded p-2 text-center">
                       <Heart className="w-4 h-4 mx-auto text-content-muted mb-1" />
-                      <p className="text-sm font-semibold">{patient.vaccinesUpToDate ? '✓' : '!'}</p>
+                      <p className="text-sm font-semibold">{patient.vaccinesUpToDate === null ? 'Not recorded' : patient.vaccinesUpToDate ? '✓' : '!'}</p>
                       <p className="text-xs text-content-muted">{t('docPediatrics.vaccinesLabel')}</p>
                     </div>
                   </div>
@@ -458,14 +584,15 @@ const PediatricsPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docPediatrics.newAssessmentHeading')}</h2>
 
-            <div className="space-y-4">
+            <fieldset disabled={saving} className="space-y-4">
               <div>
                 <PatientSelect
                   id="peds-patient"
                   label={t('docPediatrics.patientRequired')}
                   required
                   value={assessmentForm.patientId}
-                  onChange={(selectedPatientId) => setAssessmentForm({ ...assessmentForm, patientId: selectedPatientId })}
+                  onChange={(selectedPatientId) => { clearField('patientId'); setAssessmentForm({ ...assessmentForm, patientId: selectedPatientId }); }}
+                  error={errors.patientId}
                 />
               </div>
 
@@ -485,7 +612,7 @@ const PediatricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="peds-height" className="block text-sm font-medium mb-1">{t('docPediatrics.heightCmRequired')} *</label>
+                  <label htmlFor="peds-height" className="block text-sm font-medium mb-1">{t('docPediatrics.heightCmRequired')}</label>
                   <input
                     id="peds-height"
                     type="number"
@@ -501,13 +628,15 @@ const PediatricsPage: React.FC = () => {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label htmlFor="peds-hr" className="block text-sm font-medium mb-1">{t('docPediatrics.heartRateRequired')} *</label>
-                  <input
+                  <Input
                     id="peds-hr"
                     type="number"
                     value={assessmentForm.heartRate}
-                    onChange={(e) => setAssessmentForm({ ...assessmentForm, heartRate: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2"
+                    onChange={(e) => { clearField('heartRate'); setAssessmentForm({ ...assessmentForm, heartRate: e.target.value }); }}
+                    onBlur={() => validateField('heartRate', assessmentForm)}
+                    error={errors.heartRate}
                     placeholder={t('docPediatrics.heartRatePh')}
+                    required
                   />
                 </div>
                 <div>
@@ -541,10 +670,12 @@ const PediatricsPage: React.FC = () => {
                   <div>
                     <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.appearanceLabel')}</label>
                     <select
+                      aria-label={t('docPediatrics.appearanceLabel')}
                       value={assessmentForm.patAppearance}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patAppearance: e.target.value })}
                       className="w-full border rounded-lg px-2 py-1 text-sm"
                     >
+                      <option value="">Not assessed</option>
                       <option value="normal">{t('docPediatrics.normalOption')}</option>
                       <option value="abnormal">{t('docPediatrics.abnormalOption')}</option>
                     </select>
@@ -552,10 +683,12 @@ const PediatricsPage: React.FC = () => {
                   <div>
                     <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.workOfBreathingLabel')}</label>
                     <select
+                      aria-label={t('docPediatrics.workOfBreathingLabel')}
                       value={assessmentForm.patWorkOfBreathing}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patWorkOfBreathing: e.target.value })}
                       className="w-full border rounded-lg px-2 py-1 text-sm"
                     >
+                      <option value="">Not assessed</option>
                       <option value="normal">{t('docPediatrics.normalOption')}</option>
                       <option value="abnormal">{t('docPediatrics.abnormalOption')}</option>
                     </select>
@@ -563,10 +696,12 @@ const PediatricsPage: React.FC = () => {
                   <div>
                     <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.circulationLabel')}</label>
                     <select
+                      aria-label={t('docPediatrics.circulationLabel')}
                       value={assessmentForm.patCirculation}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patCirculation: e.target.value })}
                       className="w-full border rounded-lg px-2 py-1 text-sm"
                     >
+                      <option value="">Not assessed</option>
                       <option value="normal">{t('docPediatrics.normalOption')}</option>
                       <option value="abnormal">{t('docPediatrics.abnormalOption')}</option>
                     </select>
@@ -577,6 +712,11 @@ const PediatricsPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium mb-1">{t('docPediatrics.developmentalStatusLabel')}</label>
                 <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="dev-status" checked={assessmentForm.developmentalStatus === ''}
+                      onChange={() => setAssessmentForm({ ...assessmentForm, developmentalStatus: '' })} />
+                    <span>Not assessed</span>
+                  </label>
                   {(['on-track', 'monitor', 'concern'] as const).map(status => (
                     <label key={status} className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -613,12 +753,14 @@ const PediatricsPage: React.FC = () => {
                 </button>
                 <button
                   onClick={handleSubmitAssessment}
+                  disabled={saving}
+                  aria-busy={saving}
                   className="flex-[2] py-3 bg-slate-800 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-slate-900"
                 >
                   <FileSignature className="w-5 h-5" /> {t('docPediatrics.signSubmitButton')}
                 </button>
               </div>
-            </div>
+            </fieldset>
           </div>
         </div>
       )}
@@ -638,13 +780,8 @@ const PediatricsPage: React.FC = () => {
                     </div>
                     <TrendingUp className="w-5 h-5 text-ok" />
                   </div>
-                  <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-content-muted">
-                    <span className="text-sm">{t('docPediatrics.growthCurveVisualization')}</span>
-                  </div>
-                  <div className="mt-2 flex justify-between text-xs text-content-muted">
-                    <span>{t('docPediatrics.weightPercentileLine', { pct: latestGrowthOf(patient)?.weightPercentile ?? '-' })}</span>
-                    <span>{t('docPediatrics.heightPercentileLine', { pct: latestGrowthOf(patient)?.heightPercentile ?? '-' })}</span>
-                  </div>
+                  <button className="underline focus-visible:outline focus-visible:outline-2"
+                    onClick={() => openGrowth(patient)}>View growth history for {patient.name}</button>
                 </div>
               ))}
             </div>
@@ -654,47 +791,66 @@ const PediatricsPage: React.FC = () => {
 
       {/* Patient Detail Modal */}
       {selectedPatient && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <dialog ref={growthDialog} aria-labelledby="pediatric-growth-title"
+          onCancel={event => { event.preventDefault(); setSelectedPatient(null); }}
+          className="fixed inset-0 m-0 w-full max-w-none h-full max-h-none border-0 bg-transparent text-inherit flex items-center justify-center p-4 backdrop:bg-black/50">
           <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold">{selectedPatient.name}</h2>
+                <h2 id="pediatric-growth-title" className="text-xl font-semibold">{selectedPatient.name}</h2>
                 <p className="text-sm text-content-muted">{getAgeDisplay(selectedPatient.ageMonths)} • {selectedPatient.gender}</p>
               </div>
-              <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
+              <button aria-label="Close growth details" onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
+              {growthLoading ? <p role="status">Loading recorded growth history…</p> : growthError ? (
+                <div role="alert" className="bg-critical-subtle text-critical-subtle-fg p-3 rounded">
+                  <p>{growthError}</p>
+                  {!growthAccessDenied && <button className="mt-2 underline" onClick={() => setGrowthRetry(previous => previous + 1)}>
+                    Retry loading growth history
+                  </button>}
+                </div>
+              ) : <>
+              <PediatricGrowthChart points={selectedPatient.growthData} />
+              {hasOlderHistory && <button className="underline" onClick={() => setHistoryPage(page => page + 1)}>
+                Load older measurements
+              </button>}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-notice-subtle rounded-lg p-4 text-center">
                   <Scale className="w-6 h-6 mx-auto text-notice-subtle-fg mb-1" />
                   <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.weight ?? '-'} kg</p>
-                  <p className="text-sm text-notice-subtle-fg">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
+                  <p className="text-sm text-notice-subtle-fg">{latestGrowthOf(selectedPatient)?.weightPercentile == null ? 'Percentile not recorded' : t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
                 </div>
                 <div className="bg-surface-sunken rounded-lg p-4 text-center">
                   <Ruler className="w-6 h-6 mx-auto text-content-secondary mb-1" />
                   <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.height ?? '-'} cm</p>
-                  <p className="text-sm text-content-secondary">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.heightPercentile ?? '-' })}</p>
+                  <p className="text-sm text-content-secondary">{latestGrowthOf(selectedPatient)?.heightPercentile == null ? 'Percentile not recorded' : t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.heightPercentile ?? '-' })}</p>
                 </div>
               </div>
 
               <div>
                 <h3 className="font-medium mb-2">{t('docPediatrics.growthHistoryHeading')}</h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
+                <div className="border rounded-lg overflow-x-auto">
+                  <table className="w-full min-w-[360px] text-sm">
                     <thead className="bg-surface-sunken">
                       <tr>
                         <th className="p-2 text-left">{t('docPediatrics.tableDate')}</th>
+                        <th className="p-2 text-right">Age (months)</th>
                         <th className="p-2 text-right">{t('docPediatrics.tableWeight')}</th>
                         <th className="p-2 text-right">{t('docPediatrics.tableHeight')}</th>
                       </tr>
                     </thead>
                     <tbody>
+                      {selectedPatient.growthData.length === 0 && <tr><td colSpan={4} className="p-3">
+                        No growth measurements recorded
+                      </td></tr>}
                       {selectedPatient.growthData.slice().reverse().map((g, idx) => (
                         <tr key={idx} className="border-t">
-                          <td className="p-2">{g.date.toLocaleDateString()}</td>
-                          <td className="p-2 text-right">{g.weight} kg</td>
-                          <td className="p-2 text-right">{g.height} cm</td>
+                          <td className="p-2">{g.date?.toLocaleDateString() ?? 'Date not recorded'}</td>
+                          <td className="p-2 text-right">{g.ageMonths ?? 'Not recorded'}</td>
+                          <td className="p-2 text-right">{g.weight ?? '-'} kg</td>
+                          <td className="p-2 text-right">{g.height ?? '-'} cm</td>
                         </tr>
                       ))}
                     </tbody>
@@ -703,8 +859,8 @@ const PediatricsPage: React.FC = () => {
               </div>
 
               <div className="flex gap-2">
-                <span className={`flex-1 text-center py-2 rounded-lg text-sm ${selectedPatient.vaccinesUpToDate ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
-                  {t('docPediatrics.vaccinesStatusLine', { status: selectedPatient.vaccinesUpToDate ? t('docPediatrics.upToDate') : t('docPediatrics.overdue') })}
+                <span className={`flex-1 text-center py-2 rounded-lg text-sm ${selectedPatient.vaccinesUpToDate === null ? 'bg-surface-sunken text-content-muted' : selectedPatient.vaccinesUpToDate ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
+                  {t('docPediatrics.vaccinesStatusLine', { status: selectedPatient.vaccinesUpToDate === null ? 'Not recorded' : selectedPatient.vaccinesUpToDate ? t('docPediatrics.upToDate') : t('docPediatrics.overdue') })}
                 </span>
                 {getDevelopmentBadge(selectedPatient.developmentStatus)}
               </div>
@@ -720,9 +876,10 @@ const PediatricsPage: React.FC = () => {
                   ))}
                 </ul>
               </div>
+              </>}
             </div>
           </div>
-        </div>
+        </dialog>
       )}
     </div>
   );

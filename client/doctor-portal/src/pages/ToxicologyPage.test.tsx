@@ -1,8 +1,13 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ToxicologyPage from './ToxicologyPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+
+vi.mock('../components/PatientSelect', () => ({
+  default: ({ onChange }: { onChange: (id: string) => void }) =>
+    <button onClick={() => onChange('PAT-synthetic')}>Select synthetic patient</button>,
+}));
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -19,6 +24,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  getToxForPatient: vi.fn().mockResolvedValue({ assessments: [] }),
   apiUrl: (path: string) => path,
   // The catalogue the server publishes: drug levels in SI units.
   useScoringCatalog: () => ({
@@ -44,6 +50,23 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
  * verified against `docToxicology` in shared/src/i18n/locales/en-US.ts.
  */
 describe('ToxicologyPage', () => {
+  it('opens persisted history for the selected patient after remount', async () => {
+    vi.mocked(shared.getToxForPatient).mockResolvedValue({ assessments: [{
+      id: 'TOX-saved', patientId: 'PAT-synthetic', patientName: 'Thandiwe Ndlovu',
+      assessedAt: '2026-10-07T18:00:00Z', substance: 'acetaminophen', amount: '500 mg',
+      route: 'oral', severity: 'mild', antidotesGiven: [], notes: 'Persisted safety review',
+    }] });
+    const mounted = render(<ToxicologyPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Select synthetic patient' }));
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    await screen.findByText('Persisted safety review');
+    mounted.unmount();
+    render(<ToxicologyPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Select synthetic patient' }));
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    await screen.findByText('Persisted safety review');
+    await waitFor(() => expect(shared.getToxForPatient).toHaveBeenCalledWith('PAT-synthetic'));
+  });
   const mockUser = {
     userId: '5GrwvaEF...mock',
     role: 'Doctor',

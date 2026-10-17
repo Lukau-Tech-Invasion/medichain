@@ -51,12 +51,17 @@ describe('SepsisPage', () => {
 
   it('allows calculating qSOFA', () => {
     render(<SepsisPage />);
+    fireEvent.change(screen.getByLabelText(/RR ≥22/i), { target: { value: '24' } });
+    fireEvent.change(screen.getByLabelText(/SBP ≤100 mmHg/i), { target: { value: '95' } });
+    fireEvent.change(screen.getByLabelText(/GCS <15/i), { target: { value: '15' } });
+    expect(screen.getByText('2/3')).toBeInTheDocument();
+  });
 
-    const systolicInput = screen.getByLabelText(/SBP ≤100 mmHg/i);
-    fireEvent.click(systolicInput);
-
-    // The running total renders as "<n>/3" beneath the criteria, not as a
-    // "qSOFA Total:" caption.
-    expect(screen.getAllByText(/\/3$/).length).toBeGreaterThan(0);
+  it('leaves unmeasured observations empty instead of inventing a normal score', () => {
+    render(<SepsisPage />);
+    expect(screen.getByLabelText(/RR ≥22/i)).toHaveValue(null);
+    expect(screen.getByLabelText(/SBP ≤100 mmHg/i)).toHaveValue(null);
+    expect(screen.getByLabelText(/GCS <15/i)).toHaveValue(null);
+    expect(screen.queryAllByText('0/3').some((element) => element.classList.contains('text-4xl'))).toBe(false);
   });
 });

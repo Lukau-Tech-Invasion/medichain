@@ -167,7 +167,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               ))}
             </div>
           ) : (
-            <p className="text-content-muted text-sm">No known allergies</p>
+            <p className="text-content-muted text-sm">{t('docPatientDetail.noAllergies')}</p>
           )}
         </div>
 
@@ -187,7 +187,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               ))}
             </ul>
           ) : (
-            <p className="text-content-muted text-sm">No current medications</p>
+            <p className="text-content-muted text-sm">{t('docPatientDetail.noMeds')}</p>
           )}
         </div>
 
@@ -209,7 +209,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               ))}
             </div>
           ) : (
-            <p className="text-content-muted text-sm">No chronic conditions</p>
+            <p className="text-content-muted text-sm">{t('docPatientDetail.noConditions')}</p>
           )}
         </div>
 

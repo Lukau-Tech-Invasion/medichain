@@ -63,6 +63,7 @@ function LabResultsPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
 
   // --- Entering a result -----------------------------------------------------
   //
@@ -79,6 +80,7 @@ function LabResultsPage() {
   const [entryPatientId, setEntryPatientId] = useState('');
   const [entryPanelCode, setEntryPanelCode] = useState('');
   const [entryValues, setEntryValues] = useState<Record<string, string>>({});
+  const [referenceGroup, setReferenceGroup] = useState('');
   const [entryNotes, setEntryNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [entryError, setEntryError] = useState<string | null>(null);
@@ -101,6 +103,7 @@ function LabResultsPage() {
     setEntryPatientId('');
     setEntryPanelCode('');
     setEntryValues({});
+    setReferenceGroup('');
     setEntryNotes('');
   };
 
@@ -109,6 +112,10 @@ function LabResultsPage() {
     setEntrySaved(null);
     if (!entryPatientId || !selectedPanel) {
       setEntryError(t('docLabResults.errPatientAndPanel'));
+      return;
+    }
+    if (!referenceGroup) {
+      setEntryError(t('docLabResults.errReferenceGroup'));
       return;
     }
 
@@ -121,7 +128,8 @@ function LabResultsPage() {
         parameter: test.name,
         value: entryValues[test.name].trim(),
         unit: test.unit,
-        reference_range: test.reference_range_male,
+        reference_range: referenceGroup === 'female' ? test.reference_range_female :
+          referenceGroup === 'pediatric' ? (test.reference_range_pediatric ?? '') : test.reference_range_male,
         // No `flag`. Whether a value is abnormal is a derived clinical
         // judgement and belongs on the server (rule 8); nothing there computes
         // it today, so this submits the measurement and leaves the finding
@@ -130,6 +138,10 @@ function LabResultsPage() {
 
     if (results.length === 0) {
       setEntryError(t('docLabResults.errNoValues'));
+      return;
+    }
+    if (results.some(result => !result.reference_range.trim())) {
+      setEntryError(t('docLabResults.errReferenceUnavailable'));
       return;
     }
 
@@ -164,22 +176,24 @@ function LabResultsPage() {
       // The shared client owns authentication, retries and response-envelope
       // normalization. It returns the server's submission array, not a
       // guessed browser-fetch shape.
-      const status = filterStatus === 'all' ? undefined : filterStatus;
-      const response = await getAllLabSubmissions(status);
+      const response = await getAllLabSubmissions();
       setSubmissions(response);
+      setWorkflowError(null);
     } catch (error) {
       console.error('Error fetching lab submissions:', error);
       setSubmissions([]);
+      setWorkflowError(getApiErrorMessage(error, 'Laboratory results could not be loaded.'));
     } finally {
       setIsLoading(false);
     }
-  }, [filterStatus]);
+  }, []);
 
   useEffect(() => {
     fetchSubmissions();
-  }, [filterStatus, fetchSubmissions]);
+  }, [fetchSubmissions]);
 
   const handleApprove = async (submissionId: string) => {
+    setWorkflowError(null);
     setIsReviewing(submissionId);
     try {
       const response = await reviewLabResult({ submission_id: submissionId, action: 'approve' });
@@ -190,8 +204,10 @@ function LabResultsPage() {
             : submission
         )
       );
+      await fetchSubmissions();
     } catch (error) {
       console.error('Failed to approve:', error);
+      setWorkflowError(getApiErrorMessage(error, 'The lab result could not be approved.'));
     } finally {
       setIsReviewing(null);
     }
@@ -201,6 +217,7 @@ function LabResultsPage() {
     if (!rejectionReason.trim()) return;
     
     setIsReviewing(submissionId);
+    setWorkflowError(null);
     try {
       const response = await reviewLabResult({
         submission_id: submissionId,
@@ -220,8 +237,10 @@ function LabResultsPage() {
       );
       setShowRejectModal(null);
       setRejectionReason('');
+      await fetchSubmissions();
     } catch (error) {
       console.error('Failed to reject:', error);
+      setWorkflowError(getApiErrorMessage(error, 'The lab result could not be rejected.'));
     } finally {
       setIsReviewing(null);
     }
@@ -249,6 +268,7 @@ function LabResultsPage() {
       });
     } catch (error) {
       console.error('Failed to export lab result PDF:', error);
+      setWorkflowError(getApiErrorMessage(error, 'The laboratory PDF could not be exported.'));
     } finally {
       setExportingId(null);
     }
@@ -295,10 +315,15 @@ function LabResultsPage() {
       submission.patient_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       submission.test_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       submission.patient_id.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
+    return matchesSearch && (filterStatus === 'all' || submission.status === filterStatus);
   });
 
   const pendingCount = submissions.filter(s => s.status === 'pending').length;
+  const today = new Date().toDateString();
+  const reviewedToday = (status: string) => submissions.filter(submission =>
+    submission.status === status && submission.reviewed_at &&
+    new Date(submission.reviewed_at).toDateString() === today
+  ).length;
 
   return (
     <div className="p-8">
@@ -314,6 +339,15 @@ function LabResultsPage() {
           </div>
         </div>
       </div>
+
+      {workflowError && (
+        <div role="alert" className="mb-6 rounded-lg border border-critical bg-critical-subtle p-4 text-critical-subtle-fg">
+          {workflowError}
+        </div>
+      )}
+      {entrySaved && view === 'queue' && (
+        <p role="status" className="mb-4 text-ok-subtle-fg">{t('docLabResults.submittedAs', { id: entrySaved })}</p>
+      )}
 
       {/* Queue / entry switch. The lab technician's "Enter Result" quick
           action points at this page, so the entry form has to live here. */}
@@ -368,6 +402,7 @@ function LabResultsPage() {
                   // A new panel means new analytes; carrying the old values
                   // over would attach a number to the wrong test.
                   setEntryValues({});
+                  setReferenceGroup('');
                 }}
                 className="w-full border border-border-interactive rounded-lg px-3 py-2"
               >
@@ -380,6 +415,23 @@ function LabResultsPage() {
               </select>
             </div>
           </div>
+
+          {selectedPanel && (
+            <div className="mb-4">
+              <label htmlFor="lab-reference-group" className="block text-sm font-medium mb-1">
+                {t('docLabResults.referenceGroup')}
+              </label>
+              <select id="lab-reference-group" value={referenceGroup}
+                onChange={event => setReferenceGroup(event.target.value)}
+                className="w-full border border-border-interactive rounded-lg px-3 py-2">
+                <option value="">{t('docLabResults.selectReferenceGroup')}</option>
+                <option value="female">{t('docLabResults.referenceFemale')}</option>
+                <option value="male">{t('docLabResults.referenceMale')}</option>
+                <option value="pediatric">{t('docLabResults.referencePediatric')}</option>
+              </select>
+              <p className="text-xs text-content-muted mt-2">{t('docLabResults.referenceGroupHelp')}</p>
+            </div>
+          )}
 
           {selectedPanel && (
             <div className="overflow-x-auto mb-4">
@@ -415,7 +467,11 @@ function LabResultsPage() {
                           technician can see what the value will be read
                           against. They are display, not a judgement. */}
                       <td className="py-2 pr-4 text-content-muted">{test.unit}</td>
-                      <td className="py-2 text-content-muted">{test.reference_range_male}</td>
+                      <td className="py-2 text-content-muted">{
+                        referenceGroup === 'female' ? test.reference_range_female :
+                        referenceGroup === 'male' ? test.reference_range_male :
+                        referenceGroup === 'pediatric' ? (test.reference_range_pediatric || '—') : '—'
+                      }</td>
                     </tr>
                   ))}
                 </tbody>
@@ -480,7 +536,7 @@ function LabResultsPage() {
             <CheckCircle className="text-ok-subtle-fg" size={24} />
             <div>
               <p className="text-sm text-ok-subtle-fg font-medium">{t('docLabResults.approvedToday')}</p>
-              <p className="text-2xl font-bold text-ok-subtle-fg">0</p>
+              <p className="text-2xl font-bold text-ok-subtle-fg">{reviewedToday('approved')}</p>
             </div>
           </div>
         </div>
@@ -489,7 +545,7 @@ function LabResultsPage() {
             <XCircle className="text-critical-subtle-fg" size={24} />
             <div>
               <p className="text-sm text-critical-subtle-fg font-medium">{t('docLabResults.rejectedToday')}</p>
-              <p className="text-2xl font-bold text-critical-subtle-fg">0</p>
+              <p className="text-2xl font-bold text-critical-subtle-fg">{reviewedToday('rejected')}</p>
             </div>
           </div>
         </div>
@@ -647,11 +703,12 @@ function LabResultsPage() {
                                 <td className="py-2 px-3">
                                   {result.flag && (
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                                      result.flag === 'HIGH' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                      result.flag === 'LOW' ? 'bg-notice-subtle text-notice-subtle-fg' :
-                                      'bg-caution-subtle text-caution-subtle-fg'
+                                      result.flag.toLowerCase() === 'normal' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                      result.flag.toLowerCase().startsWith('critical') ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                      ['low', 'high'].includes(result.flag.toLowerCase()) ? 'bg-caution-subtle text-caution-subtle-fg' :
+                                      'bg-surface-sunken text-content-secondary'
                                     }`}>
-                                      <AlertTriangle size={10} />
+                                      {result.flag.toLowerCase() === 'normal' ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
                                       {result.flag}
                                     </span>
                                   )}

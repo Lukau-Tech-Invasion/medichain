@@ -32,8 +32,15 @@ describe('LabResultPage', () => {
       order_date: new Date().toISOString(),
       collection_date: new Date().toISOString(),
       result_date: new Date().toISOString(),
-      panel_name: 'Complete Blood Count',
-      status: 'completed',
+      test_name: 'Complete Blood Count',
+      submitted_at: '2026-10-08T10:00:00Z',
+      reviewed_at: '2026-10-08T11:00:00Z',
+      submitted_by: 'Dr Smith',
+      status: 'Approved',
+      results: [
+        { parameter: 'White Cell Count', value: '7.5', unit: 'x10^9/L', reference_range: '4.0-11.0', flag: 'normal' },
+        { parameter: 'Hemoglobin', value: '14.2', unit: 'g/dL', reference_range: '13.5-17.5', flag: 'normal' },
+      ],
       ordered_by: 'Dr Smith',
       specimen: 'Whole blood',
       tests: [
@@ -106,9 +113,9 @@ describe('LabResultPage', () => {
     fireEvent.click(screen.getAllByText(/Complete Blood Count/i)[0]);
 
     await waitFor(() =>
-      expect(screen.getByText(/White Cell Count/i)).toBeInTheDocument()
+      expect(screen.getByRole('cell', { name: /White Cell Count/ })).toBeInTheDocument()
     );
-    expect(screen.getByText(/Hemoglobin/i)).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: /Hemoglobin/ })).toBeInTheDocument();
     expect(screen.getAllByText(/7\.5 x10\^9\/L/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/14\.2 g\/dL/).length).toBeGreaterThan(0);
   });

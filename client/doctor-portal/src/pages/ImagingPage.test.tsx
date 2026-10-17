@@ -1,3 +1,4 @@
+import * as shared from '@medichain/shared';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -20,6 +21,7 @@ vi.mock('@medichain/shared', async importOriginal => {
   const actual = await importOriginal<typeof import('@medichain/shared')>();
   return {
     ...actual,
+  openAccessContext: vi.fn(),
     createRadiologyOrder: vi.fn(),
     getPatients: vi.fn(),
     listRadiologyOrders: vi.fn(),
@@ -34,6 +36,10 @@ describe('ImagingPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-PAGE-QA',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,

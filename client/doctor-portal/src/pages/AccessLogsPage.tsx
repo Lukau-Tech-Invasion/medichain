@@ -165,6 +165,7 @@ function AccessLogsPage() {
       download_record: t('docAccessLogs.typeDownload'),
       upload_record: t('docAccessLogs.typeUpload'),
       emergency: t('docAccessLogs.typeEmergency'),
+      handoff_receipt_requested: t('docAccessLogs.typeHandoffReceiptRequested'),
     };
     return labels[type] || type;
   };
@@ -190,6 +191,7 @@ function AccessLogsPage() {
     const matchesSearch = 
       (log.patient_id?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       (log.accessor_id?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      staffName(log.accessor_id).toLowerCase().includes(searchQuery.toLowerCase()) ||
       (log.access_type?.toLowerCase() || '').includes(searchQuery.toLowerCase());
     
     const matchesFilter = 
@@ -405,8 +407,9 @@ function AccessLogsPage() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted" size={20} />
             <input
               type="text"
+              aria-label={t('docAccessLogs.searchPlaceholder')}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               placeholder={t('docAccessLogs.searchPlaceholder')}
               className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
@@ -415,8 +418,9 @@ function AccessLogsPage() {
           <div className="flex items-center gap-2">
             <Filter size={18} className="text-content-muted" />
             <select
+              aria-label={t('docAccessLogs.filterLabel')}
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value as typeof filterType)}
+              onChange={(e) => { setFilterType(e.target.value as typeof filterType); setCurrentPage(1); }}
               className="px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             >
               <option value="all">{t('docAccessLogs.filterAll')}</option>
@@ -540,6 +544,7 @@ function AccessLogsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    aria-label={t('docAccessLogs.previousPage')}
                     disabled={currentPage === 1}
                     className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
@@ -550,6 +555,7 @@ function AccessLogsPage() {
                   </span>
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    aria-label={t('docAccessLogs.nextPage')}
                     disabled={currentPage === totalPages}
                     className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >

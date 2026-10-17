@@ -64,7 +64,8 @@ describe('SettingsPage', () => {
     expect(screen.getAllByText(/Settings/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Profile Information/i)).toBeInTheDocument();
     expect(screen.getByText(mockUser.username)).toBeInTheDocument();
-    expect(screen.getByDisplayValue(`${mockUser.username}@medichain.health`)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(`${mockUser.username}@medichain.health`)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('+234-800-000-0000')).not.toBeInTheDocument();
   });
 
   it('allows switching to notifications tab', () => {
@@ -122,6 +123,7 @@ describe('SettingsPage', () => {
       </MemoryRouter>
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
     const saveButton = screen.getByText(/Save Changes/i);
     fireEvent.click(saveButton);
 

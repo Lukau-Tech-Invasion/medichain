@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { listRadiology, createRadiologyReport, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import { listRadiology, createRadiologyReport, getApiErrorMessage, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import { StoredValue } from '../components/StoredSoapDetails';
 
 type ReportStatus = 'pending' | 'in-progress' | 'preliminary' | 'final' | 'addendum';
 
@@ -15,7 +16,9 @@ interface RadiologyStudy {
   dob: string;
   modality: string;
   studyDescription: string;
+  bodyPart?: string;
   studyDate: string;
+  orderCreatedAt: string;
   referringPhysician: string;
   status: ReportStatus;
   priority: 'stat' | 'urgent' | 'routine';
@@ -37,6 +40,7 @@ interface RadiologyStudy {
  * a prior study is only useful for comparison once it has been reported.
  */
 interface RadiologyReportRow {
+  storedRecord: Record<string, unknown>;
   id: string;
   patientId: string;
   accessionNumber: string;
@@ -63,6 +67,47 @@ function formatStudyDate(value: string | number | undefined | null): string {
   return Number.isNaN(parsed.getTime()) ? '\u2014' : parsed.toLocaleString();
 }
 
+/** Group equivalent recorded modality names for filtering without changing clinical data. */
+function modalityFilterValue(value: string): string {
+  const modality = value.trim().toUpperCase();
+  const aliases: Record<string, string> = {
+    XRAY: 'XR', 'X-RAY': 'XR', CR: 'XR', DX: 'XR',
+    MR: 'MRI', ULTRASOUND: 'US',
+  };
+  return aliases[modality] ?? modality;
+}
+
+/** Convert the durable order registry fields to the radiology worklist view. */
+export function toRadiologyStudy(item: unknown): RadiologyStudy {
+  const record = item as Record<string, unknown>;
+  return {
+    id: (record.order_id || record.orderId || record.id || '') as string,
+    accessionNumber: (record.accession_number || record.accessionNumber || '') as string,
+    patientId: (record.patient_id || record.patientId || '') as string,
+    patientName: (record.patient_name || record.patientName || record.patient_id || record.patientId || '') as string,
+    mrn: (record.mrn || '') as string,
+    dob: (record.dob || '') as string,
+    modality: (record.modality || '') as string,
+    studyDescription: (record.study_description || record.studyDescription || record.special_instructions || record.body_part || '') as string,
+    bodyPart: String(record.body_part || ''),
+    studyDate: (record.study_date || record.studyDate || '') as string,
+    orderCreatedAt: String(record.created_at || ''),
+    referringPhysician: (record.referring_physician || record.referringPhysician || record.ordering_provider_id || record.ordering_provider || '') as string,
+    status: ({ ordered: 'pending', scheduled: 'pending', completed: 'pending', inprogress: 'in-progress' } as Record<string, ReportStatus>)[String(record.status || '').toLowerCase()] || String(record.status || 'pending').toLowerCase() as ReportStatus,
+    priority: String(record.priority || 'routine').toLowerCase() as 'stat' | 'urgent' | 'routine',
+    numImages: (record.num_images || record.numImages || 0) as number,
+    radiologist: record.radiologist as string | undefined,
+    reportedAt: record.reported_at || record.reportedAt,
+    technique: record.technique,
+    comparison: record.comparison,
+    findings: record.findings,
+    impression: record.impression,
+    criticalFindings: (record.critical_findings ?? record.criticalFindings ?? false) as boolean,
+    communicatedTo: record.communicated_to || record.communicatedTo,
+    communicatedAt: record.communicated_at || record.communicatedAt,
+} as RadiologyStudy;
+}
+
 const RadiologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -71,16 +116,21 @@ const RadiologyPage: React.FC = () => {
   const [reports, setReports] = useState<RadiologyReportRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const savePending = useRef(false);
+  const draftReportId = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'worklist' | 'report' | 'search'>('worklist');
   const [selectedStudy, setSelectedStudy] = useState<RadiologyStudy | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [reportSearchTerm, setReportSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterModality, setFilterModality] = useState<string>('all');
 
   // Report form
   const [technique, setTechnique] = useState('');
+  const [studyDateTime, setStudyDateTime] = useState('');
   const [comparison, setComparison] = useState('');
   const [findings, setFindings] = useState('');
   const [impression, setImpression] = useState('');
@@ -99,33 +149,7 @@ const RadiologyPage: React.FC = () => {
       
       // Map API response (orders.items) to RadiologyStudy interface
       const orderItems = radiologyData.orders?.items || [];
-      const mappedStudies: RadiologyStudy[] = orderItems.map((item) => {
-        const record = item as Record<string, unknown>;
-        return {
-          id: (record.order_id || record.orderId || record.id || '') as string,
-          accessionNumber: (record.accession_number || record.accessionNumber || '') as string,
-          patientId: (record.patient_id || record.patientId || '') as string,
-          patientName: (record.patient_name || record.patientName || '') as string,
-          mrn: (record.mrn || '') as string,
-          dob: (record.dob || '') as string,
-          modality: (record.modality || '') as string,
-          studyDescription: (record.study_description || record.studyDescription || '') as string,
-          studyDate: (record.study_date || record.studyDate || '') as string,
-          referringPhysician: (record.referring_physician || record.referringPhysician || '') as string,
-          status: (record.status || 'pending') as ReportStatus,
-          priority: (record.priority || 'routine') as 'stat' | 'urgent' | 'routine',
-          numImages: (record.num_images || record.numImages || 0) as number,
-          radiologist: record.radiologist as string | undefined,
-          reportedAt: record.reported_at || record.reportedAt,
-          technique: record.technique,
-          comparison: record.comparison,
-          findings: record.findings,
-          impression: record.impression,
-          criticalFindings: (record.critical_findings ?? record.criticalFindings ?? false) as boolean,
-          communicatedTo: record.communicated_to || record.communicatedTo,
-          communicatedAt: record.communicated_at || record.communicatedAt,
-        } as RadiologyStudy;
-      });
+      const mappedStudies = orderItems.map(toRadiologyStudy);
       
       setStudies(mappedStudies);
 
@@ -134,6 +158,7 @@ const RadiologyPage: React.FC = () => {
         const r = item as Record<string, unknown>;
         const impression = r.impression;
         return {
+          storedRecord: r,
           id: (r.id || r.report_id || '') as string,
           patientId: (r.patient_id || '') as string,
           accessionNumber: (r.accession_number || '') as string,
@@ -151,7 +176,8 @@ const RadiologyPage: React.FC = () => {
         };
       }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('docRadiology.failFetch'));
+      console.warn('Radiology registry read failed');
+      setError(getApiErrorMessage(err, t('docRadiology.failFetch')));
     } finally {
       setIsLoading(false);
     }
@@ -162,6 +188,10 @@ const RadiologyPage: React.FC = () => {
   }, [fetchData]);
 
   const selectStudyForReading = (study: RadiologyStudy) => {
+    if (savePending.current) return;
+    draftReportId.current = null;
+    setSaveError(null);
+    setStudyDateTime('');
     setSelectedStudy(study);
     setTechnique(study.technique || '');
     setComparison(study.comparison || '');
@@ -174,10 +204,9 @@ const RadiologyPage: React.FC = () => {
 
   /**
    * Maps a worklist modality string onto the backend's `RadiologyStudyType`
-   * variant. Falls back to `XRay` only for an unrecognised value, which is the
-   * least-claiming option — it never upgrades a plain study to "with contrast".
+   * variant. Unrecognized values remain unsupported rather than being recategorized.
    */
-  const studyTypeFor = (modality: string): string => {
+  const studyTypeFor = (modality: string): string | undefined => {
     const m = modality.trim().toUpperCase();
     const map: Record<string, string> = {
       'XR': 'XRay', 'X-RAY': 'XRay', 'XRAY': 'XRay', 'CR': 'XRay', 'DX': 'XRay',
@@ -189,37 +218,48 @@ const RadiologyPage: React.FC = () => {
       'MG': 'Mammography', 'MAMMOGRAPHY': 'Mammography',
       'XA': 'Angiography', 'ANGIOGRAPHY': 'Angiography',
     };
-    return map[m] ?? 'XRay';
+    return map[m];
   };
 
+  /** Keep report errors beside the retained draft and in the notification stream. */
+  const showReportError = (message: string) => { setSaveError(message); showError(message); };
+
   const saveReport = async (asFinal: boolean) => {
-    if (!selectedStudy) return;
+    if (savePending.current || !selectedStudy) return;
+    const studyType = studyTypeFor(selectedStudy.modality);
+    if (!studyType) { showReportError(t('docRadiology.unsupportedModality')); return; }
+    const acquisitionTime = studyDateTime ? Math.floor(new Date(studyDateTime).getTime() / 1000) : null;
+    if (acquisitionTime !== null && !Number.isFinite(acquisitionTime)) {
+      showReportError(t('docRadiology.invalidStudyTime')); return;
+    }
     if (criticalFindings && !communicatedTo) {
-      showError(t('docRadiology.criticalCommunicate'));
+      showReportError(t('docRadiology.criticalCommunicate'));
       return;
     }
 
     const now = new Date();
     const nowSeconds = Math.floor(now.getTime() / 1000);
     const radiologist = user?.userId || '';
+    // Retain the identifier after an uncertain response so retry cannot create a second record.
+    draftReportId.current ??= `RAD-RPT-${now.getTime()}`;
 
     // This used to mutate local state and announce success without calling the
     // API at all: a radiologist could dictate findings, finalize the report,
     // see "Saved as FINAL", and lose every word of it on reload. The report is
     // now persisted first, and the worklist only advances once the server has
     // accepted it.
+    savePending.current = true;
+    setSaveError(null);
     setIsSaving(true);
     try {
       await createRadiologyReport({
-        report_id: `RAD-RPT-${now.getTime()}`,
+        report_id: draftReportId.current,
         patient_id: selectedStudy.patientId,
         order_id: selectedStudy.id,
         accession_number: selectedStudy.accessionNumber,
-        study_type: studyTypeFor(selectedStudy.modality),
-        body_part: selectedStudy.studyDescription || '',
-        study_datetime: selectedStudy.studyDate
-          ? Math.floor(new Date(selectedStudy.studyDate).getTime() / 1000)
-          : nowSeconds,
+        study_type: studyType,
+        body_part: selectedStudy.bodyPart || selectedStudy.studyDescription || '',
+        study_datetime: acquisitionTime,
         technique,
         contrast: null,
         comparison: comparison || null,
@@ -263,12 +303,15 @@ const RadiologyPage: React.FC = () => {
       setStudies(studies.map(s => s.id === selectedStudy.id ? updatedStudy : s));
       showSuccess(t('docRadiology.savedAs', { status: asFinal ? t('docRadiology.statusFinalUpper') : t('docRadiology.statusPrelimUpper') }));
       setSelectedStudy(null);
+      draftReportId.current = null;
       setActiveTab('worklist');
       // Re-read so the worklist reflects what the server actually stored.
       fetchData();
     } catch (err) {
-      showError(err instanceof Error ? err.message : t('docRadiology.failSaveReport'));
+      console.warn('Radiology report write failed');
+      showReportError(getApiErrorMessage(err, t('docRadiology.failSaveReport')));
     } finally {
+      savePending.current = false;
       setIsSaving(false);
     }
   };
@@ -304,7 +347,7 @@ const RadiologyPage: React.FC = () => {
 
   const filteredStudies = studies.filter(s => {
     if (filterStatus !== 'all' && s.status !== filterStatus) return false;
-    if (filterModality !== 'all' && s.modality !== filterModality) return false;
+    if (filterModality !== 'all' && modalityFilterValue(s.modality) !== filterModality) return false;
     if (searchTerm && !s.patientName.toLowerCase().includes(searchTerm.toLowerCase())
         && !s.accessionNumber.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
@@ -313,7 +356,7 @@ const RadiologyPage: React.FC = () => {
   // Prior-studies search. An empty term lists the most recent reports rather
   // than nothing, so the tab is useful before the radiologist types anything.
   const matchingReports = (() => {
-    const term = searchTerm.trim().toLowerCase();
+    const term = reportSearchTerm.trim().toLowerCase();
     if (!term) return reports.slice(0, 25);
     return reports.filter(r =>
       r.patientId.toLowerCase().includes(term)
@@ -342,8 +385,7 @@ const RadiologyPage: React.FC = () => {
         </div>
       </div>
 
-      {/* The page already tracked this; it just never showed it. A failed
-          save left the screen unchanged, which reads as success. */}
+      {/* Registry read failures must remain distinguishable from an empty worklist. */}
       {error && (
         <Alert variant="error" className="mb-6" onClose={() => setError(null)}>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -375,7 +417,8 @@ const RadiologyPage: React.FC = () => {
             { id: 'search', label: t('docRadiology.tabSearch'), icon: Search }].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as 'worklist' | 'report' | 'search')}
+              disabled={isSaving}
+              onClick={() => { if (!savePending.current) setActiveTab(tab.id as 'worklist' | 'report' | 'search'); }}
               className={`px-6 py-3 font-medium flex items-center gap-2 ${activeTab === tab.id
                 ? 'text-blue-400 border-b-2 border-notice'
                 : 'text-gray-300 hover:text-gray-200'}`}
@@ -403,6 +446,7 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <select
+                aria-label={t('docRadiology.orderStatus')}
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
                 className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
@@ -414,6 +458,7 @@ const RadiologyPage: React.FC = () => {
                 <option value="final">{t('docRadiology.filterFinal')}</option>
               </select>
               <select
+                aria-label={t('docRadiology.modality')}
                 value={filterModality}
                 onChange={e => setFilterModality(e.target.value)}
                 className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
@@ -435,8 +480,8 @@ const RadiologyPage: React.FC = () => {
                     <th className="p-3 text-left">{t('docRadiology.colPatient')}</th>
                     <th className="p-3 text-left">{t('docRadiology.colStudy')}</th>
                     <th className="p-3 text-center">{t('docRadiology.colImages')}</th>
-                    <th className="p-3 text-left">{t('docRadiology.colDateTime')}</th>
-                    <th className="p-3 text-left">{t('docRadiology.colStatus')}</th>
+                    <th className="p-3 text-left">{t('docRadiology.orderCreated')}</th>
+                    <th className="p-3 text-left">{t('docRadiology.orderStatus')}</th>
                     <th className="p-3 text-center">{t('docRadiology.colActions')}</th>
                   </tr>
                 </thead>
@@ -459,7 +504,9 @@ const RadiologyPage: React.FC = () => {
                       </td>
                       <td className="p-3">
                         <div>{s.patientName}</div>
-                        <div className="text-xs text-gray-300">{t('docRadiology.mrnDob', { mrn: s.mrn, dob: s.dob })}</div>
+                        <div className="text-xs text-gray-300">{t('docRadiology.mrnDob', {
+                          mrn: s.mrn || t('docRadiology.notRecorded'), dob: s.dob || t('docRadiology.notRecorded'),
+                        })}</div>
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
@@ -468,7 +515,7 @@ const RadiologyPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-3 text-center">{s.numImages}</td>
-                      <td className="p-3 text-gray-300">{formatStudyDate(s.studyDate)}</td>
+                      <td className="p-3 text-gray-300">{formatStudyDate(s.orderCreatedAt)}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs ${getStatusBadge(s.status)}`}>
                           {statusLabel(s.status)}
@@ -512,10 +559,11 @@ const RadiologyPage: React.FC = () => {
               <h2 className="font-semibold mb-3 text-blue-400">{t('docRadiology.studyInfo')}</h2>
               <div className="space-y-2 text-sm">
                 <p><strong>{t('docRadiology.lblPatient')}</strong> {selectedStudy.patientName}</p>
-                <p><strong>{t('docRadiology.lblMrn')}</strong> {selectedStudy.mrn} | <strong>{t('docRadiology.lblDob')}</strong> {selectedStudy.dob}</p>
+                <p><strong>{t('docRadiology.lblMrn')}</strong> {selectedStudy.mrn || t('docRadiology.notRecorded')} | <strong>{t('docRadiology.lblDob')}</strong> {selectedStudy.dob || t('docRadiology.notRecorded')}</p>
                 <p><strong>{t('docRadiology.lblStudy')}</strong> {selectedStudy.studyDescription}</p>
                 <p><strong>{t('docRadiology.lblAccession')}</strong> {selectedStudy.accessionNumber}</p>
                 <p><strong>{t('docRadiology.lblDate')}</strong> {formatStudyDate(selectedStudy.studyDate)}</p>
+                <p><strong>{t('docRadiology.orderCreated')}</strong> {formatStudyDate(selectedStudy.orderCreatedAt)}</p>
                 <p><strong>{t('docRadiology.lblReferring')}</strong> {selectedStudy.referringPhysician}</p>
                 <p><strong>{t('docRadiology.lblImages')}</strong> {selectedStudy.numImages}</p>
               </div>
@@ -526,8 +574,16 @@ const RadiologyPage: React.FC = () => {
             </div>
 
             {/* Report Form */}
-            <div className="bg-gray-800 rounded-lg p-4 space-y-4">
+            <fieldset disabled={isSaving} aria-label={t('docRadiology.reportTitle')} className="min-w-0 bg-gray-800 rounded-lg p-4 space-y-4">
               <h2 className="font-semibold text-blue-400">{t('docRadiology.reportTitle')}</h2>
+              {saveError && <p role="alert" className="text-critical whitespace-pre-wrap">{saveError}</p>}
+              <div>
+                <label htmlFor="rad-study-datetime" className="text-sm text-gray-300">{t('docRadiology.acquisitionTime')}</label>
+                <input id="rad-study-datetime" type="datetime-local" value={studyDateTime}
+                  onChange={event => setStudyDateTime(event.target.value)}
+                  aria-describedby="rad-study-time-hint" className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white" />
+                <p id="rad-study-time-hint" className="text-sm text-gray-300">{t('docRadiology.acquisitionTimeHint')}</p>
+              </div>
               <div>
                 <label htmlFor="rad-technique" className="text-sm text-gray-300">{t('docRadiology.technique')}</label>
                 <textarea
@@ -614,7 +670,7 @@ const RadiologyPage: React.FC = () => {
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.finalizeReport')}
                 </button>
               </div>
-            </div>
+            </fieldset>
           </div>
         )}
 
@@ -635,8 +691,8 @@ const RadiologyPage: React.FC = () => {
                 <input
                   id="rad-prior-search"
                   type="search"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
+                  value={reportSearchTerm}
+                  onChange={e => setReportSearchTerm(e.target.value)}
                   placeholder={t('docRadiology.searchPriorsPlaceholder')}
                   className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-white placeholder:text-gray-400"
                 />
@@ -645,7 +701,7 @@ const RadiologyPage: React.FC = () => {
 
             {!error && !isLoading && matchingReports.length === 0 ? (
               <p className="text-gray-300 py-6 text-center">
-                {searchTerm
+                {reportSearchTerm
                   ? t('docRadiology.searchPriorsNoMatch')
                   : t('docRadiology.searchPriorsEmpty')}
               </p>
@@ -679,6 +735,10 @@ const RadiologyPage: React.FC = () => {
                         {r.impression}
                       </p>
                     )}
+                    <details className="mt-3 border border-border-interactive rounded-lg p-3 text-sm text-content">
+                      <summary className="cursor-pointer font-medium">{t('docRadiology.readSavedReport')}</summary>
+                      <div className="mt-3"><StoredValue value={r.storedRecord} /></div>
+                    </details>
                   </li>
                 ))}
               </ul>

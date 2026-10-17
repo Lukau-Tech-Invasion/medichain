@@ -3,7 +3,7 @@ import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createTox, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
+import { getPatients, createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
@@ -98,6 +98,22 @@ const ToxicologyPage: React.FC = () => {
   const [cases, setCases] = useState<ToxCase[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
+  const [historyError, setHistoryError] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    setCases([]);
+    setHistoryError(false);
+    if (selectedPatient) {
+      getToxForPatient(selectedPatient).then(({ assessments }) => {
+        if (current) setCases(assessments as ToxCase[]);
+      }).catch((error) => {
+        console.error('Failed to read toxicology history:', error);
+        if (current) setHistoryError(true);
+      });
+    }
+    return () => { current = false; };
+  }, [selectedPatient]);
 
   const [substance, setSubstance] = useState('');
   const [amount, setAmount] = useState('');
@@ -161,6 +177,8 @@ const ToxicologyPage: React.FC = () => {
     };
     try {
       await createTox(newCase);
+      const saved = await getToxForPatient(selectedPatient);
+      setCases(saved.assessments as ToxCase[]);
     } catch (err) {
       console.error('Failed to save toxicology case:', err);
       // Stop here. Falling through added the record to the local list
@@ -168,7 +186,6 @@ const ToxicologyPage: React.FC = () => {
       showError(t('common.saveFailed'));
       return;
     }
-    setCases([newCase, ...cases]);
     showSuccess(t('docToxicology.saved'));
   };
 
@@ -493,6 +510,7 @@ const ToxicologyPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
+            {historyError && <p role="alert">{t('common.dataUnavailable')}</p>}
             {cases.length === 0 ? (
               <div className="text-center py-8 text-content-muted">{t('docToxicology.noCases')}</div>
             ) : (
@@ -513,6 +531,7 @@ const ToxicologyPage: React.FC = () => {
                     <p className="text-sm"><strong>{t('docToxicology.lblAntidotes')}</strong> {c.antidotesGiven.map(a => a.name).join(', ')}</p>
                   )}
                   <p className="text-sm"><strong>{t('docToxicology.lblDisposition')}</strong> {c.disposition}</p>
+                  {c.notes && <p className="text-sm">{c.notes}</p>}
                 </div>
               ))
             )}

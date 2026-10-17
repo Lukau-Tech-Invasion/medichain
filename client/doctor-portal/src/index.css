@@ -192,6 +192,40 @@
 
 /* Print styles for emergency reports */
 @media print {
+  /* A selected H&P is portalled directly into body: print only that document. */
+  body:has(> .hp-record-document, > .record-print-root) > :not(.hp-record-document):not(.record-print-root) {
+    display: none !important;
+  }
+
+  .hp-record-document, .record-print-root {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  .hp-record-paper {
+    max-height: none !important;
+    max-width: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  .hp-record-header {
+    position: static !important;
+  }
+
+  .hp-record-document *, .record-print-root * {
+    color: black !important;
+    background: transparent !important;
+  }
+
+  .hp-record-document section {
+    break-inside: avoid;
+  }
+
   body {
     @apply bg-white text-black;
   }

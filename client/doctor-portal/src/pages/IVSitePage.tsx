@@ -13,6 +13,7 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
+import StaffName from '../components/StaffName';
 import {
   Syringe,
   Droplet,
@@ -38,6 +39,13 @@ type SiteLocation =
   | 'right-foot' | 'left-foot'
   | 'right-ej' | 'left-ej'
   | 'other';
+
+/** Completed dwell days from a recorded timestamp; unknown or future times stay unknown. */
+export function calculateDaysActive(insertedAt: string, now = Date.now()): number | undefined {
+  const inserted = Date.parse(insertedAt);
+  if (!insertedAt.includes('T') || !Number.isFinite(inserted) || inserted > now) return undefined;
+  return Math.floor((now - inserted) / (1000 * 60 * 60 * 24));
+}
 
 type CatheterType = 'peripheral' | 'midline' | 'picc' | 'central';
 type CatheterGauge = '14G' | '16G' | '18G' | '20G' | '22G' | '24G';
@@ -81,7 +89,7 @@ interface IVAssessment {
   assessedAt: string;
   assessedBy: string;
   conditions: SiteCondition[];
-  dressingType: DressingType;
+  dressingType?: DressingType;
   // Optional, because "not assessed" is a real state and is not the same as
   // "assessed and normal". The controls are already three-state radios; only
   // the initial value was asserting a finding.
@@ -91,7 +99,7 @@ interface IVAssessment {
   infusing: string;
   infusionRate?: string;
   notes: string;
-  phlebitisScore: number;
+  phlebitisScore?: number;
   /// INS infiltration grade 0-4. Optional: grade 0 means "no symptoms", which
   /// is a finding, and a site nobody graded must not assert it.
   infiltrationGrade?: number;
@@ -107,10 +115,50 @@ interface IVAssessment {
  * genuinely inconsistent about enveloping -- so naming it changes nothing at
  * run time and makes the reads checkable.
  */
-type SiteList = { sites?: IVSite[]; iv_sites?: IVSite[] } | IVSite[];
+interface StoredIVSite extends Partial<IVSite> {
+  patient_id?: string;
+  site_id?: string;
+  site_location?: string;
+  catheter_type?: CatheterType;
+  catheter_gauge?: CatheterGauge;
+  insertion_date?: string;
+  assessed_by?: string;
+  site_discontinued?: boolean;
+  phlebitis_grade?: number | null;
+  discontinuation_reason?: string | null;
+  data?: Partial<IVSite>;
+}
+
+type SiteList = { sites?: StoredIVSite[]; iv_sites?: StoredIVSite[] } | StoredIVSite[];
+
+/** Read persisted columns and the original site detail without inventing findings. */
+export function toIVSite(row: StoredIVSite): IVSite {
+  const detail = row.data || row;
+  return {
+    ...detail,
+    id: row.site_id || detail.id || row.id || '',
+    patientId: row.patient_id || detail.patientId || '',
+    location: detail.location || (row.site_location?.split(' (')[0] as SiteLocation) || 'other',
+    locationDetail: detail.locationDetail || '',
+    catheterType: row.catheter_type || detail.catheterType || '' as CatheterType,
+    gauge: row.catheter_gauge || detail.gauge || '' as CatheterGauge,
+    insertedBy: detail.insertedBy || '',
+    insertedAt: detail.insertedAt || row.insertion_date || '',
+    expiresAt: detail.expiresAt || '',
+    isActive: typeof row.site_discontinued === 'boolean' ? !row.site_discontinued : detail.isActive === true,
+    assessments: (detail.assessments || []).map((assessment, index, all) => ({
+      ...assessment,
+      assessedBy: index === all.length - 1 ? row.assessed_by || assessment.assessedBy || '' : assessment.assessedBy || '',
+      phlebitisScore: index === all.length - 1 && row.phlebitis_grade != null
+        ? row.phlebitis_grade : assessment.phlebitisScore,
+    })),
+    discontinuedReason: row.discontinuation_reason || detail.discontinuedReason || undefined,
+  };
+}
 
 export default function IVSitePage() {
   const { t } = useTranslation();
+  const { catalog } = useScoringCatalog();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
@@ -126,6 +174,8 @@ export default function IVSitePage() {
   const [ivSites, setIvSites] = useState<IVSite[]>([]);
   const [selectedSite, setSelectedSite] = useState<IVSite | null>(null);
   const [showAssessmentForm, setShowAssessmentForm] = useState(false);
+  const [discontinuingSiteId, setDiscontinuingSiteId] = useState<string | null>(null);
+  const [discontinuationReason, setDiscontinuationReason] = useState('');
 
   // New site form
   const [newSite, setNewSite] = useState<Partial<IVSite>>({
@@ -137,8 +187,7 @@ export default function IVSitePage() {
 
   // New assessment form
   const [newAssessment, setNewAssessment] = useState<Partial<IVAssessment>>({
-    conditions: ['clean-dry-intact'],
-    dressingType: 'transparent',
+    conditions: [],
     // Deliberately unset. These three were pre-selected as `true`, so a nurse
     // who opened the form and saved without touching them recorded three normal
     // findings they had never checked — and the radios below already offer a
@@ -237,29 +286,22 @@ export default function IVSitePage() {
       try {
         const data = await getApiClient().get<SiteList>(`/api/clinical/iv-sites/${selectedPatient.patient_id}`);
         const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
-        if (sites.length > 0) {
-          setIvSites(sites);
-        }
+        setIvSites(sites.map(row => {
+          const site = toIVSite(row);
+          return { ...site, expiresAt: site.expiresAt || (site.insertedAt
+            ? dwellDueAt(site.insertedAt, site.catheterType, catalog)?.toISOString().split('T')[0] || '' : '') };
+        }));
       } catch (err) {
         console.error('Failed to fetch IV site history:', err);
       }
     };
     fetchIVSites();
-  }, [selectedPatient, user]);
-
-  const { catalog } = useScoringCatalog();
+  }, [selectedPatient, user, catalog]);
 
   const filteredPatients = patients.filter(p => 
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const calculateDaysActive = (insertedAt: string) => {
-    const inserted = new Date(insertedAt);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - inserted.getTime());
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
 
   // An unknown review date is not an expiring one. Both guards return false
   // for an empty string so the counters say "none known" rather than "all due".
@@ -335,8 +377,8 @@ export default function IVSitePage() {
       //
       // A field nobody entered is absent (CLAUDE.md rules 9 and 10). The
       // renderer already distinguishes an absent finding from a negative one.
-      conditions: newAssessment.conditions || ['clean-dry-intact'],
-      dressingType: newAssessment.dressingType || 'transparent',
+      conditions: newAssessment.conditions || [],
+      dressingType: newAssessment.dressingType,
       dressingIntact: newAssessment.dressingIntact,
       flushPatent: newAssessment.flushPatent,
       bloodReturn: newAssessment.bloodReturn,
@@ -359,8 +401,7 @@ export default function IVSitePage() {
 
     setShowAssessmentForm(false);
     setNewAssessment({
-      conditions: ['clean-dry-intact'],
-      dressingType: 'transparent',
+      conditions: [],
       // Reset to unassessed, same reason as the initial state above.
       infusing: '',
       notes: ''
@@ -377,14 +418,16 @@ export default function IVSitePage() {
    * requires. The stage-to-sign mapping now comes from the scoring catalog
    * rather than a ladder of `Math.max` calls here.
    *
-   * Returns 0 rather than `null` when the catalog has not loaded: this feeds a
-   * colour and a number beside an assessment the nurse is entering, and 0 is
-   * also what "clean, dry and intact" scores.
+   * Missing findings or an unavailable catalog remain unrecorded. Zero requires
+   * explicit normal findings and a loaded scoring catalog.
    */
-  const calculatePhlebitisScore = (conditions: SiteCondition[]): number =>
-    vipScorePreview(conditions, catalog) ?? 0;
+  const calculatePhlebitisScore = (conditions: SiteCondition[]): number | undefined =>
+    conditions.length ? vipScorePreview(conditions, catalog) ?? undefined : undefined;
+  const previewPhlebitisScore = calculatePhlebitisScore(newAssessment.conditions || []);
 
+  /** Stage an explicit discontinuation reason; the Save All action persists it. */
   const discontinueSite = (siteId: string, reason: string) => {
+    if (!reason.trim()) return;
     setIvSites(prev => prev.map(site => 
       site.id === siteId 
         ? { 
@@ -392,21 +435,23 @@ export default function IVSitePage() {
             isActive: false, 
             discontinuedAt: new Date().toISOString(),
             discontinuedBy: user?.userId || 'Unknown',
-            discontinuedReason: reason
+            discontinuedReason: reason.trim()
           }
         : site
     ));
+    setDiscontinuingSiteId(null);
+    setDiscontinuationReason('');
   };
 
   const toggleCondition = (condition: SiteCondition) => {
     const current = newAssessment.conditions || [];
     if (condition === 'clean-dry-intact') {
-      setNewAssessment({ ...newAssessment, conditions: ['clean-dry-intact'] });
+      setNewAssessment({ ...newAssessment, conditions: current.includes(condition) ? [] : ['clean-dry-intact'] });
     } else {
       const filtered = current.filter(c => c !== 'clean-dry-intact');
       if (filtered.includes(condition)) {
         const newConditions = filtered.filter(c => c !== condition);
-        setNewAssessment({ ...newAssessment, conditions: newConditions.length ? newConditions : ['clean-dry-intact'] });
+        setNewAssessment({ ...newAssessment, conditions: newConditions });
       } else {
         setNewAssessment({ ...newAssessment, conditions: [...filtered, condition] });
       }
@@ -660,7 +705,7 @@ export default function IVSitePage() {
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.insertedLabel')}</span>
                                       <span className="ml-2">{formatDateOnly(site.insertedAt)}</span>
-                                      <span className="ml-2 text-content-muted">{t('docIVSite.daysActiveSuffix', { days: daysActive })}</span>
+                                      {daysActive !== undefined && <span className="ml-2 text-content-muted">{t('docIVSite.daysActiveSuffix', { days: daysActive })}</span>}
                                     </div>
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.expiresLabel')}</span>
@@ -672,7 +717,7 @@ export default function IVSitePage() {
                                     </div>
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.byLabel')}</span>
-                                      <span className="ml-2">{site.insertedBy}</span>
+                                      <span className="ml-2"><StaffName id={site.insertedBy} /></span>
                                     </div>
                                     <div>
                                       <span className="text-content-muted">{t('docIVSite.assessmentsLabel')}</span>
@@ -684,11 +729,12 @@ export default function IVSitePage() {
                                       <p className="text-content-muted text-xs">{t('docIVSite.latestAssessmentLine', { date: formatTimestamp(latestAssessment.assessedAt) })}</p>
                                       <div className="flex items-center space-x-2 mt-1">
                                         <span className={`px-2 py-0.5 rounded text-xs ${
+                                          latestAssessment.phlebitisScore === undefined ? 'bg-surface-sunken text-content-muted' :
                                           latestAssessment.phlebitisScore === 0 ? 'bg-ok-subtle text-ok-subtle-fg' :
                                           latestAssessment.phlebitisScore <= 2 ? 'bg-caution-subtle text-caution-subtle-fg' :
                                           'bg-critical-subtle text-critical-subtle-fg'
                                         }`}>
-                                          {t('docIVSite.vipScoreLine', { score: latestAssessment.phlebitisScore })}
+                                          {t('docIVSite.vipScoreLine', { score: latestAssessment.phlebitisScore ?? '—' })}
                                         </span>
                                         {latestAssessment.conditions.map(c => (
                                           <span key={c} className={`text-xs px-2 py-0.5 rounded ${
@@ -712,7 +758,7 @@ export default function IVSitePage() {
                                     <Eye className="h-5 w-5" />
                                   </button>
                                   <button
-                                    onClick={() => discontinueSite(site.id, 'Routine change')}
+                                    onClick={() => { setDiscontinuingSiteId(site.id); setDiscontinuationReason(''); }}
                                     className="p-2 bg-critical-subtle text-critical-subtle-fg rounded hover:bg-red-200"
                                     title="Discontinue"
                                   >
@@ -720,6 +766,26 @@ export default function IVSitePage() {
                                   </button>
                                 </div>
                               </div>
+                              {discontinuingSiteId === site.id && (
+                                <div className="mt-4 border-t pt-4 space-y-3">
+                                  <label htmlFor={`discontinuation-${site.id}`} className="block text-sm font-medium">
+                                    {t('docIVSite.discontinuationReason')}
+                                  </label>
+                                  <textarea id={`discontinuation-${site.id}`} maxLength={2000}
+                                    value={discontinuationReason}
+                                    onChange={event => setDiscontinuationReason(event.target.value)}
+                                    className="w-full rounded border p-2 bg-surface text-content" />
+                                  <div className="flex gap-3">
+                                    <button disabled={!discontinuationReason.trim()}
+                                      onClick={() => discontinueSite(site.id, discontinuationReason)}
+                                      className="rounded px-3 py-2 bg-critical-subtle text-critical-subtle-fg disabled:opacity-50">
+                                      {t('docIVSite.confirmDiscontinuation')}
+                                    </button>
+                                    <button onClick={() => { setDiscontinuingSiteId(null); setDiscontinuationReason(''); }}
+                                      className="rounded border px-3 py-2">{t('common.cancel')}</button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -754,7 +820,7 @@ export default function IVSitePage() {
                                     <span className="text-sm">{site.gauge} {catheterTypes[site.catheterType]}</span>
                                   </div>
                                   <div className="text-sm">
-                                    {t('docIVSite.discontinuedLine', { date: formatDateOnly(site.discontinuedAt!) })}
+                                    {t('docIVSite.discontinuedLine', { date: site.discontinuedAt ? formatDateOnly(site.discontinuedAt) : t('docIVSite.notRecorded') })}
                                     <span className="ml-2 text-content-muted">{t('docIVSite.discontinuedReasonSuffix', { reason: site.discontinuedReason || '' })}</span>
                                   </div>
                                 </div>
@@ -935,10 +1001,11 @@ export default function IVSitePage() {
                                 </label>
                                 <select
                                   id="iv-infiltration-grade"
-                                  value={newAssessment.infiltrationGrade ?? 0}
-                                  onChange={(e) => setNewAssessment({ ...newAssessment, infiltrationGrade: Number(e.target.value) })}
+                                  value={newAssessment.infiltrationGrade ?? ''}
+                                  onChange={(e) => setNewAssessment({ ...newAssessment, infiltrationGrade: e.target.value === '' ? undefined : Number(e.target.value) })}
                                   className="w-full p-3 border border-border-interactive rounded-lg"
                                 >
+                                  <option value="">—</option>
                                   {infiltrationGrades.map(({ grade, description }) => (
                                     <option key={grade} value={grade}>{grade} — {description}</option>
                                   ))}
@@ -955,10 +1022,11 @@ export default function IVSitePage() {
                                   <label htmlFor="iv-dressing-type" className="block text-sm font-medium text-content-secondary mb-2">{t('docIVSite.dressingTypeLabel')}</label>
                                   <select
                                     id="iv-dressing-type"
-                                    value={newAssessment.dressingType}
-                                    onChange={(e) => setNewAssessment({ ...newAssessment, dressingType: e.target.value as DressingType })}
+                                    value={newAssessment.dressingType ?? ''}
+                                    onChange={(e) => setNewAssessment({ ...newAssessment, dressingType: e.target.value ? e.target.value as DressingType : undefined })}
                                     className="w-full p-3 border border-border-interactive rounded-lg"
                                   >
+                                    <option value="">{t('docIVSite.notRecorded')}</option>
                                     <option value="transparent">{t('docIVSite.dressing_transparent')}</option>
                                     <option value="gauze">{t('docIVSite.dressing_gauze')}</option>
                                     <option value="statlock">{t('docIVSite.dressing_statlock')}</option>
@@ -1086,14 +1154,15 @@ export default function IVSitePage() {
                                 <p className="text-sm font-medium text-content-secondary mb-1">{t('docIVSite.calculatedVipScoreLabel')}</p>
                                 <div className="flex items-center space-x-4">
                                   <span className={`text-2xl font-bold ${
-                                    calculatePhlebitisScore(newAssessment.conditions || []) === 0 ? 'text-ok-subtle-fg' :
-                                    calculatePhlebitisScore(newAssessment.conditions || []) <= 2 ? 'text-caution-subtle-fg' :
+                                    previewPhlebitisScore === undefined ? 'text-content-muted' :
+                                    previewPhlebitisScore === 0 ? 'text-ok-subtle-fg' :
+                                    previewPhlebitisScore <= 2 ? 'text-caution-subtle-fg' :
                                     'text-critical-subtle-fg'
                                   }`}>
-                                    {calculatePhlebitisScore(newAssessment.conditions || [])}
+                                    {previewPhlebitisScore ?? t('docIVSite.notRecorded')}
                                   </span>
                                   <span className="text-content-muted">
-                                    {phlebitisScores[calculatePhlebitisScore(newAssessment.conditions || [])]?.action}
+                                    {previewPhlebitisScore !== undefined && phlebitisScores[previewPhlebitisScore]?.action}
                                   </span>
                                 </div>
                               </div>
@@ -1117,7 +1186,7 @@ export default function IVSitePage() {
                                   <div key={a.id} className="p-3 bg-surface rounded border text-sm">
                                     <div className="flex justify-between items-start">
                                       <div>
-                                        <p className="text-content-muted">{t('docIVSite.assessedAtByLine', { date: formatTimestamp(a.assessedAt), by: a.assessedBy })}</p>
+                                        <p className="text-content-muted">{t('docIVSite.assessedAtByLine', { date: formatTimestamp(a.assessedAt), by: a.assessedBy || '—' })}</p>
                                         <div className="flex flex-wrap gap-1 mt-1">
                                           {a.conditions.map(c => (
                                             <span key={c} className={`text-xs px-2 py-0.5 rounded ${
@@ -1131,11 +1200,12 @@ export default function IVSitePage() {
                                         </div>
                                       </div>
                                       <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                        a.phlebitisScore === undefined ? 'bg-surface-sunken text-content-muted' :
                                         a.phlebitisScore === 0 ? 'bg-ok-subtle text-ok-subtle-fg' :
                                         a.phlebitisScore <= 2 ? 'bg-caution-subtle text-caution-subtle-fg' :
                                         'bg-critical-subtle text-critical-subtle-fg'
                                       }`}>
-                                        {t('docIVSite.vipShortLine', { score: a.phlebitisScore })}
+                                        {t('docIVSite.vipShortLine', { score: a.phlebitisScore ?? '—' })}
                                       </span>
                                     </div>
                                     {a.notes && <p className="mt-2 text-content-muted">{a.notes}</p>}

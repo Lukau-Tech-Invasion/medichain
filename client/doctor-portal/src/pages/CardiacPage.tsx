@@ -209,12 +209,12 @@ export default function CardiacPage() {
         pain_radiation: painRadiation,
         associated_symptoms: associatedSymptoms,
         vital_signs: {
-          heart_rate: parseInt(heartRate) || 0,
+          heart_rate: heartRate === '' ? null : Number(heartRate),
           blood_pressure: bloodPressure
         },
         lab_values: {
-          troponin: parseFloat(troponinLevel) || 0,
-          bnp: parseFloat(bnpLevel) || 0
+          troponin: troponinLevel === '' ? null : Number(troponinLevel),
+          bnp: bnpLevel === '' ? null : Number(bnpLevel)
         },
         killip_class: parseInt(killipClass),
         timi_criteria: timiCriteria,

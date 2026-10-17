@@ -49,7 +49,7 @@ interface VitalReading {
   gcs_total: number | null;
   blood_glucose: number | null;
   weight_kg: number | null;
-  notes?: string;
+  notes?: string | null;
 }
 
 interface VitalFlowsheet {
@@ -250,6 +250,10 @@ function VitalSignsPage() {
 
     setError(null);
     setSuccess(null);
+    if (!Object.entries(newVitals).some(([field, value]) => field !== 'notes' && value.trim() !== '')) {
+      setError(t('docVitalSigns.errorMeasurementRequired'));
+      return;
+    }
     // A pair entered the wrong way round reads as profound hypotension; the
     // server refuses it too, this says so before the round trip.
     if (newVitals.bp_systolic && newVitals.bp_diastolic) {
@@ -773,6 +777,8 @@ function VitalSignsPage() {
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.painColumn')}</th>
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.gcsColumn')}</th>
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.glucoseColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.weightLabel')}</th>
+                    <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.notesLabel')}</th>
                     <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.recordedByColumn')}</th>
                   </tr>
                 </thead>
@@ -807,6 +813,8 @@ function VitalSignsPage() {
                       <td className={`px-4 py-3 text-center ${isCritical(reading.blood_glucose, 'blood_glucose') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
                         {reading.blood_glucose ?? '—'}
                       </td>
+                      <td className="px-4 py-3 text-center">{reading.weight_kg ?? '—'}</td>
+                      <td className="px-4 py-3 min-w-48 whitespace-pre-wrap">{reading.notes || t('docNursing.notRecorded')}</td>
                       <td className="px-4 py-3 text-content-muted"><StaffName id={reading.recorded_by} /></td>
                     </tr>
                   ))}

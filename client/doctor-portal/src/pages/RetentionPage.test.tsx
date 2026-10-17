@@ -13,6 +13,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn(),
   getRetentionReport: vi.fn(),
   getPatients: vi.fn(),
   listRetentionRuns: vi.fn(),
@@ -65,6 +66,10 @@ describe('RetentionPage', () => {
       patientFixture({ patient_id: 'PAT-001', full_name: 'Test Patient' }),
     ] as never);
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-PAGE-QA',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({ user: { userId: ADMIN, role: 'Admin' } });
     vi.mocked(shared.getRetentionReport).mockResolvedValue({
       success: true,

@@ -241,7 +241,7 @@ const PathologyPage: React.FC = () => {
       patientId: selectedPatientId,
       patientName: patient.full_name,
       collectionDate,
-      collectionTime: collectionTime || '00:00',
+      collectionTime,
       clinician,
       specimenType,
       site,
@@ -371,6 +371,10 @@ const PathologyPage: React.FC = () => {
 
   const handleSaveReport = async (finalizeReport: boolean) => {
     if (!selectedSpecimen) return;
+    if (selectedSpecimen.status === 'final') {
+      showError(t('docPathology.finalReadOnly'));
+      return;
+    }
 
     if (finalizeReport) {
       if (!diagnosis || !microscopicDescription) {
@@ -661,7 +665,7 @@ const PathologyPage: React.FC = () => {
                           <Calendar className="h-4 w-4 mr-1" />
                           {specimen.collectionDate}
                         </div>
-                        <div className="text-xs text-content-muted">{specimen.collectionTime}</div>
+                        <div className="text-xs text-content-muted">{specimen.collectionTime || t('docPathology.notRecorded')}</div>
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(specimen.status)}`}>
@@ -918,7 +922,7 @@ const PathologyPage: React.FC = () => {
               </div>
               <div>
                 <span className="font-medium text-content-secondary">{t('docPathology.collectedColLabel')}</span>
-                <p className="text-content">{selectedSpecimen.collectionDate} {selectedSpecimen.collectionTime}</p>
+                <p className="text-content">{selectedSpecimen.collectionDate} {selectedSpecimen.collectionTime || t('docPathology.notRecorded')}</p>
               </div>
               <div>
                 <span className="font-medium text-content-secondary">{t('docPathology.clinicianColLabel')}</span>
@@ -1022,6 +1026,11 @@ const PathologyPage: React.FC = () => {
             )}
           </div>
 
+          {selectedSpecimen.status === 'final' && (
+            <p role="status" className="text-sm text-content-secondary">{t('docPathology.finalReadOnly')}</p>
+          )}
+          <fieldset disabled={selectedSpecimen.status === 'final'} className="min-w-0 space-y-6"
+            aria-label={t('docPathology.reportObservations')}>
           {/* Gross Examination */}
           <div className="bg-surface rounded-lg shadow p-6">
             <h3 id="path-gross-examination-heading" className="text-lg font-bold mb-3">{t('docPathology.grossExaminationHeading')}</h3>
@@ -1055,6 +1064,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addBlock}
+                    aria-label={`${t('common.add')} ${t('docPathology.tissueBlocksLabel')}`}
                     className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
@@ -1084,6 +1094,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addSlide}
+                    aria-label={`${t('common.add')} ${t('docPathology.slidesLabel')}`}
                     className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
@@ -1219,6 +1230,7 @@ const PathologyPage: React.FC = () => {
             )}
           </div>
 
+          </fieldset>
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3">
             <button
@@ -1234,6 +1246,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(false)}
+              disabled={selectedSpecimen.status === 'final'}
               className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
@@ -1242,6 +1255,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(true)}
+              disabled={selectedSpecimen.status === 'final'}
               className="px-4 py-2 bg-ok text-ok-fg rounded-md hover:bg-ok flex items-center"
             >
               <CheckCircle className="h-4 w-4 mr-2" />

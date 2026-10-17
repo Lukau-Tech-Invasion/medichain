@@ -151,7 +151,9 @@ export default function StaffSelect({
       <div className="relative">
         {/* Selected staff display or search input */}
         {selectedStaff && !isOpen ? (
-          <div 
+          <div
+            id={id}
+            aria-label={label ? `${label}: ${selectedStaff.name}` : selectedStaff.name}
             className={`
               w-full flex items-center justify-between px-4 py-2.5 
               border border-border-strong rounded-lg 
@@ -179,6 +181,7 @@ export default function StaffSelect({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); handleClear(); }}
+                  aria-label="Clear selected staff"
                   className="p-1 hover:bg-surface-sunken rounded"
                 >
                   <X size={16} className="text-content-muted" />
@@ -256,6 +259,7 @@ export default function StaffSelect({
                     <p className="font-medium text-content truncate">
                       {member.name}
                     </p>
+                    <p className="break-all text-xs text-content-muted">{member.username || member.user_id}</p>
                     <div className="flex items-center gap-2 text-xs text-content-muted">
                       <span className={`inline-block px-1.5 py-0.5 rounded ${getRoleColor(member.role)}`}>
                         {member.role}

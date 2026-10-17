@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { createPreOp, getApiClient, getPatients, useTranslation, formatDateOnly } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
+import { StoredValue } from '../components/StoredSoapDetails';
 import {
   Stethoscope,
   AlertTriangle,
@@ -40,54 +41,46 @@ type AnesthesiaType = 'general' | 'regional' | 'local' | 'mac' | 'spinal' | 'epi
  * genuinely inconsistent about enveloping -- so naming it changes nothing at
  * run time and makes the reads checkable.
  */
-type RecordList = { records?: { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[]; assessments?: { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[] } | { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[];
+type StoredPreOpRecord = Record<string, unknown> & { id: string; patient_id?: string;
+  scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number };
+type RecordList = { records?: StoredPreOpRecord[]; assessments?: StoredPreOpRecord[] } | StoredPreOpRecord[];
+
+// Existing clinical prefills are retained pending clinical policy review.
+const initialAsaClass: ASAClass = 'II';
+const initialAnesthesiaType: AnesthesiaType = 'general';
+const initialAirway = { mallampati: 'II' as MallampatiClass, mouthOpening: '>3cm', thyromental: '>6cm',
+  neckMobility: 'full', dentition: 'intact', beardPresent: false, obeseNeck: false, difficultyPredicted: false };
+const initialNpoStatus = { lastSolid: '', lastClear: '', compliant: undefined as boolean | undefined };
+const initialConsents = { surgicalConsent: false, anesthesiaConsent: false, bloodConsent: false };
 
 export default function PreOpPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionPending = useRef(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'assessment' | 'checklist' | 'history'>('assessment');
-  const [recentRecords, setRecentRecords] = useState<Array<{id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number}>>([]);
+  const [recentRecords, setRecentRecords] = useState<StoredPreOpRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
 
   // Form state
   const [scheduledSurgery, setScheduledSurgery] = useState('');
   const [surgeon, setSurgeon] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [asaClass, setAsaClass] = useState<ASAClass>('II');
+  const [asaClass, setAsaClass] = useState<ASAClass>(initialAsaClass);
   const [asaEmergency, setAsaEmergency] = useState(false);
-  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType>('general');
+  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType>(initialAnesthesiaType);
 
-  const [airwayAssessment, setAirwayAssessment] = useState({
-    mallampati: 'II' as MallampatiClass,
-    mouthOpening: '>3cm',
-    thyromental: '>6cm',
-    neckMobility: 'full',
-    dentition: 'intact',
-    beardPresent: false,
-    obeseNeck: false,
-    difficultyPredicted: false
-  });
-
-  const [npoStatus, setNpoStatus] = useState({
-    lastSolid: '',
-    lastClear: '',
-    compliant: true
-  });
-
-  const [consents, setConsents] = useState({
-    surgicalConsent: false,
-    anesthesiaConsent: false,
-    bloodConsent: false
-  });
+  const [airwayAssessment, setAirwayAssessment] = useState(initialAirway);
+  const [npoStatus, setNpoStatus] = useState(initialNpoStatus);
+  const [consents, setConsents] = useState(initialConsents);
 
   const [labsReviewed, setLabsReviewed] = useState<string[]>([]);
   const [allergies, setAllergies] = useState<string[]>([]);
@@ -191,20 +184,26 @@ export default function PreOpPage() {
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
+      let cancelled = false;
       const fetchRecentRecords = async () => {
         setRecordsLoading(true);
+        setRecordsError('');
+        setRecentRecords([]);
         try {
           const data = await getApiClient().get<RecordList>(`/api/surgical/pre-op/patient/${selectedPatient.patient_id}`);
-          setRecentRecords(Array.isArray(data) ? data : (data.records || data.assessments || []));
+          const records = Array.isArray(data) ? data : (data.records || data.assessments || []);
+          if (!cancelled) setRecentRecords(records.filter(record => !record.patient_id || record.patient_id === selectedPatient.patient_id));
         } catch (e) {
           console.error(e);
+          if (!cancelled) setRecordsError(t('docPreOp.historyReadFailed'));
         } finally {
-          setRecordsLoading(false);
+          if (!cancelled) setRecordsLoading(false);
         }
       };
       fetchRecentRecords();
+      return () => { cancelled = true; };
     }
-  }, [activeTab, selectedPatient, user]);
+  }, [activeTab, selectedPatient, user, t]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -276,14 +275,28 @@ export default function PreOpPage() {
   const checklistProgress = Object.values(preOpChecklist).filter(Boolean).length;
   const totalChecklistItems = Object.keys(preOpChecklist).length;
 
+  /** Reset completed documentation while retaining the selected patient's history context. */
+  const resetCompletedDraft = () => {
+    setScheduledSurgery(''); setSurgeon(''); setScheduledDate(''); setScheduledTime('');
+    setAsaClass(initialAsaClass); setAsaEmergency(false); setAnesthesiaType(initialAnesthesiaType);
+    setAirwayAssessment({ ...initialAirway }); setNpoStatus({ ...initialNpoStatus }); setConsents({ ...initialConsents });
+    setLabsReviewed([]); setAllergies([]); setNewAllergy(''); setCurrentMedications([]); setNewMedication('');
+    setHoldMedications([]); setMedicalHistory([]); setNotes('');
+    setPreOpChecklist(previous => Object.fromEntries(Object.keys(previous).map(key => [key, false])));
+  };
+
+  /** Save one assessment at a time; refused writes retain the draft for correction. */
   const handleSave = async () => {
+    if (submissionPending.current) return;
     if (!selectedPatient) {
       setError(t('docPreOp.errorSelectPatient'));
       return;
     }
 
+    submissionPending.current = true;
     setIsSubmitting(true);
     setError('');
+    setSuccess('');
 
     try {
       const assessmentData = {
@@ -313,19 +326,21 @@ export default function PreOpPage() {
       };
 
       await createPreOp(assessmentData);
+      resetCompletedDraft();
       setSuccess(t('docPreOp.savedSuccess'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setActiveTab('history');
     } catch (err) {
       setError(t('docPreOp.errorSave'));
       console.error('Failed to save pre-op assessment', err);
     } finally {
+      submissionPending.current = false;
       setIsSubmitting(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken p-6">
-      <div className="max-w-7xl mx-auto">
+      <fieldset disabled={isSubmitting} className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-indigo-700 to-purple-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
@@ -342,7 +357,7 @@ export default function PreOpPage() {
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
                 <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
-                {asaClass && (
+                {activeTab !== 'history' && asaClass && (
                   <span className={`inline-block mt-1 px-3 py-1 rounded-full text-sm font-bold ${getAsaColor(asaClass)}`}>
                     {t('docPreOp.asaClassBadge', { class: asaClass, suffix: asaEmergency ? 'E' : '' })}
                   </span>
@@ -353,21 +368,21 @@ export default function PreOpPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
+          <div role="status" className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
+          <div role="alert" className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
         )}
 
         {/* Progress Bar */}
-        <div className="bg-surface rounded-lg shadow mb-6 p-4">
+        {activeTab !== 'history' && <div className="bg-surface rounded-lg shadow mb-6 p-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-medium text-content-secondary">{t('docPreOp.checklistProgressLabel')}</h3>
             <span className="text-sm text-content-muted">{t('docPreOp.itemsCompleteLine', { done: checklistProgress, total: totalChecklistItems })}</span>
@@ -381,7 +396,7 @@ export default function PreOpPage() {
               style={{ width: `${(checklistProgress / totalChecklistItems) * 100}%` }}
             />
           </div>
-        </div>
+        </div>}
 
         {/* Tabs */}
         <div className="bg-surface rounded-lg shadow mb-6">
@@ -556,17 +571,19 @@ export default function PreOpPage() {
                       className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
-                  <label htmlFor="preop-npo-compliant" className="flex items-center space-x-2 cursor-pointer">
-                    <input
+                  <label htmlFor="preop-npo-compliant" className="block text-sm font-medium text-content-secondary">
+                    {t('docPreOp.npoComplianceLabel')}
+                    <select
                       id="preop-npo-compliant"
-                      type="checkbox"
-                      checked={npoStatus.compliant}
-                      onChange={() => setNpoStatus(prev => ({ ...prev, compliant: !prev.compliant }))}
-                      className="rounded border-border-interactive text-ok-subtle-fg"
-                    />
-                    <span className={`font-medium ${npoStatus.compliant ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg'}`}>
-                      {npoStatus.compliant ? t('docPreOp.npoCompliant') : t('docPreOp.npoNotCompliant')}
-                    </span>
+                      value={npoStatus.compliant === undefined ? '' : String(npoStatus.compliant)}
+                      onChange={event => setNpoStatus(prev => ({ ...prev,
+                        compliant: event.target.value === '' ? undefined : event.target.value === 'true' }))}
+                      className="w-full p-2 border border-border-interactive rounded"
+                    >
+                      <option value="">{t('docPreOp.npoNotRecorded')}</option>
+                      <option value="true">{t('docPreOp.npoCompliant')}</option>
+                      <option value="false">{t('docPreOp.npoNotCompliant')}</option>
+                    </select>
                   </label>
                 </div>
               </div>
@@ -740,7 +757,7 @@ export default function PreOpPage() {
               </div>
 
               {/* Medical History & Allergies */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
                     <Heart className="h-5 w-5 mr-2 text-critical" />
@@ -775,7 +792,7 @@ export default function PreOpPage() {
                       value={newAllergy}
                       onChange={(e) => setNewAllergy(e.target.value)}
                       placeholder={t('docPreOp.addAllergyPh')}
-                      className="flex-1 p-2 border border-border-interactive rounded text-sm"
+                      className="min-w-0 flex-1 p-2 border border-border-interactive rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addAllergy()}
                     />
                     <button
@@ -804,14 +821,14 @@ export default function PreOpPage() {
                       </span>
                     ))}
                     {allergies.length === 0 && (
-                      <span className="text-content-muted text-sm">{t('docPreOp.nkda')}</span>
+                      <span className="text-content-muted text-sm">{t('docPreOp.noDraftAllergies')}</span>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Medications */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
                     <Pill className="h-5 w-5 mr-2 text-notice-subtle-fg" />
@@ -825,7 +842,7 @@ export default function PreOpPage() {
                       value={newMedication}
                       onChange={(e) => setNewMedication(e.target.value)}
                       placeholder={t('docPreOp.addMedicationPh')}
-                      className="flex-1 p-2 border border-border-interactive rounded text-sm"
+                      className="min-w-0 flex-1 p-2 border border-border-interactive rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addMedication()}
                     />
                     <button
@@ -879,7 +896,7 @@ export default function PreOpPage() {
               </div>
 
               {/* Labs & Consents */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
                     <Activity className="h-5 w-5 mr-2 text-ok" />
@@ -1051,6 +1068,8 @@ export default function PreOpPage() {
               </div>
             ) : recordsLoading ? (
               <div className="text-center py-8 text-content-muted">{t('docPreOp.loadingRecords')}</div>
+            ) : recordsError ? (
+              <p role="alert" className="p-4 text-critical-subtle-fg">{recordsError}</p>
             ) : recentRecords.length === 0 ? (
               <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -1066,6 +1085,7 @@ export default function PreOpPage() {
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableSurgery')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableAsaClass')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.dateLabel')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.detailsHeading')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1075,6 +1095,12 @@ export default function PreOpPage() {
                         <td className="px-4 py-2">{rec.scheduled_surgery || rec.surgery || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.asa_class || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? formatDateOnly(rec.created_at * 1000) : '-')}</td>
+                        <td className="px-4 py-2">
+                          <details className="rounded border border-border-interactive p-3">
+                            <summary className="cursor-pointer font-medium">{t('docPreOp.savedDetails')}</summary>
+                            <div className="mt-3"><StoredValue value={rec} /></div>
+                          </details>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1083,7 +1109,7 @@ export default function PreOpPage() {
             )}
           </div>
         )}
-      </div>
+      </fieldset>
     </div>
   );
 }

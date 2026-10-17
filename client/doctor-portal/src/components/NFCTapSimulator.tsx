@@ -304,13 +304,15 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
       {mode === 'manual' && (
         <div className="space-y-4">
-          <p className="text-sm text-content-muted">
+          {isParamedic ? <p className="text-sm text-content-muted">
+            Manual patient search is unavailable to paramedics. Use a registered NFC card or QR code with an approved hospital device.
+          </p> : <p className="text-sm text-content-muted">
             For manual patient lookup, use the{' '}
             <Link to="/patients" className="text-brand hover:underline">
               Patient Search
             </Link>{' '}
             page.
-          </p>
+          </p>}
         </div>
       )}
 

@@ -18,6 +18,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn(),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -42,6 +43,10 @@ describe('DrugInteractionsPage', () => {
   };
 
   beforeEach(() => {
+  vi.mocked(shared.openAccessContext).mockResolvedValue({
+    access_context_id: 'CTX-PAGE-QA',
+    expires_at: new Date(Date.now() + 3600000).toISOString(),
+  } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
@@ -85,14 +90,14 @@ describe('DrugInteractionsPage', () => {
           success: true,
           drugs: [
             {
-              drugId: 'D-1', name: 'Warfarin', genericName: 'warfarin sodium',
-              brandNames: ['Coumadin'], drugClass: 'Anticoagulant',
-              route: 'PO', form: 'tablet', commonDoses: ['5 mg'],
+              drug_id: 'D-1', name: 'Warfarin', generic_name: 'warfarin sodium',
+              brand_names: ['Coumadin'], drug_class: 'Anticoagulant',
+              route: 'PO', form: 'tablet', common_doses: ['5 mg'],
             },
             {
-              drugId: 'D-2', name: 'Aspirin', genericName: 'acetylsalicylic acid',
-              brandNames: ['Disprin'], drugClass: 'Antiplatelet',
-              route: 'PO', form: 'tablet', commonDoses: ['75 mg'],
+              drug_id: 'D-2', name: 'Aspirin', generic_name: 'acetylsalicylic acid',
+              brand_names: ['Disprin'], drug_class: 'Antiplatelet',
+              route: 'PO', form: 'tablet', common_doses: ['75 mg'],
             },
           ],
         });

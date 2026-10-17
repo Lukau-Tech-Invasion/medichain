@@ -1,29 +1,31 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createPsych, getPsychForPatient, useTranslation, formatTimestamp } from '@medichain/shared';
+import { getPatients, createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 
-type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
-type LegalStatus = 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
+type RiskLevel = 'unknown' | 'none' | 'low' | 'moderate' | 'high' | 'imminent';
+type LegalStatus = '' | 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
+type SubstanceEntry = { substance: string; frequency: string; lastUse: string };
+const MAX_SUBSTANCE_ROWS = 100;
 
 interface SuicideRisk {
-  ideation: boolean;
-  plan: boolean;
-  intent: boolean;
-  means: boolean;
-  priorAttempts: number;
-  recentAttempt: boolean;
+  ideation: boolean | null;
+  plan: boolean | null;
+  intent: boolean | null;
+  means: boolean | null;
+  priorAttempts: number | null;
+  recentAttempt: boolean | null;
   riskLevel: RiskLevel;
 }
 
 interface HomicideRisk {
-  ideation: boolean;
-  plan: boolean;
-  target: boolean;
-  means: boolean;
+  ideation: boolean | null;
+  plan: boolean | null;
+  target: boolean | null;
+  means: boolean | null;
   riskLevel: RiskLevel;
 }
 
@@ -49,7 +51,7 @@ interface PsychAssessment {
   assessedAt: string;
   chiefComplaint: string;
   historyOfPresentIllness: string;
-  substanceUse: { substance: string; frequency: string; lastUse: string }[];
+  substanceUse: SubstanceEntry[];
   medications: string[];
   mentalStatusExam: MentalStatusExam;
   suicideRisk: SuicideRisk;
@@ -62,6 +64,7 @@ interface PsychAssessment {
 }
 
 const riskLevelColors: Record<RiskLevel, string> = {
+  unknown: 'bg-surface-sunken text-content-secondary',
   none: 'bg-surface-sunken text-content-secondary',
   low: 'bg-ok-subtle text-ok-subtle-fg',
   moderate: 'bg-caution-subtle text-caution-subtle-fg',
@@ -72,9 +75,42 @@ const riskLevelColors: Record<RiskLevel, string> = {
 /** Coerce a stored risk level onto the union the badge colours are keyed by. */
 function toRiskLevel(value: unknown): RiskLevel {
   const level = String(value ?? '').toLowerCase();
-  return (['none', 'low', 'moderate', 'high', 'imminent'] as const).includes(level as RiskLevel)
+  return (['unknown', 'none', 'low', 'moderate', 'high', 'imminent'] as const).includes(level as RiskLevel)
     ? (level as RiskLevel)
-    : 'none';
+    : 'unknown';
+}
+
+/** Preserve a recorded yes/no observation; absent and malformed values stay unknown. */
+function toObservation(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+/** Return a draft validation message, or null when count and substance entries can be submitted. */
+function validatePsychDraft(attemptCount: number | null, substances: SubstanceEntry[]): string | null {
+  if (attemptCount !== null && (!Number.isSafeInteger(attemptCount) || attemptCount < 0)) {
+    return 'Enter a valid non-negative whole number for prior attempts, or leave it blank.';
+  }
+  if (substances.length > MAX_SUBSTANCE_ROWS) return 'An assessment can contain at most 100 substance rows.';
+  if (substances.some(row => !row.substance.trim())) {
+    return 'Enter a substance name for each added row, or remove the unused row.';
+  }
+  return null;
+}
+
+/** Render a documented observation without using unchecked boxes to imply a negative finding. */
+function ObservationSelect({ label, value, onChange }: {
+  label: string; value: boolean | null; onChange: (value: boolean | null) => void;
+}) {
+  const { t } = useTranslation();
+  return <label className="flex items-center justify-between gap-2">
+    {label}
+    <select aria-label={label} className="border rounded p-1" value={value === null ? '' : String(value)}
+      onChange={event => onChange(event.target.value === '' ? null : event.target.value === 'true')}>
+      <option value="">{t('docPsych.notAssessed')}</option>
+      <option value="true">{t('docPsych.observationYes')}</option>
+      <option value="false">{t('docPsych.observationNo')}</option>
+    </select>
+  </label>;
 }
 
 /**
@@ -109,8 +145,8 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
       // Each sub-object is read field-by-field with a `?? ''` fallback, so its
       // values are strings-or-absent. `Record<string, unknown>` would make
       // every one of those reads `{}` rather than `string`.
-      suicide_risk?: Partial<Record<string, string>>;
-      homicidal_risk?: Partial<Record<string, string>>;
+      suicide_risk?: Partial<Record<string, unknown>>;
+      homicidal_risk?: Partial<Record<string, unknown>>;
       mental_status?: Partial<Record<string, string>>;
       legal_status?: { admission_type?: string };
       psych_history?: { diagnoses?: unknown };
@@ -121,14 +157,14 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
     };
     const suicide = item.suicide_risk ?? {};
     const homicide = item.homicidal_risk ?? {};
-    const mse = item.mental_status ?? {};
+    const mse = (item.mental_status_exam ?? item.mental_status ?? {}) as Partial<Record<string, string>>;
     const asList = (value: unknown): string[] =>
       Array.isArray(value)
         ? value.map(String)
         : typeof value === 'string' && value.trim()
           ? value.split(',').map((s) => s.trim()).filter(Boolean)
           : [];
-    const legal = String(item.legal_status?.admission_type ?? 'voluntary').toLowerCase();
+    const legal = String(item.legal_status?.admission_type ?? '').toLowerCase();
     return {
       historyOfPresentIllness: item.history_of_present_illness ?? '',
       substanceUse: (item.substance_use?.substances ?? []).map((s) => ({
@@ -151,12 +187,12 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
         insight: mse.insight ?? '',
         judgment: mse.judgment ?? '',
       },
-      legalStatus: (['voluntary', 'involuntary', '5150', '5250', 'conservatorship'] as const).includes(
+      legalStatus: (['', 'voluntary', 'involuntary', '5150', '5250', 'conservatorship'] as const).includes(
         legal as LegalStatus
       )
         ? (legal as LegalStatus)
-        : 'voluntary',
-      diagnoses: asList(item.diagnoses),
+        : '',
+      diagnoses: asList(item.diagnoses ?? item.psych_history?.diagnoses),
       safetyPlan: asList(item.safety_plan),
       notes: item.notes ?? '',
       id: item.assessment_id ?? '',
@@ -170,23 +206,73 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
         item.patient_id ??
         '',
       suicideRisk: {
-        ideation: Boolean(suicide.ideation),
-        plan: Boolean(suicide.plan),
-        intent: Boolean(suicide.intent),
-        means: Boolean(suicide.access_to_means),
-        priorAttempts: Number(suicide.attempt_count ?? 0),
-        recentAttempt: Boolean(suicide.recent_attempt_details),
+        ideation: toObservation(suicide.ideation),
+        plan: toObservation(suicide.plan),
+        intent: toObservation(suicide.intent),
+        means: toObservation(suicide.access_to_means),
+        priorAttempts: typeof suicide.attempt_count === 'number' ? suicide.attempt_count : null,
+        recentAttempt: toObservation(suicide.recent_attempt),
         riskLevel: toRiskLevel(suicide.risk_level),
       },
       homicideRisk: {
-        ideation: Boolean(homicide.ideation),
-        target: Boolean(homicide.target_identified),
-        plan: Boolean(homicide.plan),
-        means: Boolean(homicide.access_to_weapons),
+        ideation: toObservation(homicide.ideation),
+        target: toObservation(homicide.target_identified),
+        plan: toObservation(homicide.plan),
+        means: toObservation(homicide.access_to_weapons),
         riskLevel: toRiskLevel(homicide.risk_level),
       },
     };
   };
+}
+
+/** Display persisted assessment fields; absent observations are never inferred as normal or negative. */
+function AssessmentDetails({ assessment: a }: { assessment: PsychAssessment }) {
+  const observation = (value: boolean | null) => value === null ? 'Not recorded' : value ? 'Yes' : 'No';
+  const mse = a.mentalStatusExam;
+  const fields: Array<[string, string | number | null]> = [
+    ['Appearance', mse.appearance], ['Behavior', mse.behavior], ['Speech', mse.speech],
+    ['Mood', mse.mood], ['Affect', mse.affect], ['Thought process', mse.thoughtProcess],
+    ['Thought content', mse.thoughtContent.join(', ')], ['Perceptions', mse.perceptions.join(', ')],
+    ['Cognition', mse.cognition], ['Insight', mse.insight], ['Judgment', mse.judgment],
+    ['Suicidal ideation', observation(a.suicideRisk.ideation)],
+    ['Suicide plan', observation(a.suicideRisk.plan)], ['Intent', observation(a.suicideRisk.intent)],
+    ['Access to means', observation(a.suicideRisk.means)], ['Prior attempts', a.suicideRisk.priorAttempts],
+    ['Recent attempt', observation(a.suicideRisk.recentAttempt)],
+    ['Homicidal ideation', observation(a.homicideRisk.ideation)],
+    ['Homicide plan', observation(a.homicideRisk.plan)],
+    ['Identified target', observation(a.homicideRisk.target)],
+    ['Access to weapons', observation(a.homicideRisk.means)],
+    ['Legal status', a.legalStatus ? a.legalStatus[0].toUpperCase() + a.legalStatus.slice(1) : null],
+    ['Medications', a.medications.join(', ')],
+  ];
+  return <details className="mt-3 border-t pt-3">
+    <summary className="cursor-pointer font-semibold focus-visible:outline focus-visible:outline-2">Assessment details</summary>
+    <dl className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      {fields.map(([label, value]) => <div key={label}>
+        <dt className="font-semibold">{label}</dt>
+        <dd className="whitespace-pre-wrap break-words">{value === null || value === '' ? 'Not recorded' : value}</dd>
+      </div>)}
+    </dl>
+    <h4 className="mt-3 font-semibold">Substance history</h4>
+    {a.substanceUse.length === 0 ? <p className="text-sm">No substance entries recorded</p> :
+      <ul className="mt-2 space-y-2 text-sm">{a.substanceUse.map((entry, index) => <li key={index}>
+        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div><dt className="font-semibold">Substance</dt><dd>{entry.substance || 'Not recorded'}</dd></div>
+          <div><dt className="font-semibold">Frequency</dt><dd>{entry.frequency || 'Not recorded'}</dd></div>
+          <div><dt className="font-semibold">Last use</dt><dd>{entry.lastUse || 'Not recorded'}</dd></div>
+        </dl>
+      </li>)}</ul>}
+  </details>;
+}
+
+/** Translate known stored dispositions without inferring voluntary versus involuntary admission. */
+function dispositionLabel(value: string): string {
+  const labels: Record<string, string> = {
+    DischargeHome: 'Discharge home', InpatientAdmission: 'Inpatient admission',
+    TransferToPsychFacility: 'Transfer to psychiatric facility', CrisisStabilization: 'Crisis stabilization',
+    OutpatientFollowUp: 'Outpatient follow-up',
+  };
+  return labels[value] ?? (value || 'Not recorded');
 }
 
 const psychiatricDiagnoses = [
@@ -202,41 +288,47 @@ const PsychPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
+  const [patients, setPatients] = useState<Array<Pick<PatientDirectoryEntry, 'patient_id' | 'full_name'>>>([]);
   const [assessments, setAssessments] = useState<PsychAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const savePending = useRef(false);
+  const saveCommitted = useRef(false);
+  const saveOperation = useRef<{ signature: string; key: string; id: string; assessedAt: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [hpi, setHpi] = useState('');
-  const [substances, setSubstances] = useState<{ substance: string; frequency: string; lastUse: string }[]>([]);
+  const [substances, setSubstances] = useState<SubstanceEntry[]>([]);
   const [selectedDiagnoses, setSelectedDiagnoses] = useState<string[]>([]);
-  const [legalStatus, setLegalStatus] = useState<LegalStatus>('voluntary');
+  const [legalStatus, setLegalStatus] = useState<LegalStatus>('');
   const [disposition, setDisposition] = useState('');
   const [notes, setNotes] = useState('');
 
   const [mse, setMse] = useState<MentalStatusExam>({
-    appearance: 'Well-groomed, appropriate dress',
-    behavior: 'Calm, cooperative',
-    speech: 'Normal rate, rhythm, volume',
+    appearance: '',
+    behavior: '',
+    speech: '',
     mood: '',
-    affect: 'Congruent, full range',
-    thoughtProcess: 'Linear, goal-directed',
+    affect: '',
+    thoughtProcess: '',
     thoughtContent: [],
     perceptions: [],
-    cognition: 'Alert and oriented x4',
-    insight: 'Fair',
-    judgment: 'Fair'
+    cognition: '',
+    insight: '',
+    judgment: ''
   });
 
   const [suicideRisk, setSuicideRisk] = useState<SuicideRisk>({
-    ideation: false, plan: false, intent: false, means: false,
-    priorAttempts: 0, recentAttempt: false, riskLevel: 'none'
+    ideation: null, plan: null, intent: null, means: null,
+    priorAttempts: null, recentAttempt: null, riskLevel: 'unknown'
   });
 
   const [homicideRisk, setHomicideRisk] = useState<HomicideRisk>({
-    ideation: false, plan: false, target: false, means: false, riskLevel: 'none'
+    ideation: null, plan: null, target: null, means: null, riskLevel: 'unknown'
   });
 
   const [safetyPlan, setSafetyPlan] = useState<string[]>([]);
@@ -254,11 +346,12 @@ const PsychPage: React.FC = () => {
   }, []);
 
   const refreshAssessments = useCallback(async () => {
-    if (!selectedPatient) return;
+    if (!selectedPatient) return false;
     try {
       const { assessments: saved } = await getPsychForPatient(selectedPatient);
       setAssessments(saved.map(toStoredAssessment(patients)));
       setHistoryError('');
+      return true;
     } catch (err) {
       console.error('Failed to load psychiatric assessments:', err);
       // Said out loud rather than left as an empty tab. "No prior
@@ -266,6 +359,7 @@ const PsychPage: React.FC = () => {
       // findings for a patient being assessed for suicide risk, and an empty
       // list asserts the first one.
       setHistoryError(t('docPsych.historyLoadFailed'));
+      return false;
     }
   }, [selectedPatient, patients, t]);
 
@@ -280,6 +374,7 @@ const PsychPage: React.FC = () => {
     if (suicideRisk.plan) level = 'moderate';
     if (suicideRisk.intent || suicideRisk.means) level = 'high';
     if (suicideRisk.recentAttempt || (suicideRisk.plan && suicideRisk.intent && suicideRisk.means)) level = 'imminent';
+    if ([suicideRisk.ideation, suicideRisk.plan, suicideRisk.intent, suicideRisk.means, suicideRisk.recentAttempt].includes(null)) level = 'unknown';
     setSuicideRisk(prev => ({ ...prev, riskLevel: level }));
   }, [suicideRisk.ideation, suicideRisk.plan, suicideRisk.intent, suicideRisk.means, suicideRisk.recentAttempt]);
 
@@ -290,20 +385,71 @@ const PsychPage: React.FC = () => {
     if (homicideRisk.plan || homicideRisk.target) level = 'moderate';
     if (homicideRisk.means) level = 'high';
     if (homicideRisk.plan && homicideRisk.target && homicideRisk.means) level = 'imminent';
+    if ([homicideRisk.ideation, homicideRisk.plan, homicideRisk.target, homicideRisk.means].includes(null)) level = 'unknown';
     setHomicideRisk(prev => ({ ...prev, riskLevel: level }));
   }, [homicideRisk.ideation, homicideRisk.plan, homicideRisk.target, homicideRisk.means]);
 
   const addSubstance = () => {
+    if (substances.length >= MAX_SUBSTANCE_ROWS) return;
     setSubstances([...substances, { substance: '', frequency: '', lastUse: '' }]);
   };
 
+  /** Edit an unsaved entry without mutating a prior state or submitted snapshot. */
+  const updateSubstance = (index: number, field: keyof SubstanceEntry, value: string) => {
+    setSubstances(previous => previous.map((entry, position) =>
+      position === index ? { ...entry, [field]: value } : entry));
+  };
+
+  /** Start a new document explicitly; retain the selected patient but clear prior findings. */
+  const startNewAssessment = () => {
+    saveCommitted.current = false;
+    saveOperation.current = null;
+    setSaved(false); setSaveError('');
+    setChiefComplaint(''); setHpi(''); setSubstances([]); setSelectedDiagnoses([]);
+    setLegalStatus(''); setDisposition(''); setNotes(''); setSafetyPlan([]);
+    setMse({ appearance: '', behavior: '', speech: '', mood: '', affect: '', thoughtProcess: '',
+      thoughtContent: [], perceptions: [], cognition: '', insight: '', judgment: '' });
+    setSuicideRisk({ ideation: null, plan: null, intent: null, means: null,
+      priorAttempts: null, recentAttempt: null, riskLevel: 'unknown' });
+    setHomicideRisk({ ideation: null, plan: null, target: null, means: null, riskLevel: 'unknown' });
+  };
+
+  /** Confirm a duplicate-operation response using its stored actor-bound correlation, not similar text. */
+  const recoverSavedAssessment = async (operationKey: string) => {
+    try {
+      const { assessments: records } = await getPsychForPatient(selectedPatient);
+      const matched = records.some(raw => {
+        const record = raw as { client_operation_id?: string; assessed_by?: string };
+        return record.client_operation_id === operationKey && record.assessed_by === user?.userId;
+      });
+      if (!matched) return false;
+      setAssessments(records.map(toStoredAssessment(patients)));
+      setHistoryError(''); setSaveError('');
+      saveCommitted.current = true; setSaved(true);
+      showSuccess(t('docPsych.saved'));
+      return true;
+    } catch (error) {
+      console.error('Could not confirm psychiatric save through history:', error);
+      setHistoryError(t('docPsych.historyLoadFailed'));
+      return false;
+    }
+  };
+
   const handleSubmit = async () => {
+    if (savePending.current || saveCommitted.current) return;
     if (!selectedPatient) {
+      setSaveError(t('docPsych.errorSelectPatient'));
       showError(t('docPsych.errorSelectPatient'));
       return;
     }
     if (!disposition) {
+      setSaveError('Select a disposition before saving the assessment.');
       showError('Select a disposition before saving the assessment.');
+      return;
+    }
+    const draftError = validatePsychDraft(suicideRisk.priorAttempts, substances);
+    if (draftError) {
+      setSaveError(draftError); showError(draftError);
       return;
     }
     const apiDisposition: Record<string, string> = {
@@ -334,11 +480,27 @@ const PsychPage: React.FC = () => {
       safetyPlan,
       notes
     };
+    // Retry timestamps and IDs must also match: the server compares the complete payload.
+    const signature = JSON.stringify({ ...newAssessment, id: '', assessedAt: '' });
+    if (saveOperation.current?.signature !== signature) {
+      saveOperation.current = { signature, key: crypto.randomUUID(),
+        id: newAssessment.id, assessedAt: newAssessment.assessedAt };
+    }
+    const operation = saveOperation.current;
+    newAssessment.id = operation.id;
+    newAssessment.assessedAt = operation.assessedAt;
+    savePending.current = true;
+    setSaveError('');
+    setSaving(true);
     try {
       const result = await createPsych({
         assessment_id: newAssessment.id,
         patient_id: newAssessment.patientId,
         chief_complaint: newAssessment.chiefComplaint,
+        history_of_present_illness: newAssessment.historyOfPresentIllness,
+        diagnoses: newAssessment.diagnoses,
+        legal_status: { admission_type: newAssessment.legalStatus || null },
+        notes: newAssessment.notes,
         mental_status_exam: {
           appearance: newAssessment.mentalStatusExam.appearance,
           behavior: newAssessment.mentalStatusExam.behavior,
@@ -360,41 +522,23 @@ const PsychPage: React.FC = () => {
           intent: newAssessment.suicideRisk.intent,
           access_to_means: newAssessment.suicideRisk.means,
           means_description: null,
-          prior_attempts: newAssessment.suicideRisk.priorAttempts > 0,
-          attempt_count: newAssessment.suicideRisk.priorAttempts || null,
+          prior_attempts: newAssessment.suicideRisk.priorAttempts === null ? null : newAssessment.suicideRisk.priorAttempts > 0,
+          attempt_count: newAssessment.suicideRisk.priorAttempts,
+          recent_attempt: newAssessment.suicideRisk.recentAttempt,
           recent_attempt_details: null,
           risk_factors: [],
           protective_factors: [],
-          risk_level: newAssessment.suicideRisk.riskLevel === 'none' ? 'Low' : newAssessment.suicideRisk.riskLevel[0].toUpperCase() + newAssessment.suicideRisk.riskLevel.slice(1),
-          cssrs_used: false,
+          risk_level: ['unknown', 'none'].includes(newAssessment.suicideRisk.riskLevel) ? null : newAssessment.suicideRisk.riskLevel,
+          cssrs_used: null,
           cssrs_score: null,
         },
-        // Only what the form collects.
-        //
-        // This block used to assert a page of negatives nobody entered:
-        // `history_of_violence: false`, `duty_to_warn: false`,
-        // `law_enforcement_notified: false`, `currently_intoxicated: false`,
-        // `in_withdrawal: false`, `self_harm_history: false`,
-        // `hospitalizations: 0`, and an empty `diagnoses` list from a
-        // `psychHistory` state that had no control and was always `[]` — so
-        // every psychiatric assessment on file recorded no prior diagnoses, no
-        // hospitalisations and no self-harm history.
-        //
-        // `legal_status.admission_type: 'Voluntary'` was the worst of them:
-        // whether a psychiatric admission is voluntary or under a hold is a
-        // legal status with due-process consequences, and it was asserted for
-        // every patient by a form that never asks.
-        //
-        // A psychiatric-history and legal-status sub-form is a feature to
-        // build. Until it exists, absent is the truthful value: the handler
-        // stores these as NULL, which reads as "not recorded" rather than as a
-        // negative finding.
+        // Preserve the risk observations entered in this assessment.
         homicidal_risk: {
           ideation: newAssessment.homicideRisk.ideation,
           target_identified: newAssessment.homicideRisk.target,
           plan: newAssessment.homicideRisk.plan,
           access_to_weapons: newAssessment.homicideRisk.means,
-          risk_level: newAssessment.homicideRisk.riskLevel,
+          risk_level: ['unknown', 'none'].includes(newAssessment.homicideRisk.riskLevel) ? null : newAssessment.homicideRisk.riskLevel,
         },
         substance_use: {
           substances: newAssessment.substanceUse.map((item) => ({ ...item, last_use: item.lastUse })),
@@ -402,25 +546,37 @@ const PsychPage: React.FC = () => {
         psych_history: {
           suicide_attempts: newAssessment.suicideRisk.priorAttempts,
         },
-        safety_precautions: [],
+        safety_precautions: newAssessment.safetyPlan,
         disposition: newAssessment.disposition,
-        safety_plan: null,
+        safety_plan: newAssessment.safetyPlan.join(', ') || null,
         assessed_by: newAssessment.assessedBy,
-        assessed_at: Math.floor(Date.now() / 1000),
-      }) as { success?: boolean };
+        assessed_at: Math.floor(Date.parse(newAssessment.assessedAt) / 1000),
+      }, operation.key) as { success?: boolean };
       if (result?.success === false) {
         throw new Error('Psychiatric assessment was not saved.');
       }
+      saveCommitted.current = true;
+      setSaved(true);
       // Re-read rather than prepending the object this page just built.
       // The optimistic entry showed the clinician their own input back, so a
       // field the API dropped -- and this handler flattens a psychiatric
       // history the form does not collect -- looked stored until the next
       // reload, by which time nobody connects the loss to the save.
-      await refreshAssessments();
-      showSuccess(t('docPsych.saved'));
+      if (await refreshAssessments()) {
+        showSuccess(t('docPsych.saved'));
+      } else {
+        setSaveError('The assessment was saved, but history could not be loaded. Open History and retry loading it.');
+        showError('The assessment was saved, but history could not be loaded. Open History and retry loading it.');
+      }
     } catch (err) {
+      if (err instanceof ApiClientError && err.code === 'IDEMPOTENCY_DUPLICATE'
+        && await recoverSavedAssessment(operation.key)) return;
       console.error('Failed to save psychiatric assessment:', err);
-      showError('Psychiatric assessment could not be saved.');
+      setSaveError('Save could not be confirmed. Your draft is retained. Retry without changing it to recover the original save.');
+      showError('Psychiatric assessment save could not be confirmed.');
+    } finally {
+      savePending.current = false;
+      setSaving(false);
     }
   };
 
@@ -454,6 +610,7 @@ const PsychPage: React.FC = () => {
           {['assessment', 'history'].map(tab => (
             <button
               key={tab}
+              disabled={saving}
               onClick={() => setActiveTab(tab as 'assessment' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
                 ? 'text-content-secondary border-b-2 border-purple-600'
@@ -468,6 +625,12 @@ const PsychPage: React.FC = () => {
       <div className="p-6">
         {activeTab === 'assessment' ? (
           <div className="space-y-6">
+          {saved && <div role="status" className="rounded border p-3">
+            <p>Assessment saved. Start a new assessment to document another encounter.</p>
+            <button onClick={startNewAssessment} className="mt-2 border rounded px-3 py-2">New assessment</button>
+          </div>}
+          <fieldset disabled={saving || saved} className="space-y-6" aria-busy={saving}>
+            {saveError && <p role="alert" className="bg-critical-subtle text-critical-subtle-fg border border-critical rounded p-3">{saveError}</p>}
             {/* Patient Selection */}
             <div className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
@@ -476,7 +639,12 @@ const PsychPage: React.FC = () => {
               <PatientSelect
                 id="psych-patient"
                 value={selectedPatient}
-                onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                onChange={(selectedPatientId, patient) => {
+                  if (patient) setPatients(previous => [...previous.filter(entry => entry.patient_id !== patient.patient_id), {
+                    patient_id: patient.patient_id, full_name: patient.full_name,
+                  }]);
+                  setSelectedPatient(selectedPatientId);
+                }}
               />
             </div>
 
@@ -521,22 +689,17 @@ const PsychPage: React.FC = () => {
                     { key: 'means', label: t('docPsych.si_means') },
                     { key: 'recentAttempt', label: t('docPsych.si_recentAttempt') }
                   ].map(item => (
-                    <label key={item.key} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={suicideRisk[item.key as keyof SuicideRisk] as boolean}
-                        onChange={e => setSuicideRisk({ ...suicideRisk, [item.key]: e.target.checked })}
-                      />
-                      {item.label}
-                    </label>
+                    <ObservationSelect key={item.key} label={item.label}
+                      value={suicideRisk[item.key as keyof SuicideRisk] as boolean | null}
+                      onChange={value => setSuicideRisk({ ...suicideRisk, [item.key]: value })} />
                   ))}
                   <div className="flex items-center gap-2 mt-2">
                     <label htmlFor="psych-prior-attempts">{t('docPsych.priorAttempts')}</label>
                     <input
                       id="psych-prior-attempts"
                       type="number"
-                      value={suicideRisk.priorAttempts}
-                      onChange={e => setSuicideRisk({ ...suicideRisk, priorAttempts: Number(e.target.value) })}
+                      value={suicideRisk.priorAttempts ?? ''}
+                      onChange={e => setSuicideRisk({ ...suicideRisk, priorAttempts: e.target.value === '' ? null : Number(e.target.value) })}
                       className="w-16 border rounded p-1"
                       min="0"
                     />
@@ -561,14 +724,9 @@ const PsychPage: React.FC = () => {
                     { key: 'target', label: t('docPsych.hi_target') },
                     { key: 'means', label: t('docPsych.hi_means') }
                   ].map(item => (
-                    <label key={item.key} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={homicideRisk[item.key as keyof HomicideRisk] as boolean}
-                        onChange={e => setHomicideRisk({ ...homicideRisk, [item.key]: e.target.checked })}
-                      />
-                      {item.label}
-                    </label>
+                    <ObservationSelect key={item.key} label={item.label}
+                      value={homicideRisk[item.key as keyof HomicideRisk] as boolean | null}
+                      onChange={value => setHomicideRisk({ ...homicideRisk, [item.key]: value })} />
                   ))}
                 </div>
               </div>
@@ -651,7 +809,8 @@ const PsychPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="font-semibold">{t('docPsych.substanceTitle')}</h2>
-                <button onClick={addSubstance} className="text-content-secondary hover:text-content-secondary flex items-center gap-1">
+                <button onClick={addSubstance} disabled={substances.length >= MAX_SUBSTANCE_ROWS}
+                  className="text-content-secondary hover:text-content-secondary flex items-center gap-1">
                   <Plus className="w-4 h-4" /> {t('docPsych.addBtn')}
                 </button>
               </div>
@@ -660,36 +819,31 @@ const PsychPage: React.FC = () => {
                   <input
                     type="text"
                     value={s.substance}
-                    onChange={e => {
-                      const updated = [...substances];
-                      updated[i].substance = e.target.value;
-                      setSubstances(updated);
-                    }}
+                    aria-label={`${t('docPsych.phSubstance')} ${i + 1}`}
+                    onChange={e => updateSubstance(i, 'substance', e.target.value)}
                     className="border rounded p-2"
                     placeholder={t('docPsych.phSubstance')}
                   />
                   <input
                     type="text"
                     value={s.frequency}
-                    onChange={e => {
-                      const updated = [...substances];
-                      updated[i].frequency = e.target.value;
-                      setSubstances(updated);
-                    }}
+                    aria-label={`${t('docPsych.phFrequency')} ${i + 1}`}
+                    onChange={e => updateSubstance(i, 'frequency', e.target.value)}
                     className="border rounded p-2"
                     placeholder={t('docPsych.phFrequency')}
                   />
                   <input
                     type="text"
                     value={s.lastUse}
-                    onChange={e => {
-                      const updated = [...substances];
-                      updated[i].lastUse = e.target.value;
-                      setSubstances(updated);
-                    }}
+                    aria-label={`${t('docPsych.phLastUse')} ${i + 1}`}
+                    onChange={e => updateSubstance(i, 'lastUse', e.target.value)}
                     className="border rounded p-2"
                     placeholder={t('docPsych.phLastUse')}
                   />
+                  <button onClick={() => setSubstances(previous => previous.filter((_, index) => index !== i))}
+                    aria-label={t('docPsych.removeSubstance', { row: i + 1 })} className="text-content-secondary underline">
+                    {t('docPsych.removeSubstance', { row: i + 1 })}
+                  </button>
                 </div>
               ))}
             </div>
@@ -728,6 +882,7 @@ const PsychPage: React.FC = () => {
                   onChange={e => setLegalStatus(e.target.value as LegalStatus)}
                   className="w-full border rounded p-2"
                 >
+                  <option value="">{t('docPsych.notAssessed')}</option>
                   <option value="voluntary">{t('docPsych.legal_voluntary')}</option>
                   <option value="involuntary">{t('docPsych.legal_involuntary')}</option>
                   <option value="5150">{t('docPsych.legal_5150')}</option>
@@ -793,21 +948,35 @@ const PsychPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
+              disabled={saving || saved}
+              aria-busy={saving}
               className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
             >
               {t('docPsych.save')}
             </button>
+          </fieldset>
           </div>
         ) : (
           <div className="space-y-4">
+            <PatientSelect id="psych-history-patient" label="Patient for history" value={selectedPatient}
+              onChange={(patientId, patient) => {
+                if (patient) setPatients(previous => [...previous.filter(entry => entry.patient_id !== patient.patient_id), {
+                  patient_id: patient.patient_id, full_name: patient.full_name,
+                }]);
+                setSelectedPatient(patientId);
+              }} />
             {historyError && (
               <div className="bg-critical-subtle border border-critical text-critical-subtle-fg rounded-lg p-3 text-sm">
                 {historyError}
+                <button onClick={() => { void refreshAssessments(); }} className="block mt-2 underline">
+                  Retry loading history
+                </button>
               </div>
             )}
             {assessments.length === 0 ? (
               <div className="text-center py-8 text-content-muted">
-                {historyError ? t('docPsych.historyUnknown') : t('docPsych.noAssessments')}
+                {!selectedPatient ? 'Select a patient to view their assessments' :
+                  historyError ? t('docPsych.historyUnknown') : t('docPsych.noAssessments')}
               </div>
             ) : (
               assessments.map(a => (
@@ -827,8 +996,14 @@ const PsychPage: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-sm"><strong>{t('docPsych.lblCC')}</strong> {a.chiefComplaint}</p>
-                  <p className="text-sm"><strong>{t('docPsych.lblDiagnoses')}</strong> {a.diagnoses.join(', ') || t('docPsych.diagnosesNone')}</p>
-                  <p className="text-sm"><strong>{t('docPsych.lblDisposition')}</strong> {a.disposition}</p>
+                  <p className="text-sm"><strong>{t('docPsych.lblDiagnoses')}</strong> {a.diagnoses.join(', ') || 'No diagnoses recorded'}</p>
+                  <p className="text-sm"><strong>{t('docPsych.lblDisposition')}</strong> {dispositionLabel(a.disposition)}</p>
+                  {a.historyOfPresentIllness && <p className="text-sm whitespace-pre-wrap">{a.historyOfPresentIllness}</p>}
+                  {a.safetyPlan.length > 0 && <ul className="list-disc pl-5 text-sm">
+                    {a.safetyPlan.map(item => <li key={item}>{item}</li>)}
+                  </ul>}
+                  {a.notes && <p className="text-sm whitespace-pre-wrap">{a.notes}</p>}
+                  <AssessmentDetails assessment={a} />
                 </div>
               ))
             )}

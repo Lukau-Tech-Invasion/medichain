@@ -1,3 +1,4 @@
+import { getEmergencyNumber } from '@medichain/shared';
 import { useState, useEffect, useCallback } from 'react';
 import {
   LogOut,
@@ -205,7 +206,7 @@ function DischargePage() {
     diet_instructions: 'Resume regular diet as tolerated',
     activity_restrictions: '',
     warning_signs: '',
-    emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: t('common.emergencyNumber') }),
+    emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: getEmergencyNumber() }),
   });
 
   const [medications, setMedications] = useState<DischargeMedication[]>([]);
@@ -382,7 +383,7 @@ function DischargePage() {
       diet_instructions: 'Resume regular diet as tolerated',
       activity_restrictions: '',
       warning_signs: '',
-      emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: t('common.emergencyNumber') }),
+      emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: getEmergencyNumber() }),
     });
     setMedications([]);
     setFollowUps([]);

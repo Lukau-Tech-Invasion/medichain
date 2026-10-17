@@ -49,6 +49,35 @@ describe('authentication state invariant', () => {
     expect(api.getSessionHeaders()).toEqual({});
   });
 
+  it('refuses another account restored through a shared browser cookie', async () => {
+    api.setUserId(USER_ID);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'patient-token' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user_id: 'another-patient' }), { status: 200 }));
+    expect(await api.restoreSession()).toBe(false);
+    expect(api.getAccessToken()).toBeUndefined();
+    expect(api.getSessionHeaders()).toEqual({});
+  });
+
+  it('restores the expected account after server identity verification', async () => {
+    api.setUserId(USER_ID);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'verified-token' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user_id: USER_ID }), { status: 200 }));
+    expect(await api.restoreSession()).toBe(true);
+    expect(api.getAccessToken()).toBe('verified-token');
+  });
+
+  it('clears the old token if the refreshed identity cannot be verified', async () => {
+    api.setUserId(USER_ID);
+    api.setTokens('expired-doctor-token');
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'unverified-token' }), { status: 200 }))
+      .mockRejectedValueOnce(new Error('Network unavailable'));
+    expect(await api.restoreSession()).toBe(false);
+    expect(api.getSessionHeaders()).toEqual({});
+  });
+
   it('does not restore a token after logout during cookie refresh', async () => {
     let finish!: (response: Response) => void;
     vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));

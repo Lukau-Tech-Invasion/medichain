@@ -104,7 +104,8 @@ const ProgressNotePage: React.FC = () => {
             noteType: (note?.note_type || item.note_type || 'daily') as NoteType,
             status: (item.status === 'final' ? 'signed' : item.status || 'draft') as NoteStatus,
             author: note?.author || item.created_by || '',
-            authorRole: 'Physician',
+            // The stored record has no historical author-role field.
+            authorRole: 'Role not recorded',
             createdAt: new Date(item.created_at || Date.now()),
             updatedAt: new Date(item.updated_at || Date.now()),
             subjective: note?.subjective || item.subjective || '',
@@ -329,6 +330,7 @@ const ProgressNotePage: React.FC = () => {
               />
             </div>
             <select
+              aria-label="Filter notes by type"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as NoteType | 'all')}
               className="border rounded-lg px-3 py-2"
@@ -339,10 +341,12 @@ const ProgressNotePage: React.FC = () => {
               <option value="discharge">{t('docProgressNote.filterDischarge')}</option>
               <option value="procedure">{t('docProgressNote.filterProcedure')}</option>
               <option value="consultation">{t('docProgressNote.filterConsultation')}</option>
+              <option value="transfer">{t('docProgressNote.ntTransfer')}</option>
             </select>
           </div>
 
           <div className="space-y-3">
+            {filteredNotes.length === 0 && <p role="status" className="rounded-lg bg-surface p-4 text-content-muted">No notes match the selected patient or note type.</p>}
             {filteredNotes.map(note => (
               <div
                 key={note.id}
@@ -516,7 +520,7 @@ const ProgressNotePage: React.FC = () => {
                 </div>
                 <p className="text-sm text-content-muted">{t('docProgressNote.noteSuffix', { type: noteTypeLabel(selectedNote.noteType), date: selectedNote.createdAt.toLocaleString() })}</p>
               </div>
-              <button onClick={() => setSelectedNote(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
+              <button aria-label={t('common.close')} onClick={() => setSelectedNote(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">

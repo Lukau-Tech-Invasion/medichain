@@ -1,3 +1,4 @@
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import React, { useState, useEffect } from 'react';
 import {
   FileWarning,
@@ -69,6 +70,7 @@ interface RiskDisclosure {
 }
 
 const AMAPage: React.FC = () => {
+  const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'view'>('list');
   const [records, setRecords] = useState<AMARecord[]>([]);
@@ -320,6 +322,7 @@ const AMAPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="AMA record" record={printRecord} onClose={() => setPrintRecord(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-red-700 to-orange-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -574,7 +577,7 @@ const AMAPage: React.FC = () => {
 
             {/* Actions */}
             <div className="flex gap-3">
-              <button type="button" onClick={() => window.print()} className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2">
+              <button type="button" onClick={() => setPrintRecord(selectedRecord)} className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2">
                 <Printer className="w-5 h-5" />
                 {t('docAMA.printDocument')}
               </button>

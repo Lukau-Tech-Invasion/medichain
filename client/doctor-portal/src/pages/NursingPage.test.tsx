@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import NursingPage, { mapMarRecord } from './NursingPage';
+import NursingPage, { mapMarRecord, mapCarePlan } from './NursingPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -19,6 +19,9 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  listWardMar: vi.fn(),
+  listWardIntakeOutput: vi.fn(),
+  listWardCarePlans: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -32,8 +35,12 @@ describe('NursingPage', () => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
+      isAuthenticated: true,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.listWardMar).mockResolvedValue([]);
+    vi.mocked(shared.listWardIntakeOutput).mockResolvedValue([]);
+    vi.mocked(shared.listWardCarePlans).mockResolvedValue([]);
   });
 
   it('renders nursing page', () => {
@@ -70,5 +77,26 @@ describe('NursingPage', () => {
 
     expect(record?.medications[0]).toMatchObject({ medication_name: 'Amoxicillin', dose: '500 mg' });
     expect(record?.medications[0].doses).toEqual([]);
+  });
+
+  it('does not turn unevaluated goals into failed outcomes or assume an intervention is active', () => {
+    const plan = mapCarePlan({ id: 'PLAN-QA', goals: [
+      { description: 'Not evaluated yet' },
+      { description: 'Recorded achieved goal', status: 'met' },
+      { description: 'Recorded unmet goal', status: 'not_met' },
+    ], interventions: [{ description: 'Planned action' }, { description: 'Completed action', status: 'completed' }] });
+    expect(plan?.outcomes.map(outcome => outcome.status)).toEqual([null, 'met', 'not_met']);
+    expect(plan?.interventions.map(intervention => intervention.status)).toEqual([null, 'completed']);
+  });
+
+  it('clears the fluid category when entry type changes instead of sending the old intake category', async () => {
+    render(<NursingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Intake/Output' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Fluid Type' }), { target: { value: 'Oral' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Entry Type' }), { target: { value: 'output' } });
+    expect(screen.getByRole('combobox', { name: 'Fluid Type' })).toHaveValue('');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Fluid Type' }), { target: { value: 'Urine' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Entry Type' }), { target: { value: 'intake' } });
+    expect(screen.getByRole('combobox', { name: 'Fluid Type' })).toHaveValue('');
   });
 });

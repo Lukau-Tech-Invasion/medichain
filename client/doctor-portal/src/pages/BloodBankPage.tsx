@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
   getPatients,
@@ -161,6 +161,7 @@ const BloodBankPage: React.FC = () => {
   const [orders, setOrders] = useState<BloodOrder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const latestOrderRequest = useRef(0);
   const [activeTab, setActiveTab] = useState<'orders' | 'newOrder' | 'transfusion' | 'inventory'>('orders');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -190,11 +191,13 @@ const BloodBankPage: React.FC = () => {
   const [transfusionNotes, setTransfusionNotes] = useState('');
 
   const fetchBloodBankOrders = useCallback(async () => {
+    const requestId = ++latestOrderRequest.current;
     try {
       setIsLoading(true);
-      setError(null);
       const response = await listBloodBank();
-      if (response.success) {
+      if (requestId !== latestOrderRequest.current) return;
+      if (response.success && response.type_screens && response.transfusions) {
+        setError(null);
         const patientNames = new Map(patients.map((patient) => [patient.patient_id, patient.full_name]));
         // The register uses persisted snake-case data while this screen uses
         // camel-case view fields. Mapping at the boundary keeps a recorded
@@ -206,12 +209,16 @@ const BloodBankPage: React.FC = () => {
           .map((item) => toBloodOrder(item, patientNames))
           .filter((item): item is BloodOrder => item !== null);
         setOrders(allOrders);
+      } else {
+        setOrders([]);
+        setError(t('docBloodBank.errorLoadFailed'));
       }
     } catch (err) {
+      if (requestId !== latestOrderRequest.current) return;
       console.error('Error fetching blood bank orders:', err);
       setError(t('docBloodBank.errorLoadFailed'));
     } finally {
-      setIsLoading(false);
+      if (requestId === latestOrderRequest.current) setIsLoading(false);
     }
   }, [patients, t]);
 

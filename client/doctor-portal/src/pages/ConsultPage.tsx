@@ -113,7 +113,7 @@ interface Consult {
  *
  * `as` is what made this possible. It is an assertion, not a conversion.
  */
-function toConsult(raw: unknown): Consult {
+export function toConsult(raw: unknown): Consult {
   const r = (raw ?? {}) as Record<string, unknown>;
   const str = (...keys: string[]): string => {
     for (const key of keys) {
@@ -142,6 +142,14 @@ function toConsult(raw: unknown): Consult {
     requestedAt: str('requested_at', 'requestedAt'),
     acknowledgedBy: str('consulting_provider', 'acknowledgedBy') || undefined,
     acknowledgedAt: str('completed_at', 'acknowledgedAt') || undefined,
+    response: str('examination_findings') ? {
+      responseId: str('consult_id', 'consultId'),
+      assessment: str('examination_findings'),
+      recommendations: str('recommendations'),
+      followUp: str('follow_up_plan') || undefined,
+      respondedBy: str('consulting_provider'),
+      respondedAt: str('completed_at'),
+    } : undefined,
     notes: str('notes') || undefined,
   };
 }

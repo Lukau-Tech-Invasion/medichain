@@ -1,4 +1,6 @@
 import { PatientRecordDocuments } from '../components/PatientRecordDocuments';
+import { LatestPediatricAssessment } from '../components/LatestPediatricAssessment';
+import { PatientAdministrativeDetails, type PatientAdministrativeData } from '../components/PatientAdministrativeDetails';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -61,6 +63,7 @@ interface PatientDetails {
   lastUpdated: string;
   /** The primary doctor named on the profile, when one is recorded. */
   primaryDoctor: string;
+  administrative?: PatientAdministrativeData;
 }
 
 interface ClinicalDetailsForm {
@@ -504,6 +507,7 @@ function PatientDetailPage() {
           dnrStatus: data.emergency_info?.dnr_status || false,
           lastUpdated: data.last_updated || new Date().toISOString(),
           primaryDoctor: data.primary_doctor?.name || t('docPatientDetail.unknown'),
+          administrative: { phone: data.phone, gender: data.gender, address: data.address, insurance: data.insurance },
         });
       } catch (err) {
         console.error('Failed to fetch patient:', err);
@@ -576,7 +580,7 @@ function PatientDetailPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       {/* Back Button */}
       <Link to="/patients" className="inline-flex items-center gap-2 text-content-muted hover:text-content-secondary mb-6">
         <ArrowLeft size={20} />
@@ -584,18 +588,18 @@ function PatientDetailPage() {
       </Link>
 
       {/* Patient Header */}
-      <div className="bg-surface rounded-xl shadow p-6 mb-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-brand-subtle rounded-full flex items-center justify-center">
+      <div className="bg-surface rounded-xl shadow p-4 sm:p-6 mb-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 bg-brand-subtle rounded-full flex items-center justify-center">
               <span className="text-2xl font-bold text-brand">
                 {patient.fullName.split(' ').map(n => n[0]).join('')}
               </span>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-content">{patient.fullName}</h1>
-              <p className="text-content-muted">{patient.nationalHealthId}</p>
-              <div className="flex items-center gap-4 mt-2">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-content break-words">{patient.fullName}</h1>
+              <p className="text-content-muted break-words">{patient.nationalHealthId}</p>
+              <div className="flex flex-wrap items-center gap-2 mt-2">
                 <span className="text-sm bg-surface-sunken px-2 py-1 rounded">
                   {t('docPatientDetail.dob', { date: patient.dateOfBirth })}
                 </span>
@@ -621,7 +625,7 @@ function PatientDetailPage() {
             </div>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <button
               type="button"
               onClick={() => patient && downloadPatientSummary(patient)}
@@ -720,7 +724,9 @@ function PatientDetailPage() {
             )}
           </div>
 
-          {/* Last recorded observations */}
+          <PatientAdministrativeDetails details={patient.administrative ?? {}} />
+          <LatestPediatricAssessment patientId={patientId!} />
+          {/* Dedicated vital-sign chart: separate encounters retain their own observations. */}
           <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Activity className="text-content-muted" size={20} />

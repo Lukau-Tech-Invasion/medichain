@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   TestTube,
   Search,
@@ -48,6 +48,7 @@ interface PersistedSpecimen {
   collector_id: string;
   collected_at: string;
   received_at?: string | null;
+  rejected?: boolean;
   notes?: string | null;
   created_at: string;
   data?: {
@@ -155,6 +156,8 @@ const SpecimenPage: React.FC = () => {
         ...(notes ? { detailed_notes: notes } : {}),
         recollection_required: rejectRecollect,
       });
+      await fetchSpecimens();
+      setSelectedSpecimen(previous => previous?.id === specimenId ? { ...previous, status: 'rejected' } : previous);
       setRejectMessage(t('docSpecimen.rejectRecorded', { id: result.rejection_id }));
       setRejectCategory('');
       setRejectReason('');
@@ -186,6 +189,7 @@ const SpecimenPage: React.FC = () => {
         notes: form.notes.trim() || null,
         checklist: form.checklist,
       });
+      await fetchSpecimens();
       setSaveMessage(t('docSpecimen.savedOk'));
       setForm({
         patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
@@ -199,8 +203,7 @@ const SpecimenPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchSpecimens = async () => {
+  const fetchSpecimens = useCallback(async () => {
       if (!user?.userId) {
         setError(t('docSpecimen.notAuthenticated'));
         setLoading(false);
@@ -230,7 +233,7 @@ const SpecimenPage: React.FC = () => {
             : t('docSpecimen.notRecorded'),
           // The existence of this row is the record that collection occurred;
           // receipt is the only later timestamp modeled by this endpoint.
-          status: specimen.received_at ? 'received' : 'collected',
+          status: specimen.rejected ? 'rejected' : specimen.received_at ? 'received' : 'collected',
           priority: persistedPriority(specimen.data?.priority),
           orderedBy: t('docSpecimen.notRecorded'),
           orderedAt: new Date(specimen.created_at),
@@ -247,10 +250,9 @@ const SpecimenPage: React.FC = () => {
       } finally {
         setLoading(false);
       }
-    };
+  }, [user?.userId, t]);
 
-    fetchSpecimens();
-  }, [user, t]);
+  useEffect(() => { void fetchSpecimens(); }, [fetchSpecimens]);
 
   const getSpecimenIcon = (type: SpecimenType) => {
     const icons: Record<SpecimenType, React.ReactNode> = {
@@ -424,6 +426,7 @@ const SpecimenPage: React.FC = () => {
               <option value="all">{t('docSpecimen.allStatus')}</option>
               <option value="pending">{t('docSpecimen.filterPending')}</option>
               <option value="collected">{t('docSpecimen.filterCollected')}</option>
+              <option value="rejected">{t('docSpecimen.stRejected')}</option>
               <option value="processing">{t('docSpecimen.filterProcessing')}</option>
               <option value="completed">{t('docSpecimen.filterCompleted')}</option>
             </select>

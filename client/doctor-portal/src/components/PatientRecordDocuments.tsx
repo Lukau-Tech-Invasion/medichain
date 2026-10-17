@@ -1,33 +1,72 @@
-import { useEffect, useState } from 'react';
-import { downloadRecordContent, getPatientRecords, getApiErrorMessage, formatTimestamp } from '@medichain/shared';
+import { useEffect, useRef, useState } from 'react';
+import { ApiClientError, downloadRecordContent, getPatientRecords, getApiErrorMessage, formatTimestamp, getApiClient } from '@medichain/shared';
 import type { MedicalRecordReference } from '@medichain/shared';
+import { DocumentAccessRequest } from './DocumentAccessRequest';
+import { MedicalDocumentUpload } from './MedicalDocumentUpload';
+import { useCurrentProvider } from '../hooks/useCurrentProvider';
 
-/** Read and open the selected patient's encrypted documents through authorised APIs. */
-export function PatientRecordDocuments({ patientId }: { patientId: string }) {
+const ACCESS_REFUSED = 'Document access was refused. Check document-access permission before opening these records.';
+
+/** Read a patient's document list and invalidate reads when its workspace changes. */
+function useDocumentList(patientId: string) {
   const [records, setRecords] = useState<MedicalRecordReference[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [opening, setOpening] = useState(false);
+  const [listFailed, setListFailed] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const readGeneration = useRef(0);
   useEffect(() => {
     let active = true;
+    readGeneration.current += 1;
     setLoading(true);
     setError(null);
-    setPreview(null);
+    setRecords([]);
+    setListFailed(false);
+    setAccessDenied(false);
     getPatientRecords(patientId).then(rows => { if (active) setRecords(rows); })
-      .catch(err => { if (active) setError(getApiErrorMessage(err, 'Documents could not be loaded.')); })
+      .catch(err => {
+        if (!active) return;
+        const denied = err instanceof ApiClientError && err.status === 403;
+        setAccessDenied(denied);
+        setListFailed(true);
+        setError(denied ? ACCESS_REFUSED
+          : getApiErrorMessage(err, 'Documents could not be loaded.'));
+      })
       .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [patientId]);
+    return () => { active = false; readGeneration.current += 1; };
+  }, [patientId, readAttempt]);
+
+  const denyAccess = () => {
+    setRecords([]); setAccessDenied(true); setListFailed(true); setError(ACCESS_REFUSED);
+  };
+  const reload = () => setReadAttempt(attempt => attempt + 1);
+  return { records, loading, error, listFailed, accessDenied, readAttempt, readGeneration, setError, denyAccess, reload };
+}
+
+/** Keep document content bound to its patient, clinician and login session. */
+function useDocumentOpening(patientId: string, documents: ReturnType<typeof useDocumentList>) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  useEffect(() => { setPreview(null); setOpening(false); }, [patientId, documents.readAttempt]);
 
   /** Preview text safely; download binary documents without injecting HTML. */
   async function openRecord(record: MedicalRecordReference) {
+    const generation = documents.readGeneration.current;
+    const client = getApiClient();
+    const owner = client.getUserId();
+    const session = client.getSessionRevision();
+    const current = () => generation === documents.readGeneration.current
+      && owner === client.getUserId() && session === client.getSessionRevision();
     setOpening(true);
-    setError(null);
+    documents.setError(null);
+    setPreview(null);
     try {
       const { blob, contentType } = await downloadRecordContent(record.content_hash, patientId);
+      if (!current()) return;
       if (contentType.startsWith('text/') || contentType.includes('json')) {
-        setPreview(await blob.text());
+        const text = await blob.text();
+        if (current()) setPreview(text);
       } else {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
@@ -37,13 +76,30 @@ export function PatientRecordDocuments({ patientId }: { patientId: string }) {
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
     } catch (err) {
-      setError(getApiErrorMessage(err, 'The document could not be opened.'));
-    } finally { setOpening(false); }
+      if (!current()) return;
+      if (err instanceof ApiClientError && err.status === 403) {
+        setPreview(null); documents.denyAccess();
+      } else documents.setError(getApiErrorMessage(err, 'The document could not be opened.'));
+    } finally { if (current()) setOpening(false); }
   }
+  return { preview, setPreview, opening, openRecord };
+}
+
+/** Read and open the selected patient's encrypted documents through authorised APIs. */
+export function PatientRecordDocuments({ patientId }: { patientId: string }) {
+  const { can } = useCurrentProvider();
+  const documents = useDocumentList(patientId);
+  const { records, loading, error, listFailed, accessDenied, reload } = documents;
+  const { preview, setPreview, opening, openRecord } = useDocumentOpening(patientId, documents);
 
   return <section aria-label="Patient documents">
+    {can.editRecords && !accessDenied && <MedicalDocumentUpload key={patientId} patientId={patientId}
+      disabled={loading || listFailed} onUploaded={reload} />}
     {error && <p role="alert" className="text-critical">{error}</p>}
-    {loading ? <p role="status">Loading documents...</p> : records.length === 0 ?
+    {accessDenied && <DocumentAccessRequest key={patientId} patientId={patientId}
+      onCheckAccess={reload} />}
+    {loading ? <p role="status">Loading documents...</p> : listFailed ?
+      !accessDenied && <button type="button" className="underline" onClick={reload}>Retry loading documents</button> : records.length === 0 ?
       <p>No uploaded documents. Clinical notes and results are available in their respective workspaces.</p> :
       <ul className="divide-y divide-border">{records.map(record => <li key={record.content_hash} className="py-3 flex items-center justify-between gap-3">
         <span>{typeof record.record_type === 'string' ? record.record_type : 'Medical document'} · {formatTimestamp(record.uploaded_at * 1000)}</span>

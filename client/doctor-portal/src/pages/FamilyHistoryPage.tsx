@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  getPatients,
   getFamilyHistory,
-  createFamilyHistory,
+  appendFamilyHistoryMember,
+  getApiErrorMessage,
   useTranslation,
   Alert,
   LoadingSpinner,
@@ -13,7 +13,6 @@ import {
 } from '@medichain/shared';
 import type {
   FamilyMedicalHistory,
-  PatientDirectoryEntry,
   FamilyHistoryAssessmentResult,
   AffectedRelativeInput,
 } from '@medichain/shared';
@@ -40,6 +39,7 @@ import {
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
 import PatientSelect from '../components/PatientSelect';
+import type { Patient } from '../components/PatientSelect';
 
 type RelationshipType =
   | 'mother'
@@ -103,12 +103,9 @@ interface FamilyMember {
 /**
  * Adapt the compact persisted family-history shape for the richer portal view.
  *
- * The API intentionally stores clinical relationship, mortality, and condition
- * facts.  It does not store a per-relative display id, patient name, condition
- * category, or per-relative author/timestamp.  Those must not be fabricated:
- * the display id is local and stable for this response, while an uncategorised
- * condition remains in the `other` bucket and is consequently not presented as
- * a disease-specific risk classification.
+ * New entries retain the entered relative metadata and condition category.
+ * Legacy entries without these fields keep their unknown values; no names,
+ * timestamps, severity or disease categories are inferred.
  */
 function toPortalFamilyMembers(
   history: FamilyMedicalHistory,
@@ -119,24 +116,28 @@ function toPortalFamilyMembers(
     ? new Date(history.last_updated).toISOString()
     : '';
   return history.family_members.map((member, index) => ({
-    memberId: `${patientId}-FM-${index + 1}`,
+    memberId: member.member_id || `${patientId}-FM-${index + 1}`,
     patientId,
     patientName,
-    relationship: member.relationship.toLowerCase().split(' ').join('-') as RelationshipType,
-    vitalStatus: member.living
+    relationship: member.relationship.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase().split(' ').join('-') as RelationshipType,
+    name: member.name ?? undefined,
+    notes: member.notes ?? undefined,
+    consanguineous: member.consanguineous ?? undefined,
+    vitalStatus: member.living === true
       ? 'alive'
-      : member.age_at_death !== null || member.cause_of_death ? 'deceased' : 'unknown',
+      : member.living === false && (member.member_id || member.age_at_death != null || member.cause_of_death) ? 'deceased' : 'unknown',
     currentAge: member.current_age ?? undefined,
     ageAtDeath: member.age_at_death ?? undefined,
     causeOfDeath: member.cause_of_death ?? undefined,
     conditions: member.conditions.map((condition) => ({
       conditionName: condition.condition,
-      category: 'other',
+      category: (condition.category || 'other') as ConditionCategory,
+      severity: condition.severity as FamilyCondition['severity'] ?? undefined,
       ageOfOnset: condition.age_at_diagnosis ?? undefined,
       notes: condition.notes ?? undefined,
     })),
-    recordedBy: history.updated_by,
-    recordedAt,
+    recordedBy: member.recorded_by || history.updated_by,
+    recordedAt: member.recorded_at ? new Date(member.recorded_at).toISOString() : recordedAt,
   }));
 }
 
@@ -167,7 +168,7 @@ const FamilyHistoryPage: React.FC = () => {
   >({});
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,33 +179,32 @@ const FamilyHistoryPage: React.FC = () => {
 
   const [newMember, setNewMember] = useState({
     patientId: '',
-    relationship: 'mother' as RelationshipType,
+    relationship: '' as RelationshipType | '',
     name: '',
-    vitalStatus: 'alive' as VitalStatus,
+    vitalStatus: 'unknown' as VitalStatus,
     currentAge: undefined as number | undefined,
     ageAtDeath: undefined as number | undefined,
     causeOfDeath: '',
-    consanguineous: false,
+    consanguineous: undefined as boolean | undefined,
     notes: '',
   });
 
   const [newCondition, setNewCondition] = useState({
     conditionName: '',
-    category: 'cardiovascular' as ConditionCategory,
+    category: 'other' as ConditionCategory,
     ageOfOnset: undefined as number | undefined,
-    severity: 'moderate' as 'mild' | 'moderate' | 'severe',
+    severity: '' as 'mild' | 'moderate' | 'severe' | '',
     notes: '',
   });
 
   const [memberConditions, setMemberConditions] = useState<FamilyCondition[]>([]);
 
-  useEffect(() => {
-    const loadData = async () => {
-      const patientData = await getPatients();
-      setPatients(patientData);
-    };
-    loadData();
-  }, []);
+  const savePending = useRef(false);
+  const draftMemberId = useRef<string | null>(null);
+  /** Remember only the directory entry selected through the authorized selector. */
+  const rememberPatient = (patient?: Patient) => {
+    if (patient) setPatients(current => [...current.filter(entry => entry.patient_id !== patient.patient_id), patient]);
+  };
 
   // Fetch family history for selected patient
   const fetchFamilyHistory = useCallback(async (patientId: string) => {
@@ -225,7 +225,7 @@ const FamilyHistoryPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [t]);
+  }, [t, patients]);
 
   // Load family history when patient is selected
   useEffect(() => {
@@ -239,18 +239,26 @@ const FamilyHistoryPage: React.FC = () => {
 
   const { validate } = useValidatedForm(familyHistoryMemberSchema);
   const handleAddMember = async () => {
+    if (savePending.current) return;
+    if (newCondition.conditionName.trim() || newCondition.notes.trim() || newCondition.ageOfOnset !== undefined || newCondition.severity || newCondition.category !== 'other') {
+      setError(t('docFamilyHistory.unfinishedCondition'));
+      return;
+    }
     // Two fields in one toast, on a form where the relationship is the whole
     // point of the record: a family history entry that does not say whose
     // history it is cannot inform a risk assessment.
     if (!validate(newMember)) {
+      setError(t('docFamilyHistory.missingFieldsError'));
       return;
     }
 
     const patient = patients.find((p) => p.patient_id === newMember.patientId);
-    if (!patient) return;
+    if (!patient) { showError(t('docFamilyHistory.selectPatientError')); return; }
+    if (!newMember.relationship) return;
+    draftMemberId.current ??= crypto.randomUUID();
 
     const member: FamilyMember = {
-      memberId: `FM-${String(familyMembers.length + 1).padStart(3, '0')}`,
+      memberId: draftMemberId.current,
       patientId: patient.patient_id,
       patientName: patient.full_name,
       relationship: newMember.relationship,
@@ -267,55 +275,61 @@ const FamilyHistoryPage: React.FC = () => {
     };
 
     try {
+      savePending.current = true;
       setIsLoading(true);
       setError(null);
       const relationship = member.relationship
         .split('-')
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join('');
-      const response = await createFamilyHistory({
+      const response = await appendFamilyHistoryMember({
         patient_id: member.patientId,
-        family_members: [{
+        member: {
+          member_id: member.memberId,
+          name: member.name || null,
+          notes: member.notes || null,
+          consanguineous: member.consanguineous ?? null,
           relationship,
-          living: member.vitalStatus === 'alive',
-          current_age: member.currentAge,
-          age_at_death: member.ageAtDeath,
-          cause_of_death: member.causeOfDeath,
+          living: member.vitalStatus === 'unknown' ? null : member.vitalStatus === 'alive',
+          current_age: member.currentAge ?? null,
+          age_at_death: member.ageAtDeath ?? null,
+          cause_of_death: member.causeOfDeath || null,
           conditions: member.conditions.map((condition) => ({
             condition: condition.conditionName,
-            age_at_diagnosis: condition.ageOfOnset,
-            notes: condition.notes,
+            age_at_diagnosis: condition.ageOfOnset ?? null,
+            notes: condition.notes || null,
+            category: condition.category,
+            severity: condition.severity || null,
           })),
-        }],
-        genetic_conditions: [],
-        three_gen_complete: false,
-        last_updated: Date.now(),
-        updated_by: member.recordedBy,
-      }) as { success?: boolean; error?: string };
-      if (response.success !== false) {
-        setFamilyMembers([member, ...familyMembers]);
+        },
+      });
+      if (response.success) {
+        setSelectedPatient(member.patientId);
+        setFamilyMembers(toPortalFamilyMembers(response.history, member.patientId, member.patientName));
+        draftMemberId.current = null;
         setNewMember({
           patientId: '',
-          relationship: 'mother',
+          relationship: '',
           name: '',
-          vitalStatus: 'alive',
+          vitalStatus: 'unknown',
           currentAge: undefined,
           ageAtDeath: undefined,
           causeOfDeath: '',
-          consanguineous: false,
+          consanguineous: undefined,
           notes: '',
         });
         setMemberConditions([]);
         setActiveTab('overview');
-        showSuccess(t('docFamilyHistory.memberAddedSuccess', { memberId: member.memberId }));
+        showSuccess(t('docFamilyHistory.memberAddedSuccess', { memberName: member.name || formatRelationship(member.relationship) }));
       } else {
-        setError(response.error || t('docFamilyHistory.errorSaveMember'));
+        setError(t('docFamilyHistory.errorSaveMember'));
       }
     } catch (err) {
-      console.error('Error saving family member:', err);
-      setError(t('docFamilyHistory.errorSaveMemberGeneric'));
+      console.warn('Family history write failed');
+      setError(getApiErrorMessage(err, t('docFamilyHistory.errorSaveMemberGeneric')));
     } finally {
       setIsLoading(false);
+      savePending.current = false;
     }
   };
 
@@ -329,16 +343,16 @@ const FamilyHistoryPage: React.FC = () => {
       conditionName: newCondition.conditionName,
       category: newCondition.category,
       ageOfOnset: newCondition.ageOfOnset,
-      severity: newCondition.severity,
+      severity: newCondition.severity || undefined,
       notes: newCondition.notes || undefined,
     };
 
     setMemberConditions([...memberConditions, condition]);
     setNewCondition({
       conditionName: '',
-      category: 'cardiovascular',
+      category: 'other',
       ageOfOnset: undefined,
-      severity: 'moderate',
+      severity: '',
       notes: '',
     });
   };
@@ -565,6 +579,7 @@ const FamilyHistoryPage: React.FC = () => {
 
       <div className="flex gap-2 mb-6 border-b">
         <button
+          disabled={isLoading}
           onClick={() => setActiveTab('overview')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'overview' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
@@ -573,6 +588,7 @@ const FamilyHistoryPage: React.FC = () => {
           {t('docFamilyHistory.tabMembers')}
         </button>
         <button
+          disabled={isLoading}
           onClick={() => setActiveTab('add-member')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'add-member' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
@@ -581,6 +597,7 @@ const FamilyHistoryPage: React.FC = () => {
           {t('docFamilyHistory.tabAddMember')}
         </button>
         <button
+          disabled={isLoading}
           onClick={() => setActiveTab('risk-assessment')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'risk-assessment' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
@@ -589,6 +606,7 @@ const FamilyHistoryPage: React.FC = () => {
           {t('docFamilyHistory.tabRiskAssessment')}
         </button>
         <button
+          disabled={isLoading}
           onClick={() => setActiveTab('pedigree')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'pedigree' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
@@ -607,7 +625,7 @@ const FamilyHistoryPage: React.FC = () => {
                   id="family-patient-filter"
                   label={t('docFamilyHistory.patientFilterLabel')}
                   value={selectedPatient}
-                  onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+                  onChange={(selectedPatientId, patient) => { rememberPatient(patient); setSelectedPatient(selectedPatientId); }}
                 />
               </div>
               <div>
@@ -656,7 +674,7 @@ const FamilyHistoryPage: React.FC = () => {
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-bold text-content">{member.memberId}</h3>
+                      <h3 className="text-lg font-bold text-content">{member.name || formatRelationship(member.relationship)}</h3>
                       <span className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm font-semibold">
                         {formatRelationship(member.relationship)}
                       </span>
@@ -763,7 +781,7 @@ const FamilyHistoryPage: React.FC = () => {
       )}
 
       {activeTab === 'add-member' && (
-        <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
+        <fieldset disabled={isLoading} className="min-w-0 bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
             {t('docFamilyHistory.addFamilyMember')}
@@ -776,7 +794,7 @@ const FamilyHistoryPage: React.FC = () => {
                   id="famhx-patient"
                   label={t('docFamilyHistory.patientRequired')}
                   value={newMember.patientId}
-                  onChange={(selectedPatientId) => setNewMember({ ...newMember, patientId: selectedPatientId })}
+                  onChange={(selectedPatientId, patient) => { rememberPatient(patient); setNewMember({ ...newMember, patientId: selectedPatientId }); }}
                 />
               </div>
 
@@ -790,6 +808,7 @@ const FamilyHistoryPage: React.FC = () => {
                   onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value as RelationshipType })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
+                  <option value="">{t('docFamilyHistory.selectRelationship')}</option>
                   <option value="mother">{t('docFamilyHistory.relationship_mother')}</option>
                   <option value="father">{t('docFamilyHistory.relationship_father')}</option>
                   <option value="sister">{t('docFamilyHistory.relationship_sister')}</option>
@@ -845,7 +864,7 @@ const FamilyHistoryPage: React.FC = () => {
                     type="number"
                     min="0"
                     max="120"
-                    value={newMember.currentAge || ''}
+                    value={newMember.currentAge ?? ''}
                     onChange={(e) => setNewMember({ ...newMember, currentAge: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder={t('docFamilyHistory.yearsPlaceholder')}
                     className="w-full border border-border-interactive rounded-lg px-3 py-2"
@@ -862,7 +881,7 @@ const FamilyHistoryPage: React.FC = () => {
                       type="number"
                       min="0"
                       max="120"
-                      value={newMember.ageAtDeath || ''}
+                      value={newMember.ageAtDeath ?? ''}
                       onChange={(e) => setNewMember({ ...newMember, ageAtDeath: e.target.value ? parseInt(e.target.value) : undefined })}
                       placeholder={t('docFamilyHistory.yearsPlaceholder')}
                       className="w-full border border-border-interactive rounded-lg px-3 py-2"
@@ -886,7 +905,7 @@ const FamilyHistoryPage: React.FC = () => {
                 <input
                   id="famhx-consanguineous"
                   type="checkbox"
-                  checked={newMember.consanguineous}
+                  checked={newMember.consanguineous ?? false}
                   onChange={(e) => setNewMember({ ...newMember, consanguineous: e.target.checked })}
                   className="w-5 h-5"
                 />
@@ -952,7 +971,7 @@ const FamilyHistoryPage: React.FC = () => {
                     type="number"
                     min="0"
                     max="120"
-                    value={newCondition.ageOfOnset || ''}
+                    value={newCondition.ageOfOnset ?? ''}
                     onChange={(e) => setNewCondition({ ...newCondition, ageOfOnset: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder={t('docFamilyHistory.yearsPlaceholder')}
                     className="w-full border border-border-interactive rounded-lg px-3 py-2"
@@ -967,6 +986,7 @@ const FamilyHistoryPage: React.FC = () => {
                     onChange={(e) => setNewCondition({ ...newCondition, severity: e.target.value as 'mild' | 'moderate' | 'severe' })}
                     className="w-full border border-border-interactive rounded-lg px-3 py-2"
                   >
+                    <option value="">{t('docFamilyHistory.notRecorded')}</option>
                     <option value="mild">{t('docFamilyHistory.severity_mild')}</option>
                     <option value="moderate">{t('docFamilyHistory.severity_moderate')}</option>
                     <option value="severe">{t('docFamilyHistory.severity_severe')}</option>
@@ -1002,12 +1022,13 @@ const FamilyHistoryPage: React.FC = () => {
                       <div className="flex-1">
                         <p className="font-semibold text-content">{condition.conditionName}</p>
                         <p className="text-sm text-content-muted">
-                          {t('docFamilyHistory.conditionSummaryLine', { category: t(`docFamilyHistory.category_${condition.category}`), severity: t(`docFamilyHistory.severity_${condition.severity}`) })}
+                          {t('docFamilyHistory.conditionSummaryLine', { category: t(`docFamilyHistory.category_${condition.category}`), severity: condition.severity ? t(`docFamilyHistory.severity_${condition.severity}`) : t('docFamilyHistory.notRecorded') })}
                           {condition.ageOfOnset !== undefined && t('docFamilyHistory.onsetYearsSuffix', { age: condition.ageOfOnset })}
                         </p>
                       </div>
                       <button
                         onClick={() => handleRemoveCondition(idx)}
+                        aria-label={t('docFamilyHistory.removeCondition', { condition: condition.conditionName })}
                         className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                       >
                         <XCircle className="w-5 h-5" />
@@ -1025,7 +1046,7 @@ const FamilyHistoryPage: React.FC = () => {
           >
             {t('docFamilyHistory.addFamilyMember')}
           </button>
-        </div>
+        </fieldset>
       )}
 
       {activeTab === 'risk-assessment' && (
@@ -1035,7 +1056,7 @@ const FamilyHistoryPage: React.FC = () => {
               id="famhx-risk-patient"
               label={t('docFamilyHistory.selectPatientRiskLabel')}
               value={selectedPatient}
-              onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
+              onChange={(selectedPatientId, patient) => { rememberPatient(patient); setSelectedPatient(selectedPatientId); }}
             />
           </div>
 

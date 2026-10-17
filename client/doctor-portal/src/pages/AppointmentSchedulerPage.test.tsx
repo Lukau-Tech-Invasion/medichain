@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import AppointmentSchedulerPage from './AppointmentSchedulerPage';
 import { useAuthStore } from '../store/authStore';
@@ -219,6 +219,16 @@ describe('AppointmentSchedulerPage', () => {
   });
 
   describe('telehealth', () => {
+    beforeEach(() => {
+      // Freeze only Date: async rendering keeps real timers, and fixtures stay on Today.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 9, 12, 12, 0));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     const telehealthAppt = (over: Record<string, unknown>) => ({
       appointment_id: 'APT-TH',
       patient_id: 'PAT-001-DEMO',

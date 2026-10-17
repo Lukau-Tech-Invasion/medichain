@@ -34,6 +34,8 @@ describe('VitalSignsPage', () => {
         blood_pressure_diastolic: 80,
         temperature_celsius: 37.0,
         oxygen_saturation: 98,
+        weight_kg: 62,
+        notes: 'Synthetic vital observation retained',
       }
     ],
   };
@@ -108,6 +110,8 @@ describe('VitalSignsPage', () => {
       // 72 appears in both the latest-reading card and the flowsheet row.
       expect(screen.getAllByText('72').length).toBeGreaterThan(0); // heart rate
       expect(screen.getAllByText('120/80').length).toBeGreaterThan(0); // BP
+      expect(screen.getByText('62')).toBeInTheDocument();
+      expect(screen.getByText('Synthetic vital observation retained')).toBeInTheDocument();
     });
   });
 
@@ -172,5 +176,20 @@ describe('VitalSignsPage', () => {
       ([url, init]) => String(url).endsWith('/api/clinical/vitals') && init?.method === 'POST',
     );
     expect(posted).toBe(false);
+  });
+
+  it('refuses blank and notes-only readings but accepts an explicitly entered zero pain score', async () => {
+    render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Record Vitals' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    expect(await screen.findByText('Enter at least one measured vital sign before saving.')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Additional observations...'), { target: { value: 'Synthetic note only' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    expect(mockFetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText('Pain Scale (0-10)'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true));
+    const [, init] = mockFetch.mock.calls.find(([, options]) => options?.method === 'POST')!;
+    expect(JSON.parse(init.body)).toMatchObject({ pain_scale: 0, heart_rate: null, temperature_celsius: null });
   });
 });

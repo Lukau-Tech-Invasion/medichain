@@ -154,18 +154,25 @@ export default function PharmacistDashboardPage() {
   // patients' allergy lists and so reappear on every load; without this a
   // pharmacist could not tell an alert already dealt with from a new one.
   const [decisionsOnFile, setDecisionsOnFile] = useState<Record<string, PharmacyDecision>>({});
+  const [unavailableDecisionHistory, setUnavailableDecisionHistory] = useState<Set<string>>(new Set());
   const loadDecisionsFor = async (alerts: AllergyAlert[]) => {
     const patientIds = [...new Set(alerts.map((a) => a.patient_id))];
+    setUnavailableDecisionHistory(new Set(patientIds));
     const results = await Promise.allSettled(patientIds.map((id) => getPatientPharmacyDecisions(id)));
     const latest: Record<string, PharmacyDecision> = {};
-    for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
+    const unavailable = new Set<string>();
+    for (const [index, result] of results.entries()) {
+      if (result.status !== 'fulfilled') {
+        unavailable.add(patientIds[index]);
+        continue;
+      }
       for (const decision of result.value.decisions ?? []) {
         const key = `${decision.patient_id}|${decision.allergen.toLowerCase()}`;
         if (!latest[key] || latest[key].decided_at < decision.decided_at) latest[key] = decision;
       }
     }
     setDecisionsOnFile(latest);
+    setUnavailableDecisionHistory(unavailable);
   };
 
   /** Send the pharmacist's decision, with the reason they gave. */
@@ -325,10 +332,10 @@ export default function PharmacistDashboardPage() {
         required: true,
       });
       if (entered === null) return;
-      quantity = Number.parseInt(entered, 10);
+      quantity = Number(entered);
       // Refused here rather than sent: the API would reject it, and a refusal
       // the pharmacist did not ask for reads like a broken button.
-      if (!Number.isFinite(quantity) || quantity <= 0) {
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) {
         setRxResult((p) => ({ ...p, [prescriptionId]: t('docPharmDashboard.quantityInvalid') }));
         return;
       }
@@ -505,7 +512,7 @@ export default function PharmacistDashboardPage() {
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Prescription Verification Queue */}
-        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+        <div className="min-w-0 lg:col-span-2 bg-surface rounded-lg shadow p-4 border border-border">
           <div className="flex items-center justify-between mb-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary min-h-[24px] py-1">
               <FileCheck size={16} aria-hidden="true" /> {t('docPharmDashboard.ordersToVerify')}
@@ -521,7 +528,7 @@ export default function PharmacistDashboardPage() {
           {queueParams.get('status') === 'pending' && <p role="status" className="mb-3 text-sm">Showing prescriptions awaiting completion.</p>}
           {prescriptionQueue.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
+              <table className="w-full min-w-[48rem] text-sm">
                 <thead className="bg-surface-sunken">
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docPharmDashboard.colPriority')}</th>
@@ -773,6 +780,9 @@ export default function PharmacistDashboardPage() {
                           : t('docPharmDashboard.allergyOnRecord', { severity: alert.severity })}
                       </p>
                       {(() => {
+                        if (unavailableDecisionHistory.has(alert.patient_id)) {
+                          return <p className="text-xs text-critical mt-1" role="alert">{t('docPharmDashboard.decisionHistoryUnavailable')}</p>;
+                        }
                         const onFile = decisionsOnFile[`${alert.patient_id}|${alert.allergen.toLowerCase()}`];
                         return onFile ? (
                           <p className="text-xs text-content-secondary mt-1" data-testid="decision-on-file">
@@ -788,6 +798,7 @@ export default function PharmacistDashboardPage() {
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        disabled={unavailableDecisionHistory.has(alert.patient_id)}
                         onClick={() => {
                           setDecisionFor({ alert, decision: 'refused_to_dispense' });
                           setDecisionReason('');
@@ -799,6 +810,7 @@ export default function PharmacistDashboardPage() {
                       </button>
                       <button
                         type="button"
+                        disabled={unavailableDecisionHistory.has(alert.patient_id)}
                         onClick={() => {
                           setDecisionFor({ alert, decision: 'prescriber_queried' });
                           setDecisionReason('');

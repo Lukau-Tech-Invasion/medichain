@@ -160,7 +160,9 @@ const ChainOfCustodyPage: React.FC = () => {
         status: (item.specimen_status || item.status || 'collected') as SpecimenStatus,
         sealNumber: (item.seal_number || item.sealNumber || '') as string,
         containerType: (item.container_type || item.containerType || '') as string,
-        quantity: (item.quantity || '') as string,
+        // Preserve the submitted quantity text (for example "5 mL"); the
+        // quantity column contains only the leading numeric count.
+        quantity: String(item.unit_of_measure ?? item.quantity ?? ''),
         transfers: (item.transfers || []) as CustodyTransfer[],
         currentCustodian: (item.current_custodian || item.currentCustodian || item.current_custodian_id || '') as string,
         currentLocation: (item.current_location || item.currentLocation || item.storage_location || '') as string,

@@ -112,12 +112,12 @@ export default function PatientListPanel({
               to={`/patients/${patient.patient_id}`}
               className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-brand-subtle rounded-full flex items-center justify-center">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="w-10 h-10 shrink-0 bg-brand-subtle rounded-full flex items-center justify-center">
                   <Users className="text-brand" size={18} />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 break-words">
+                  <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium text-content">{patient.full_name}</p>
                     {showFlags && patient.flags?.fall_risk && (
                       <span title={`Fall risk: ${patient.flags.fall_risk}`}>
@@ -142,7 +142,7 @@ export default function PatientListPanel({
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-content-muted">
+                  <p className="break-all text-sm text-content-muted">
                     {patient.room && `${patient.room} • `}
                     {patient.health_id || patient.patient_id}
                   </p>

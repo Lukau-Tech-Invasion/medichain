@@ -114,6 +114,7 @@ describe('dates', () => {
 describe('identifiers', () => {
   it('accepts a patient id and rejects an account id in its place', () => {
     expect(patientIdSchema.safeParse('PAT-3b765e2d').success).toBe(true);
+    expect(patientIdSchema.safeParse('PAT-8e3312b0e9ee4c9fae3ee4c1b96794df').success).toBe(true);
     // The user-id-vs-PAT- namespace confusion is a recurring, fail-closed bug
     // class in this codebase; catching it at the form is cheap.
     expect(

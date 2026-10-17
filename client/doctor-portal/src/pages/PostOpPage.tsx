@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { getPatients, createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
+import { StoredValue } from '../components/StoredSoapDetails';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 
 /** `null` until the clinician scores that component. */
@@ -107,6 +108,11 @@ const PostOpPage: React.FC = () => {
   const [notes, setNotes] = useState<PostOpNote[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
+  const submissionPending = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const patientNotes = notes.filter(note => note.patientId === selectedPatient);
 
   const [procedure, setProcedure] = useState('');
   const [surgeon, setSurgeon] = useState('');
@@ -151,21 +157,26 @@ const PostOpPage: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
+      let cancelled = false;
       const fetchHistory = async () => {
+        setHistoryLoading(true);
+        setHistoryError('');
+        setNotes([]);
         try {
           const data = await getApiClient().get<RecordList>(`/api/surgical/post-op/patient/${selectedPatient}`);
           const records = Array.isArray(data) ? data : (data.records || data.notes || []);
-          setNotes(prev => {
-            const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
-            return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
-          });
+          if (!cancelled) setNotes(records.filter(record => record.patientId === selectedPatient));
         } catch (e) {
           console.error('Failed to fetch post-op history:', e);
+          if (!cancelled) setHistoryError(t('docPostOp.historyReadFailed'));
+        } finally {
+          if (!cancelled) setHistoryLoading(false);
         }
       };
       fetchHistory();
+      return () => { cancelled = true; };
     }
-  }, [activeTab, selectedPatient, user]);
+  }, [activeTab, selectedPatient, user, t]);
 
   // A preview only: the total is recomputed and stored by the server, and the
   // threshold comes from the scoring catalog (rule 8). `null` until every
@@ -174,11 +185,27 @@ const PostOpPage: React.FC = () => {
   const aldreteBand = aldreteScore === null ? null : bandFor(aldreteScore, catalog?.aldrete?.bands);
   const readyForDischarge = aldreteBand === 'ready';
 
+  /** Clear the confirmed saved draft; retain its patient for the durable history read. */
+  const resetCompletedDraft = () => {
+    setProcedure(''); setSurgeon(''); setAnesthesiaType(''); setArrivalTime('');
+    setAldrete({ activity: null, respiration: null, circulation: null, consciousness: null, oxygenSaturation: null });
+    setVitals({ bp: '', hr: '', rr: '', spo2: '', temp: '' });
+    setPainScore(null); setNauseaVomiting(''); setBleeding('');
+    setUrineOutput(''); setFluidIntake(''); setOralIntake(''); setIvAccess('');
+    setMedications(''); setDressingStatus(''); setDrains(''); setSelectedCriteria([]);
+    setDischargeTime(''); setDischargeDisposition(''); setComplications(''); setNotes2('');
+    setActiveTab('history');
+  };
+
+  /** Submit one draft at a time, retaining all entries if the server refuses the write. */
   const handleSubmit = async () => {
+    if (submissionPending.current) return;
     if (!selectedPatient) {
       showError(t('docPostOp.errorSelectPatient'));
       return;
     }
+    submissionPending.current = true;
+    setIsSubmitting(true);
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const note: PostOpNote = {
       id: '',
@@ -196,20 +223,19 @@ const PostOpPage: React.FC = () => {
       dischargeCriteria: selectedCriteria, dischargeTime, dischargeDisposition,
       complications, notes: notes2
     };
-    let created: { id?: string };
     try {
-      created = await createPostOp(note);
+      await createPostOp(note);
+      resetCompletedDraft();
+      showSuccess(t('docPostOp.saved'));
     } catch (err) {
       console.error('Failed to save post-op note:', err);
       // Stop here. Falling through added the record to the local list
       // and toasted success for a write that never happened.
       showError(t('common.saveFailed'));
-      return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // The server assigns the id and scores the assessment; the local copy
-    // carries both so the history's de-duplication by id still holds.
-    setNotes([{ ...note, id: created.id ?? '', alderetScore: aldreteScore, readyForDischarge: aldreteScore === null ? null : readyForDischarge }, ...notes]);
-    showSuccess(t('docPostOp.saved'));
   };
 
   return (
@@ -260,7 +286,7 @@ const PostOpPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'assessment' ? (
-          <div className="space-y-6">
+          <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient & Procedure Info */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -625,21 +651,28 @@ const PostOpPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
+              disabled={isSubmitting}
               className="w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
             >
-              {t('docPostOp.save')}
+              {isSubmitting ? t('common.saving') : t('docPostOp.save')}
             </button>
-          </div>
+          </fieldset>
         ) : (
           <div className="space-y-4">
-            {notes.length === 0 ? (
+            {!selectedPatient ? (
+              <p>{t('docPostOp.selectPatientForHistory')}</p>
+            ) : historyLoading ? (
+              <p role="status">{t('common.loading')}</p>
+            ) : historyError ? (
+              <p role="alert">{historyError}</p>
+            ) : patientNotes.length === 0 ? (
               <div className="text-center py-8 text-content-muted">{t('docPostOp.noNotes')}</div>
             ) : (
-              notes.map(n => (
+              patientNotes.map(n => (
                 <div key={n.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h3 className="font-semibold">{n.patientName}</h3>
+                      <h3 className="font-semibold">{n.patientName || n.patientId}</h3>
                       <p className="text-sm text-content-muted">{formatTimestamp(n.documentedAt)}</p>
                     </div>
                     {typeof n.alderetScore === 'number' && (
@@ -652,6 +685,10 @@ const PostOpPage: React.FC = () => {
                     <p><strong>{t('docPostOp.lblProcedure')}</strong> {n.procedure}</p>
                     <p>{t('docPostOp.painSummary', { pain: n.painScore ?? '—', nausea: n.nauseaVomiting || '—', bleeding: n.bleeding || '—' })}</p>
                     {n.dischargeTime && <p className="text-ok-subtle-fg">{t('docPostOp.dischargedLine', { time: n.dischargeTime })}</p>}
+                    <details className="mt-3 rounded border border-border-interactive p-3">
+                      <summary className="cursor-pointer font-medium">{t('docPostOp.savedDetails')}</summary>
+                      <div className="mt-3"><StoredValue value={n} /></div>
+                    </details>
                   </div>
                 </div>
               ))

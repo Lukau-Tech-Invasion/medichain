@@ -21,6 +21,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   createCardiac: vi.fn(),
+  getPatientCardiacEvents: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -36,10 +37,32 @@ describe('CardiacPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.getPatientCardiacEvents).mockResolvedValue([]);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue(mockPatients);
+  });
+
+  it('submits unknown measurements as null and preserves a measured zero', async () => {
+    vi.mocked(shared.createCardiac).mockResolvedValue({
+      id: 'CAR-SAVED', success: true, event_type: 'Arrhythmia', timi_score: 0, timi_band: 'low',
+    });
+    render(<MemoryRouter><CardiacPage /></MemoryRouter>);
+    await screen.findByRole('option', { name: /John Doe/ });
+    fireEvent.change(screen.getAllByRole('combobox')[0], {
+      target: { value: mockPatients[0].patient_id },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Troponin (ng/mL)' }), {
+      target: { value: '0' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Cardiac Event' }));
+    await waitFor(() => expect(shared.createCardiac).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vital_signs: { heart_rate: null, blood_pressure: '' },
+        lab_values: { troponin: 0, bnp: null },
+      }),
+    ));
   });
 
   it('renders cardiac page', async () => {

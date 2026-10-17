@@ -123,7 +123,7 @@ function ProposeForm({ onProposed }: { onProposed: () => void }) {
       <button
         type="submit"
         disabled={busy || length < MIN_PURPOSE_CHARS}
-        className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-60"
+        className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
       >
         {t('docResearch.propose')}
       </button>
@@ -216,13 +216,13 @@ function RunCard({ run, released, onReleased, onChanged }: RunCardProps) {
         </p>
       )}
       {run.status === 'proposed' && !mine && (
-        <button type="button" disabled={busy} onClick={() => void act(() => approveResearchExport(run.id))} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60">
+        <button type="button" disabled={busy} onClick={() => void act(() => approveResearchExport(run.id))} className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
           {t('docResearch.approve')}
         </button>
       )}
       {run.status === 'proposed' && mine && <p className="text-xs text-content-muted">{t('docResearch.awaitingOthers')}</p>}
       {run.status === 'approved' && (
-        <button type="button" disabled={busy} onClick={() => void execute()} className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-60">
+        <button type="button" disabled={busy} onClick={() => void execute()} className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
           {t('docResearch.run')}
         </button>
       )}

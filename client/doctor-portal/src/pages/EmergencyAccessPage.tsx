@@ -157,7 +157,7 @@ function EmergencyAccessPage() {
                   <div>
                     <p className="font-medium text-content">{t('docEmergencyAccess.step3Title')}</p>
                     <p className="text-sm text-content-muted">
-                      {t('docEmergencyAccess.step3Body')}
+                      {isParamedic ? 'Manual patient search is unavailable to paramedics. Use NFC or QR with an approved hospital device.' : t('docEmergencyAccess.step3Body')}
                     </p>
                   </div>
                 </div>

@@ -137,7 +137,10 @@ export default function TelehealthPage() {
       await fetchSessions(patientId);
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
-      setError(t('docTelehealth.errConnect'));
+      // The server's reason, not a generic "failed to connect": a deployment
+      // with telehealth switched off answered clearly and was misreported as
+      // a network fault.
+      setError(getApiErrorMessage(e, t('docTelehealth.errConnect')));
     }
   };
 
@@ -441,7 +444,7 @@ export default function TelehealthPage() {
                 id="telehealth-form-patient"
                 label={t('docTelehealth.patientId')}
                 value={formData.patient_id}
-                onChange={(selectedPatientId) => setFormData({ ...formData, patient_id: selectedPatientId })}
+                onChange={(selectedPatientId) => setFormData(current => ({ ...current, patient_id: selectedPatientId }))}
                 required
               />
             </div>
@@ -450,7 +453,7 @@ export default function TelehealthPage() {
               <select
                 id="telehealth-session-type"
                 value={formData.session_type}
-                onChange={e => setFormData({ ...formData, session_type: e.target.value })}
+                onChange={e => setFormData(current => ({ ...current, session_type: e.target.value }))}
                 className="w-full border rounded-lg px-3 py-2"
               >
                 <option value="VideoVisit">{t('docTelehealth.typeVideo')}</option>
@@ -468,7 +471,7 @@ export default function TelehealthPage() {
                   id="telehealth-date"
                   type="date"
                   value={formData.scheduled_start_date}
-                  onChange={e => setFormData({ ...formData, scheduled_start_date: e.target.value })}
+                  onChange={e => setFormData(current => ({ ...current, scheduled_start_date: e.target.value }))}
                   className="w-full border rounded-lg px-3 py-2"
                   required
                 />
@@ -479,7 +482,7 @@ export default function TelehealthPage() {
                   id="telehealth-time"
                   type="time"
                   value={formData.scheduled_start_time}
-                  onChange={e => setFormData({ ...formData, scheduled_start_time: e.target.value })}
+                  onChange={e => setFormData(current => ({ ...current, scheduled_start_time: e.target.value }))}
                   className="w-full border rounded-lg px-3 py-2"
                   required
                 />
@@ -493,7 +496,7 @@ export default function TelehealthPage() {
                 min={15}
                 max={120}
                 value={formData.duration_minutes}
-                onChange={e => setFormData({ ...formData, duration_minutes: parseInt(e.target.value) })}
+                onChange={e => setFormData(current => ({ ...current, duration_minutes: parseInt(e.target.value) }))}
                 className="w-full border rounded-lg px-3 py-2"
               />
             </div>

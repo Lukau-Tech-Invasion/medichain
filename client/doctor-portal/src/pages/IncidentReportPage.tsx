@@ -1,3 +1,4 @@
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import React, { useState, useEffect } from 'react';
 import {
   AlertOctagon,
@@ -45,7 +46,7 @@ interface Incident {
   type: IncidentType;
   severity: IncidentSeverity;
   status: IncidentStatus;
-  dateTime: Date;
+  dateTime: Date | null;
   location: string;
   department: string;
   description: string;
@@ -56,7 +57,7 @@ interface Incident {
   witnesses: string[];
   immediateActions: string;
   reportedBy: string;
-  reportedAt: Date;
+  reportedAt: Date | null;
   assignedTo?: string;
   followUpActions: { action: string; dueDate: Date; completed: boolean }[];
   rootCause?: string;
@@ -92,7 +93,7 @@ interface IncidentRow {
 function toIncident(row: IncidentRow): Incident {
   const asDate = (value: string | null | undefined) => {
     const d = new Date(value || '');
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? null : d;
   };
   // The API's vocabulary is snake_case (`medication_error`); this page's is
   // hyphenated (`medication-error`). Normalise on the way in, or every badge
@@ -120,6 +121,7 @@ function toIncident(row: IncidentRow): Incident {
 }
 
 const IncidentReportPage: React.FC = () => {
+  const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'dashboard'>('list');
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -181,7 +183,11 @@ const IncidentReportPage: React.FC = () => {
     // Was a toast naming three fields at once, which is the least useful place
     // to put an error: it is not attached to any control, and this form is a
     // three-step wizard, so the offending field may not even be on screen.
-    if (!validate(formData)) {
+    const validationData = { ...formData, incidentType: formData.type };
+    if (!validate(validationData)) {
+      const result = incidentReportSchema.safeParse(validationData);
+      const firstField = result.success ? undefined : result.error.issues[0]?.path[0];
+      setFormStep(firstField === 'description' ? 2 : 1);
       return;
     }
 
@@ -296,15 +302,21 @@ const IncidentReportPage: React.FC = () => {
     return matchesSearch && matchesType && matchesStatus;
   });
 
+  const reportingEnd = Date.now();
+  const recentIncidents = incidents.filter(incident => {
+    const recordedAt = incident.dateTime?.getTime();
+    return recordedAt !== undefined && recordedAt >= reportingEnd - 30 * 24 * 60 * 60 * 1000 && recordedAt <= reportingEnd;
+  });
   const stats = {
     open: incidents.filter(i => i.status === 'open').length,
     investigating: incidents.filter(i => i.status === 'under-investigation').length,
-    thisWeek: incidents.filter(i => i.dateTime > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length,
+    thisWeek: recentIncidents.filter(i => i.dateTime!.getTime() >= reportingEnd - 7 * 24 * 60 * 60 * 1000).length,
     sentinel: incidents.filter(i => i.severity === 'sentinel').length
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Incident report" record={printRecord} onClose={() => setPrintRecord(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -428,7 +440,7 @@ const IncidentReportPage: React.FC = () => {
                     </div>
                     <p className="text-sm text-content-muted mt-1 flex items-center gap-2 min-h-[24px] py-1">
                       <Calendar className="w-4 h-4" />
-                      {incident.dateTime.toLocaleString()}
+                      {incident.dateTime?.toLocaleString() ?? 'Not recorded'}
                       <MapPin className="w-4 h-4 ml-2" />
                       {incident.location}
                     </p>
@@ -437,7 +449,7 @@ const IncidentReportPage: React.FC = () => {
                     <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="View incident details">
                       <Eye className="w-5 h-5 text-content-muted" />
                     </button>
-                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
+                    <button type="button" onClick={() => setPrintRecord(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
@@ -670,31 +682,31 @@ const IncidentReportPage: React.FC = () => {
       {activeTab === 'dashboard' && (
         <div className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-surface rounded-lg shadow p-6">
+            <section aria-label="Incident type counts" className="bg-surface rounded-lg shadow p-6">
               <h3 className="font-semibold mb-4">{t('docIncidentReport.incidentsByTypeHeading')}</h3>
               <div className="space-y-3">
-                {['fall', 'medication-error', 'equipment-failure', 'security'].map(type => (
+                {['fall', 'medication-error', 'equipment-failure', 'security', 'behavioral', 'exposure', 'other'].map(type => (
                   <div key={type} className="flex items-center gap-3">
                     <div className="w-24 text-sm">{t(`docIncidentReport.type_${type}`)}</div>
                     <div className="flex-1 h-4 bg-surface-sunken rounded-full overflow-hidden">
-                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.random() * 80 + 20}%` }} />
+                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${recentIncidents.length ? recentIncidents.filter(i => i.type === type).length / recentIncidents.length * 100 : 0}%` }} />
                     </div>
-                    <div className="w-8 text-sm text-right">{Math.floor(Math.random() * 10 + 1)}</div>
+                    <div className="w-8 text-sm text-right">{recentIncidents.filter(i => i.type === type).length}</div>
                   </div>
                 ))}
               </div>
-            </div>
-            <div className="bg-surface rounded-lg shadow p-6">
+            </section>
+            <section aria-label="Incident severity counts" className="bg-surface rounded-lg shadow p-6">
               <h3 className="font-semibold mb-4">{t('docIncidentReport.severityDistributionHeading')}</h3>
               <div className="flex justify-around">
-                {['near-miss', 'minor', 'moderate', 'major'].map(sev => (
+                {['near-miss', 'minor', 'moderate', 'major', 'sentinel'].map(sev => (
                   <div key={sev} className="text-center">
-                    <div className="text-2xl font-bold text-content-secondary">{Math.floor(Math.random() * 10 + 1)}</div>
+                    <div className="text-2xl font-bold text-content-secondary">{recentIncidents.filter(i => i.severity === sev).length}</div>
                     <div className="text-xs text-content-muted">{t(`docIncidentReport.severity_${sev}`)}</div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         </div>
       )}

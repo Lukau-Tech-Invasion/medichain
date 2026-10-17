@@ -36,8 +36,8 @@ import type { StoredDrugInteractionCheck } from '@medichain/shared';
 // Type Definitions
 type InteractionSeverity = 'contraindicated' | 'major' | 'moderate' | 'minor' | 'unknown';
 type InteractionType = 'drug-drug' | 'drug-allergy' | 'drug-condition' | 'drug-food' | 'drug-lab';
-/** `clinical::EvidenceLevel`, exactly as the interaction dataset records it. */
-type EvidenceLevel = 'Theoretical' | 'CaseReport' | 'CaseStudy' | 'ClinicalTrial' | 'Established';
+/** Live checks use clinical evidence levels; reference records retain letter grades. */
+type EvidenceLevel = 'Theoretical' | 'CaseReport' | 'CaseStudy' | 'ClinicalTrial' | 'Established' | 'A' | 'B' | 'C';
 
 interface Drug {
   drugId: string;
@@ -48,6 +48,32 @@ interface Drug {
   route: string;
   form: string;
   commonDoses: string[];
+}
+
+/** Serialized formulary record returned by GET /api/drugs. */
+interface DrugReferenceResponse {
+  drug_id: string;
+  name: string;
+  generic_name: string;
+  brand_names: string[];
+  drug_class: string;
+  route: string;
+  form: string;
+  common_doses: string[];
+}
+
+/** Map a server formulary record into the search/selection view model. */
+function fromDrugReference(drug: DrugReferenceResponse): Drug {
+  return {
+    drugId: drug.drug_id,
+    name: drug.name,
+    genericName: drug.generic_name,
+    brandNames: drug.brand_names,
+    drugClass: drug.drug_class,
+    route: drug.route,
+    form: drug.form,
+    commonDoses: drug.common_doses,
+  };
 }
 
 interface Interaction {
@@ -195,11 +221,11 @@ const DrugInteractionsPage: React.FC = () => {
       if (!user?.userId) return;
       
       try {
-        const data = await getApiClient().get<{ success?: boolean; drugs?: Drug[] }>(
+        const data = await getApiClient().get<{ success?: boolean; drugs?: DrugReferenceResponse[] }>(
           '/api/drugs'
         );
         if (data.success && data.drugs) {
-          setDrugDatabase(data.drugs);
+          setDrugDatabase(data.drugs.map(fromDrugReference));
         }
       } catch (err) {
         console.error('Failed to load drug database:', err);

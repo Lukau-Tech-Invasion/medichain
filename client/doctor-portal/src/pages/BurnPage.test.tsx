@@ -51,6 +51,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   createBurn: vi.fn(),
+  getBurnForPatient: vi.fn(),
   useScoringCatalog: vi.fn(),
 }));
 
@@ -83,6 +84,7 @@ async function selectPatient(name: string) {
 describe('BurnPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.getBurnForPatient).mockResolvedValue({ assessments: [] });
     // `getPatients` resolves to the bare array: ApiClient unwraps the list
     // envelope. See the api-client-unwraps-list-envelopes note.
     vi.mocked(shared.getPatients).mockResolvedValue([ADULT, CHILD] as never);
@@ -91,6 +93,34 @@ describe('BurnPage', () => {
       isLoading: false,
       error: null,
     });
+  });
+
+  it('reads stored burn history after reopening the page', async () => {
+    vi.mocked(shared.getBurnForPatient).mockResolvedValue({ assessments: [{
+      id: 'BRN-STORED', assessment_datetime: '2026-10-08T00:45:00Z',
+      mechanism_of_injury: 'thermal', burn_agent: 'Synthetic hot-water splash',
+      tbsa_percentage: '0.7', severity: 'minor', notes: 'Stored synthetic burn narrative',
+    }] });
+    const first = renderPage();
+    await selectPatient('Adult Patient');
+    fireEvent.click(screen.getByRole('button', { name: /^History$/ }));
+    expect(await screen.findByText('Stored synthetic burn narrative')).toBeInTheDocument();
+    first.unmount();
+    renderPage();
+    await selectPatient('Adult Patient');
+    fireEvent.click(screen.getByRole('button', { name: /^History$/ }));
+    expect(await screen.findByText('Stored synthetic burn narrative')).toBeInTheDocument();
+    expect(shared.getBurnForPatient).toHaveBeenCalledTimes(2);
+    expect(shared.getBurnForPatient).toHaveBeenLastCalledWith('PAT-ADULT');
+  });
+
+  it('shows a read failure instead of an empty history', async () => {
+    vi.mocked(shared.getBurnForPatient).mockRejectedValue(new Error('unavailable'));
+    renderPage();
+    await selectPatient('Adult Patient');
+    fireEvent.click(screen.getByRole('button', { name: /^History$/ }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('No assessment history available')).not.toBeInTheDocument();
   });
 
   it('renders the burn page against the Lund-Browder chart', () => {

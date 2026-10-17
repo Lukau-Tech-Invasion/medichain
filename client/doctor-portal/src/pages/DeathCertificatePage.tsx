@@ -1,3 +1,4 @@
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import React, { useState, useEffect } from 'react';
 import { useToastActions } from '../components/Toast';
 import {
@@ -55,7 +56,8 @@ interface DeathCertificate {
   certifyingPhysicianLicense: string;
   certifierType: string;
   status: CertificateStatus;
-  createdAt: Date;
+  createdAt: Date | null;
+  formSections?: import('@medichain/shared').DeathCertificateFormSections;
   filedAt?: Date;
   caseNumber?: string;
 }
@@ -100,13 +102,16 @@ function toCertificate(row: Record<string, unknown>): DeathCertificate {
     // No created_at on the record; a filed certificate has `filed_at`. Using
     // `new Date()` for an unfiled one would date it to whenever the page
     // happened to load.
-    createdAt: row.filed_at ? new Date(String(row.filed_at)) : new Date(0),
+    createdAt: row.created_at ? new Date(String(row.created_at)) : null,
+    formSections: row.form_sections && typeof row.form_sections === 'object'
+      ? row.form_sections as import('@medichain/shared').DeathCertificateFormSections : undefined,
     filedAt: row.filed_at ? new Date(String(row.filed_at)) : undefined,
     caseNumber: undefined,
   };
 }
 
 const DeathCertificatePage: React.FC = () => {
+  const [printRecord, setPrintRecord] = useState<unknown>(null);
   // Toasts, not `alert()`. A native alert is a blocking modal: it freezes the
   // tab until dismissed, ignores the app's styling and focus handling, and
   // interrupts a clinician mid-form. `Toast.tsx` says in its own header that it
@@ -134,7 +139,7 @@ const DeathCertificatePage: React.FC = () => {
     lastName: '',
     ssn: '',
     dateOfBirth: '',
-    sex: 'male' as 'male' | 'female',
+    sex: '' as '' | 'male' | 'female',
     race: '',
     maritalStatus: '',
     occupation: '',
@@ -159,11 +164,11 @@ const DeathCertificatePage: React.FC = () => {
     immediateCause: '',
     immediateDuration: '',
     underlyingCauses: [{ cause: '', duration: '' }] as CauseOfDeathEntry[],
-    mannerOfDeath: 'natural' as MannerOfDeath,
-    autopsy: false,
-    autopsyUsed: false,
+    mannerOfDeath: 'pending' as MannerOfDeath,
+    autopsy: null as boolean | null,
+    autopsyUsed: null as boolean | null,
     tobaccoContributed: 'unknown' as 'yes' | 'no' | 'probably' | 'unknown',
-    pregnancyStatus: 'not-pregnant' as string,
+    pregnancyStatus: 'unknown' as string,
     injuryDate: '',
     injuryTime: '',
     injuryPlace: '',
@@ -171,7 +176,7 @@ const DeathCertificatePage: React.FC = () => {
   });
 
   const [certifierInfo, setCertifierInfo] = useState({
-    certifierType: 'physician' as 'physician' | 'coroner' | 'medical_examiner',
+    certifierType: '' as '' | 'physician' | 'coroner' | 'medical_examiner',
     certifierName: '',
     licenseNumber: '',
     certifierTitle: '',
@@ -282,8 +287,9 @@ const DeathCertificatePage: React.FC = () => {
   });
   /** The certificate as it stands, with nothing required. */
   const draftPayload = () => ({
+    form_sections: { decedent: deceasedInfo, death: deathInfo, cause: causeInfo, certifier: certifierInfo },
     patient_id: patientId,
-    deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`.trim(),
+    deceased_name: [deceasedInfo.firstName, deceasedInfo.middleName, deceasedInfo.lastName].filter(Boolean).join(' '),
     date_of_birth: deceasedInfo.dateOfBirth,
     date_of_death: deathInfo.dateOfDeath,
     time_of_death: deathInfo.timeOfDeath,
@@ -333,6 +339,7 @@ const DeathCertificatePage: React.FC = () => {
    * the surname, which is what the form joined it from.
    */
   const handleEditDraft = (cert: DeathCertificate) => {
+    resetForm();
     const words = cert.deceasedName.trim().split(/\s+/).filter(Boolean);
     const lastName = words.length > 1 ? words[words.length - 1] : words[0] ?? '';
     const firstName = words.length > 1 ? words.slice(0, -1).join(' ') : '';
@@ -358,6 +365,13 @@ const DeathCertificatePage: React.FC = () => {
       licenseNumber: cert.certifyingPhysicianLicense,
       certifierType: (cert.certifierType || c.certifierType) as typeof c.certifierType,
     }));
+    if (cert.formSections) {
+      const sections = cert.formSections;
+      setDeceasedInfo(d => ({ ...d, ...sections.decedent } as typeof d));
+      setDeathInfo(d => ({ ...d, ...sections.death }));
+      setCauseInfo(c => ({ ...c, ...sections.cause } as typeof c));
+      setCertifierInfo(c => ({ ...c, ...sections.certifier } as typeof c));
+    }
     setEditingDraftId(cert.id);
     setActiveTab('new');
     setCurrentStep(1);
@@ -368,7 +382,7 @@ const DeathCertificatePage: React.FC = () => {
     setPatientId('');
     setDeceasedInfo({
       firstName: '', middleName: '', lastName: '', ssn: '', dateOfBirth: '',
-      sex: 'male', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
+      sex: '', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
     });
     setDeathInfo({
       dateOfDeath: '', timeOfDeath: '', placeOfDeath: '', facilityName: '',
@@ -378,12 +392,12 @@ const DeathCertificatePage: React.FC = () => {
     setCauseInfo({
       immediateCause: '', immediateDuration: '',
       underlyingCauses: [{ cause: '', duration: '' }],
-      mannerOfDeath: 'natural', autopsy: false, autopsyUsed: false,
-      tobaccoContributed: 'unknown', pregnancyStatus: 'not-pregnant',
+      mannerOfDeath: 'pending', autopsy: null, autopsyUsed: null,
+      tobaccoContributed: 'unknown', pregnancyStatus: 'unknown',
       injuryDate: '', injuryTime: '', injuryPlace: '', injuryDescription: ''
     });
     setCertifierInfo({
-      certifierType: 'physician', certifierName: '', licenseNumber: '',
+      certifierType: '', certifierName: '', licenseNumber: '',
       certifierTitle: '', certifierAddress: '', dateSigned: '', timeSigned: '', signature: ''
     });
   };
@@ -427,6 +441,7 @@ const DeathCertificatePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Death certificate record" record={printRecord} onClose={() => setPrintRecord(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-slate-800 to-zinc-700 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -442,7 +457,7 @@ const DeathCertificatePage: React.FC = () => {
           {(['certificates', 'new'] as const).map(tab => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => { if (tab === 'new') resetForm(); setActiveTab(tab); }}
               className={`flex-1 py-4 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? 'text-content-secondary border-b-2 border-slate-800'
@@ -521,7 +536,7 @@ const DeathCertificatePage: React.FC = () => {
                         <Edit className="w-5 h-5 text-content-muted" />
                       </button>
                     )}
-                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
+                    <button type="button" onClick={() => setPrintRecord(cert)} className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
@@ -615,6 +630,14 @@ const DeathCertificatePage: React.FC = () => {
             ))}
           </div>
 
+          {currentStep < 4 && (
+            <div className="max-w-3xl mx-auto flex justify-end mb-4">
+              <button type="button" onClick={handleSaveDraft} disabled={!patientId}
+                className="px-4 py-2 border border-border-strong rounded-lg disabled:opacity-50">
+                {t('docDeathCertificate.saveAsDraftBtn')}
+              </button>
+            </div>
+          )}
           {/* Step 1: Decedent Information */}
           {currentStep === 1 && (
             <div className="max-w-3xl mx-auto bg-surface rounded-lg shadow p-6">
@@ -698,9 +721,10 @@ const DeathCertificatePage: React.FC = () => {
                   <select
                     id="death-sex"
                     value={deceasedInfo.sex}
-                    onChange={(e) => setDeceasedInfo({ ...deceasedInfo, sex: e.target.value as 'male' | 'female' })}
+                    onChange={(e) => setDeceasedInfo({ ...deceasedInfo, sex: e.target.value as '' | 'male' | 'female' })}
                     className="w-full border rounded-lg px-3 py-2"
                   >
+                    <option value="">{t('docDeathCertificate.selectEllipsis')}</option>
                     <option value="male">{t('docDeathCertificate.sex_male')}</option>
                     <option value="female">{t('docDeathCertificate.sex_female')}</option>
                   </select>
@@ -1045,7 +1069,7 @@ const DeathCertificatePage: React.FC = () => {
                   <input
                     type="checkbox"
                     id="autopsy"
-                    checked={causeInfo.autopsy}
+                  checked={causeInfo.autopsy === true}
                     onChange={(e) => setCauseInfo({ ...causeInfo, autopsy: e.target.checked })}
                     className="w-4 h-4"
                   />
@@ -1058,7 +1082,7 @@ const DeathCertificatePage: React.FC = () => {
                     <input
                       type="checkbox"
                       id="autopsyUsed"
-                      checked={causeInfo.autopsyUsed}
+                      checked={causeInfo.autopsyUsed === true}
                       onChange={(e) => setCauseInfo({ ...causeInfo, autopsyUsed: e.target.checked })}
                       className="w-4 h-4"
                     />
@@ -1115,6 +1139,7 @@ const DeathCertificatePage: React.FC = () => {
                     onChange={(e) => setCertifierInfo({ ...certifierInfo, certifierType: e.target.value as 'physician' | 'coroner' | 'medical_examiner' })}
                     className="w-full border rounded-lg px-3 py-2"
                   >
+                    <option value="">{t('docDeathCertificate.selectEllipsis')}</option>
                     <option value="physician">{t('docDeathCertificate.certifierType_physician')}</option>
                     <option value="medical_examiner">{t('docDeathCertificate.certifierType_medicalExaminer')}</option>
                     <option value="coroner">{t('docDeathCertificate.certifierType_coroner')}</option>

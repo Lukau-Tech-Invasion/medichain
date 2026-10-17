@@ -16,6 +16,7 @@ import {
   useTranslation,
 } from '@medichain/shared';
 import ChangePasswordDialog from '../components/ChangePasswordDialog';
+import { ClinicianContactDetails } from '../components/ClinicianContactDetails';
 import { 
   Settings, 
   User, 
@@ -332,7 +333,7 @@ function SettingsPage() {
           </p>
         </div>
         
-        <button
+        {activeTab !== 'profile' && <button
           onClick={handleSave}
           disabled={isSaving}
           className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -348,7 +349,7 @@ function SettingsPage() {
               {isSaving ? t('docSettings.saving') : t('docSettings.saveChanges')}
             </>
           )}
-        </button>
+        </button>}
       </div>
 
       {settingsError && (
@@ -357,9 +358,9 @@ function SettingsPage() {
         </div>
       )}
 
-      <div className="flex gap-8">
+      <div className="flex flex-col lg:flex-row gap-8 min-w-0">
         {/* Tabs */}
-        <div className="w-64 bg-surface rounded-xl shadow p-4">
+        <div className="w-full lg:w-64 lg:shrink-0 bg-surface rounded-xl shadow p-4">
           <nav className="space-y-1">
             {tabs.map((tab) => (
               <button
@@ -379,13 +380,13 @@ function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-surface rounded-xl shadow p-6">
+        <div className="flex-1 min-w-0 bg-surface rounded-xl shadow p-6">
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <div>
               <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.profileInfo')}</h2>
 
-              <div className="flex items-start gap-6 mb-8">
+              <div className="flex flex-col sm:flex-row items-start gap-6 mb-8">
                 <div className="w-20 h-20 bg-brand-subtle rounded-full flex items-center justify-center overflow-hidden">
                   {avatar ? (
                     <img src={avatar} alt="" className="w-full h-full object-cover" />
@@ -431,10 +432,11 @@ function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 min-w-0">
                 <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.userId')}</label>
+                  <label htmlFor="settings-account-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.userId')}</label>
                   <input
+                    id="settings-account-id"
                     type="text"
                     value={user?.userId || ''}
                     disabled
@@ -443,8 +445,9 @@ function SettingsPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.role')}</label>
+                  <label htmlFor="settings-account-role" className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.role')}</label>
                   <input
+                    id="settings-account-role"
                     type="text"
                     value={user?.role || ''}
                     disabled
@@ -452,24 +455,8 @@ function SettingsPage() {
                   />
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.email')}</label>
-                  <input
-                    type="email"
-                    defaultValue={`${user?.username || 'user'}@medichain.health`}
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.phone')}</label>
-                  <input
-                    type="tel"
-                    defaultValue="+234-800-000-0000"
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  />
-                </div>
               </div>
+              {user && <ClinicianContactDetails key={user.userId} userId={user.userId} />}
 
               <div className="mt-6 pt-6 border-t border-border">
                 <h4 className="font-medium text-content mb-3">{t('docSettings.accountStatus')}</h4>
@@ -708,6 +695,7 @@ function SettingsPage() {
                   </div>
                   <select
                     value={settings.security.sessionTimeout}
+                    aria-label={t('docSettings.sessionTimeout')}
                     onChange={(e) => updateSecurity('sessionTimeout', Number(e.target.value))}
                     className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   >
@@ -729,7 +717,7 @@ function SettingsPage() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      aria-label={t('docSettings.sessionTimeout')}
+                      aria-label={t('docSettings.pinEmergency')}
                       checked={settings.security.requirePinForEmergency}
                       onChange={(e) => updateSecurity('requirePinForEmergency', e.target.checked)}
                       className="sr-only peer"
@@ -809,6 +797,7 @@ function SettingsPage() {
                   </div>
                   <select
                     value={settings.display.language}
+                    aria-label={t('docSettings.language')}
                     onChange={(e) => updateDisplay('language', e.target.value)}
                     className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   >
@@ -831,6 +820,7 @@ function SettingsPage() {
                   </div>
                   <select
                     value={settings.display.dateFormat}
+                    aria-label={t('docSettings.dateFormat')}
                     onChange={(e) => updateDisplay('dateFormat', e.target.value)}
                     className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   >
@@ -848,7 +838,7 @@ function SettingsPage() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      aria-label={t('docSettings.language')}
+                      aria-label={t('docSettings.compactView')}
                       checked={settings.display.compactView}
                       onChange={(e) => updateDisplay('compactView', e.target.checked)}
                       className="sr-only peer"

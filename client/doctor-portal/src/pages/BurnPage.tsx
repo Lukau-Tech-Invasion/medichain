@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createBurn,
+  getBurnForPatient,
+  formatTimestamp,
   getPatients,
   useTranslation,
   useScoringCatalog,
@@ -62,6 +64,9 @@ export default function BurnPage() {
   const { catalog } = useScoringCatalog();
   // What the server computed and stored: the TBSA, the fluid order and the
   // severity band. Shown in place of the preview once the assessment is filed.
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getBurnForPatient>>['assessments']>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
   const [savedBurn, setSavedBurn] = useState<BurnCreateResult | null>(null);
 
   // Form state
@@ -149,6 +154,23 @@ export default function BurnPage() {
     };
     fetchData();
   }, [searchParams]);
+
+  // Clear the previous chart immediately and ignore responses after switching patients.
+  useEffect(() => {
+    let cancelled = false;
+    setHistory([]);
+    setHistoryError(false);
+    if (!selectedPatient) return;
+    setHistoryLoading(true);
+    getBurnForPatient(selectedPatient.patient_id)
+      .then(result => { if (!cancelled) setHistory(result.assessments); })
+      .catch(error => {
+        console.error('Burn history read failed', error);
+        if (!cancelled) setHistoryError(true);
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedPatient]);
 
   const filteredPatients = patients.filter(p =>
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1002,11 +1024,26 @@ export default function BurnPage() {
               <History className="h-6 w-6 mr-2 text-critical" />
               {t('docBurn.assessmentHistoryTitle')}
             </h2>
-            <div className="text-center py-12 text-content-muted">
-              <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>{t('docBurn.noHistory')}</p>
-              <p className="text-sm mt-1">{t('docBurn.noHistoryHint')}</p>
-            </div>
+            {historyLoading ? <p role="status">{t('common.loading')}</p> : historyError ? (
+              <p role="alert" className="text-critical">{t('common.dataUnavailable')}</p>
+            ) : history.length === 0 ? (
+              <div className="text-center py-12 text-content-muted">
+                <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>{t('docBurn.noHistory')}</p>
+                <p className="text-sm mt-1">{t('docBurn.noHistoryHint')}</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {history.map(record => (
+                  <li key={record.id} className="py-4 space-y-1">
+                    <p className="font-semibold">{record.burn_agent || record.mechanism_of_injury}</p>
+                    <p className="text-content-muted">{record.id} · {formatTimestamp(record.assessment_datetime)}</p>
+                    <p>{Number(record.tbsa_percentage).toFixed(1)}% · {record.severity}</p>
+                    {record.notes && <p className="whitespace-pre-wrap">{record.notes}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

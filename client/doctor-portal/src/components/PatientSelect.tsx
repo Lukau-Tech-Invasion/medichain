@@ -24,6 +24,8 @@ interface PatientSelectProps {
   error?: string;
   /** Called when focus leaves the control, so a page can validate on blur. */
   onBlur?: () => void;
+  /** False only for a workflow that selects a patient without opening clinical data. */
+  requireChartAccess?: boolean;
 }
 
 /**
@@ -49,9 +51,11 @@ export default function PatientSelect({
   id,
   error,
   onBlur,
+  requireChartAccess = true,
 }: PatientSelectProps) {
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [selectedDirectoryPatient, setSelectedDirectoryPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -70,6 +74,8 @@ export default function PatientSelect({
     if (!user) return;
 
     let active = true;
+    setPatients([]);
+    setLoading(true);
 
     const fetchPatients = async () => {
       setLoading(true);
@@ -108,7 +114,21 @@ export default function PatientSelect({
   }, [onBlur]);
 
   // Get selected patient details for display
-  const selectedPatient = patients.find(p => p.patient_id === value);
+  const selectedPatient = selectedDirectoryPatient?.patient_id === value
+    ? selectedDirectoryPatient : patients.find(p => p.patient_id === value)
+      ?? (value ? { patient_id: value, full_name: 'Selected patient', health_id: undefined } : undefined);
+
+  // An edited record may belong to a patient outside the first directory page.
+  // Resolve only its directory identity; this does not open or grant chart access.
+  useEffect(() => {
+    let active = true;
+    setSelectedDirectoryPatient(null);
+    if (!user || !value) return;
+    getPatients({ query: value, limit: 50 }).then(rows => {
+      if (active) setSelectedDirectoryPatient(rows.find(row => row.patient_id === value && row.content_available !== false) ?? null);
+    }).catch(() => { if (active) setLoadError('The selected patient could not be loaded'); });
+    return () => { active = false; };
+  }, [value, user]);
 
   // Reads of the selected patient cite its access context; leaving the page
   // clears it, so the next page's patient cannot inherit this one's.
@@ -119,12 +139,17 @@ export default function PatientSelect({
   useEffect(() => () => getApiClient().setPatientAccessContext(undefined), []);
 
   const choose = (patient: Patient) => {
+    setSelectedDirectoryPatient(patient);
     onChange(patient.patient_id, patient);
     setSearchTerm('');
     setIsOpen(false);
   };
 
   const handleSelect = (patient: Patient) => {
+    if (!requireChartAccess) {
+      choose(patient);
+      return;
+    }
     const access = declaredAccessFor(patient.patient_id);
     if (access) {
       applyAccess(patient.patient_id, access);
@@ -142,6 +167,8 @@ export default function PatientSelect({
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPatients([]);
+    setLoading(true);
     setSearchTerm(e.target.value);
     if (!isOpen) setIsOpen(true);
   };
@@ -188,7 +215,7 @@ export default function PatientSelect({
               <div>
                 <p className="font-medium text-content">{selectedPatient.full_name}</p>
                 <p className="text-xs text-content-muted">
-                  {selectedPatient.patient_id} • {selectedPatient.health_id}
+                  {selectedPatient.patient_id}{selectedPatient.health_id ? ` • ${selectedPatient.health_id}` : ''}
                 </p>
               </div>
             </div>
@@ -196,6 +223,7 @@ export default function PatientSelect({
               {!disabled && (
                 <button
                   type="button"
+                  aria-label={`Clear selected patient ${selectedPatient.full_name}`}
                   onClick={(e) => { e.stopPropagation(); handleClear(); }}
                   className="p-1 hover:bg-surface-sunken rounded"
                 >
@@ -275,7 +303,7 @@ export default function PatientSelect({
                       {patient.full_name}
                     </p>
                     <p className="text-xs text-content-muted truncate">
-                      {patient.patient_id} • Health ID: {patient.health_id}
+                      {patient.patient_id}{patient.health_id ? ` • Health ID: ${patient.health_id}` : ''}
                     </p>
                   </div>
                 </button>

@@ -27,15 +27,14 @@ describe('NurseDashboardPage', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation(() => {
+    mockFetch.mockImplementation((url: string) => {
       return Promise.resolve({
         ok: true,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({
-          assigned_patients: 5,
-          pending_medications: 12,
-          critical_alerts: 2,
-          upcoming_tasks: 8,
+        json: () => Promise.resolve(String(url).includes('/api/nurse/tasks') ? { success: true, tasks: [] } : {
+          nurse_id: mockUser.userId, patients: { total: 0, list: [] },
+          vitals_needing_attention: [], fall_risk_patients: [], io_records: [], medication_records: [], critical_alerts: [],
+          tasks: { vitals_due: 0, ivs_to_check: 0, wounds_to_assess: 0 },
         }),
       });
     });
@@ -49,7 +48,7 @@ describe('NurseDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Nursing Dashboard/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Nursing Dashboard' })).toBeInTheDocument();
       expect(screen.getAllByText(/My Patients/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Vitals Due/i)).toBeInTheDocument();
     });

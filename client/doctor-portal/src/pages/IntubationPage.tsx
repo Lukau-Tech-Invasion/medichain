@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
@@ -52,6 +52,24 @@ interface IntubationRecord {
   complications: string[];
   verification: { etco2: boolean; chestRise: boolean; breathSounds: boolean; xray: boolean };
   notes: string;
+}
+
+/** Return a fresh procedure draft using the existing form defaults. */
+function initialProcedureFields() {
+  return {
+    indication: '', method: 'oral' as IntubationMethod, bladeType: 'mac' as BladeType,
+    bladeSize: 3, tubeSize: 7.5, tubeDepth: 22, cuffPressure: 25, attempts: 1,
+    preOxygenation: true, rsiUsed: true, notes: '',
+  };
+}
+
+/** Return a fresh airway draft; shared only by initial render and successful reset. */
+function initialAirwayFields(): AirwayAssessment {
+  return {
+    mallampati: 'I', mouthOpening: 4, thyromental: 6, neckMobility: 'full',
+    dentition: 'normal', beardPresent: false, obeseNeck: false,
+    predictedDifficult: false, lemonScore: 0,
+  };
 }
 
 const intubationIndications = [
@@ -141,32 +159,10 @@ const IntubationPage: React.FC = () => {
   }, [loadIntubationRecords]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
-
-  const [formData, setFormData] = useState({
-    indication: '',
-    method: 'oral' as IntubationMethod,
-    bladeType: 'mac' as BladeType,
-    bladeSize: 3,
-    tubeSize: 7.5,
-    tubeDepth: 22,
-    cuffPressure: 25,
-    attempts: 1,
-    preOxygenation: true,
-    rsiUsed: true,
-    notes: ''
-  });
-
-  const [airway, setAirway] = useState<AirwayAssessment>({
-    mallampati: 'I',
-    mouthOpening: 4,
-    thyromental: 6,
-    neckMobility: 'full',
-    dentition: 'normal',
-    beardPresent: false,
-    obeseNeck: false,
-    predictedDifficult: false,
-    lemonScore: 0
-  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionPending = useRef(false);
+  const [formData, setFormData] = useState(initialProcedureFields);
+  const [airway, setAirway] = useState<AirwayAssessment>(initialAirwayFields);
 
   const [medications, setMedications] = useState<{ name: string; dose: string; time: string }[]>([]);
   const [selectedComplications, setSelectedComplications] = useState<string[]>(['None']);
@@ -203,14 +199,28 @@ const IntubationPage: React.FC = () => {
   }, [airway.mallampati, airway.mouthOpening, airway.thyromental, airway.neckMobility, airway.obeseNeck]);
 
   const addMedication = (name: string, dose: string) => {
-    setMedications([...medications, { name, dose, time: new Date().toLocaleTimeString() }]);
+    setMedications(current => [...current, { name, dose, time: new Date().toLocaleTimeString() }]);
+  };
+
+  /** Clear completed patient-specific inputs before another procedure is started. */
+  const resetCompletedDraft = () => {
+    setSelectedPatient('');
+    setFormData(initialProcedureFields());
+    setAirway(initialAirwayFields());
+    setMedications([]);
+    setSelectedComplications(['None']);
+    setVerification({ etco2: false, chestRise: false, breathSounds: false, xray: false });
+    setActiveTab('history');
   };
 
   const handleSubmit = async () => {
+    if (submissionPending.current) return;
     if (!selectedPatient || !formData.indication) {
       showError(t('docIntubation.errorSelectPatientIndication'));
       return;
     }
+    submissionPending.current = true;
+    setIsSubmitting(true);
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const newRecord: IntubationRecord = {
       id: `INT-${Date.now()}`,
@@ -237,19 +247,18 @@ const IntubationPage: React.FC = () => {
     };
     try {
       await createIntubation(newRecord);
+      await loadIntubationRecords();
+      resetCompletedDraft();
+      showSuccess(t('docIntubation.successDocumented'));
     } catch (err) {
       console.error('Failed to save intubation record:', err);
       // Stop here. Falling through added the record to the local list
       // and toasted success for a write that never happened.
       showError(t('common.saveFailed'));
-      return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // Re-read through the endpoint rather than pushing the local object.
-    // A row assembled from what this screen just typed proves nothing about
-    // what was stored -- and it vanished on reload, because nothing here
-    // ever read the record back.
-    await loadIntubationRecords();
-    showSuccess(t('docIntubation.successDocumented'));
   };
 
   return (
@@ -284,7 +293,7 @@ const IntubationPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
-          <div className="space-y-6">
+          <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient Selection */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -531,10 +540,10 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* RSI Medications */}
-            {formData.rsiUsed && (
+            {(formData.rsiUsed || medications.length > 0) && (
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-semibold mb-3">{t('docIntubation.rsiMedicationsHeading')}</h2>
-                <div className="flex flex-wrap gap-2 mb-4">
+                {formData.rsiUsed && <div className="flex flex-wrap gap-2 mb-4">
                   {rsiMedications.map(med => (
                     <div key={med.name} className="flex items-center gap-1">
                       <span className="text-sm font-medium">{med.name}:</span>
@@ -549,7 +558,7 @@ const IntubationPage: React.FC = () => {
                       ))}
                     </div>
                   ))}
-                </div>
+                </div>}
                 {medications.length > 0 && (
                   <div className="border rounded p-2">
                     <h3 className="text-sm font-medium mb-2">{t('docIntubation.medicationsGivenLabel')}</h3>
@@ -559,6 +568,12 @@ const IntubationPage: React.FC = () => {
                         <span>{med.time}</span>
                         <span className="font-medium">{med.name}</span>
                         <span>{med.dose}</span>
+                        <button type="button"
+                          aria-label={t('docIntubation.removeMedication', { name: med.name, dose: med.dose })}
+                          onClick={() => setMedications(current => current.filter((_, index) => index !== i))}
+                          className="ml-auto rounded px-2 py-1 text-critical hover:bg-critical-subtle focus-visible:outline focus-visible:outline-2">
+                          {t('common.remove')}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -628,11 +643,13 @@ const IntubationPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
+              disabled={isSubmitting}
+              aria-busy={isSubmitting}
               className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>
-          </div>
+          </fieldset>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (

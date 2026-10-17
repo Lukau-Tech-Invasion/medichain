@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createMci, useTranslation, useScoringCatalog } from '@medichain/shared';
+import { createMci, useTranslation, useScoringCatalog, localDateTimeInput } from '@medichain/shared';
 import {
   AlertTriangle,
   Users,
@@ -56,6 +56,16 @@ interface IncidentInfo {
   contactNumber: string;
   estimatedCasualties: number;
   resourcesRequested: string[];
+}
+
+/** Format an instant for a datetime-local input using the browser's timezone. */
+export function localIncidentTime(date: Date): string {
+  return localDateTimeInput(date);
+}
+
+/** Convert the responder's local incident time to the API's RFC 3339 instant. */
+export function incidentTimeInstant(value: string): string {
+  return new Date(value).toISOString();
 }
 
 const INCIDENT_TYPE_KEYS: Record<string, string> = {
@@ -118,7 +128,7 @@ export default function MCIPage() {
     incidentName: '',
     incidentType: '',
     location: '',
-    startTime: new Date().toISOString().slice(0, 16),
+    startTime: localIncidentTime(new Date()),
     commandPost: '',
     incidentCommander: '',
     contactNumber: '',
@@ -291,6 +301,11 @@ export default function MCIPage() {
     ));
   };
 
+  /** Keep the receiving facility supplied by the responder on the casualty draft. */
+  const updatePatientDestination = (patientId: string, destination: string) => {
+    setPatients(prev => prev.map(patient => patient.id === patientId ? { ...patient, destination } : patient));
+  };
+
   const removePatient = (patientId: string) => {
     setPatients(prev => prev.filter(p => p.id !== patientId));
   };
@@ -326,7 +341,7 @@ export default function MCIPage() {
       // scores START itself and stores both, so the record shows the decision
       // that was made and the algorithm it departed from.
       const mciData = {
-        incident,
+        incident: { ...incident, startTime: incidentTimeInstant(incident.startTime) },
         patients: patients.map((p) => ({
           tagNumber: p.tagNumber,
           age: p.age,
@@ -337,6 +352,7 @@ export default function MCIPage() {
           location: p.location,
           destination: p.destination,
           triageTime: p.triageTime,
+          transportTime: p.transportTime,
           notes: p.notes,
           category: p.category,
         })),
@@ -682,14 +698,25 @@ export default function MCIPage() {
                                 ))}
                               </div>
                               {!patient.transportTime ? (
+                                <div className="flex flex-col gap-1">
+                                <label className="text-xs" htmlFor={`destination-${patient.id}`}>Destination hospital</label>
+                                <input
+                                  id={`destination-${patient.id}`}
+                                  aria-label={`Destination hospital for ${patient.tagNumber}`}
+                                  value={patient.destination}
+                                  onChange={event => updatePatientDestination(patient.id, event.target.value)}
+                                  className="w-40 rounded border border-border bg-surface p-1 text-content"
+                                />
                                 <button
                                   type="button"
-                                  onClick={() => markTransported(patient.id, 'Hospital')}
+                                  disabled={!patient.destination.trim()}
+                                  onClick={() => markTransported(patient.id, patient.destination.trim())}
                                   className="text-notice-subtle-fg hover:text-notice-subtle-fg p-2"
                                   title={t('docMCI.markTransportedTitle')}
                                 >
                                   <Truck className="h-5 w-5" />
                                 </button>
+                                </div>
                               ) : (
                                 <span className="text-xs text-ok-subtle-fg flex items-center">
                                   <Truck className="h-4 w-4 mr-1" /> {t('docMCI.transportedLabel')}
@@ -698,6 +725,7 @@ export default function MCIPage() {
                               <button
                                 type="button"
                                 onClick={() => removePatient(patient.id)}
+                                aria-label={`Remove casualty ${patient.tagNumber}`}
                                 className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                               >
                                 <Trash2 className="h-5 w-5" />

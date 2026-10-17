@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import TriagePage from './TriagePage';
+import TriagePage, { triageLevel } from './TriagePage';
 import { useAuthStore } from '../store';
 
 // Mock the auth store
@@ -47,14 +47,14 @@ describe('TriagePage', () => {
               {
                 assessment_id: 't1',
                 patient_id: 'PAT-001',
-                esi_level: 1,
+                esi_level: 'Level1Resuscitation',
                 chief_complaint: 'Chest Pain',
                 performed_at: 1755000000,
               },
               {
                 assessment_id: 't2',
                 patient_id: 'PAT-002',
-                esi_level: 3,
+                esi_level: 'Level3Urgent',
                 chief_complaint: 'Ankle injury',
                 performed_at: 1755000600,
               },
@@ -124,6 +124,8 @@ describe('TriagePage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Chest Pain/i)).toBeInTheDocument();
+      expect(screen.getByText('ESI 1: Resuscitation')).toBeInTheDocument();
+      expect(screen.getByText('ESI 3: Urgent')).toBeInTheDocument();
     });
   });
 
@@ -146,4 +148,30 @@ describe('TriagePage', () => {
       expect(screen.getByLabelText(/Chief Complaint/i)).toBeInTheDocument();
     });
   });
+
+  it('keeps the entered form and hides raw server errors after a rejected submission', async () => {
+    render(<MemoryRouter><TriagePage /></MemoryRouter>);
+    fireEvent.focus(screen.getByPlaceholderText(/Search patient/i));
+    fireEvent.click(await screen.findByText('Alice Smith'));
+    fireEvent.click(screen.getByRole('button', { name: /5 Non-Urgent/ }));
+    fireEvent.change(screen.getByLabelText('Chief Complaint'), { target: { value: 'Synthetic rehearsal' } });
+    mockFetch.mockResolvedValueOnce({
+      ok: false, status: 400, statusText: 'Bad Request',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ error: 'Private server diagnostic' }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Complete Triage Assessment' }));
+    expect(await screen.findByText('Failed to create triage assessment')).toBeInTheDocument();
+    expect(screen.getByLabelText('Chief Complaint')).toHaveValue('Synthetic rehearsal');
+    expect(screen.queryByText(/Private server diagnostic|400 Bad Request/)).not.toBeInTheDocument();
+  });
+});
+
+it('reads every serialized ESI enum without inventing a level for unknown values', () => {
+  ['Level1Resuscitation', 'Level2Emergent', 'Level3Urgent', 'Level4LessUrgent', 'Level5NonUrgent']
+    .forEach((value, index) => expect(triageLevel(value)).toBe(index + 1));
+  expect(triageLevel({ level: 2 })).toBe(2);
+  expect(triageLevel(4)).toBe(4);
+  expect(triageLevel('Unrecognized')).toBeNull();
+  expect(triageLevel(0)).toBeNull();
 });

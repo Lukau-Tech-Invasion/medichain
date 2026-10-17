@@ -1,3 +1,4 @@
+import * as shared from '@medichain/shared';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { selectPatient } from '../test/selectPatient';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -25,6 +26,11 @@ global.fetch = mockFetch;
  * ever rendered. Copy assertions verified against `docTelehealth` in
  * shared/src/i18n/locales/en-US.ts.
  */
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn(),
+}));
+
 describe('TelehealthPage', () => {
   const mockUser = {
     userId: '5GrwvaEF...mock',
@@ -33,6 +39,10 @@ describe('TelehealthPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-PAGE-QA',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
@@ -87,6 +97,35 @@ describe('TelehealthPage', () => {
     );
     // The lookup is a searchable picker now; nobody types a patient id.
     expect(screen.getByLabelText(/View Sessions for Patient/i)).toBeInTheDocument();
+  });
+
+  it('reports the server\'s refusal when a session cannot be created, not a connection failure', async () => {
+    const respond = (body: unknown, status = 200) => Promise.resolve({
+      ok: status < 400,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve(body),
+    });
+    mockFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/patients')) {
+        return respond({ data: [{ patient_id: 'PAT-001', full_name: 'Sibusiso Ndlovu', health_id: 'HID-1', date_of_birth: '1980-01-01' }] });
+      }
+      if (init?.method === 'POST' && url.includes('/api/telehealth/sessions')) {
+        return respond({ error: 'The telehealth session could not be created', code: 'TELEHEALTH_UNAVAILABLE' }, 503);
+      }
+      return respond({ sessions: [] });
+    });
+    render(<TelehealthPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /New Session/i }));
+    await selectPatient(/^Patient ID/i, 'Sibusiso Ndlovu');
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-10-18' } });
+    fireEvent.change(screen.getByLabelText('Time'), { target: { value: '10:30' } });
+    fireEvent.click(screen.getByRole('button', { name: /Schedule Session/i }));
+
+    expect(await screen.findByText('The telehealth session could not be created')).toBeInTheDocument();
+    expect(screen.queryByText(/Failed to connect to server/i)).not.toBeInTheDocument();
   });
 
   it('shows the QR a patient scans to join from their phone', async () => {

@@ -68,7 +68,7 @@ interface PedigreeNode {
 interface PedigreeConnection {
   from: string;
   to: string;
-  type: 'parent-child' | 'spouse' | 'sibling';
+  type: 'parent-child' | 'spouse' | 'sibling' | 'half-sibling';
 }
 
 interface PedigreeChartProps {
@@ -80,7 +80,7 @@ interface PedigreeChartProps {
 
 const SYMBOL_SIZE = 40;
 const GENERATION_HEIGHT = 120;
-const HORIZONTAL_SPACING = 100;
+const HORIZONTAL_SPACING = 220;
 
 // Determine gender from relationship
 function getGenderFromRelationship(relationship: RelationshipType): 'male' | 'female' | 'unknown' {
@@ -283,7 +283,7 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
         connectionsList.push({
           from: 'proband',
           to: member.memberId,
-          type: 'sibling',
+          type: relationship.startsWith('half-') ? 'half-sibling' : 'sibling',
         });
       } else if (['daughter', 'son'].includes(relationship)) {
         connectionsList.push({
@@ -346,6 +346,8 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
   return (
     <div className={`bg-surface rounded-lg ${className}`}>
       <svg
+        role="img"
+        aria-label="Recorded family relationships"
         width="100%"
         height={dimensions.height}
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
@@ -394,6 +396,18 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
                   stroke="#9ca3af"
                   strokeWidth={2}
                 />
+              </g>
+            );
+          } else if (conn.type === 'half-sibling') {
+            // The shared parent is not recorded; do not join a parental branch.
+            return (
+              <g key={idx}>
+                <title>Half-sibling; shared parent not recorded</title>
+                <line x1={fromNode.x + SYMBOL_SIZE / 2} y1={fromNode.y}
+                  x2={toNode.x - SYMBOL_SIZE / 2} y2={toNode.y}
+                  stroke="currentColor" strokeWidth={2} strokeDasharray="5 5" />
+                <text x={(fromNode.x + toNode.x) / 2} y={fromNode.y - 8}
+                  textAnchor="middle" className="text-xs fill-current text-content">Half-sibling</text>
               </g>
             );
           } else if (conn.type === 'sibling') {
@@ -473,18 +487,18 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
               x={node.x}
               y={node.y + SYMBOL_SIZE / 2 + 15}
               textAnchor="middle"
-              className="text-xs fill-gray-700 font-medium"
+              className="text-xs fill-current text-content font-medium"
             >
               {node.name}
             </text>
             
             {/* Age label */}
-            {node.age && (
+            {node.age !== undefined && (
               <text
                 x={node.x}
                 y={node.y + SYMBOL_SIZE / 2 + 28}
                 textAnchor="middle"
-                className="text-xs fill-gray-500"
+                className="text-xs fill-current text-content-secondary"
               >
                 {node.isDeceased ? `d.${node.age}` : `${node.age}y`}
               </text>

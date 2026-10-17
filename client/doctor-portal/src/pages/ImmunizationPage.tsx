@@ -75,13 +75,14 @@ function slug(value: string): string {
 
 function toAdministration(raw: unknown): VaccineAdministration {
   const r = (raw ?? {}) as Record<string, unknown>;
+  const extras = r.data && typeof r.data === 'object' ? r.data as Record<string, unknown> : {};
   const str = (key: string, fallback = ''): string => {
-    const value = r[key];
+    const value = r[key] ?? extras[key];
     return typeof value === 'string' && value ? value : fallback;
   };
-  const num = (key: string, fallback: number): number => {
-    const value = r[key];
-    return typeof value === 'number' ? value : fallback;
+  const num = (key: string): number | undefined => {
+    const value = r[key] ?? extras[key];
+    return typeof value === 'number' ? value : undefined;
   };
   return {
     administrationId: str('id', str('record_id', '—')),
@@ -102,17 +103,17 @@ function toAdministration(raw: unknown): VaccineAdministration {
     route: slug(str('route')) as VaccineAdministration['route'],
     site: slug(str('administration_site')) as VaccineAdministration['site'],
     administeredBy: str('administered_by_name', str('administered_by')),
-    administeredAt: str('administration_date', str('created_at')),
+    administeredAt: str('administration_date'),
     status: 'administered',
-    doseNumber: num('dose_number', 1),
-    totalDoses: num('total_doses', 1),
+    doseNumber: num('dose_number'),
+    totalDoses: num('total_doses'),
     nextDueDate: str('next_dose_due') || undefined,
     consentObtained: r['patient_consent'] === true,
     consentBy: str('consent_by') || undefined,
     adverseReactions: str('reaction_details') || undefined,
     notes: str('notes') || undefined,
-    vfcEligible: r['vfc_eligibility'] === true,
-    insuranceReported: r['registry_reported'] === true,
+    vfcEligible: extras['vfc_eligible'] === true,
+    insuranceReported: (r['registry_reported'] ?? extras['registry_reported']) === true,
   };
 }
 
@@ -181,6 +182,7 @@ const ImmunizationPage: React.FC = () => {
     manufacturer: '',
     lotNumber: '',
     expiryDate: '',
+    administrationDate: '',
     dose: '',
     route: 'intramuscular' as AdministrationRoute,
     site: 'left-deltoid' as AdministrationSite,
@@ -291,6 +293,10 @@ const ImmunizationPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(immunizationSchema);
   const handleAdminister = async () => {
+    if (!newVaccine.administrationDate) {
+      setError(t('docImmunization.actualDateRequired'));
+      return;
+    }
     // The lot number is how a recall reaches the people who received that lot;
     // without it a batch withdrawal cannot identify anybody. Worth naming on
     // the field rather than in a toast listing three.
@@ -317,7 +323,7 @@ const ImmunizationPage: React.FC = () => {
       // Display only: the server records the authenticated caller as the
       // administering clinician, whatever this says.
       administeredBy: user?.userId ?? '',
-      administeredAt: new Date().toISOString(),
+      administeredAt: newVaccine.administrationDate,
       status: 'administered',
       doseNumber: newVaccine.doseNumber,
       totalDoses: newVaccine.totalDoses,
@@ -342,18 +348,21 @@ const ImmunizationPage: React.FC = () => {
       const response = await createImmunization({
         patient_id: newAdmin.patientId,
         vaccine_name: newAdmin.vaccineName,
-        cvx_code: newAdmin.vaccineType,
+        vaccine_type: newAdmin.vaccineType,
         manufacturer: newAdmin.manufacturer,
         lot_number: newAdmin.lotNumber,
         expiration_date: newAdmin.expiryDate,
         administration_date: newAdmin.administeredAt,
         dose_number: newAdmin.doseNumber,
+        dose_amount: newAdmin.dose || undefined,
+        total_doses: newAdmin.totalDoses,
+        next_dose_due: newAdmin.nextDueDate,
+        patient_consent: newAdmin.consentObtained,
+        consent_by: newAdmin.consentBy,
+        vfc_eligible: newAdmin.vfcEligible,
         route: API_ROUTES[newAdmin.route],
         site: newAdmin.site,
         administered_by: newAdmin.administeredBy,
-        vis_date: newAdmin.administeredAt,
-        funding_source: newAdmin.vfcEligible ? 'PublicVFC' : 'Private',
-        registry_reported: newAdmin.insuranceReported,
         adverse_reaction: newAdmin.adverseReactions,
         notes: newAdmin.notes,
       }) as { success?: boolean; error?: string; id?: string };
@@ -367,6 +376,7 @@ const ImmunizationPage: React.FC = () => {
           manufacturer: '',
           lotNumber: '',
           expiryDate: '',
+          administrationDate: '',
           dose: '',
           route: 'intramuscular',
           site: 'left-deltoid',
@@ -437,7 +447,9 @@ const ImmunizationPage: React.FC = () => {
   };
 
   const formatDateTime = (isoString: string) => {
-    return formatTimestamp(isoString);
+    return /^\d{4}-\d{2}-\d{2}$/.test(isoString)
+      ? `${formatDateOnly(isoString)} — time not recorded`
+      : formatTimestamp(isoString);
   };
 
   return (
@@ -581,8 +593,8 @@ const ImmunizationPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.administrationLabel')}</p>
-                    <p className="text-sm text-content">{t(`docImmunization.route_${admin.route}`)}</p>
-                    <p className="text-sm text-content-muted">{t(`docImmunization.site_${admin.site}`)}</p>
+                    <p className="text-sm text-content">{admin.route ? t(`docImmunization.route_${admin.route}`) : t('docImmunization.notRecorded')}</p>
+                    <p className="text-sm text-content-muted">{admin.site ? t(`docImmunization.site_${admin.site}`) : t('docImmunization.notRecorded')}</p>
                   </div>
                 </div>
 
@@ -598,7 +610,7 @@ const ImmunizationPage: React.FC = () => {
                   <div>
                     <p className="text-content-muted mb-1">{t('docImmunization.doseSeriesLabel')}</p>
                     <p className="font-semibold text-content">
-                      {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? '', total: admin.totalDoses ?? '' })}
+                      {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? t('docImmunization.notRecorded'), total: admin.totalDoses ?? t('docImmunization.notRecorded') })}
                     </p>
                   </div>
                   <div>
@@ -738,6 +750,16 @@ const ImmunizationPage: React.FC = () => {
                   placeholder={t('docImmunization.lotNumberPh')}
                   required
                 />
+              </div>
+
+              <div>
+                <label htmlFor="imm-administration-date" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docImmunization.administrationDate')} <span className="text-critical-subtle-fg">*</span>
+                </label>
+                <input id="imm-administration-date" type="date" required
+                  value={newVaccine.administrationDate}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, administrationDate: e.target.value })}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2" />
               </div>
 
               <div>
@@ -1024,7 +1046,7 @@ const ImmunizationPage: React.FC = () => {
                         <div>
                           <p className="font-semibold text-content">{admin.vaccineName}</p>
                           <p className="text-sm text-content-muted">
-                            {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? '', total: admin.totalDoses ?? '' })}
+                            {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? t('docImmunization.notRecorded'), total: admin.totalDoses ?? t('docImmunization.notRecorded') })}
                           </p>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(admin.status)}`}>
@@ -1042,7 +1064,7 @@ const ImmunizationPage: React.FC = () => {
                         </div>
                         <div>
                           <p className="text-content-muted">{t('docImmunization.historySiteLabel')}</p>
-                          <p className="font-semibold">{t(`docImmunization.site_${admin.site}`)}</p>
+                          <p className="font-semibold">{admin.site ? t(`docImmunization.site_${admin.site}`) : t('docImmunization.notRecorded')}</p>
                         </div>
                       </div>
                       {admin.nextDueDate && (

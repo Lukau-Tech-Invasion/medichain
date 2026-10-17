@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Scissors,
   Search,
@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   Calendar,
   User,
-  Camera,
   MapPin,
   Activity,
   ClipboardCheck,
@@ -17,6 +16,7 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import StaffName from '../components/StaffName';
+import { WoundPhotoPicker, WoundPhotoViewer } from '../components/WoundPhotos';
 import {
   createLaceration,
   getApiClient,
@@ -42,7 +42,7 @@ interface LacerationRepair {
   patientId: string;
   patientName: string;
   mrn: string;
-  injuryDate: Date;
+  injuryDate?: Date;
   repairDate: Date;
   location: string;
   woundType: WoundType;
@@ -58,6 +58,7 @@ interface LacerationRepair {
   performedBy: string;
   followUpDate?: Date;
   notes?: string;
+  photos: string[];
 }
 
 /**
@@ -116,18 +117,16 @@ function toLacerationRepair(raw: Record<string, unknown>): LacerationRepair {
     const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
     return Number.isFinite(n) ? n : 0;
   };
-  // `performed_at` is the only timestamp the record carries. The injury time is
-  // not collected anywhere on this form, so it is shown as the repair time
-  // rather than invented: see `formatRepairDate` for what an unparseable one
-  // renders as.
+  // The repair timestamp cannot establish when the injury occurred.
   const performedAt = str('performed_at', 'created_at');
+  const injuryAt = str('injury_date', 'injury_at');
 
   return {
     id: str('id', 'record_id'),
     patientId: str('patient_id'),
-    patientName: str('patient_name'),
+    patientName: str('patient_name') || str('patient_id'),
     mrn: str('mrn', 'patient_id'),
-    injuryDate: new Date(performedAt),
+    injuryDate: injuryAt && Number.isFinite(Date.parse(injuryAt)) ? new Date(injuryAt) : undefined,
     repairDate: new Date(performedAt),
     location: str('location'),
     woundType: (str('wound_type') || 'laceration') as WoundType,
@@ -146,7 +145,17 @@ function toLacerationRepair(raw: Record<string, unknown>): LacerationRepair {
     performedBy: str('performed_by'),
     followUpDate: str('follow_up_date') ? new Date(str('follow_up_date')) : undefined,
     notes: str('notes') || undefined,
+    photos: Array.isArray(blob.photos) ? blob.photos.filter((photo): photo is string => typeof photo === 'string') : [],
   };
+}
+
+/** Read the durable list and map its stored fields for the repair cards. */
+async function readLacerationRepairs(): Promise<LacerationRepair[]> {
+  const result = await getApiClient().get<
+    { data?: Record<string, unknown>[]; repairs?: Record<string, unknown>[] } | Record<string, unknown>[]
+  >('/api/clinical/laceration-repairs');
+  const rows = Array.isArray(result) ? result : (result.data ?? result.repairs ?? []);
+  return rows.map(toLacerationRepair);
 }
 
 const LacerationRepairPage: React.FC = () => {
@@ -177,8 +186,13 @@ const LacerationRepairPage: React.FC = () => {
     notes: ''
   });
   const [saving, setSaving] = useState(false);
+  const submissionPending = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [photoHashes, setPhotoHashes] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   // The roster fetch that filled the patient dropdown is gone with it:
   // `PatientSelect` asks the server as the clinician types.
@@ -194,22 +208,10 @@ const LacerationRepairPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const result = await getApiClient().get<
-          { data?: Record<string, unknown>[]; repairs?: Record<string, unknown>[] }
-          | Record<string, unknown>[]
-        >('/api/clinical/laceration-repairs');
-        // Handle PaginatedResponse or direct array
-        // The union has to be narrowed now; it used to be `any`, which is how an
-        // enveloped response and a bare array could be conflated in one expression.
-        const repairData = Array.isArray(result)
-          ? result
-          : (result.data ?? result.repairs ?? []);
-        // Mapped, not spread. The API's field names are not this screen's, so
-        // spreading produced a card of `undefined`s.
-        setRepairs(repairData.map(toLacerationRepair));
+        setRepairs(await readLacerationRepairs());
       } catch (err) {
         console.error('Error fetching repairs:', err);
-        setError(err instanceof Error ? err.message : t('docLaceration.errLoad'));
+        setError(t('docLaceration.errLoad'));
         setRepairs([]);
       } finally {
         setLoading(false);
@@ -218,6 +220,20 @@ const LacerationRepairPage: React.FC = () => {
     
     fetchRepairs();
   }, [user, t]);
+
+  /** Retry only the list read; a confirmed repair is never submitted again here. */
+  const refreshRepairList = async () => {
+    setRefreshing(true);
+    try {
+      setRepairs(await readLacerationRepairs());
+      setRefreshWarning(null);
+    } catch (err) {
+      console.error('Saved repair list refresh failed:', err);
+      setRefreshWarning(t('docLaceration.savedRefreshFailed'));
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   /**
    * File the repair.
@@ -248,7 +264,7 @@ const LacerationRepairPage: React.FC = () => {
    * `toLacerationRepair` reads them back out of.
    */
   const handleSaveRepair = async () => {
-    if (!user) return;
+    if (!user || submissionPending.current || photoUploading) return;
     setSaveError(null);
     setSaved(null);
 
@@ -285,26 +301,17 @@ const LacerationRepairPage: React.FC = () => {
     if (newRepair.sutureCount > 0) payload.number_of_sutures = newRepair.sutureCount;
     if (newRepair.anesthesia.trim()) payload.anesthetic_agent = newRepair.anesthesia.trim();
     if (newRepair.notes.trim()) payload.notes = newRepair.notes.trim();
+    if (photoHashes.length > 0) payload.photos = photoHashes;
 
+    submissionPending.current = true;
     try {
       setSaving(true);
       const result = await createLaceration(payload);
       const recordId = (result as { record_id?: string })?.record_id;
       setSaved(recordId || t('docLaceration.savedFallback'));
 
-      // Read it back through the endpoint the list uses, rather than pushing
-      // the local object onto the list. A card assembled from what this screen
-      // just typed proves nothing about what was stored -- which is the whole
-      // reason this page looked finished while saving nothing.
-      const refreshed = await getApiClient().get<
-        { data?: Record<string, unknown>[]; repairs?: Record<string, unknown>[] }
-        | Record<string, unknown>[]
-      >('/api/clinical/laceration-repairs');
-      const rows = Array.isArray(refreshed)
-        ? refreshed
-        : (refreshed.data ?? refreshed.repairs ?? []);
-      setRepairs(rows.map(toLacerationRepair));
-
+      // The write is confirmed. Clear it before reading the list so a failed
+      // refresh cannot leave this saved draft available for another submission.
       setNewRepair({
         patientId: '',
         location: '',
@@ -320,11 +327,14 @@ const LacerationRepairPage: React.FC = () => {
         notes: '',
       });
       setActiveTab('repairs');
+      setPhotoHashes([]);
+      await refreshRepairList();
     } catch (err) {
       // Stop here, and say so. Falling through to a cleared form would
       // announce success for a write that never happened.
       setSaveError(getApiErrorMessage(err, t('docLaceration.errSaveFailed')));
     } finally {
+      submissionPending.current = false;
       setSaving(false);
     }
   };
@@ -382,6 +392,16 @@ const LacerationRepairPage: React.FC = () => {
       </div>
 
       {/* Loading State */}
+      {saved && <div role="status" className="m-4 bg-ok-subtle border border-ok rounded-lg p-3">
+        <p className="text-sm text-ok-subtle-fg">{t('docLaceration.savedAs', { id: saved })}</p>
+      </div>}
+      {refreshWarning && <div role="alert" className="m-4 bg-caution-subtle border border-caution rounded-lg p-3">
+        <p>{refreshWarning}</p>
+        <button type="button" disabled={refreshing || saving} onClick={() => void refreshRepairList()}
+          className="mt-2 rounded border border-border-interactive p-2">
+          {refreshing ? t('docLaceration.loading') : t('docLaceration.retryListRefresh')}
+        </button>
+      </div>}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
@@ -425,6 +445,7 @@ const LacerationRepairPage: React.FC = () => {
               {(['repairs', 'new', 'follow-up'] as const).map(tab => (
                 <button
                   key={tab}
+                  disabled={saving || photoUploading}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
                     activeTab === tab ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted'
@@ -505,12 +526,13 @@ const LacerationRepairPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docLaceration.newRepair')}</h2>
 
-            <div className="space-y-4">
+            <fieldset disabled={saving} className="space-y-4">
               <div>
                 <PatientSelect
                   id="laceration-patient"
                   label={t('docLaceration.patientReq')}
                   value={newRepair.patientId}
+                  disabled={saving || photoUploading || photoHashes.length > 0}
                   onChange={(selectedPatientId) => setNewRepair({ ...newRepair, patientId: selectedPatientId })}
                 />
               </div>
@@ -666,34 +688,25 @@ const LacerationRepairPage: React.FC = () => {
                 />
               </div>
 
-              <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                <Camera className="w-8 h-8 mx-auto text-content-muted mb-2" />
-                <p className="text-sm text-content-muted">{t('docLaceration.uploadPhoto')}</p>
-              </div>
+              <WoundPhotoPicker patientId={newRepair.patientId} hashes={photoHashes}
+                onChange={setPhotoHashes} onBusy={setPhotoUploading} />
 
               {saveError && (
                 <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-3">
                   <p className="text-sm text-critical-subtle-fg">{saveError}</p>
                 </div>
               )}
-              {saved && (
-                <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3">
-                  <p className="text-sm text-ok-subtle-fg">
-                    {t('docLaceration.savedAs', { id: saved })}
-                  </p>
-                </div>
-              )}
 
               <button
                 type="button"
                 onClick={handleSaveRepair}
-                disabled={saving}
+                disabled={saving || photoUploading}
                 className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                 {saving ? t('docLaceration.saving') : t('docLaceration.saveRepair')}
               </button>
-            </div>
+            </fieldset>
           </div>
         </div>
       )}
@@ -747,7 +760,7 @@ const LacerationRepairPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-content-muted">{t('docLaceration.injuryDate')}</p>
-                  <p className="font-medium">{selectedRepair.injuryDate.toLocaleDateString()}</p>
+                  <p className="font-medium">{selectedRepair.injuryDate?.toLocaleDateString() ?? t('docLaceration.notRecorded')}</p>
                 </div>
                 <div>
                   <p className="text-sm text-content-muted">{t('docLaceration.repairDate')}</p>
@@ -771,7 +784,7 @@ const LacerationRepairPage: React.FC = () => {
                   <div><span className="text-content-muted">{t('docLaceration.lblClosure')}</span> {selectedRepair.closureMethod}</div>
                   {selectedRepair.sutureCount && <div><span className="text-content-muted">{t('docLaceration.lblCount')}</span> {selectedRepair.sutureCount}</div>}
                   {selectedRepair.sutureType && <div><span className="text-content-muted">{t('docLaceration.lblSuture')}</span> {selectedRepair.sutureType}</div>}
-                  <div><span className="text-content-muted">{t('docLaceration.lblAnesthesia')}</span> {selectedRepair.anesthesia}</div>
+                  <div><span className="text-content-muted">{t('docLaceration.lblAnesthesia')}</span> {selectedRepair.anesthesia || t('docLaceration.notRecorded')}</div>
                 </div>
                 <div className="flex gap-4 mt-2">
                   <span className={`text-xs ${selectedRepair.tetanusGiven ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
@@ -789,6 +802,7 @@ const LacerationRepairPage: React.FC = () => {
                   <p className="text-sm bg-caution-subtle p-3 rounded">{selectedRepair.notes}</p>
                 </div>
               )}
+              <WoundPhotoViewer key={selectedRepair.id} patientId={selectedRepair.patientId} hashes={selectedRepair.photos} />
             </div>
           </div>
         </div>

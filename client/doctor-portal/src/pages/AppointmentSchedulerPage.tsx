@@ -309,6 +309,7 @@ export default function AppointmentSchedulerPage() {
           <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
             <PatientSelect
               id="patient_id"
+              requireChartAccess={false}
               label={t('docAppointments.patient')}
               value={formData.patient_id}
               onChange={(patientId) => setFormData({ ...formData, patient_id: patientId })}

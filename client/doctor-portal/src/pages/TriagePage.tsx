@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import {
   createTriageAssessment,
-  getApiErrorMessage,
   getPatients,
   getTriageQueue,
   useTranslation,
@@ -43,7 +42,7 @@ interface VitalSigns {
 interface TriageAssessment {
   assessment_id: string;
   patient_id: string;
-  esi_level: { level: number };
+  esi_level: string | number | { level: number };
   chief_complaint: string;
   vital_signs: VitalSigns;
   pain_scale: number | null;
@@ -59,6 +58,17 @@ interface Patient {
   // patient carries no health_id in the list response.
   health_id?: string;
   date_of_birth: string;
+}
+
+/** Read numeric ESI levels from the server enum or older numeric queue responses. */
+export function triageLevel(value: TriageAssessment['esi_level']): number | null {
+  const enumLevels: Record<string, number> = {
+    Level1Resuscitation: 1, Level2Emergent: 2, Level3Urgent: 3,
+    Level4LessUrgent: 4, Level5NonUrgent: 5,
+  };
+  const level = typeof value === 'string' ? enumLevels[value]
+    : typeof value === 'number' ? value : value?.level;
+  return typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= 5 ? level : null;
 }
 
 function TriagePage() {
@@ -270,7 +280,8 @@ function TriagePage() {
         weight_kg: null,
       });
     } catch (err) {
-      setError(getApiErrorMessage(err, t('docTriage.errorCreateFailed')));
+      console.error('Triage submission failed', err);
+      setError(t('docTriage.errorCreateFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -718,15 +729,13 @@ function TriagePage() {
             <div className="divide-y divide-border">
               {triageQueue
                 .sort((a, b) => {
-                  const levelA = typeof a.esi_level === 'object' ? a.esi_level.level : a.esi_level;
-                  const levelB = typeof b.esi_level === 'object' ? b.esi_level.level : b.esi_level;
+                  const levelA = triageLevel(a.esi_level) ?? 6;
+                  const levelB = triageLevel(b.esi_level) ?? 6;
                   return levelA - levelB;
                 })
                 .map((assessment) => {
-                  const level = typeof assessment.esi_level === 'object' 
-                    ? assessment.esi_level.level 
-                    : assessment.esi_level;
-                  const esiConfig = ESI_LEVELS[level - 1];
+                  const level = triageLevel(assessment.esi_level);
+                  const esiConfig = level === null ? undefined : ESI_LEVELS[level - 1];
                   const patient = patients.find(p => p.patient_id === assessment.patient_id);
                   
                   return (
@@ -737,7 +746,7 @@ function TriagePage() {
                     >
                       <div className="flex items-center gap-4">
                         <span className={`w-10 h-10 rounded-full ${esiConfig?.color || 'bg-gray-500'} text-white flex items-center justify-center font-bold`}>
-                          {level}
+                          {level ?? '—'}
                         </span>
                         <div>
                           <p className="font-medium text-content">
@@ -752,7 +761,7 @@ function TriagePage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${esiConfig?.bgLight} ${esiConfig?.textColor}`}>
-                            {t('docTriage.esiBadge', { level, name: esiConfig?.name })}
+                            {level !== null && esiConfig ? t('docTriage.esiBadge', { level, name: esiConfig.name }) : '—'}
                           </span>
                           <p className="text-xs text-content-muted mt-1">{esiConfig?.wait}</p>
                         </div>

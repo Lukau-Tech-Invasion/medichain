@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Heart,
   Search,
@@ -11,12 +11,12 @@ import {
   Clock,
   AlertTriangle,
   CheckCircle,
-  Upload,
   Ruler,
   Loader2,
   AlertCircle
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { WoundPhotoPicker, WoundPhotoViewer } from '../components/WoundPhotos';
 import {
   createWound,
   getPatients,
@@ -39,15 +39,15 @@ import { useAuthStore } from '../store/authStore';
  */
 
 type WoundType = 'pressure-ulcer' | 'surgical' | 'diabetic-ulcer' | 'venous-ulcer' | 'arterial-ulcer' | 'traumatic' | 'burn' | 'skin-tear';
-type WoundStatus = 'new' | 'healing' | 'stable' | 'deteriorating' | 'healed' | 'infected';
+type WoundStatus = 'new' | 'healing' | 'stable' | 'deteriorating' | 'healed' | 'infected' | 'unknown';
 type StageType = 'stage-1' | 'stage-2' | 'stage-3' | 'stage-4' | 'unstageable' | 'dti' | 'n/a';
 
 interface WoundMeasurement {
   date: Date;
-  length: number;
-  width: number;
-  depth: number;
-  area: number;
+  length: number | null;
+  width: number | null;
+  depth: number | null;
+  area: number | null;
 }
 
 interface WoundAssessment {
@@ -59,19 +59,21 @@ interface WoundAssessment {
   woundType: WoundType;
   stage?: StageType;
   status: WoundStatus;
+  needsAttention: boolean;
   discoveredDate: Date;
   lastAssessment: Date;
   measurements: WoundMeasurement[];
-  exudate: 'none' | 'minimal' | 'moderate' | 'copious';
+  exudate: 'none' | 'minimal' | 'moderate' | 'copious' | null;
   tissue: ('granulation' | 'epithelial' | 'slough' | 'eschar' | 'necrotic')[];
-  edges: 'attached' | 'rolled' | 'undermined' | 'macerated';
+  edges: 'attached' | 'rolled' | 'undermined' | 'macerated' | null;
   periwound: string;
-  painLevel: number;
+  painLevel: number | null;
   dressing: string;
   frequency: string;
   notes: string;
   photos: string[];
   assessedBy: string;
+  historyTotal: number;
 }
 
 /** One stored assessment, as the API returns it. */
@@ -90,6 +92,9 @@ interface WoundAssessmentRow {
   notes: string | null;
   assessed_by: string;
   assessed_at: string;
+  assessment_history?: WoundAssessmentRow[];
+  history_total?: number;
+  data?: { photos?: string[] };
 }
 
 /**
@@ -101,16 +106,21 @@ interface WoundAssessmentRow {
  * single wound existed, which is why the list looked fine only while it was
  * empty.
  */
-function toWoundAssessment(row: WoundAssessmentRow): WoundAssessment {
-  const num = (v: string | number | null) => (v === null ? 0 : Number(v));
-  const length = num(row.length_cm);
-  const width = num(row.width_cm);
+export function toWoundAssessment(row: WoundAssessmentRow): WoundAssessment {
+  const num = (v: string | number | null) => (v === null ? null : Number(v));
   const assessedAt = new Date(row.assessed_at);
-  const exudate = (row.drainage_amount || 'none') as WoundAssessment['exudate'];
-  const pain = row.pain_level ?? 0;
+  const exudate = (row.drainage_amount || null) as WoundAssessment['exudate'];
+  const pain = row.pain_level;
   // "Needs attention" uses the rule the database's own v_wound_care_alerts view
   // already encodes, rather than inventing a clinical judgement here.
-  const needsAttention = pain >= 7 || exudate === 'moderate' || exudate === 'copious';
+  const needsAttention = (pain !== null && pain >= 7) || exudate === 'moderate' || exudate === 'copious';
+  const history = row.assessment_history?.length ? row.assessment_history : [row];
+  const measurements = history.map(item => {
+    const length = num(item.length_cm);
+    const width = num(item.width_cm);
+    return { date: new Date(item.assessed_at), length, width, depth: num(item.depth_cm),
+      area: length === null || width === null ? null : Number((length * width).toFixed(2)) };
+  }).sort((a, b) => a.date.getTime() - b.date.getTime());
   return {
     id: row.id,
     patientId: row.patient_id,
@@ -118,32 +128,37 @@ function toWoundAssessment(row: WoundAssessmentRow): WoundAssessment {
     mrn: row.patient_id,
     location: row.wound_location,
     woundType: row.wound_type as WoundType,
-    status: needsAttention ? 'deteriorating' : 'stable',
-    discoveredDate: assessedAt,
+    // An alert criterion is not a recorded healing status or a diagnosis.
+    status: 'unknown',
+    needsAttention,
+    discoveredDate: measurements[0].date,
     lastAssessment: assessedAt,
-    measurements: [
-      {
-        date: assessedAt,
-        length,
-        width,
-        depth: num(row.depth_cm),
-        area: Number((length * width).toFixed(2)),
-      },
-    ],
+    measurements,
     exudate,
     tissue: (row.tissue_type || '')
       .split(',')
       .map(x => x.trim().toLowerCase())
       .filter(Boolean) as WoundAssessment['tissue'],
-    edges: 'attached',
+    edges: null,
     periwound: '',
     painLevel: pain,
     dressing: '',
     frequency: '',
     notes: row.notes || '',
-    photos: [],
+    photos: [...new Set(history.flatMap(item => item.data?.photos ?? []))],
     assessedBy: row.assessed_by,
+    historyTotal: row.history_total ?? history.length,
   };
+}
+
+/** Group the returned assessments by server-owned wound ID, with the newest findings shown. */
+export function groupWoundAssessments(rows: WoundAssessmentRow[]): WoundAssessment[] {
+  const groups = new Map<string, WoundAssessmentRow[]>();
+  rows.forEach(row => groups.set(row.wound_id, [...(groups.get(row.wound_id) ?? []), row]));
+  return [...groups.values()].map(history => {
+    const latest = [...history].sort((a, b) => Date.parse(b.assessed_at) - Date.parse(a.assessed_at))[0];
+    return toWoundAssessment({ ...latest, assessment_history: history });
+  });
 }
 
 const WoundCarePage: React.FC = () => {
@@ -165,14 +180,17 @@ const WoundCarePage: React.FC = () => {
   const [patients, setPatients] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [photoHashes, setPhotoHashes] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
   const [form, setForm] = useState({
+    previousAssessmentId: '',
     patientId: '',
-    woundType: 'pressure-ulcer',
+    woundType: '',
     location: '',
     lengthCm: '',
     widthCm: '',
     depthCm: '',
-    exudate: 'none',
+    exudate: '',
     painLevel: '',
     tissueTypes: [] as string[],
     notes: '',
@@ -191,7 +209,7 @@ const WoundCarePage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(woundAssessmentSchema);
 
   const saveAssessment = async () => {
-    if (!user?.userId) return;
+    if (!user?.userId || photoUploading) return;
     // Was a banner naming two fields at once, which cannot say which control
     // is wrong -- that association is the whole of WCAG 3.3.1. The dimensions
     // stay optional: a blank one means "not measured", and forcing a 0 would
@@ -204,22 +222,26 @@ const WoundCarePage: React.FC = () => {
     try {
       const numeric = (v: string) => (v.trim() === '' ? null : Number(v));
       await createWound({
+        previous_assessment_id: form.previousAssessmentId || null,
+        photos: photoHashes,
         patient_id: form.patientId,
         wound_type: form.woundType,
         location: form.location.trim(),
         length_cm: numeric(form.lengthCm),
         width_cm: numeric(form.widthCm),
         depth_cm: numeric(form.depthCm),
-        exudate: form.exudate,
+        exudate: form.exudate || null,
         pain_level: numeric(form.painLevel),
         tissue_types: form.tissueTypes,
         notes: form.notes.trim() || null,
       });
       setSaveMessage(t('docWoundCare.savedOk'));
+      setPhotoHashes([]);
       setForm({
-        patientId: '', woundType: 'pressure-ulcer', location: '', lengthCm: '',
-        widthCm: '', depthCm: '', exudate: 'none', painLevel: '', tissueTypes: [], notes: '',
+        previousAssessmentId: '', patientId: '', woundType: '', location: '', lengthCm: '',
+        widthCm: '', depthCm: '', exudate: '', painLevel: '', tissueTypes: [], notes: '',
       });
+      await reloadWounds();
     } catch (err) {
       console.error('Failed to save wound assessment:', err);
       setSaveMessage(t('docWoundCare.errSaveFailed'));
@@ -240,8 +262,8 @@ const WoundCarePage: React.FC = () => {
         : [...f.tissueTypes, tissue],
     }));
 
-  useEffect(() => {
-    const fetchWounds = async () => {
+  /** Reload authoritative rows after a mutation; failures display a friendly load error. */
+  const reloadWounds = useCallback(async () => {
       if (!user?.userId) {
         setError(t('docWoundCare.errNotAuth'));
         setLoading(false);
@@ -250,18 +272,17 @@ const WoundCarePage: React.FC = () => {
 
       try {
         const data = await getApiClient().get('/api/emergency/wound/list');
-        setWounds((Array.isArray(data) ? data : []).map(toWoundAssessment));
+        setWounds(groupWoundAssessments(Array.isArray(data) ? data : []));
         setError(null);
       } catch (err) {
         console.error('Error fetching wound assessments:', err);
-        setError(err instanceof Error ? err.message : t('docWoundCare.errLoad'));
+        setError(t('docWoundCare.errLoad'));
       } finally {
         setLoading(false);
       }
-    };
+  }, [user?.userId, t]);
 
-    fetchWounds();
-  }, [user, t]);
+  useEffect(() => { void reloadWounds(); }, [reloadWounds]);
 
   // Fetch wound detail when selected.
   //
@@ -274,14 +295,9 @@ const WoundCarePage: React.FC = () => {
     let cancelled = false;
     getWound(selectedWoundId)
       .then((detail) => {
-        const data = detail as unknown as Record<string, unknown> & { id?: string; measurements?: Array<WoundMeasurement & { date: string }> };
-        if (cancelled || !data?.id) return;
-        setSelectedWound((previous) => previous && ({
-          ...(data as unknown as typeof previous),
-          discoveredDate: new Date(String(data.discoveredDate || data.discovered_date || previous.discoveredDate)),
-          lastAssessment: new Date(String(data.lastAssessment || data.last_assessment || previous.lastAssessment)),
-          measurements: (data.measurements || []).map((m) => ({ ...m, date: new Date(m.date) })),
-        }));
+        const row = detail as unknown as WoundAssessmentRow;
+        if (cancelled || !row?.id) return;
+        setSelectedWound(toWoundAssessment(row));
       })
       .catch((err) => console.error('Failed to fetch wound detail:', err));
     return () => {
@@ -291,6 +307,7 @@ const WoundCarePage: React.FC = () => {
 
   const getStatusBadge = (status: WoundStatus) => {
     const styles: Record<WoundStatus, { bg: string; text: string; icon: React.ReactNode }> = {
+      'unknown': { bg: 'bg-surface-sunken', text: 'text-content-muted', icon: <Minus className="w-3 h-3" /> },
       'new': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <Plus className="w-3 h-3" /> },
       'healing': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <TrendingDown className="w-3 h-3" /> },
       'stable': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Minus className="w-3 h-3" /> },
@@ -300,6 +317,7 @@ const WoundCarePage: React.FC = () => {
     };
     const s = styles[status];
     const statusLabels: Record<WoundStatus, string> = {
+      'unknown': t('docWoundCare.notRecorded'),
       'new': t('docWoundCare.statusNew'),
       'healing': t('docWoundCare.statusHealing'),
       'stable': t('docWoundCare.statusStable'),
@@ -332,6 +350,7 @@ const WoundCarePage: React.FC = () => {
     if (measurements.length < 2) return null;
     const latest = measurements[measurements.length - 1].area;
     const previous = measurements[measurements.length - 2].area;
+    if (latest === null || previous === null || previous <= 0) return null;
     const change = ((latest - previous) / previous) * 100;
     if (change < -5) return { icon: <TrendingDown className="w-4 h-4 text-ok" />, text: t('docWoundCare.trendImproving'), color: 'text-ok-subtle-fg' };
     if (change > 5) return { icon: <TrendingUp className="w-4 h-4 text-critical" />, text: t('docWoundCare.trendWorsening'), color: 'text-critical-subtle-fg' };
@@ -388,7 +407,7 @@ const WoundCarePage: React.FC = () => {
               <p className="text-xs text-content-muted">{t('docWoundCare.healing')}</p>
             </div>
             <div className="bg-surface rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-critical-subtle-fg">{wounds.filter(w => w.status === 'deteriorating' || w.status === 'infected').length}</p>
+              <p className="text-2xl font-bold text-critical-subtle-fg">{wounds.filter(w => w.needsAttention).length}</p>
               <p className="text-xs text-content-muted">{t('docWoundCare.needsAttention')}</p>
             </div>
           </div>
@@ -399,6 +418,7 @@ const WoundCarePage: React.FC = () => {
               {(['wounds', 'assess', 'tracking'] as const).map(tab => (
                 <button
                   key={tab}
+                  disabled={photoUploading}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
                     activeTab === tab ? 'text-critical-subtle-fg border-b-2 border-rose-700' : 'text-content-muted'
@@ -433,7 +453,7 @@ const WoundCarePage: React.FC = () => {
                   key={wound.id}
                   {...clickable(() => setSelectedWound(wound))}
                   className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
-                    wound.status === 'deteriorating' || wound.status === 'infected' ? 'border-l-4 border-l-red-500' : ''
+                    wound.needsAttention ? 'border-l-4 border-l-red-500' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between mb-2">
@@ -452,7 +472,7 @@ const WoundCarePage: React.FC = () => {
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <div className="bg-surface-sunken rounded p-2 text-center">
                       <Ruler className="w-4 h-4 mx-auto text-content-muted mb-1" />
-                      <p className="text-sm font-semibold">{latestMeasurement.area.toFixed(1)} cm²</p>
+                      <p className="text-sm font-semibold">{latestMeasurement.area?.toFixed(1) ?? '—'} cm²</p>
                       <p className="text-xs text-content-muted">{t('docWoundCare.area')}</p>
                     </div>
                     <div className="bg-surface-sunken rounded p-2 text-center">
@@ -491,13 +511,23 @@ const WoundCarePage: React.FC = () => {
         <div className="p-4">
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docWoundCare.newAssessment')}</h2>
+            {form.previousAssessmentId && <div className="mb-4">
+              <p>{t('docWoundCare.followUpNotice')}</p>
+              <button type="button" disabled={photoUploading} onClick={() => {
+                setForm(f => ({ ...f, previousAssessmentId: '', woundType: '', location: '', lengthCm: '',
+                  widthCm: '', depthCm: '', exudate: '', painLevel: '', tissueTypes: [], notes: '' }));
+                setPhotoHashes([]);
+              }}>{t('docWoundCare.startDifferentWound')}</button>
+            </div>}
 
             <div className="space-y-4">
               <PatientSelect
                 id="wound-patient"
+                disabled={!!form.previousAssessmentId || photoUploading || photoHashes.length > 0}
                 label={t('docWoundCare.patientReq')}
                 value={form.patientId}
                 onChange={(selectedPatientId) => {
+                    if (form.previousAssessmentId) return;
                   clearField('patientId');
                   setForm(f => ({ ...f, patientId: selectedPatientId }));
                 }}
@@ -509,8 +539,9 @@ const WoundCarePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="wound-type" className="block text-sm font-medium mb-1">{t('docWoundCare.woundTypeReq')}</label>
-                  <select id="wound-type" className="w-full border rounded-lg px-3 py-2"
+                  <select id="wound-type" disabled={!!form.previousAssessmentId} className="w-full border rounded-lg px-3 py-2" aria-invalid={!!errors.woundType} aria-describedby={errors.woundType ? 'wound-type-error' : undefined}
                     value={form.woundType} onChange={(e) => setForm(f => ({ ...f, woundType: e.target.value }))}>
+                    <option value="">{t('docWoundCare.selectWoundType')}</option>
                     <option value="pressure-ulcer">{t('docWoundCare.wtPressure')}</option>
                     <option value="surgical">{t('docWoundCare.wtSurgical')}</option>
                     <option value="diabetic-ulcer">{t('docWoundCare.wtDiabetic')}</option>
@@ -520,9 +551,11 @@ const WoundCarePage: React.FC = () => {
                     <option value="burn">{t('docWoundCare.wtBurn')}</option>
                     <option value="skin-tear">{t('docWoundCare.wtSkinTear')}</option>
                   </select>
+                  {errors.woundType && <p id="wound-type-error" role="alert">{errors.woundType}</p>}
                 </div>
                 <Input
                   id="wound-location"
+                  disabled={!!form.previousAssessmentId}
                   type="text"
                   label={t('docWoundCare.locationReq')}
                   placeholder={t('docWoundCare.locationPh')}
@@ -575,6 +608,7 @@ const WoundCarePage: React.FC = () => {
                   <label htmlFor="wound-exudate" className="block text-sm font-medium mb-1">{t('docWoundCare.exudate')}</label>
                   <select id="wound-exudate" className="w-full border rounded-lg px-3 py-2"
                     value={form.exudate} onChange={(e) => setForm(f => ({ ...f, exudate: e.target.value }))}>
+                    <option value="">{t('docWoundCare.notRecorded')}</option>
                     <option value="none">{t('docWoundCare.exNone')}</option>
                     <option value="minimal">{t('docWoundCare.exMinimal')}</option>
                     <option value="moderate">{t('docWoundCare.exModerate')}</option>
@@ -601,14 +635,7 @@ const WoundCarePage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-2">{t('docWoundCare.photoUpload')}</label>
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 mx-auto text-content-muted mb-2" />
-                  <p className="text-sm text-content-muted">{t('docWoundCare.tapToUpload')}</p>
-                  <p className="text-xs text-content-muted mt-1">{t('docWoundCare.includeRuler')}</p>
-                </div>
-              </div>
+              <WoundPhotoPicker patientId={form.patientId} hashes={photoHashes} onChange={setPhotoHashes} onBusy={setPhotoUploading} />
 
               <div>
                 <label htmlFor="wound-notes" className="block text-sm font-medium mb-1">{t('docWoundCare.notes')}</label>
@@ -621,7 +648,7 @@ const WoundCarePage: React.FC = () => {
               )}
               <button
                 onClick={saveAssessment}
-                disabled={saving}
+                disabled={saving || photoUploading}
                 className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="w-5 h-5" /> {t('docWoundCare.saveAssessment')}
@@ -641,7 +668,8 @@ const WoundCarePage: React.FC = () => {
                 const trend = getHealingTrend(wound.measurements);
                 const firstArea = wound.measurements[0].area;
                 const latestArea = wound.measurements[wound.measurements.length - 1].area;
-                const healingPercent = ((firstArea - latestArea) / firstArea) * 100;
+                const healingPercent = wound.historyTotal > wound.measurements.length || wound.measurements.length < 2 || firstArea === null || latestArea === null || firstArea <= 0
+                  ? null : ((firstArea - latestArea) / firstArea) * 100;
                 
                 return (
                   <div key={wound.id} className="border rounded-lg p-4">
@@ -661,12 +689,12 @@ const WoundCarePage: React.FC = () => {
                     <div className="mb-3">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="text-content-muted">{t('docWoundCare.healingProgress')}</span>
-                        <span className="font-medium">{Math.max(0, healingPercent).toFixed(0)}%</span>
+                        <span className="font-medium">{healingPercent === null ? t('docWoundCare.notRecorded') : `${Math.max(0, healingPercent).toFixed(0)}%`}</span>
                       </div>
                       <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-green-500 rounded-full transition-all"
-                          style={{ width: `${Math.max(0, Math.min(100, healingPercent))}%` }}
+                          style={{ width: `${healingPercent === null ? 0 : Math.max(0, Math.min(100, healingPercent))}%` }}
                         ></div>
                       </div>
                     </div>
@@ -674,15 +702,15 @@ const WoundCarePage: React.FC = () => {
                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
                       <div>
                         <p className="text-content-muted">{t('docWoundCare.initial')}</p>
-                        <p className="font-semibold">{firstArea.toFixed(1)} cm²</p>
+                        <p className="font-semibold">{firstArea?.toFixed(1) ?? '—'} cm²</p>
                       </div>
                       <div>
                         <p className="text-content-muted">{t('docWoundCare.current')}</p>
-                        <p className="font-semibold">{latestArea.toFixed(1)} cm²</p>
+                        <p className="font-semibold">{latestArea?.toFixed(1) ?? '—'} cm²</p>
                       </div>
                       <div>
                         <p className="text-content-muted">{t('docWoundCare.days')}</p>
-                        <p className="font-semibold">{Math.round((new Date().getTime() - wound.discoveredDate.getTime()) / (1000 * 60 * 60 * 24))}</p>
+                        <p className="font-semibold">{Math.max(0, Math.floor((Date.now() - wound.discoveredDate.getTime()) / 86400000))}</p>
                       </div>
                     </div>
                   </div>
@@ -723,7 +751,7 @@ const WoundCarePage: React.FC = () => {
                   {selectedWound.measurements.slice().reverse().map((m, idx) => (
                     <div key={idx} className="flex justify-between text-sm">
                       <span className="text-content-muted">{m.date.toLocaleDateString()}</span>
-                      <span>{m.length} × {m.width} × {m.depth} cm ({m.area.toFixed(1)} cm²)</span>
+                      <span>{m.length ?? '—'} × {m.width ?? '—'} × {m.depth ?? '—'} cm ({m.area?.toFixed(1) ?? '—'} cm²)</span>
                     </div>
                   ))}
                 </div>
@@ -732,11 +760,11 @@ const WoundCarePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-surface-sunken rounded-lg p-3">
                   <p className="text-sm text-content-muted">{t('docWoundCare.exudate')}</p>
-                  <p className="font-medium capitalize">{selectedWound.exudate}</p>
+                  <p className="font-medium capitalize">{selectedWound.exudate ?? t('docWoundCare.notRecorded')}</p>
                 </div>
                 <div className="bg-surface-sunken rounded-lg p-3">
                   <p className="text-sm text-content-muted">{t('docWoundCare.painLevel')}</p>
-                  <p className="font-medium">{t('docWoundCare.painValue', { value: selectedWound.painLevel })}</p>
+                  <p className="font-medium">{selectedWound.painLevel === null ? '—' : t('docWoundCare.painValue', { value: selectedWound.painLevel })}</p>
                 </div>
               </div>
 
@@ -761,13 +789,18 @@ const WoundCarePage: React.FC = () => {
                   <p className="text-sm">{selectedWound.notes}</p>
                 </div>
               )}
+              {selectedWound.historyTotal > selectedWound.measurements.length && <p role="status">{t('docWoundCare.partialHistory', { loaded: selectedWound.measurements.length, total: selectedWound.historyTotal })}</p>}
+              <WoundPhotoViewer key={selectedWound.id} patientId={selectedWound.patientId} hashes={selectedWound.photos} />
 
               {/* Opens the assessment form with this wound's patient already
                   chosen. It had no handler at all: the detail panel's only
                   action answered a click with silence. */}
               <button
                 onClick={() => {
-                  setForm(f => ({ ...f, patientId: selectedWound.patientId }));
+                  setForm({ previousAssessmentId: selectedWound.id, patientId: selectedWound.patientId,
+                    woundType: selectedWound.woundType, location: selectedWound.location, lengthCm: '',
+                    widthCm: '', depthCm: '', exudate: '', painLevel: '', tissueTypes: [], notes: '' });
+                  setPhotoHashes([]);
                   setSelectedWound(null);
                   setActiveTab('assess');
                 }}

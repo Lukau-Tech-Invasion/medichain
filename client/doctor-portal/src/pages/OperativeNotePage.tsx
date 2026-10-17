@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
@@ -15,6 +15,7 @@ import {
   formatDateOnly,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
+import { StoredValue } from '../components/StoredSoapDetails';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'none';
@@ -71,6 +72,31 @@ interface OperativeNote {
  */
 type RecordList = { records?: Record<string, unknown>[]; notes?: Record<string, unknown>[] } | Record<string, unknown>[];
 
+/** Map stored documentation for one patient without guessing absent measurements. */
+function storedOperativeNote(r: Record<string, unknown>, patientId: string): OperativeNote {
+  const text = (...keys: string[]): string => {
+    for (const key of keys) if (typeof r[key] === 'string' && r[key]) return r[key] as string;
+    return '';
+  };
+  return {
+    id: text('id', 'note_id'), patientId: text('patientId', 'patient_id') || patientId,
+    patientName: text('patientName', 'patient_name') || patientId,
+    surgeon: text('surgeon'), assistant: text('assistant'), anesthesiologist: text('anesthesiologist'),
+    scrubNurse: text('scrubNurse', 'scrub_nurse'), circulator: text('circulator'),
+    procedureDate: text('procedureDate', 'procedure_date'),
+    preOpDiagnosis: text('preOpDiagnosis', 'pre_op_diagnosis'), postOpDiagnosis: text('postOpDiagnosis', 'post_op_diagnosis'),
+    procedureName: text('procedureName', 'procedure_name'), cptCodes: text('cptCodes', 'cpt_codes'),
+    anesthesiaType: (r.anesthesiaType || r.anesthesia_type || undefined) as AnesthesiaType | undefined,
+    incision: text('incision'), findings: text('findings'), procedure: text('procedure'),
+    closure: text('closure'), drains: text('drains'),
+    ebl: storedNumber(r.ebl), urineOutput: storedNumber(r.urineOutput ?? r.urine_output),
+    fluidIn: storedNumber(r.fluidIn ?? r.fluid_in), specimens: Array.isArray(r.specimens) ? r.specimens as Specimen[] : [],
+    woundClass: (r.woundClass || r.wound_class || undefined) as WoundClass | undefined,
+    implants: text('implants'), complications: text('complications'), disposition: text('disposition'),
+    createdAt: text('createdAt', 'created_at'),
+  };
+}
+
 const commonProcedures = [
   'Appendectomy', 'Cholecystectomy', 'Hernia repair', 'Exploratory laparotomy',
   'Open reduction internal fixation', 'Arthroscopy', 'Laminectomy', 'Mastectomy',
@@ -96,8 +122,13 @@ const OperativeNotePage: React.FC = () => {
   const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [notes, setNotes] = useState<OperativeNote[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
+  const submissionPending = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState('');
+  const patientNotes = notes.filter(note => note.patientId === selectedPatient);
 
   // Form state
   const [surgeon, setSurgeon] = useState(user?.userId || '');
@@ -147,52 +178,27 @@ const OperativeNotePage: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
+      let cancelled = false;
       const fetchHistory = async () => {
+        setHistoryLoading(true);
+        setHistoryError('');
+        setNotes([]);
         try {
           const data = await getApiClient().get<RecordList>(`/api/surgical/operative-note/patient/${selectedPatient}`);
           const records = Array.isArray(data) ? data : (data.records || data.notes || []);
-          // Merge with local notes
-          const mappedRecords: OperativeNote[] = records.map((r: Record<string, unknown>) => ({
-            id: r.id as string || String(r.note_id),
-            patientId: r.patientId as string || r.patient_id as string || selectedPatient,
-            patientName: r.patientName as string || r.patient_name as string || '',
-            surgeon: r.surgeon as string || '',
-            assistant: r.assistant as string || '',
-            anesthesiologist: r.anesthesiologist as string || '',
-            scrubNurse: r.scrubNurse as string || r.scrub_nurse as string || '',
-            circulator: r.circulator as string || '',
-            procedureDate: r.procedureDate as string || r.procedure_date as string || '',
-            preOpDiagnosis: r.preOpDiagnosis as string || r.pre_op_diagnosis as string || '',
-            postOpDiagnosis: r.postOpDiagnosis as string || r.post_op_diagnosis as string || '',
-            procedureName: r.procedureName as string || r.procedure_name as string || '',
-            cptCodes: r.cptCodes as string || r.cpt_codes as string || '',
-            anesthesiaType: (r.anesthesiaType || r.anesthesia_type || undefined) as AnesthesiaType | undefined,
-            incision: r.incision as string || '',
-            findings: r.findings as string || '',
-            procedure: r.procedure as string || '',
-            closure: r.closure as string || '',
-            drains: r.drains as string || '',
-            ebl: storedNumber(r.ebl),
-            urineOutput: storedNumber(r.urineOutput ?? r.urine_output),
-            fluidIn: storedNumber(r.fluidIn ?? r.fluid_in),
-            specimens: (r.specimens as Specimen[]) || [],
-            woundClass: (r.woundClass || r.wound_class || undefined) as WoundClass | undefined,
-            implants: r.implants as string || '',
-            complications: r.complications as string || '',
-            disposition: r.disposition as string || '',
-            createdAt: r.createdAt as string || r.created_at as string || '',
-          }));
-          setNotes(prev => {
-            const existingIds = new Set(prev.map(n => n.id));
-            return [...prev, ...mappedRecords.filter(r => !existingIds.has(r.id))];
-          });
+          const mappedRecords = records.map(record => storedOperativeNote(record, selectedPatient));
+          if (!cancelled) setNotes(mappedRecords.filter(record => record.patientId === selectedPatient));
         } catch (e) {
           console.error('Failed to fetch operative note history:', e);
+          if (!cancelled) setHistoryError(t('docOperativeNote.historyReadFailed'));
+        } finally {
+          if (!cancelled) setHistoryLoading(false);
         }
       };
       fetchHistory();
+      return () => { cancelled = true; };
     }
-  }, [activeTab, selectedPatient, user]);
+  }, [activeTab, selectedPatient, user, t]);
 
   const addSpecimen = () => {
     if (!newSpecimen.description) return;
@@ -209,7 +215,21 @@ const OperativeNotePage: React.FC = () => {
   /** The fields a note cannot be filed without, from this page's own state. */
   const opNote = () => ({ selectedPatient, procedureName, preOpDiagnosis, postOpDiagnosis });
 
+  /** Clear completed documentation while retaining the selected patient's history context. */
+  const resetCompletedDraft = () => {
+    setSurgeon(user?.userId || '');
+    setAssistant(''); setAnesthesiologist(''); setScrubNurse(''); setCirculator('');
+    setProcedureDate(new Date().toISOString().split('T')[0]);
+    setPreOpDiagnosis(''); setPostOpDiagnosis(''); setProcedureName(''); setCptCodes('');
+    setAnesthesiaType(''); setIncision(''); setFindings(''); setProcedureText('');
+    setClosure(''); setDrains(''); setEbl(''); setUrineOutput(''); setFluidIn('');
+    setSpecimens([]); setWoundClass(''); setImplants(''); setComplications(''); setDisposition('');
+    setNewSpecimen({ description: '', disposition: 'pathology' });
+  };
+
+  /** Submit one draft at a time; failed writes keep the entered documentation. */
   const handleSubmit = async () => {
+    if (submissionPending.current) return;
     // Was a toast naming two fields. Both diagnoses are required now as well:
     // the difference between them is what the operation found, and a note
     // carrying only one cannot answer the question a morbidity review asks
@@ -230,19 +250,22 @@ const OperativeNotePage: React.FC = () => {
       specimens, woundClass: woundClass || undefined,
       implants, complications, disposition, createdAt: new Date().toISOString()
     };
-    let created: { id?: string };
+    submissionPending.current = true;
+    setIsSubmitting(true);
     try {
-      created = await createOperativeNote(note);
+      await createOperativeNote(note);
+      resetCompletedDraft();
+      setActiveTab('history');
+      showSuccess(t('docOperativeNote.successSaved'));
     } catch (err) {
       console.error('Failed to save operative note:', err);
       // Stop here. Falling through added the record to the local list
       // and toasted success for a write that never happened.
       showError(t('common.saveFailed'));
-      return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // The server's id, so the history's de-duplication by id still holds.
-    setNotes([{ ...note, id: created.id ?? '' }, ...notes]);
-    showSuccess(t('docOperativeNote.successSaved'));
   };
 
   return (
@@ -264,6 +287,7 @@ const OperativeNotePage: React.FC = () => {
           {['new', 'history'].map(tab => (
             <button
               key={tab}
+              disabled={isSubmitting}
               onClick={() => setActiveTab(tab as 'new' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
                 ? 'text-ok-subtle-fg border-b-2 border-emerald-600'
@@ -277,7 +301,7 @@ const OperativeNotePage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
-          <div className="space-y-6">
+          <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient & Team */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -626,17 +650,25 @@ const OperativeNotePage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
+              disabled={isSubmitting}
               className="w-full py-3 bg-ok text-ok-fg rounded-lg font-semibold hover:bg-ok"
             >
-              {t('docOperativeNote.saveButton')}
+              {isSubmitting ? t('common.saving') : t('docOperativeNote.saveButton')}
             </button>
-          </div>
+          </fieldset>
         ) : (
           <div className="space-y-4">
-            {notes.length === 0 ? (
+            {selectedPatient && <p className="text-sm text-content-muted">{t('docOperativeNote.selectedHistory', { patientId: selectedPatient })}</p>}
+            {!selectedPatient ? (
+              <p className="text-center py-8 text-content-muted">{t('docOperativeNote.selectPatientForHistory')}</p>
+            ) : historyLoading ? (
+              <p role="status">{t('docOperativeNote.loadingHistory')}</p>
+            ) : historyError ? (
+              <p role="alert" className="text-critical-subtle-fg">{historyError}</p>
+            ) : patientNotes.length === 0 ? (
               <div className="text-center py-8 text-content-muted">{t('docOperativeNote.noNotesYet')}</div>
             ) : (
-              notes.map(n => (
+              patientNotes.map(n => (
                 <div key={n.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
@@ -654,6 +686,10 @@ const OperativeNotePage: React.FC = () => {
                     <p><strong>{t('docOperativeNote.surgeonColLabel')}</strong> {n.surgeon}</p>
                     <p><strong>{t('docOperativeNote.eblColLabel')}</strong> {n.ebl === undefined ? t('docOperativeNote.notRecorded') : `${n.ebl} mL`} | <strong>{t('docOperativeNote.specimensColLabel')}</strong> {n.specimens.length}</p>
                     {n.complications && <p className="text-critical-subtle-fg">{t('docOperativeNote.complicationsLine', { text: n.complications })}</p>}
+                    <details className="mt-3 rounded border border-border-interactive p-3">
+                      <summary className="cursor-pointer font-medium">{t('docOperativeNote.savedDetails')}</summary>
+                      <div className="mt-3"><StoredValue value={n} /></div>
+                    </details>
                   </div>
                 </div>
               ))

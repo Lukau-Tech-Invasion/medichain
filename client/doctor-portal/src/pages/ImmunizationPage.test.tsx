@@ -18,6 +18,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  listImmunizations: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -33,6 +34,16 @@ describe('ImmunizationPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.listImmunizations).mockResolvedValue({ success: true, records: { items: [], count: 0, limit: 100, offset: 0 } } as unknown as Awaited<ReturnType<typeof shared.listImmunizations>>);
+  });
+
+  it('displays a date-only administration without inventing midnight or using record creation time', async () => {
+    vi.mocked(shared.listImmunizations).mockResolvedValue({ success: true, records: { items: [
+      { id: 'IMM-QA', patient_id: 'PAT-001', vaccine_name: 'QA vaccine', administration_date: '2026-10-10', created_at: '2026-10-10T05:00:00Z' },
+    ] } } as unknown as Awaited<ReturnType<typeof shared.listImmunizations>>);
+    render(<ImmunizationPage />);
+    expect(await screen.findByText(/time not recorded/)).toBeInTheDocument();
+    expect(screen.queryByText(/2:00 AM/)).not.toBeInTheDocument();
   });
 
   it('renders immunization page', async () => {
@@ -40,6 +51,19 @@ describe('ImmunizationPage', () => {
 
     expect(screen.getByText(/Immunization Management/i)).toBeInTheDocument();
     expect(screen.getByText(/Vaccine administration, tracking, and registry integration/i)).toBeInTheDocument();
+  });
+
+  it('reads the stored dose and extended expiry and series fields', async () => {
+    vi.mocked(shared.listImmunizations).mockResolvedValue({ success: true, records: { items: [
+      { id: 'IMM-METADATA', patient_id: 'PAT-001', vaccine_name: 'QA metadata vaccine',
+        administration_date: '2026-10-10', dose_amount: '0.5 mL', dose_number: 2,
+        data: { expiration_date: '2027-03-15', total_doses: 3 } },
+    ] } } as unknown as Awaited<ReturnType<typeof shared.listImmunizations>>);
+    render(<ImmunizationPage />);
+    expect(await screen.findByText('QA metadata vaccine')).toBeInTheDocument();
+    expect(screen.getByText(/0.5 mL/)).toBeInTheDocument();
+    expect(screen.getByText('2027-03-15')).toBeInTheDocument();
+    expect(screen.getByText(/2 of 3/)).toBeInTheDocument();
   });
 
   it('displays assessment sections', async () => {

@@ -50,6 +50,7 @@ describe('UserManagementPage', () => {
               status: 'active',
               department: 'Cardiology',
               license_number: 'MP-123456',
+              specialty: 'Cardiology Specialist',
               permissions: [],
             },
           ],
@@ -69,6 +70,7 @@ describe('UserManagementPage', () => {
       expect(screen.getByText(/User Management/i)).toBeInTheDocument();
       expect(screen.getByText(/John Smith/i)).toBeInTheDocument();
       expect(screen.getByText(/dr_smith/i)).toBeInTheDocument();
+      expect(screen.getByText('Cardiology Specialist')).toBeInTheDocument();
     });
   });
 
@@ -86,6 +88,17 @@ describe('UserManagementPage', () => {
   });
 
   // --- credential and MFA reset (the administrator's recovery tools) ---------
+
+  it('does not claim unsupported individual permission changes were saved', async () => {
+    render(<MemoryRouter><UserManagementPage /></MemoryRouter>);
+    await screen.findByText('John Smith');
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Permissions' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Individual permission changes are unavailable');
+    expect(screen.getAllByRole('button', { name: 'Disabled' })[0]).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Permissions' }));
+    expect(screen.queryByText('Permissions updated successfully')).not.toBeInTheDocument();
+    expect(screen.getByText('Permissions (0)')).toBeInTheDocument();
+  });
 
   function jsonResponse(body: unknown, status = 200) {
     return Promise.resolve({

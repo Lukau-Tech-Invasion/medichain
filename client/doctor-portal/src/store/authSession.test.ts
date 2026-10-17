@@ -143,7 +143,7 @@ describe('purgeLegacyIdentityStorage', () => {
   });
 
   it('removes retired keys, chain_ keys, and a session that names an address', () => {
-    localStorage.setItem('medichain_wallet', '{"address":"x"}');
+    localStorage.setItem('medichain_wallet', '{"address":"x"}'); // retired-term-negative-assertion
     localStorage.setItem('chain_anything', '1');
     localStorage.setItem('medichain_provider_auth', JSON.stringify({ address: 'x', role: 'Doctor', name: 'n' }));
     localStorage.setItem('medichain_patient_auth', JSON.stringify({ userId: 'u', healthId: 'h', name: 'n' }));
@@ -151,7 +151,7 @@ describe('purgeLegacyIdentityStorage', () => {
 
     purgeLegacyIdentityStorage();
 
-    expect(localStorage.getItem('medichain_wallet')).toBeNull();
+    expect(localStorage.getItem('medichain_wallet')).toBeNull(); // retired-term-negative-assertion
     expect(localStorage.getItem('chain_anything')).toBeNull();
     expect(localStorage.getItem('medichain_provider_auth')).toBeNull();
     // A current-shape session and unrelated keys are left alone.

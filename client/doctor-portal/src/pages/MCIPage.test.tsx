@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
-import MCIPage from './MCIPage';
+import { describe, it, expect, vi } from 'vitest';
+import MCIPage, { localIncidentTime, incidentTimeInstant } from './MCIPage';
+import { localDateInput } from '@medichain/shared';
 
 /**
  * Rewritten 2026-07-31. The previous version tested a design this page does not
@@ -11,6 +12,27 @@ import MCIPage from './MCIPage';
  * the component actually renders.
  */
 describe('MCIPage', () => {
+  it('displays Johannesburg wall time instead of UTC in the incident input', () => {
+    const instant = new Date('2026-10-08T19:53:00Z');
+    const offset = vi.spyOn(instant, 'getTimezoneOffset').mockReturnValue(-120);
+    expect(localIncidentTime(instant)).toBe('2026-10-08T21:53');
+    offset.mockRestore();
+  });
+
+  it('sends the selected local time as an RFC 3339 instant', () => {
+    const selected = '2026-10-08T21:00';
+    expect(incidentTimeInstant(selected)).toBe(new Date(selected).toISOString());
+    expect(incidentTimeInstant(selected)).toMatch(/Z$/);
+    expect(() => incidentTimeInstant('')).toThrow();
+  });
+
+  it('keeps the Johannesburg calendar date after local midnight', () => {
+    const instant = new Date('2026-10-08T22:05:00Z');
+    const offset = vi.spyOn(instant, 'getTimezoneOffset').mockReturnValue(-120);
+    expect(localDateInput(instant)).toBe('2026-10-09');
+    offset.mockRestore();
+  });
+
   it('renders the MCI board with the START protocol header', () => {
     render(<MCIPage />);
 
@@ -45,5 +67,19 @@ describe('MCIPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Add Patient/i })[0]);
 
     expect(screen.getByText(/New Patient - Tag/i)).toBeInTheDocument();
+  });
+
+  it('requires a receiving destination before marking a casualty transported', () => {
+    render(<MCIPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add Patient' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add & Tag Patient' }));
+    const transport = screen.getByRole('button', { name: 'Mark as transported' });
+    expect(transport).toBeDisabled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Destination hospital for MCI-0001' }), {
+      target: { value: 'Synthetic receiving hospital' },
+    });
+    expect(transport).toBeEnabled();
+    fireEvent.click(transport);
+    expect(screen.getByText('Transported')).toBeInTheDocument();
   });
 });

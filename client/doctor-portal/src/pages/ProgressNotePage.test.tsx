@@ -36,7 +36,7 @@ describe('ProgressNotePage', () => {
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
     vi.mocked(shared.listProgressNotes).mockResolvedValue([]);
-    vi.mocked(shared.openAccessContext).mockResolvedValue({ access_context_id: 'CTX-TEST' } as Awaited<ReturnType<typeof shared.openAccessContext>>);
+    vi.mocked(shared.openAccessContext).mockResolvedValue({ expires_at: new Date(Date.now() + 3600000).toISOString(), access_context_id: 'CTX-TEST' } as Awaited<ReturnType<typeof shared.openAccessContext>>);
   });
 
   it('renders progress note page', async () => {
@@ -50,6 +50,18 @@ describe('ProgressNotePage', () => {
 
     expect(screen.getAllByText(/Progress Notes/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Clinical documentation and patient timeline/i)).toBeInTheDocument();
+  });
+
+  it('does not label an author a physician when the record did not store a role', async () => {
+    vi.mocked(shared.listProgressNotes).mockResolvedValue([
+      { id: 'NOTE-nurse', patient_id: 'PAT-1', created_by: 'NURSE-1',
+        created_at: '2026-10-10T05:00:00Z', updated_at: '2026-10-10T05:00:00Z',
+        status: 'draft', assessment: 'QA nurse draft' },
+    ] as unknown as Awaited<ReturnType<typeof shared.listProgressNotes>>);
+    render(<ProgressNotePage />);
+    fireEvent.click(await screen.findByRole('button', { name: /QA nurse draft/ }));
+    expect(screen.getByText(/Role not recorded/)).toBeInTheDocument();
+    expect(screen.queryByText(/Physician/)).not.toBeInTheDocument();
   });
 
   it('displays note sections', async () => {

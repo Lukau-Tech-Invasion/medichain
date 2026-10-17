@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { StoredValue } from '../components/StoredSoapDetails';
 import { useAuthStore } from '../store/authStore';
 import {
   getPatients,
@@ -22,12 +23,12 @@ type ASAClass = '1' | '2' | '3' | '4' | '5' | '6' | '1E' | '2E' | '3E' | '4E' | 
 
 interface VitalReading {
   time: string;
-  bp: string;
-  hr: number;
-  spo2: number;
-  etco2: number;
-  rr: number;
-  fio2: number;
+  bp?: string;
+  hr?: number;
+  spo2?: number;
+  etco2?: number;
+  rr?: number;
+  fio2?: number;
 }
 
 interface AnesthesiaRecord {
@@ -37,9 +38,9 @@ interface AnesthesiaRecord {
   documentedBy: string;
   documentedAt: string;
   procedure: string;
-  asaClass: ASAClass;
-  anesthesiaType: AnesthesiaType;
-  airwayType: string;
+  asaClass?: ASAClass;
+  anesthesiaType?: AnesthesiaType;
+  airwayType?: string;
   intubationTime: string;
   extubationTime: string;
   inductionAgents: string;
@@ -51,11 +52,12 @@ interface AnesthesiaRecord {
   antiemetics: string;
   fluidsGiven: string;
   bloodProducts: string;
-  ebl: number;
-  urineOutput: number;
+  ebl?: number;
+  urineOutput?: number;
   vitals: VitalReading[];
   complications: string[];
   notes: string;
+  storedFields?: Record<string, unknown>;
 }
 
 const asaDescriptions: Record<ASAClass, string> = {
@@ -74,12 +76,23 @@ const complicationsList = [
   'Hypoxia', 'Awareness', 'Allergic reaction', 'PONV', 'Hypothermia', 'None'
 ];
 
+/** Preserve empty numeric inputs as unmeasured; explicit zero remains a recorded value. */
+const observationNumber = (value: string): number | undefined => value === '' ? undefined : Number(value);
+
+/** Check numeric observation format without deriving a clinical score or diagnosis. */
+const validObservation = (value: number | undefined, maximum = Infinity): boolean =>
+  value === undefined || (Number.isFinite(value) && value >= 0 && value <= maximum);
+
 const AnesthesiaPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<AnesthesiaRecord[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionPending = useRef(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFailed, setHistoryFailed] = useState(false);
 
   /**
    * Read the anaesthetist's records back from the API.
@@ -95,16 +108,30 @@ const AnesthesiaPage: React.FC = () => {
    * `list` as a record id and answering 404.
    */
   const loadAnesthesiaRecords = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryFailed(false);
     try {
       const body = await getApiClient().get<unknown>('/api/surgical/anesthesia/list');
       setRecords(
         rowsOfResponse(body).map((row) =>
-          fromStoredRecord<AnesthesiaRecord>(row, { documentedBy: 'anesthesiologist_id' })
+          ({
+            ...fromStoredRecord<AnesthesiaRecord>(row, {
+              documentedBy: 'anesthesiologist_id',
+              patientId: 'patient_id', asaClass: 'asa_classification',
+              anesthesiaType: 'anesthesia_type', airwayType: 'airway_management',
+              vitals: 'vital_signs_timeline',
+            }),
+            storedFields: row,
+          })
         )
       );
     } catch (err) {
       // A failed read must not look like an empty theatre list.
       console.error('Failed to load anesthesia records:', err);
+      setHistoryFailed(true);
+      setRecords([]);
+    } finally {
+      setHistoryLoading(false);
     }
   }, []);
 
@@ -115,9 +142,9 @@ const AnesthesiaPage: React.FC = () => {
   const [selectedPatient, setSelectedPatient] = useState('');
 
   const [procedure, setProcedure] = useState('');
-  const [asaClass, setAsaClass] = useState<ASAClass>('1');
-  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType>('general');
-  const [airwayType, setAirwayType] = useState('ETT');
+  const [asaClass, setAsaClass] = useState<ASAClass | ''>('');
+  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType | ''>('');
+  const [airwayType, setAirwayType] = useState('');
   const [intubationTime, setIntubationTime] = useState('');
   const [extubationTime, setExtubationTime] = useState('');
   const [inductionAgents, setInductionAgents] = useState('');
@@ -129,16 +156,14 @@ const AnesthesiaPage: React.FC = () => {
   const [antiemetics, setAntiemetics] = useState('');
   const [fluidsGiven, setFluidsGiven] = useState('');
   const [bloodProducts, setBloodProducts] = useState('');
-  const [ebl, setEbl] = useState(0);
-  const [urineOutput, setUrineOutput] = useState(0);
+  const [ebl, setEbl] = useState<number | undefined>();
+  const [urineOutput, setUrineOutput] = useState<number | undefined>();
   const [vitals, setVitals] = useState<VitalReading[]>([]);
   const [complications, setComplications] = useState<string[]>([]);
   const [notes, setNotes2] = useState('');
 
   // New vital entry
-  const [newVital, setNewVital] = useState<VitalReading>({
-    time: '', bp: '120/80', hr: 70, spo2: 99, etco2: 35, rr: 12, fio2: 100
-  });
+  const [newVital, setNewVital] = useState<VitalReading>({ time: '' });
 
   useEffect(() => {
     const loadData = async () => {
@@ -157,8 +182,18 @@ const AnesthesiaPage: React.FC = () => {
       showError(t('docAnesthesia.errorEnterTime'));
       return;
     }
+    if (![newVital.hr, newVital.etco2, newVital.rr].every(value => validObservation(value))
+      || !validObservation(newVital.spo2, 100) || !validObservation(newVital.fio2, 100)
+      || (newVital.bp && !/^\d{1,3}\/\d{1,3}$/.test(newVital.bp))) {
+      showError(t('docAnesthesia.invalidObservation'));
+      return;
+    }
+    if (!newVital.bp && ![newVital.hr, newVital.spo2, newVital.etco2, newVital.rr, newVital.fio2].some(value => value !== undefined)) {
+      showError(t('docAnesthesia.errorEnterObservation'));
+      return;
+    }
     setVitals([...vitals, { ...newVital }]);
-    setNewVital({ time: '', bp: '120/80', hr: 70, spo2: 99, etco2: 35, rr: 12, fio2: 100 });
+    setNewVital({ time: '' });
   };
 
   const { errors, validate, validateField, clearField } = useValidatedForm(
@@ -166,6 +201,7 @@ const AnesthesiaPage: React.FC = () => {
   );
 
   const handleSubmit = async () => {
+    if (submissionPending.current) return;
     // Selecting a patient is a precondition for the record, so it keeps its
     // toast. The procedure is a field error and now says so on the field: an
     // anaesthetic technique is reviewed against what was being done, and a
@@ -177,6 +213,10 @@ const AnesthesiaPage: React.FC = () => {
     if (!validate({ selectedPatient, procedure })) {
       return;
     }
+    if (!validObservation(ebl) || !validObservation(urineOutput)) {
+      showError(t('docAnesthesia.invalidObservation'));
+      return;
+    }
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const record: AnesthesiaRecord = {
       id: '', // assigned by the server
@@ -184,27 +224,45 @@ const AnesthesiaPage: React.FC = () => {
       patientName: patient ? patient.full_name : '',
       documentedBy: user?.userId || 'Unknown',
       documentedAt: new Date().toISOString(),
-      procedure, asaClass, anesthesiaType, airwayType, intubationTime, extubationTime,
+      procedure, asaClass: asaClass || undefined, anesthesiaType: anesthesiaType || undefined,
+      airwayType: airwayType || undefined, intubationTime, extubationTime,
       inductionAgents, maintenanceAgents, analgesics, relaxants, reversals,
       vasoactives, antiemetics, fluidsGiven, bloodProducts, ebl, urineOutput,
       vitals, complications, notes
     };
+    submissionPending.current = true;
+    setIsSubmitting(true);
     try {
       await createAnesthesia(record);
+      resetCompletedDraft();
+      setActiveTab('history');
+      showSuccess(t('docAnesthesia.saved'));
+      await loadAnesthesiaRecords();
     } catch (err) {
       console.error('Failed to save anesthesia record:', err);
       // Stop here. Falling through announced success for a write that
       // never happened.
       showError(t('common.saveFailed'));
       return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // Re-read through the endpoint rather than pushing the local object.
-    await loadAnesthesiaRecords();
-    showSuccess(t('docAnesthesia.saved'));
+  };
+
+  /** Clear completed observations while retaining the selected patient for history read-back. */
+  const resetCompletedDraft = () => {
+    setProcedure(''); setIntubationTime(''); setExtubationTime('');
+    setInductionAgents(''); setMaintenanceAgents(''); setAnalgesics('');
+    setRelaxants(''); setReversals(''); setVasoactives(''); setAntiemetics('');
+    setFluidsGiven(''); setBloodProducts(''); setNotes2('');
+    setEbl(undefined); setUrineOutput(undefined); setVitals([]); setComplications([]);
+    setAsaClass(''); setAnesthesiaType(''); setAirwayType('');
+    setNewVital({ time: '' });
   };
 
   return (
-    <div className="min-h-screen bg-surface-sunken">
+    <fieldset disabled={isSubmitting} className="min-h-screen bg-surface-sunken min-w-0">
       {/* Header */}
       <div className="bg-gradient-to-r from-cyan-700 to-teal-800 text-white p-6">
         <div className="flex items-center gap-3">
@@ -268,6 +326,7 @@ const AnesthesiaPage: React.FC = () => {
                     onChange={e => setAsaClass(e.target.value as ASAClass)}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docAnesthesia.notRecorded')}</option>
                     {Object.entries(asaDescriptions).map(([k, v]) => (
                       <option key={k} value={k}>{t('docAnesthesia.asaOption', { class: k, desc: v })}</option>
                     ))}
@@ -281,6 +340,7 @@ const AnesthesiaPage: React.FC = () => {
                     onChange={e => setAnesthesiaType(e.target.value as AnesthesiaType)}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docAnesthesia.notRecorded')}</option>
                     <option value="general">{t('docAnesthesia.typeGeneral')}</option>
                     <option value="spinal">{t('docAnesthesia.typeSpinal')}</option>
                     <option value="epidural">{t('docAnesthesia.typeEpidural')}</option>
@@ -305,6 +365,7 @@ const AnesthesiaPage: React.FC = () => {
                     onChange={e => setAirwayType(e.target.value)}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docAnesthesia.notRecorded')}</option>
                     {airwayTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
@@ -450,9 +511,10 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-ebl"
                     type="number"
-                    value={ebl}
-                    onChange={e => setEbl(Number(e.target.value))}
-                    className={`w-full border rounded p-2 ${ebl > 500 ? 'border-red-500 bg-critical-subtle' : ''}`}
+                    value={ebl ?? ''}
+                    min="0"
+                    onChange={e => setEbl(observationNumber(e.target.value))}
+                    className={`w-full border rounded p-2 ${ebl !== undefined && ebl > 500 ? 'border-red-500 bg-critical-subtle' : ''}`}
                   />
                 </div>
                 <div>
@@ -460,8 +522,9 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-urine-output"
                     type="number"
-                    value={urineOutput}
-                    onChange={e => setUrineOutput(Number(e.target.value))}
+                    value={urineOutput ?? ''}
+                    min="0"
+                    onChange={e => setUrineOutput(observationNumber(e.target.value))}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -485,18 +548,20 @@ const AnesthesiaPage: React.FC = () => {
                         <th className="p-2">EtCO2</th>
                         <th className="p-2">RR</th>
                         <th className="p-2">FiO2</th>
+                        <th className="p-2">{t('common.remove')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {vitals.map((v, i) => (
                         <tr key={i} className="border-b">
                           <td className="p-2">{v.time}</td>
-                          <td className="p-2 text-center">{v.bp}</td>
-                          <td className="p-2 text-center">{v.hr}</td>
-                          <td className="p-2 text-center">{v.spo2}%</td>
-                          <td className="p-2 text-center">{v.etco2}</td>
-                          <td className="p-2 text-center">{v.rr}</td>
-                          <td className="p-2 text-center">{v.fio2}%</td>
+                          <td className="p-2 text-center">{v.bp || t('docAnesthesia.notRecorded')}</td>
+                          <td className="p-2 text-center">{v.hr ?? t('docAnesthesia.notRecorded')}</td>
+                          <td className="p-2 text-center">{v.spo2 === undefined ? t('docAnesthesia.notRecorded') : `${v.spo2}%`}</td>
+                          <td className="p-2 text-center">{v.etco2 ?? t('docAnesthesia.notRecorded')}</td>
+                          <td className="p-2 text-center">{v.rr ?? t('docAnesthesia.notRecorded')}</td>
+                          <td className="p-2 text-center">{v.fio2 === undefined ? t('docAnesthesia.notRecorded') : `${v.fio2}%`}</td>
+                          <td><button type="button" aria-label={t('docAnesthesia.removeVital', { time: v.time })} onClick={() => setVitals(prev => prev.filter((_, index) => index !== i))}>{t('common.remove')}</button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -519,8 +584,8 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-vital-bp"
                     type="text"
-                    value={newVital.bp}
-                    onChange={e => setNewVital({ ...newVital, bp: e.target.value })}
+                    value={newVital.bp ?? ''}
+                    onChange={e => setNewVital({ ...newVital, bp: e.target.value || undefined })}
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
@@ -529,8 +594,9 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-vital-hr"
                     type="number"
-                    value={newVital.hr}
-                    onChange={e => setNewVital({ ...newVital, hr: Number(e.target.value) })}
+                    value={newVital.hr ?? ''}
+                    min="0"
+                    onChange={e => setNewVital({ ...newVital, hr: observationNumber(e.target.value) })}
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
@@ -539,8 +605,9 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-vital-spo2"
                     type="number"
-                    value={newVital.spo2}
-                    onChange={e => setNewVital({ ...newVital, spo2: Number(e.target.value) })}
+                    value={newVital.spo2 ?? ''}
+                    min="0" max="100"
+                    onChange={e => setNewVital({ ...newVital, spo2: observationNumber(e.target.value) })}
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
@@ -549,8 +616,9 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-vital-etco2"
                     type="number"
-                    value={newVital.etco2}
-                    onChange={e => setNewVital({ ...newVital, etco2: Number(e.target.value) })}
+                    value={newVital.etco2 ?? ''}
+                    min="0"
+                    onChange={e => setNewVital({ ...newVital, etco2: observationNumber(e.target.value) })}
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
@@ -559,8 +627,9 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-vital-rr"
                     type="number"
-                    value={newVital.rr}
-                    onChange={e => setNewVital({ ...newVital, rr: Number(e.target.value) })}
+                    value={newVital.rr ?? ''}
+                    min="0"
+                    onChange={e => setNewVital({ ...newVital, rr: observationNumber(e.target.value) })}
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
@@ -569,8 +638,9 @@ const AnesthesiaPage: React.FC = () => {
                   <input
                     id="anes-vital-fio2"
                     type="number"
-                    value={newVital.fio2}
-                    onChange={e => setNewVital({ ...newVital, fio2: Number(e.target.value) })}
+                    value={newVital.fio2 ?? ''}
+                    min="0" max="100"
+                    onChange={e => setNewVital({ ...newVital, fio2: observationNumber(e.target.value) })}
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
@@ -619,12 +689,14 @@ const AnesthesiaPage: React.FC = () => {
               onClick={handleSubmit}
               className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800"
             >
-              {t('docAnesthesia.save')}
+              {isSubmitting ? t('common.saving') : t('docAnesthesia.save')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
-            {records.length === 0 ? (
+            {historyLoading ? <p role="status">{t('common.loading')}</p> : historyFailed ? (
+              <div role="alert"><p>{t('docAnesthesia.historyReadFailed')}</p><button type="button" onClick={loadAnesthesiaRecords}>{t('docAnesthesia.retryHistory')}</button></div>
+            ) : records.length === 0 ? (
               <div className="text-center py-8 text-content-muted">{t('docAnesthesia.noRecords')}</div>
             ) : (
               records.map(r => (
@@ -635,13 +707,17 @@ const AnesthesiaPage: React.FC = () => {
                       <p className="text-sm text-content-muted">{r.documentedAt ? formatTimestamp(r.documentedAt) : ""}</p>
                     </div>
                     <span className="px-2 py-1 text-xs rounded bg-surface-sunken text-content-secondary">
-                      {t('docAnesthesia.asaBadge', { class: r.asaClass })}
+                      {t('docAnesthesia.asaBadge', { class: r.asaClass ?? t('docAnesthesia.notRecorded') })}
                     </span>
                   </div>
                   <div className="text-sm">
                     <p><strong>{t('docAnesthesia.lblProcedure')}</strong> {r.procedure}</p>
-                    <p><strong>{t('docAnesthesia.lblType')}</strong> {r.anesthesiaType} | <strong>{t('docAnesthesia.lblAirway')}</strong> {r.airwayType}</p>
-                    <p>{t('docAnesthesia.summaryLine', { ebl: r.ebl, uo: r.urineOutput, count: r.vitals?.length ?? 0 })}</p>
+                    <p><strong>{t('docAnesthesia.lblType')}</strong> {r.anesthesiaType || t('docAnesthesia.notRecorded')} | <strong>{t('docAnesthesia.lblAirway')}</strong> {typeof r.airwayType === 'string' && r.airwayType ? r.airwayType : t('docAnesthesia.notRecorded')}</p>
+                    <p>{t('docAnesthesia.summaryLine', { ebl: r.ebl ?? t('docAnesthesia.notRecorded'), uo: r.urineOutput ?? t('docAnesthesia.notRecorded'), count: r.vitals?.length ?? t('docAnesthesia.notRecorded') })}</p>
+                    <details className="mt-3">
+                      <summary className="cursor-pointer">{t('docAnesthesia.savedDetails')}</summary>
+                      <StoredValue value={r.storedFields} />
+                    </details>
                   </div>
                 </div>
               ))
@@ -649,7 +725,7 @@ const AnesthesiaPage: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+    </fieldset>
   );
 };
 
