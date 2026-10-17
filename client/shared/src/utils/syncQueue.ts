@@ -99,21 +99,27 @@ function isMutation(
  */
 export async function replayQueue(): Promise<ReplayOutcome> {
   const outcome: ReplayOutcome = { sent: 0, alreadyApplied: 0, rejected: 0, deferred: 0 };
+  const client = getApiClient();
+  const ownerUserId = client.getUserId();
+  if (!ownerUserId) throw new Error('Sign in before replaying offline changes.');
 
   // Mutations only. `SyncQueueItem.method` also admits `GET`, for the
   // `action: 'download'` prefetch case — a queued *read* is not unsent work,
   // and the pages refetch on load anyway.
   const pending = (await getPendingSyncItems())
     .filter(isMutation)
+    .filter(item => item.ownerUserId === ownerUserId)
     .sort((a, b) => a.timestamp - b.timestamp);
 
   if (pending.length === 0) {
     return outcome;
   }
 
-  const client = getApiClient();
-
   for (const [index, item] of pending.entries()) {
+    if (client.getUserId() !== ownerUserId) {
+      outcome.deferred = pending.length - index;
+      break;
+    }
     try {
       await updateSyncStatus(item.id, 'in-progress');
       await client.replayQueuedMutation(item.method, item.endpoint, item.body, item.id);

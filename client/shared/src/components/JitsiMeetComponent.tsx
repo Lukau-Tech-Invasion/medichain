@@ -52,7 +52,7 @@ interface Props {
 }
 
 /** Load `external_api.js` from the Jitsi domain once, resolving when ready. */
-function loadJitsiScript(domain: string): Promise<void> {
+export function loadJitsiScript(domain: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (window.JitsiMeetExternalAPI) {
       resolve();
@@ -67,6 +67,7 @@ function loadJitsiScript(domain: string): Promise<void> {
           resolve();
         } else if (Date.now() - started > 10000) {
           clearInterval(poll);
+          existing.remove();
           reject(new Error('Timed out loading the Jitsi API'));
         }
       }, 100);
@@ -77,7 +78,10 @@ function loadJitsiScript(domain: string): Promise<void> {
     script.src = `https://${domain}/external_api.js`;
     script.async = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load the Jitsi video API'));
+    script.onerror = () => {
+      script.remove();
+      reject(new Error('Failed to load the Jitsi video API'));
+    };
     document.body.appendChild(script);
   });
 }
@@ -131,7 +135,9 @@ export function JitsiMeetComponent({
     // Relay a lifecycle event to the backend (SSE fan-out + audit, Phase 7).
     // Fire-and-forget: a failed relay must never break the live call.
     const emit = (eventType: string, detail?: string) => {
-      void telehealthEvent(sessionIdRef.current, eventType, detail).catch(() => {});
+      void telehealthEvent(sessionIdRef.current, eventType, detail).catch(error => {
+        console.warn('Telehealth activity reporting failed', error);
+      });
     };
 
     loadJitsiScript(domain)

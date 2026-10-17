@@ -362,6 +362,7 @@ export class ApiClient {
       return this.refreshPromise;
     }
     const generation = this.sessionGeneration;
+    const expectedUserId = this.userId;
     this.refreshPromise = (async () => {
       try {
         // The refresh token travels as the HttpOnly cookie (WP12).
@@ -378,6 +379,12 @@ export class ApiClient {
         const data = await resp.json();
         if (generation !== this.sessionGeneration) return false;
         if (typeof data?.access_token === 'string' && data.access_token.length > 0) {
+          const identityMatches = await this.matchesRestoredIdentity(data.access_token, expectedUserId);
+          if (generation !== this.sessionGeneration || expectedUserId !== this.userId) return false;
+          if (!identityMatches) {
+            this.clearTokens();
+            return false;
+          }
           this.accessToken = data.access_token as string;
           this.sessionEnded = false;
           return true;
@@ -385,6 +392,7 @@ export class ApiClient {
         this.clearTokens();
         return false;
       } catch {
+        if (generation === this.sessionGeneration) this.clearTokens();
         return false;
       } finally {
         this.refreshPromise = null;
@@ -393,11 +401,31 @@ export class ApiClient {
     return this.refreshPromise;
   }
 
+  /** Verify a rotated cookie still belongs to this tab's displayed account. */
+  private async matchesRestoredIdentity(token: string, expectedUserId?: string): Promise<boolean> {
+    if (!expectedUserId) return true;
+    // Cookies are shared by same-origin portals. Another tab may have signed
+    // in as someone else; validate with the server before installing its token.
+    const response = await fetch(`${this.baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'same-origin',
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!response.ok) return false;
+    const identity = await response.json();
+    return identity?.user_id === expectedUserId;
+  }
+
   /**
    * Get the current user ID
    */
   getUserId(): string | undefined {
     return this.userId;
+  }
+
+  /** Opaque local login revision for invalidating caches without exposing credentials. */
+  getSessionRevision(): number {
+    return this.sessionGeneration;
   }
 
   /**
@@ -530,6 +558,7 @@ export class ApiClient {
     /** Internal: return the bytes rather than parsing JSON (see `getBlob`). */
     asBlob = false
   ): Promise<T> {
+    const requestOwnerUserId = this.userId;
     const maxAttempts = options?.noRetry ? 1 : this.maxRetries + 1;
     const timeout = options?.timeout ?? this.timeout;
     // Generate once per logical mutation, outside the retry loop. Recreating a
@@ -589,7 +618,8 @@ export class ApiClient {
                 method as 'POST' | 'PUT' | 'DELETE',
                 path,
                 body,
-                options.queueWhenOffline
+                options.queueWhenOffline,
+                requestOwnerUserId,
               );
               if (queued) {
                 throw queued;
@@ -894,11 +924,13 @@ async function queueOfflineMutation(
   method: 'POST' | 'PUT' | 'DELETE',
   path: string,
   body: unknown,
-  intent: NonNullable<RequestOptions['queueWhenOffline']>
+  intent: NonNullable<RequestOptions['queueWhenOffline']>,
+  ownerUserId?: string,
 ): Promise<OfflineQueuedError | null> {
   try {
     const { enqueueSyncItem } = await import('../utils/indexedDB');
     const id = await enqueueSyncItem({
+      ownerUserId,
       action: method === 'DELETE' ? 'delete' : 'update',
       endpoint: path,
       method,

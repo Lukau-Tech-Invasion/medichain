@@ -22,6 +22,7 @@ export const STORES = {
 export type StoreName = typeof STORES[keyof typeof STORES];
 
 export interface SyncQueueItem {
+  ownerUserId?: string;
   id: string;
   action: 'upload' | 'download' | 'update' | 'delete';
   endpoint: string;
@@ -38,6 +39,7 @@ export interface SyncQueueItem {
 }
 
 export interface CachedDataItem {
+  ownerUserId?: string;
   id: string;
   category: string;
   name: string;
@@ -285,11 +287,11 @@ export async function updateSyncStatus(
 /**
  * Remove completed sync items
  */
-export async function clearCompletedSyncItems(): Promise<number> {
+export async function clearCompletedSyncItems(ownerUserId?: string): Promise<number> {
   const items = await getAllSyncItems();
   let removed = 0;
   for (const item of items) {
-    if (item.status === 'completed') {
+    if (item.status === 'completed' && (!ownerUserId || item.ownerUserId === ownerUserId)) {
       await deleteItem(STORES.SYNC_QUEUE, item.id);
       removed++;
     }
@@ -310,9 +312,11 @@ export async function cacheData(
   name: string,
   data: unknown,
   ttlMs: number = 24 * 60 * 60 * 1000, // Default 24 hours
-  priority: 'high' | 'medium' | 'low' = 'medium'
+  priority: 'high' | 'medium' | 'low' = 'medium',
+  ownerUserId?: string,
 ): Promise<void> {
   const item: CachedDataItem = {
+    ownerUserId,
     id,
     category,
     name,
@@ -349,8 +353,9 @@ export async function getAllCachedItems(): Promise<CachedDataItem[]> {
 }
 
 /** Remove cached data for one displayed category without touching other records. */
-export async function clearCachedDataByCategory(category: string): Promise<number> {
-  const items = await getByIndex<CachedDataItem>(STORES.CACHED_DATA, 'category', category);
+export async function clearCachedDataByCategory(category: string, ownerUserId?: string): Promise<number> {
+  const items = (await getByIndex<CachedDataItem>(STORES.CACHED_DATA, 'category', category))
+    .filter(item => !ownerUserId || item.ownerUserId === ownerUserId);
   await Promise.all(items.map((item) => deleteItem(STORES.CACHED_DATA, item.id)));
   return items.length;
 }
@@ -358,19 +363,25 @@ export async function clearCachedDataByCategory(category: string): Promise<numbe
 /**
  * Clear expired cache entries
  */
-export async function clearExpiredCache(): Promise<number> {
+export async function clearExpiredCache(ownerUserId?: string): Promise<number> {
   const items = await getAllCachedItems();
   const now = Date.now();
   let removed = 0;
   
   for (const item of items) {
-    if (now > item.expiresAt) {
+    if (now > item.expiresAt && (!ownerUserId || item.ownerUserId === ownerUserId)) {
       await deleteItem(STORES.CACHED_DATA, item.id);
       removed++;
     }
   }
   
   return removed;
+}
+
+/** Remove only cached records explicitly owned by the signed-in account. */
+export async function clearCachedDataForOwner(ownerUserId: string): Promise<void> {
+  const items = (await getAllCachedItems()).filter(item => item.ownerUserId === ownerUserId);
+  await Promise.all(items.map(item => deleteItem(STORES.CACHED_DATA, item.id)));
 }
 
 // ============================================================================

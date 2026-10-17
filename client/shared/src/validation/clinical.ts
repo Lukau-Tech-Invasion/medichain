@@ -138,10 +138,10 @@ export const dateOfBirthSchema = pastDateSchema.refine(value => {
   return years <= 130;
 }, 'Check the year — that date gives an age over 130');
 
-/** MediChain patient record id. */
+/** MediChain patient record id: current UUID-derived IDs and older short IDs. */
 export const patientIdSchema = z
   .string()
-  .regex(/^PAT-[0-9a-f]{8}$/, 'A patient id looks like PAT- followed by 8 characters');
+  .regex(/^PAT-(?:[0-9a-f]{8}|[0-9a-f]{32})$/i, 'A patient ID starts with PAT- and has 8 or 32 hexadecimal characters');
 
 /**
  * Phone number, international or local.

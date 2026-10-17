@@ -18,6 +18,8 @@ export { ActivationForm } from './ActivationForm';
 export type { ActivationValues } from './ActivationForm';
 export { DialogHost, confirmDialog, promptDialog } from './Dialog';
 export type { ConfirmDialogOptions, PromptDialogOptions } from './Dialog';
+export { ModalPanel, trapTab } from './ModalPanel';
+export type { ModalPanelProps } from './ModalPanel';
 export {
   AttachmentPicker,
   MessageAttachmentList,

@@ -42,6 +42,7 @@ import type {
   ProgressNote,
   ImmunizationRecord,
   FamilyMedicalHistory,
+  FamilyHistoryMember,
   ElectronicPrescription,
   Appointment,
   CreateSatisfactionSurveyInput,
@@ -561,7 +562,15 @@ export async function getUserAvatar(
 // ============================================================================
 
 /** The fields a certificate carries while it is still being written. */
+export interface DeathCertificateFormSections {
+  decedent: Record<string, string>;
+  death: Record<string, string>;
+  cause: Record<string, string | boolean | null | { cause: string; duration: string }[]>;
+  certifier: Record<string, string>;
+}
+
 export interface DeathCertificateDraft {
+  form_sections?: DeathCertificateFormSections;
   patient_id: string;
   deceased_name?: string | null;
   date_of_birth?: string | null;
@@ -989,6 +998,11 @@ export async function listPatientAccessRequests(patientId: string): Promise<{ re
   return getApiClient().get(`/api/access/patient/${encodeURIComponent(patientId)}/requests`);
 }
 
+/** Ask the patient for access; the server identifies the authenticated provider. */
+export async function requestPatientDocumentAccess(patientId: string, reason: string): Promise<{ request: PatientAccessRequest }> {
+  return getApiClient().post(`/api/access/patient/${encodeURIComponent(patientId)}/requests`, { reason });
+}
+
 /** Approve a provider request for a user-selected, server-bounded time window. */
 export async function approvePatientAccessRequest(
   requestId: string,
@@ -1251,15 +1265,16 @@ export interface PdfDocumentInput {
  * Powers "Export as PDF" buttons (lab results, prescriptions, visit summaries).
  */
 export async function exportDocumentToPdf(doc: PdfDocumentInput): Promise<void> {
+  const filename = (doc.filename ?? 'medichain-document').replace(/\.pdf$/i, '');
   // Through the client, so the export carries the session, refreshes an
   // expired token, and sends the Idempotency-Key the middleware requires of a
   // keyed-subject POST -- all of which a hand-built `fetch` here had to
   // reproduce, and a failure surfaced as "PDF export failed: 401".
-  const { blob } = await getApiClient().postBlob('/api/pdf/document', doc);
+  const { blob } = await getApiClient().postBlob('/api/pdf/document', { ...doc, filename });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${doc.filename ?? 'medichain-document'}.pdf`;
+  a.download = `${filename}.pdf`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -1271,9 +1286,11 @@ export async function exportDocumentToPdf(doc: PdfDocumentInput): Promise<void> 
 // ============================================================================
 
 export async function uploadMedicalRecord(
-  data: UploadMedicalRecordRequest
+  data: UploadMedicalRecordRequest,
+  operationKey?: string
 ): Promise<UploadMedicalRecordResponse> {
-  return getApiClient().post('/api/records/upload', data);
+  return getApiClient().post('/api/records/upload', data,
+    operationKey ? { headers: { 'Idempotency-Key': operationKey } } : undefined);
 }
 
 export async function downloadMedicalRecord(
@@ -1479,8 +1496,18 @@ export async function submitLabResults(
  * `PendingLabResultsResponse` and TypeScript could not catch the difference,
  * because the unwrap is a runtime cast.
  */
+/** Map persisted enum spellings to UI statuses; reject unsupported workflow states. */
+function normalizeLabSubmission(submission: LabResultSubmission): LabResultSubmission {
+  const status = String(submission.status).toLowerCase();
+  if (status !== 'pending' && status !== 'approved' && status !== 'rejected') {
+    throw new Error('The laboratory result has an unsupported review status.');
+  }
+  return { ...submission, status };
+}
+
 export async function getPendingLabResults(): Promise<LabResultSubmission[]> {
-  return getApiClient().get('/api/lab/pending');
+  const submissions = await getApiClient().get<LabResultSubmission[]>('/api/lab/pending');
+  return submissions.map(normalizeLabSubmission);
 }
 
 /**
@@ -1490,7 +1517,8 @@ export async function getAllLabSubmissions(
   status?: 'pending' | 'approved' | 'rejected'
 ): Promise<LabResultSubmission[]> {
   const url = status ? `/api/lab/submissions?status=${status}` : '/api/lab/submissions';
-  return getApiClient().get(url);
+  const submissions = await getApiClient().get<LabResultSubmission[]>(url);
+  return submissions.map(normalizeLabSubmission);
 }
 
 /**
@@ -1499,7 +1527,17 @@ export async function getAllLabSubmissions(
 export async function reviewLabResult(
   data: ReviewLabResultRequest
 ): Promise<ReviewLabResultResponse> {
-  return getApiClient().post('/api/lab/review', data);
+  const response = await getApiClient().post<Omit<ReviewLabResultResponse, 'status'> & {
+    status?: ReviewLabResultResponse['status']; new_status?: string;
+  }>('/api/lab/review', data);
+  const status = response.status ?? (
+    response.new_status === 'approve' ? 'approved' :
+    response.new_status === 'reject' ? 'rejected' : undefined
+  );
+  if (status !== 'approved' && status !== 'rejected') {
+    throw new Error('The laboratory review outcome could not be verified.');
+  }
+  return { ...response, status };
 }
 
 /** Why a laboratory refused a specimen; the values the server accepts. */
@@ -1727,7 +1765,8 @@ export async function cancelSpecimenRecollection(
 export async function getPatientLabSubmissions(
   patientId: string
 ): Promise<LabResultSubmission[]> {
-  return getApiClient().get(`/api/lab/patient/${patientId}`);
+  const submissions = await getApiClient().get<LabResultSubmission[]>(`/api/lab/patient/${patientId}`);
+  return submissions.map(normalizeLabSubmission);
 }
 
 // ============================================================================
@@ -1895,12 +1934,22 @@ export async function assessFamilyHistory(
   return getApiClient().post('/api/clinical/family-history/assess', data);
 }
 
+/** Read the patient's stored burn history; authority is enforced by the API. */
+export async function getBurnForPatient(patientId: string): Promise<{ assessments: Array<{
+  id: string; assessment_datetime: string; mechanism_of_injury: string;
+  burn_agent?: string; tbsa_percentage: string | number; severity?: string; notes?: string;
+}> }> {
+  return getApiClient().get(`/api/clinical/burn/patient/${encodeURIComponent(patientId)}`);
+}
+
 export async function createBurn(data: CreateBurnRequest): Promise<BurnCreateResult> {
   return getApiClient().post('/api/clinical/burn', data);
 }
 
-export async function createPsych(data: unknown): Promise<AssessmentCreateResult> {
-  return getApiClient().post('/api/clinical/psych', data);
+/** Save an assessment, reusing a caller key when retrying the same unchanged draft. */
+export async function createPsych(data: unknown, operationKey?: string): Promise<AssessmentCreateResult> {
+  return getApiClient().post('/api/clinical/psych', data,
+    operationKey ? { headers: { 'Idempotency-Key': operationKey } } : undefined);
 }
 
 export async function getPsychForPatient(patientId: string): Promise<{ assessments: unknown[] }> {
@@ -1909,6 +1958,11 @@ export async function getPsychForPatient(patientId: string): Promise<{ assessmen
 
 export async function createTox(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/tox', data);
+}
+
+/** Read saved toxicology records for the selected, authorised patient. */
+export async function getToxForPatient(patientId: string): Promise<{ assessments: unknown[] }> {
+  return getApiClient().get(`/api/clinical/tox/patient/${encodeURIComponent(patientId)}`);
 }
 
 export async function createMci(data: CreateMciRequest): Promise<MciCreateResult> {
@@ -1942,20 +1996,22 @@ export async function createSplint(data: unknown): Promise<RecordCreateResult> {
  * series, and an all-patients read would expose every child's record to
  * satisfy a single patient's page.
  */
-export async function listPedsForPatient(patientId: string): Promise<unknown[]> {
+export async function listPedsForPatient(patientId: string, page = 1): Promise<unknown[]> {
   // `ApiClient` unwraps a recognised `{items: [...]}` envelope, so this
   // resolves to the bare array. Reading `.items` off the result returned an
   // empty list for every child who HAD growth measurements, and was correct
   // only while the list was empty -- which is how it went unnoticed.
   const response = await getApiClient().get<unknown[] | { items?: unknown[] } | null>(
-    `/api/clinical/peds/patient/${encodeURIComponent(patientId)}`,
+    `/api/clinical/peds/patient/${encodeURIComponent(patientId)}${page > 1 ? `?page=${page}&limit=100` : ''}`,
   );
   if (Array.isArray(response)) return response;
   return response?.items ?? [];
 }
 
-export async function createPeds(data: unknown): Promise<AssessmentCreateResult> {
-  return getApiClient().post('/api/clinical/peds', data);
+/** Submit a pediatric draft with an optional stable key for unchanged retries. */
+export async function createPeds(data: unknown, operationKey?: string): Promise<AssessmentCreateResult> {
+  return getApiClient().post('/api/clinical/peds', data,
+    operationKey ? { headers: { 'Idempotency-Key': operationKey } } : undefined);
 }
 
 export async function createOb(data: unknown): Promise<AssessmentCreateResult> {
@@ -2320,6 +2376,11 @@ export async function getMyImmunizations(): Promise<ImmunizationRecord[]> {
 
 export async function createFamilyHistory(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/surgical/family-history', data);
+}
+
+/** Add one relative without replacing the patient's existing family history. */
+export async function appendFamilyHistoryMember(data: { patient_id: string; member: FamilyHistoryMember }): Promise<{ success: boolean; history: FamilyMedicalHistory }> {
+  return getApiClient().post('/api/surgical/family-history/member', data);
 }
 
 export async function getFamilyHistory(patientId: string): Promise<FamilyMedicalHistory> {

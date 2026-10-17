@@ -199,6 +199,7 @@ export interface MciCasualtyInput {
   location?: string;
   destination?: string;
   triageTime?: string;
+  transportTime?: string;
   notes?: string;
   /** A responder's override of the computed category. Both are stored. */
   category?: string;

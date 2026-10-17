@@ -24,6 +24,7 @@
  * drives the real dialog rather than a stubbed global.
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { ModalPanel } from './ModalPanel';
 import { createRoot } from 'react-dom/client';
 import { useTranslation } from '../i18n/react';
 
@@ -103,24 +104,6 @@ export function promptDialog(options: PromptDialogOptions | string): Promise<str
   return new Promise((resolve) => enqueue({ kind: 'prompt', options: resolved, resolve }));
 }
 
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
-
-/** Keep Tab inside the dialog: behind it is a page the user cannot act on. */
-function trapTab(event: React.KeyboardEvent<HTMLDivElement>): void {
-  if (event.key !== 'Tab') return;
-  const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE));
-  if (focusable.length === 0) return;
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
 function ActiveDialog({ request }: { request: DialogRequest }) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -135,15 +118,7 @@ function ActiveDialog({ request }: { request: DialogRequest }) {
   const [value, setValue] = useState(promptOptions?.defaultValue ?? '');
   const blocked = Boolean(promptOptions?.required) && value.trim() === '';
 
-  // Focus goes where the user is expected to act, and returns to whatever
-  // opened the dialog when it closes -- otherwise a keyboard user is dropped
-  // at the top of the page.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    const target = isPrompt ? inputRef.current : destructive ? cancelRef.current : confirmRef.current;
-    target?.focus();
-    return () => opener?.focus?.();
-  }, [isPrompt, destructive]);
+  const initialFocus = isPrompt ? inputRef : destructive ? cancelRef : confirmRef;
 
   const cancel = () => settle(request, isPrompt ? null : false);
   const submit = () => {
@@ -152,79 +127,69 @@ function ActiveDialog({ request }: { request: DialogRequest }) {
   };
 
   return (
-    <>
-      <div className="fixed inset-0 z-[60] bg-black/50" aria-hidden="true" onClick={cancel} />
-      <div className="fixed inset-0 z-[61] flex items-center justify-center p-4 pointer-events-none">
-        <div
-          role={destructive ? 'alertdialog' : 'dialog'}
-          aria-modal="true"
-          aria-labelledby={options.title ? titleId : undefined}
-          aria-describedby={messageId}
-          aria-label={options.title ? undefined : options.message}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.stopPropagation();
-              cancel();
-            }
-            trapTab(event);
-          }}
-          className="pointer-events-auto w-full max-w-md rounded-xl border border-border bg-surface p-5 text-content shadow-xl"
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
+    <ModalPanel
+      alert={destructive}
+      labelledBy={options.title ? titleId : undefined}
+      label={options.title ? undefined : options.message}
+      describedBy={messageId}
+      onClose={cancel}
+      initialFocus={initialFocus}
+      overlayClassName="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+      className="w-full max-w-md rounded-xl border border-border bg-surface p-5 text-content shadow-xl"
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        {options.title && (
+          <h2 id={titleId} className="mb-2 text-lg font-semibold text-content">
+            {options.title}
+          </h2>
+        )}
+        {isPrompt ? (
+          <label id={messageId} className="block text-sm text-content-secondary">
+            {options.message}
+            <input
+              ref={inputRef}
+              type={promptOptions?.inputType ?? 'text'}
+              inputMode={promptOptions?.inputType === 'number' ? 'numeric' : undefined}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              required={promptOptions?.required}
+              className="mt-2 w-full rounded-lg border px-3 py-2"
+            />
+          </label>
+        ) : (
+          <p id={messageId} className="text-sm text-content-secondary">
+            {options.message}
+          </p>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={cancel}
+            className="rounded-lg border border-border-interactive px-4 py-2 text-sm text-content hover:bg-surface-sunken"
           >
-            {options.title && (
-              <h2 id={titleId} className="mb-2 text-lg font-semibold text-content">
-                {options.title}
-              </h2>
-            )}
-            {isPrompt ? (
-              <label id={messageId} className="block text-sm text-content-secondary">
-                {options.message}
-                <input
-                  ref={inputRef}
-                  type={promptOptions?.inputType ?? 'text'}
-                  inputMode={promptOptions?.inputType === 'number' ? 'numeric' : undefined}
-                  value={value}
-                  onChange={(event) => setValue(event.target.value)}
-                  required={promptOptions?.required}
-                  className="mt-2 w-full rounded-lg border px-3 py-2"
-                />
-              </label>
-            ) : (
-              <p id={messageId} className="text-sm text-content-secondary">
-                {options.message}
-              </p>
-            )}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                ref={cancelRef}
-                type="button"
-                onClick={cancel}
-                className="rounded-lg border border-border-interactive px-4 py-2 text-sm text-content hover:bg-surface-sunken"
-              >
-                {options.cancelLabel ?? t('common.cancel')}
-              </button>
-              <button
-                ref={confirmRef}
-                type="submit"
-                disabled={blocked}
-                className={
-                  destructive
-                    ? 'rounded-lg bg-critical px-4 py-2 text-sm font-medium text-critical-fg disabled:bg-disabled disabled:text-disabled-fg'
-                    : 'rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-fg disabled:bg-disabled disabled:text-disabled-fg'
-                }
-              >
-                {options.confirmLabel ?? (isPrompt ? t('common.ok') : t('common.confirm'))}
-              </button>
-            </div>
-          </form>
+            {options.cancelLabel ?? t('common.cancel')}
+          </button>
+          <button
+            ref={confirmRef}
+            type="submit"
+            disabled={blocked}
+            className={
+              destructive
+                ? 'rounded-lg bg-critical px-4 py-2 text-sm font-medium text-critical-fg disabled:bg-disabled disabled:text-disabled-fg'
+                : 'rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-fg disabled:bg-disabled disabled:text-disabled-fg'
+            }
+          >
+            {options.confirmLabel ?? (isPrompt ? t('common.ok') : t('common.confirm'))}
+          </button>
         </div>
-      </div>
-    </>
+      </form>
+    </ModalPanel>
   );
 }
 

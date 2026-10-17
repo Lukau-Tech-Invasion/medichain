@@ -139,11 +139,11 @@ export const STORAGE_KEYS = {
 
 /**
  * Keys written by earlier builds. None of them holds anything a current build
- * reads, and a leftover `medichain_wallet` names an account by a key the server
+ * reads, and a leftover identity key names an account by a key the server
  * no longer recognises, so they are removed rather than migrated. Any
  * `chain_*` key goes too (see `purgeLegacyIdentityStorage`).
  */
-const LEGACY_STORAGE_KEYS = ['medichain_wallet', 'medichain_accounts'] as const;
+const LEGACY_STORAGE_KEYS = ['medichain_wallet', 'medichain_accounts'] as const; // retired-term-negative-assertion
 
 /** Removes a persisted session whose identity is still an `address` field. */
 function dropLegacyShapedSession(storage: Storage, key: string): void {

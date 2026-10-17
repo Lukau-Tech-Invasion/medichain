@@ -77,6 +77,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   handleRetry = (): void => {
+    // A rejected lazy import stays cached. Reload only after the user asks to
+    // retry, so a deployment update cannot silently discard an open form.
+    if (/Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk .+ failed/i.test(this.state.error?.message || '')) {
+      this.handleReload();
+      return;
+    }
     this.setState({
       hasError: false,
       error: null,
@@ -86,7 +92,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   handleGoHome = (): void => {
-    window.location.href = '/dashboard';
+    window.location.href = `${import.meta.env.BASE_URL || '/'}dashboard`;
   };
 
   handleReload = (): void => {
@@ -132,7 +138,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {/* Error Message */}
             <div className="bg-critical-subtle border border-critical rounded-lg p-4 mb-4">
               <p className="text-sm text-critical-subtle-fg font-medium">
-                {this.state.error?.message || 'Unknown error'}
+                {isDev
+                  ? this.state.error?.message || 'Unknown error'
+                  : 'This screen could not be loaded. Try again or return to your dashboard.'}
               </p>
             </div>
 
@@ -141,7 +149,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <p className="text-sm text-caution-subtle-fg">
                 <strong>Medical System Notice:</strong> If you need immediate access to 
                 patient information, please use the backup access procedures or contact 
-                IT support at extension 1234.
+                your organisation's IT support.
               </p>
             </div>
 

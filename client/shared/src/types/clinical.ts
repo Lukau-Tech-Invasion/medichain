@@ -330,8 +330,14 @@ export interface FamilyMedicalHistory {
 }
 
 export interface FamilyHistoryMember {
+  member_id?: string | null;
+  name?: string | null;
+  notes?: string | null;
+  consanguineous?: boolean | null;
+  recorded_by?: string | null;
+  recorded_at?: number | null;
   relationship: string;
-  living: boolean;
+  living: boolean | null;
   current_age: number | null;
   age_at_death: number | null;
   cause_of_death: string | null;
@@ -342,6 +348,8 @@ export interface FamilyHistoryCondition {
   condition: string;
   age_at_diagnosis: number | null;
   notes: string | null;
+  category?: string | null;
+  severity?: string | null;
 }
 
 export interface GeneticCondition {
