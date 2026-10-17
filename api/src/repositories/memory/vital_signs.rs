@@ -204,6 +204,7 @@ mod tests {
         VitalSignsEntity {
             id: id.to_string(),
             patient_id: patient_id.to_string(),
+            notes: None,
             heart_rate: Some(80),
             respiratory_rate: Some(16),
             blood_pressure_systolic: Some(120),

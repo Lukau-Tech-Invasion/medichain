@@ -148,6 +148,7 @@ impl From<(String, crate::clinical::VitalSignsReading)>
         Self {
             id: r.reading_id,
             patient_id,
+            notes: r.notes,
             heart_rate: r.heart_rate.map(|v| v as i32),
             respiratory_rate: r.respiratory_rate.map(|v| v as i32),
             blood_pressure_systolic: r.systolic_bp.map(|v| v as i32),
@@ -192,7 +193,7 @@ impl From<crate::repositories::traits::VitalSignsEntity> for crate::clinical::Vi
             temperature_celsius: e.temperature.map(|v| v as f32),
             pain_scale: e.pain_scale.map(|v| v as u8),
             recorded_by: e.recorded_by,
-            notes: None,
+            notes: e.notes,
         }
     }
 }
@@ -1289,7 +1290,7 @@ impl From<crate::clinical::AnesthesiaRecord>
             operative_note_id: None,
             anesthesiologist_id: r.anesthesiologist,
             crna_id: r.crna,
-            anesthesia_type: anesthesia_type_column(&r.anesthesia_type),
+            anesthesia_type: Some(anesthesia_type_column(&r.anesthesia_type)),
             asa_classification: asa_class_column(&r.asa_class),
             airway_management: serde_json::to_value(&r.airway).ok(),
             induction_agents: serde_json::to_value(&r.induction).ok(),
@@ -1455,7 +1456,9 @@ impl From<crate::clinical::RadiologyReport> for crate::repositories::traits::Rad
             order_id: r.order_id,
             patient_id: r.patient_id,
             radiologist_id: r.radiologist,
-            study_datetime: utc_from_unix(r.study_datetime),
+            study_datetime: r
+                .study_datetime
+                .and_then(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0)),
             report_datetime: now,
             comparison_studies: r.comparison,
             technique: Some(r.technique),

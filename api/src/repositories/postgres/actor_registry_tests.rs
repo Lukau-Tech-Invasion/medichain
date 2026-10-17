@@ -2,7 +2,7 @@
 //!
 //! `users.id` is the only identifier of a user, and every column that can hold
 //! one has to be known to the identity migration: a column nobody declared is a
-//! column whose old wallet strings nobody remapped. These tests fail when a new
+//! column whose pre-account identifiers nobody remapped. These tests fail when a new
 //! migration adds an actor-like column, or any JSONB column, without declaring it.
 //! `scripts/check-actor-columns.py` is the same rule applied to the migration
 //! files before a database exists.
@@ -12,10 +12,10 @@ use super::tests::get_test_pool;
 /// The same pattern `scripts/check-actor-columns.py` uses. A column whose name
 /// matches is presumed to hold an actor until the registry or the allowlist below
 /// says otherwise.
-const ACTOR_LIKE: &str = "(_by$|_by_[a-z]+$|provider_id$|^provider$|_provider$|clinician_id$|owner_id$|^actor$|accessor_id$|user_id$|wallet|physician_id$|pathologist_id$|radiologist_id$|surgeon_id$|anesthesiologist_id$|psychiatrist_id$|crna_id$|prescriber_id$|collector_id$|technologist_id$|custodian_id$|assistant_id$|intubator_id$|reporter_id$|primary_nurse$|scrub_nurse_id$|circulating_nurse_id$|requesting_provider$|requesting_person_id$|^subject$|assigned_to$|nurse$|_nurse_id$|doctor$|_doctor_id$|recorded_by|performed_by)";
+const ACTOR_LIKE: &str = "(_by$|_by_[a-z]+$|provider_id$|^provider$|_provider$|clinician_id$|owner_id$|^actor$|accessor_id$|user_id$|physician_id$|pathologist_id$|radiologist_id$|surgeon_id$|anesthesiologist_id$|psychiatrist_id$|crna_id$|prescriber_id$|collector_id$|technologist_id$|custodian_id$|assistant_id$|intubator_id$|reporter_id$|primary_nurse$|scrub_nurse_id$|circulating_nurse_id$|requesting_provider$|requesting_person_id$|^subject$|assigned_to$|nurse$|_nurse_id$|doctor$|_doctor_id$|recorded_by|performed_by)";
 
 /// Columns the pattern catches that are not actors, each with the reason.
-const NOT_ACTORS: [(&str, &str, &str); 10] = [
+const NOT_ACTORS: [(&str, &str, &str); 8] = [
     (
         "adherence_logs",
         "reported_by",
@@ -33,16 +33,6 @@ const NOT_ACTORS: [(&str, &str, &str); 10] = [
         "a display name",
     ),
     ("key_envelopes", "superseded_by", "an envelope id"),
-    (
-        "legacy_wallet_identities",
-        "user_id",
-        "the mapping's own target",
-    ),
-    (
-        "legacy_wallet_identities",
-        "wallet_address",
-        "the mapping's own key",
-    ),
     (
         "obstetric_emergencies",
         "prenatal_care_provider",
@@ -162,53 +152,82 @@ async fn a_registry_row_that_names_a_foreign_key_has_one() {
 }
 
 #[tokio::test]
-async fn the_directory_resolves_current_and_legacy_keys_to_one_person() {
+async fn the_directory_resolves_only_current_user_ids() {
     let pool = get_test_pool().await;
     let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
-    let wallet = format!("5Legacy{}", uuid::Uuid::new_v4().simple());
-    sqlx::query(
-        "INSERT INTO legacy_wallet_identities (wallet_address, user_id, kind) VALUES ($1, $2::uuid, 'wallet')",
-    )
-    .bind(&wallet)
-    .bind(&user)
-    .execute(&pool)
-    .await
-    .expect("seed historical identity");
+    let unknown = format!("5Legacy{}", uuid::Uuid::new_v4().simple());
 
     let by_id = crate::actor_directory::resolve(&pool, &user).await.unwrap();
-    let by_wallet = crate::actor_directory::resolve(&pool, &wallet)
+    assert_eq!(by_id.map(|id| id.to_string()), Some(user.clone()));
+    let by_old_key = crate::actor_directory::resolve(&pool, &unknown)
         .await
         .unwrap();
-    assert_eq!(by_id, by_wallet);
-    assert_eq!(by_id.map(|id| id.to_string()), Some(user.clone()));
+    assert_eq!(by_old_key, None, "a non-account key names nobody");
 
     let keys = crate::actor_directory::actor_keys_for(&pool, &user)
         .await
         .unwrap();
-    assert_eq!(keys, vec![user, wallet]);
+    assert_eq!(keys, vec![user.clone()]);
+    let mapped = crate::actor_directory::user_ids_for_keys(&pool, &[user.clone(), unknown])
+        .await
+        .unwrap();
+    assert_eq!(mapped.len(), 1);
+    assert_eq!(mapped.get(&user), Some(&user));
     pool.close().await;
 }
 
 #[tokio::test]
-async fn a_pre_migration_access_log_is_found_through_the_persons_legacy_key() {
+async fn a_migrated_database_has_no_seeded_or_legacy_identity_state() {
+    let pool = get_test_pool().await;
+    let relations: Vec<String> = sqlx::query_scalar(
+        "SELECT c.relname::text FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = current_schema()
+           AND c.relname IN ('legacy_wallet_identities', 'actor_directory',
+                             'bootstrap_legacy_demo_seeds')",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("read relations");
+    assert!(relations.is_empty(), "{relations:?}");
+    let login_fn: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                        WHERE n.nspname = current_schema() AND p.proname = 'update_login_info')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("read functions");
+    assert!(!login_fn, "the retired login function must not exist");
+    let seeded: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM users
+                 WHERE login_id IS NULL AND credential_verifier IS NULL
+                   AND username = ANY(ARRAY['admin', 'judge', 'dr.mbeki', 'dr.khumalo',
+                     'dr.nkosi', 'nurse.dlamini', 'nurse.molefe', 'lab.mokoena',
+                     'pharm.sithole', 'patient.zulu', 'patient.mkhize', 'patient.ndaba']))
+              + (SELECT count(*) FROM patients WHERE id LIKE 'PAT-%-DEMO')
+              + (SELECT count(*) FROM medical_id_issuances WHERE medical_id LIKE 'MCHI-%-DEMO')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count seeded identities");
+    assert_eq!(
+        seeded, 0,
+        "migrations must not seed accounts, patients or medical IDs"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn an_access_log_is_found_through_the_persons_user_id() {
     use crate::repositories::traits::{AccessLogEntity, Pagination};
     let pool = get_test_pool().await;
     let repositories = crate::repositories::RepositoryContainer::new_postgres(pool.clone())
         .await
         .unwrap();
     let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
-    let wallet = format!("5Legacy{}", uuid::Uuid::new_v4().simple());
-    sqlx::query(
-        "INSERT INTO legacy_wallet_identities (wallet_address, user_id, kind) VALUES ($1, $2::uuid, 'wallet')",
-    )
-    .bind(&wallet)
-    .bind(&user)
-    .execute(&pool)
-    .await
-    .expect("seed historical identity");
 
     let mut ids = Vec::new();
-    for accessor in [&wallet, &user] {
+    for accessor in [&user, &user] {
         let id = format!("AUD-{}", uuid::Uuid::new_v4());
         ids.push(id.clone());
         repositories
@@ -247,7 +266,7 @@ async fn a_pre_migration_access_log_is_found_through_the_persons_legacy_key() {
     ids.sort();
     assert_eq!(
         found_ids, ids,
-        "both the sealed wallet row and the new row are this person's"
+        "every row written under the person's user id is found"
     );
     pool.close().await;
 }

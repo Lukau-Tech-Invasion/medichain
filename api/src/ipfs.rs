@@ -143,7 +143,8 @@ impl From<reqwest::Error> for IpfsError {
         if err.is_timeout() {
             Self::Timeout
         } else {
-            Self::RequestFailed(err.to_string())
+            log::error!("IPFS request failed: {err}");
+            Self::RequestFailed("Upstream request failed".to_string())
         }
     }
 }

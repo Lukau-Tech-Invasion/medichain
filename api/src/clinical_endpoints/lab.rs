@@ -221,6 +221,29 @@ pub async fn get_specimen(
 }
 
 /// List all specimen collections
+#[derive(serde::Serialize)]
+struct ListedSpecimen {
+    #[serde(flatten)]
+    specimen: SpecimenCollectionEntity,
+    rejected: bool,
+}
+
+/// Read recorded rejection IDs; an unavailable register cannot imply acceptance.
+async fn specimen_rejected_ids(
+    data: &AppState,
+) -> Result<std::collections::HashSet<String>, HttpResponse> {
+    match data.repositories.specimen_rejections.list_all().await {
+        Ok(rows) => Ok(rows.into_iter().map(|row| row.specimen_id).collect()),
+        Err(error) => {
+            log::error!("failed to read specimen rejection status: {error}");
+            Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Specimen rejection status could not be loaded".to_string(),
+                code: "REPO_ERROR".to_string(),
+            }))
+        }
+    }
+}
+
 #[get("/api/clinical/specimens")]
 pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -245,11 +268,18 @@ pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) ->
     // collection from an uncollected order. Do not turn a repository failure
     // into an empty worklist: an unavailable laboratory register is unknown,
     // not proof that the queue is clear.
+    let rejected_ids = match specimen_rejected_ids(&data).await {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
     match data.repositories.specimen_collections.list_all().await {
         Ok(specimens) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "total": specimens.len(),
-            "specimens": specimens,
+            "specimens": specimens.into_iter().map(|specimen| ListedSpecimen {
+                rejected: rejected_ids.contains(&specimen.id),
+                specimen,
+            }).collect::<Vec<_>>(),
         })),
         Err(error) => {
             log::error!("failed to list specimen collections: {error}");
@@ -272,6 +302,52 @@ mod specimen_list_tests {
         register(&state, "lab_tech", crate::Role::LabTechnician);
         seed_patient(&state, "PAT-SPECIMEN-1").await;
         web::Data::new(state)
+    }
+
+    #[actix_web::test]
+    async fn specimen_list_retains_recorded_rejection_status() {
+        let app = test::init_service(
+            App::new()
+                .app_data(state().await)
+                .service(create_specimen)
+                .service(create_specimen_rejection)
+                .service(list_specimens),
+        )
+        .await;
+        let created = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/specimen")
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
+                .set_json(serde_json::json!({
+                    "patient_id": "PAT-SPECIMEN-1", "specimen_type": "blood",
+                    "tests_ordered": "Synthetic CBC", "checklist": ["verify-id", "label"]
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created: serde_json::Value = test::read_body_json(created).await;
+        let rejected = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/specimen-rejection")
+            .insert_header(crate::test_fixtures::as_user("lab_tech"))
+            .set_json(serde_json::json!({
+                "specimen_id": created["collection_id"], "rejection_reason": "Synthetic damaged container",
+                "rejection_category": "container_issue", "recollection_required": true
+            })).to_request()).await;
+        assert_eq!(rejected.status(), StatusCode::CREATED);
+        let listed = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/clinical/specimens")
+                .insert_header(crate::test_fixtures::as_user("lab_tech"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(listed.status(), StatusCode::OK);
+        let body: serde_json::Value = test::read_body_json(listed).await;
+        assert_eq!(body["specimens"][0]["rejected"], true);
+        assert_eq!(body["specimens"][0]["id"], created["collection_id"]);
     }
 
     #[actix_web::test]

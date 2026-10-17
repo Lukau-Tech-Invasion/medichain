@@ -40,6 +40,15 @@ fn require_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
     })
 }
 
+/// Log repository details without returning them to an insurance-card caller.
+fn card_repository_error(error: impl std::fmt::Display) -> HttpResponse {
+    log::error!("Insurance-card repository operation failed: {error}");
+    HttpResponse::InternalServerError().json(ErrorResponse {
+        error: "Insurance-card storage is temporarily unavailable".to_string(),
+        code: "REPOSITORY_ERROR".to_string(),
+    })
+}
+
 /// Fetch a card by id and confirm the caller may act on it: the card's owner, or
 /// a healthcare provider. Otherwise the appropriate error response.
 ///
@@ -60,12 +69,7 @@ async fn require_card_access(
                 code: "NOT_FOUND".to_string(),
             }))
         }
-        Err(e) => {
-            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
-                error: e.to_string(),
-                code: "REPOSITORY_ERROR".to_string(),
-            }))
-        }
+        Err(e) => return Err(card_repository_error(e)),
     };
     let is_provider = get_user(data, caller)
         .map(|u| u.role.is_healthcare_provider())
@@ -135,10 +139,7 @@ pub async fn list_insurance_cards(
                 "next_cursor": next_cursor,
             }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 
@@ -200,10 +201,7 @@ pub async fn create_insurance_card(
             "success": true,
             "card": card_json(&saved),
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 
@@ -243,10 +241,7 @@ pub async fn update_insurance_card(
             "success": true,
             "card": card_json(&saved),
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 
@@ -345,10 +340,11 @@ pub async fn upload_insurance_card_image(
     {
         Ok(r) => r,
         Err(e) => {
+            log::error!("Encrypted insurance-card upload failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("IPFS upload failed: {}", e),
+                error: "Document storage is temporarily unavailable".to_string(),
                 code: "IPFS_ERROR".to_string(),
-            })
+            });
         }
     };
 
@@ -373,10 +369,7 @@ pub async fn upload_insurance_card_image(
         updated_at: Utc::now(),
     };
     if let Err(e) = data.repositories.insurance_cards.create(entity).await {
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        });
+        return card_repository_error(e);
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -467,10 +460,7 @@ pub async fn delete_insurance_card(
             "success": true,
             "message": "Insurance card deleted",
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 

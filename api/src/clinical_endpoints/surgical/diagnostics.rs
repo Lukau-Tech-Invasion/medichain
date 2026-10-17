@@ -64,6 +64,18 @@ pub struct CreateAnesthesiaRequest {
     pub rest: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Validate a submitted technique while preserving an unrecorded value as absent.
+fn recorded_anesthesia_type(value: Option<&str>) -> Result<Option<String>, ()> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    match value {
+        "general" | "regional" | "local" | "sedation" | "combined" | "mac" | "spinal"
+        | "epidural" => Ok(Some(value.to_string())),
+        _ => Err(()),
+    }
+}
+
 #[post("/api/surgical/anesthesia")]
 pub async fn create_anesthesia(
     data: web::Data<AppState>,
@@ -84,6 +96,15 @@ pub async fn create_anesthesia(
             code: "VALIDATION_ERROR".to_string(),
         });
     }
+    let anesthesia_type = match recorded_anesthesia_type(record.anesthesia_type.as_deref()) {
+        Ok(value) => value,
+        Err(()) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "anesthesia_type is not supported".to_string(),
+                code: "VALIDATION_ERROR".to_string(),
+            })
+        }
+    };
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -131,7 +152,7 @@ pub async fn create_anesthesia(
         // in -- not whoever the body names.
         anesthesiologist_id: current_user_id.clone(),
         crna_id: None,
-        anesthesia_type: record.anesthesia_type.clone().unwrap_or_default(),
+        anesthesia_type,
         asa_classification: record.asa_class.clone(),
         airway_management: record.airway_type.clone(),
         induction_agents: record.induction_agents.clone(),
@@ -371,7 +392,17 @@ pub async fn create_radiology_report(
     };
     let current_user_id = caller.id.clone();
 
-    let report = req.into_inner();
+    let mut report = req.into_inner();
+    report.radiologist = caller.id.clone();
+    if report
+        .study_datetime
+        .is_some_and(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0).is_none())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Study date/time is outside the supported range".into(),
+            code: "INVALID_STUDY_TIME".into(),
+        });
+    }
     let owner_id = report.patient_id.clone();
     // Kept before `report` is moved into the repository: the demo re-seed
     // branch below needs it to recognise its own fixture on a duplicate.
@@ -838,6 +869,23 @@ mod anesthesia_round_trip_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
+    /// Omitted techniques remain unknown; recorded techniques use the database vocabulary.
+    #[actix_rt::test]
+    async fn anesthesia_techniques_preserve_unknown_and_reject_unsupported_values() {
+        for unknown in [None, Some(""), Some("  ")] {
+            assert_eq!(super::recorded_anesthesia_type(unknown), Ok(None));
+        }
+        for technique in [
+            "general", "regional", "local", "sedation", "combined", "mac", "spinal", "epidural",
+        ] {
+            assert_eq!(
+                super::recorded_anesthesia_type(Some(technique)),
+                Ok(Some(technique.into()))
+            );
+        }
+        assert!(super::recorded_anesthesia_type(Some("invented")).is_err());
+    }
+
     fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
@@ -862,6 +910,64 @@ mod anesthesia_round_trip_tests {
             .unwrap()
             .insert(user_id.to_string(), user);
         web::Data::new(state)
+    }
+
+    /// HTTP reports preserve unknown/recorded times, reject invalid dates and bind the author.
+    #[actix_rt::test]
+    async fn radiology_time_contract_preserves_unknown_and_binds_author() {
+        for (timestamp, omit, expected) in [
+            (None, true, 201),
+            (None, false, 201),
+            (Some(1_755_003_600_i64), false, 201),
+            (Some(i64::MAX), false, 400),
+        ] {
+            let state = state_with(Role::Doctor, "5Doctor");
+            let mut payload = serde_json::json!({
+                "report_id":"RAD-TIME-QA", "patient_id":"PAT-QA", "order_id":"ORDER-QA",
+                "accession_number":"", "study_type":"XRay", "body_part":"Chest",
+                "study_datetime":timestamp, "technique":"Fictional QA", "clinical_history":"",
+                "findings":"No actual images reviewed", "impression":["Synthetic QA only"],
+                "critical_finding":false, "radiologist":"5ForgedAuthor", "status":"Preliminary"
+            });
+            if omit {
+                payload.as_object_mut().unwrap().remove("study_datetime");
+            }
+            let app = test::init_service(
+                App::new()
+                    .app_data(state.clone())
+                    .service(super::create_radiology_report),
+            )
+            .await;
+            let req = test::TestRequest::post()
+                .uri("/api/surgical/radiology/report")
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
+                .set_json(payload)
+                .to_request();
+            let response = test::call_service(&app, req).await;
+            assert_eq!(response.status().as_u16(), expected);
+            if expected == 201 {
+                let stored = state
+                    .repositories
+                    .radiology_reports
+                    .get_by_id("RAD-TIME-QA")
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    stored.study_datetime.map(|date| date.timestamp()),
+                    timestamp
+                );
+                assert_eq!(stored.radiologist_id, "5Doctor");
+                assert_eq!(stored.data["radiologist"], "5Doctor");
+            } else {
+                assert!(state
+                    .repositories
+                    .radiology_reports
+                    .list_all()
+                    .await
+                    .unwrap()
+                    .is_empty());
+            }
+        }
     }
 
     /// `AnesthesiaPage`'s payload, field for field -- camelCase, flat, and

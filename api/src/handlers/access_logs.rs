@@ -100,10 +100,10 @@ async fn apply_seal_status(data: &web::Data<AppState>, logs: &mut [AccessLogView
     }
 }
 
-/// The user behind each accessor key on `logs`. New rows carry a user id; rows
-/// sealed before the identity migration carry the old wallet address, which the
-/// actor directory maps to the same person. An accessor nobody can resolve is
-/// simply absent: it is never rendered as somebody else's name.
+/// The user behind each accessor key on `logs`. Every row carries a user id; a
+/// key the in-memory cache misses is looked up in the durable users table. An
+/// accessor nobody can resolve is simply absent: it is never rendered as
+/// somebody else's name.
 async fn accessors_by_key(
     data: &web::Data<AppState>,
     logs: &[AccessLogView],

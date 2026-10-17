@@ -32,7 +32,7 @@ impl VitalSignsRepository for PgVitalSignsRepository {
                 blood_pressure_diastolic, mean_arterial_pressure, temperature, temperature_site,
                 oxygen_saturation, oxygen_delivery, fio2, pain_scale, gcs_score, gcs_eye,
                 gcs_verbal, gcs_motor, blood_glucose, weight_kg, height_cm, bmi, position,
-                activity_level, is_critical, critical_values, recorded_at, recorded_by, facility_id
+                activity_level, is_critical, critical_values, recorded_at, recorded_by, facility_id, notes
             ) ",
         );
 
@@ -64,7 +64,8 @@ impl VitalSignsRepository for PgVitalSignsRepository {
                 .push_bind(&v.critical_values)
                 .push_bind(v.recorded_at)
                 .push_bind(&v.recorded_by)
-                .push_bind(&v.facility_id);
+                .push_bind(&v.facility_id)
+                .push_bind(&v.notes);
         });
 
         qb.push(" RETURNING *");

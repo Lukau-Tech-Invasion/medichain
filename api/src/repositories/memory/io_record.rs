@@ -195,6 +195,7 @@ impl IORecordRepository for MemoryIORecordRepository {
             b.record_date
                 .cmp(&a.record_date)
                 .then_with(|| a.shift.cmp(&b.shift))
+                .then_with(|| a.id.cmp(&b.id))
         });
 
         let total = records.len() as u64;

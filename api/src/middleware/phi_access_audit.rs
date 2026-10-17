@@ -206,6 +206,14 @@ pub const PHI_READ_ROUTES: &[PhiReadRoute] = &[
         "/api/clinical/psych/patient/{patient_id}",
         "Mental health assessments",
     ),
+    route(
+        "/api/clinical/tox/patient/{patient_id}",
+        "Toxicology assessments",
+    ),
+    route(
+        "/api/clinical/burn/patient/{patient_id}",
+        "Burn assessments",
+    ),
     route("/api/clinical/vitals/flowsheet/{patient_id}", "Vital signs"),
     route("/api/consent/patient/{patient_id}", "Consent records"),
     route("/api/e-prescriptions/patient/{patient_id}", "Prescriptions"),

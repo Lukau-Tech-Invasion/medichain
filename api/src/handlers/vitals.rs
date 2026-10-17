@@ -25,6 +25,26 @@ pub struct AddVitalSignsRequest {
     pub demo_seed_key: Option<String>,
 }
 
+impl AddVitalSignsRequest {
+    /// Return whether this request contains any measured observation; notes alone are not vitals.
+    fn has_measurement(&self) -> bool {
+        [
+            self.heart_rate.is_some(),
+            self.systolic_bp.is_some(),
+            self.diastolic_bp.is_some(),
+            self.respiratory_rate.is_some(),
+            self.oxygen_saturation.is_some(),
+            self.temperature_celsius.is_some(),
+            self.pain_scale.is_some(),
+            self.gcs_total.is_some(),
+            self.blood_glucose.is_some(),
+            self.weight_kg.is_some(),
+        ]
+        .into_iter()
+        .any(|present| present)
+    }
+}
+
 /// Response for vital signs reading
 #[derive(Debug, Serialize)]
 pub struct VitalSignsResponse {
@@ -53,6 +73,7 @@ pub(crate) fn vital_reading_json(
         "gcs_total": v.gcs_score,
         "blood_glucose": v.blood_glucose,
         "weight_kg": v.weight_kg,
+        "notes": v.notes,
     })
 }
 
@@ -91,6 +112,13 @@ pub async fn add_vital_signs(
                 current_user.role
             ),
             code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    if !req.has_measurement() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Enter at least one measured vital sign before saving".to_string(),
+            code: "VITAL_MEASUREMENT_REQUIRED".to_string(),
         });
     }
 
@@ -556,6 +584,128 @@ mod cds_wiring_tests {
             status: "active".to_string(),
             last_login: None,
         }
+    }
+
+    /// Empty or notes-only submissions never create a reading; explicit zero remains measured.
+    #[actix_web::test]
+    async fn empty_vitals_are_refused_but_zero_pain_is_recorded() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-VITAL-PRESENCE";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
+        let data = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(add_vital_signs)).await;
+        for payload in [
+            serde_json::json!({"patient_id": patient_id}),
+            serde_json::json!({"patient_id": patient_id, "notes": "Synthetic note only"}),
+        ] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/vitals")
+                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                    .set_json(payload)
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+            assert!(data
+                .repositories
+                .vital_signs
+                .get_latest_by_patient(patient_id)
+                .await
+                .unwrap()
+                .is_none());
+        }
+        let response = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/vitals")
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .set_json(serde_json::json!({"patient_id": patient_id, "pain_scale": 0, "notes": "Synthetic measured observation"}))
+            .to_request()).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+        let stored = data
+            .repositories
+            .vital_signs
+            .get_latest_by_patient(patient_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.pain_scale, Some(0));
+        assert!(stored.heart_rate.is_none());
+        assert!(stored.temperature.is_none());
+        assert_eq!(
+            stored.notes.as_deref(),
+            Some("Synthetic measured observation")
+        );
+        assert_eq!(
+            vital_reading_json(stored)["notes"],
+            "Synthetic measured observation"
+        );
+    }
+
+    /// A recorded GCS preserves its explicit note along with all scored components.
+    #[actix_web::test]
+    async fn gcs_notes_survive_handler_persistence() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-GCS-NOTES";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(crate::create_gcs_assessment),
+        )
+        .await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/gcs")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(
+                    serde_json::json!({"patient_id": patient_id, "eye_response": 4,
+                "verbal_response": 5, "motor_response": 6, "notes": "Synthetic GCS note retained"}),
+                )
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        let stored = data
+            .repositories
+            .gcs_assessments
+            .get_by_id(body["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(stored.total_score, 15);
+        assert_eq!(stored.notes.as_deref(), Some("Synthetic GCS note retained"));
     }
 
     /// A pressure entered the wrong way round is refused, and nothing is stored.

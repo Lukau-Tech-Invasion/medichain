@@ -587,6 +587,10 @@ pub async fn list_care_plans(data: web::Data<AppState>, http_req: HttpRequest) -
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateWoundRequest {
     pub patient_id: String,
+    #[serde(default)]
+    pub previous_assessment_id: Option<String>,
+    #[serde(default)]
+    pub photos: Vec<String>,
     pub wound_type: String,
     pub location: String,
     #[serde(default)]
@@ -617,6 +621,12 @@ pub async fn create_wound(
     };
 
     let assessment = req.into_inner();
+    if let Err(response) =
+        super::wound_photos::validate_photos(&data, &assessment.patient_id, &assessment.photos)
+            .await
+    {
+        return response;
+    }
     if assessment.patient_id.trim().is_empty() || assessment.location.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "patient_id and location are required".to_string(),
@@ -646,13 +656,17 @@ pub async fn create_wound(
 
     let now = Utc::now();
     let id = format!("WND-{}", uuid::Uuid::new_v4().simple());
+    let wound_id = match linked_wound_id(&data, &assessment, &id).await {
+        Ok(wound_id) => wound_id,
+        Err(response) => return response,
+    };
     let cm = |v: Option<f64>| {
         v.and_then(|n| rust_decimal::Decimal::from_f64_retain(n).map(|d| d.round_dp(1)))
     };
     let entity = WoundAssessmentEntity {
         id: id.clone(),
         patient_id: assessment.patient_id.clone(),
-        wound_id: id.clone(),
+        wound_id,
         wound_location: assessment.location.clone(),
         wound_type: assessment.wound_type.clone(),
         length_cm: cm(assessment.length_cm),
@@ -670,7 +684,7 @@ pub async fn create_wound(
         treatment_applied: None,
         dressing_type: None,
         notes: assessment.notes.clone(),
-        photo_taken: Some(false),
+        photo_taken: Some(!assessment.photos.is_empty()),
         assessed_by: caller.id.clone(),
         assessed_at: now,
         created_at: now,
@@ -691,10 +705,117 @@ pub async fn create_wound(
     }
 }
 
+/// Resolve a follow-up to a stored wound without accepting a client-created series ID.
+/// Rejects cross-patient or changed-location links and returns the server's root ID.
+async fn linked_wound_id(
+    data: &AppState,
+    request: &CreateWoundRequest,
+    new_id: &str,
+) -> Result<String, HttpResponse> {
+    let Some(previous_id) = request.previous_assessment_id.as_deref() else {
+        return Ok(new_id.to_string());
+    };
+    let previous = data.repositories.wound_assessments.get_by_id(previous_id).await
+        .map_err(|_| HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "The previous wound assessment could not be linked", "code": "INVALID_WOUND_LINK"
+        })))?;
+    if previous.patient_id != request.patient_id
+        || previous.wound_location != request.location.trim()
+        || previous.wound_type != request.wound_type
+    {
+        return Err(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "A follow-up must keep the same patient, wound location and type", "code": "INVALID_WOUND_LINK"
+        })));
+    }
+    Ok(previous.wound_id)
+}
+
 /// Get wound assessment
 ///
 /// HZ-009 audit: took an unused `_http_req` with no authentication at all.
 /// Now matches `create_wound`'s authenticated-caller bar.
+#[cfg(test)]
+mod wound_followup_tests {
+    use super::*;
+
+    /// Follow-ups retain a server-owned series and reject foreign or forged attachments.
+    #[actix_web::test]
+    async fn wound_series_keeps_history_and_rejects_foreign_links() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-WOUND", Role::Nurse);
+        for patient in ["PAT-WOUND-A", "PAT-WOUND-B"] {
+            crate::test_fixtures::seed_patient(&state, patient).await;
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(create_wound)
+                .service(get_wound),
+        )
+        .await;
+        let body = serde_json::json!({ "patient_id": "PAT-WOUND-A", "wound_type": "traumatic", "location": "Fictional forearm", "length_cm": 2, "width_cm": 1 });
+        let request = test::TestRequest::post()
+            .uri("/api/emergency/wound")
+            .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+            .set_json(&body)
+            .to_request();
+        let root: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+        let root_id = root["id"].as_str().unwrap();
+        let mut followup = body.clone();
+        followup["previous_assessment_id"] = root_id.into();
+        followup["length_cm"] = 1.into();
+        let request = test::TestRequest::post()
+            .uri("/api/emergency/wound")
+            .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+            .set_json(&followup)
+            .to_request();
+        let second: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+        let record = state
+            .repositories
+            .wound_assessments
+            .get_by_id(second["id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(record.wound_id, root_id);
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/emergency/wound/{root_id}"))
+            .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+            .to_request();
+        let history: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+        assert_eq!(history["history_total"], 2);
+        assert_eq!(history["assessment_history"].as_array().unwrap().len(), 2);
+        for (field, value) in [
+            ("patient_id", serde_json::json!("PAT-WOUND-B")),
+            ("location", serde_json::json!("Different wound")),
+            ("previous_assessment_id", serde_json::json!("missing")),
+            ("photos", serde_json::json!(["forged-photo-hash"])),
+        ] {
+            let mut invalid = followup.clone();
+            invalid[field] = value;
+            let request = test::TestRequest::post()
+                .uri("/api/emergency/wound")
+                .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+                .set_json(invalid)
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, request).await.status(),
+                actix_web::http::StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            state
+                .repositories
+                .wound_assessments
+                .get_by_wound_id(root_id, Pagination::new(0, 10))
+                .await
+                .unwrap()
+                .total,
+            2
+        );
+    }
+}
+
 #[get("/api/emergency/wound/{id}")]
 pub async fn get_wound(
     data: web::Data<AppState>,
@@ -706,7 +827,17 @@ pub async fn get_wound(
     }
     let id = path.into_inner();
     match data.repositories.wound_assessments.get_by_id(&id).await {
-        Ok(record) => HttpResponse::Ok().json(record),
+        Ok(record) => {
+            match data.repositories.wound_assessments.get_by_wound_id(&record.wound_id, Pagination::new(0, 100)).await {
+                Ok(history) => {
+                    let mut response = json_value(&record);
+                    response["assessment_history"] = json_value(&history.items);
+                    response["history_total"] = json_value(&history.total);
+                    HttpResponse::Ok().json(response)
+                }
+                Err(_) => HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": "Wound history could not be loaded", "code": "REPO_ERROR" })),
+            }
+        }
         Err(_) => HttpResponse::NotFound().finish(),
     }
 }
@@ -814,6 +945,107 @@ pub struct CreateIvSiteRequest {
     pub sites: Vec<IvSiteInput>,
 }
 
+/// Persist removal attribution from the authenticated save, retaining it on re-save.
+fn persisted_iv_site_data(
+    site: &IvSiteInput,
+    previous_removal: Option<&serde_json::Value>,
+    caller_id: &str,
+    now: chrono::DateTime<Utc>,
+) -> serde_json::Value {
+    let mut detail = serde_json::to_value(site).unwrap_or_default();
+    if !site.is_active {
+        if let Some(object) = detail.as_object_mut() {
+            // Old discontinued rows with missing metadata remain unknown.
+            let removed_at = previous_removal
+                .map(|value| value.get("discontinuedAt").cloned().unwrap_or_default())
+                .unwrap_or_else(|| serde_json::json!(now.to_rfc3339()));
+            let removed_by = previous_removal
+                .map(|value| value.get("discontinuedBy").cloned().unwrap_or_default())
+                .unwrap_or_else(|| serde_json::json!(caller_id));
+            object.insert("discontinuedAt".to_string(), removed_at);
+            object.insert("discontinuedBy".to_string(), removed_by);
+        }
+    }
+    detail
+}
+
+#[cfg(test)]
+mod iv_removal_tests {
+    use super::*;
+
+    /// Saving an unassessed site must not manufacture a normal grade or care action.
+    #[actix_web::test]
+    async fn unassessed_iv_site_remains_unknown_while_explicit_normal_is_zero() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-QA", Role::Nurse);
+        crate::test_fixtures::seed_patient(&state, "PAT-IV-QA").await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(create_iv_site)).await;
+        for (site_id, conditions, expected) in [
+            ("unknown", Vec::<&str>::new(), None),
+            ("normal", vec!["clean-dry-intact"], Some(0)),
+        ] {
+            let request = test::TestRequest::post()
+                .uri("/api/emergency/iv-site")
+                .insert_header(crate::test_fixtures::as_user("NURSE-QA"))
+                .set_json(serde_json::json!({ "patient_id": "PAT-IV-QA", "sites": [{
+                    "id": site_id, "location": "left-forearm", "catheterType": "peripheral",
+                    "gauge": "22G", "insertedAt": "2026-10-10T10:00:00Z", "isActive": true,
+                    "assessments": [{ "conditions": conditions, "notes": "Fictional QA only" }]
+                }] }))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert!(response.status().is_success());
+            let record = state
+                .repositories
+                .iv_assessments
+                .get_by_id(&format!("IV-PAT-IV-QA-{site_id}"))
+                .await
+                .unwrap();
+            assert_eq!(record.phlebitis_grade, expected);
+            if expected.is_none() {
+                assert!(record.actions_taken.is_none());
+                assert!(record.dressing_intact.is_none());
+                assert!(record.patency.is_none());
+                assert!(record.infiltration_grade.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn removal_uses_authenticated_author_and_server_time() {
+        let site: IvSiteInput = serde_json::from_value(serde_json::json!({
+            "id": "SITE-1", "isActive": false, "discontinuedReason": "Routine change",
+            "discontinuedAt": "2099-01-01T00:00:00Z", "discontinuedBy": "forged"
+        }))
+        .unwrap();
+        let now = "2026-10-08T05:00:00Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .unwrap();
+        let detail = persisted_iv_site_data(&site, None, "nurse-1", now);
+        assert_eq!(detail["discontinuedAt"], "2026-10-08T05:00:00+00:00");
+        assert_eq!(detail["discontinuedBy"], "nurse-1");
+        assert_eq!(detail["discontinuedReason"], "Routine change");
+        let later = now + chrono::Duration::hours(2);
+        let saved_again = persisted_iv_site_data(&site, Some(&detail), "nurse-2", later);
+        assert_eq!(saved_again["discontinuedAt"], detail["discontinuedAt"]);
+        assert_eq!(saved_again["discontinuedBy"], "nurse-1");
+    }
+
+    #[test]
+    fn legacy_missing_removal_metadata_stays_unknown() {
+        let site: IvSiteInput = serde_json::from_value(serde_json::json!({
+            "id": "SITE-1", "isActive": false
+        }))
+        .unwrap();
+        let detail =
+            persisted_iv_site_data(&site, Some(&serde_json::json!({})), "nurse-2", Utc::now());
+        assert!(detail["discontinuedAt"].is_null());
+        assert!(detail["discontinuedBy"].is_null());
+    }
+}
+
 #[post("/api/emergency/iv-site")]
 pub async fn create_iv_site(
     data: web::Data<AppState>,
@@ -860,11 +1092,6 @@ pub async fn create_iv_site(
         let inserted = chrono::DateTime::parse_from_rfc3339(&site.inserted_at)
             .map(|d| d.with_timezone(&Utc).date_naive())
             .unwrap_or_else(|_| now.date_naive());
-        let location = if site.location_detail.trim().is_empty() {
-            site.location.clone()
-        } else {
-            format!("{} ({})", site.location, site.location_detail.trim())
-        };
 
         // The most recent look at the site is the one that describes it now.
         // Every field below was hardcoded `None`: the appearance, the phlebitis
@@ -873,7 +1100,9 @@ pub async fn create_iv_site(
         // so a cannula with a stage-4 site read back as never assessed.
         let latest = site.assessments.last();
         let conditions: Vec<String> = latest.map(|a| a.conditions.clone()).unwrap_or_default();
-        let phlebitis = latest.map(|_| crate::clinical_scoring::vip_score(&conditions));
+        let phlebitis = latest
+            .filter(|_| !conditions.is_empty())
+            .map(|_| crate::clinical_scoring::vip_score(&conditions));
         // The finding that set the score, for the queryable column.
         let worst_condition = phlebitis.and_then(|score| {
             conditions
@@ -882,12 +1111,19 @@ pub async fn create_iv_site(
                 .map(String::as_str)
         });
         let dwell_hours = crate::clinical_scoring::catheter_dwell_limit_hours(&site.catheter_type);
+        let existing = data.repositories.iv_assessments.get_by_id(&id).await.ok();
+        let previous_removal = existing
+            .as_ref()
+            .filter(|row| row.site_discontinued == Some(true))
+            .map(|row| &row.data);
 
         let entity = crate::repositories::traits::IVAssessmentEntity {
             id: id.clone(),
             patient_id: record.patient_id.clone(),
             site_id: site.id.clone(),
-            site_location: location,
+            // The VARCHAR(64) column stores the site vocabulary. Free-text
+            // detail remains intact in `data.locationDetail`.
+            site_location: site.location.clone(),
             catheter_type: Some(site.catheter_type.clone()).filter(|c| !c.is_empty()),
             catheter_gauge: Some(site.gauge.clone()).filter(|g| !g.is_empty()),
             insertion_date: Some(inserted),
@@ -923,16 +1159,10 @@ pub async fn create_iv_site(
             created_at: now,
             updated_at: now,
             facility_id: None,
-            data: serde_json::to_value(site).unwrap_or_default(),
+            data: persisted_iv_site_data(site, previous_removal, &caller.id, now),
         };
 
-        let existing = data
-            .repositories
-            .iv_assessments
-            .get_by_id(&id)
-            .await
-            .is_ok();
-        let outcome = if existing {
+        let outcome = if existing.is_some() {
             data.repositories
                 .iv_assessments
                 .update(entity)
@@ -1081,12 +1311,36 @@ pub struct CreateShiftHandoffRequest {
     pub handoff_date: String,
     #[serde(default)]
     pub handoff_time: String,
+    /// Explicit instant from clients that capture a local date and time.
+    #[serde(default)]
+    pub handoff_datetime: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub outgoing_nurse: String,
     pub incoming_nurse: String,
     #[serde(default)]
     pub unit: String,
     pub patients: Vec<HandoffPatientInput>,
+}
+
+#[cfg(test)]
+mod handoff_datetime_contract_tests {
+    use super::CreateShiftHandoffRequest;
+
+    #[test]
+    fn explicit_handoff_instant_preserves_johannesburg_offset_and_rejects_invalid_time() {
+        let mut body = serde_json::json!({
+            "incoming_nurse": "synthetic-nurse", "patients": [],
+            "handoff_date": "2026-10-09", "handoff_time": "00:06",
+            "handoff_datetime": "2026-10-09T00:06:00+02:00"
+        });
+        let parsed: CreateShiftHandoffRequest = serde_json::from_value(body.clone()).unwrap();
+        assert_eq!(
+            parsed.handoff_datetime.unwrap().to_rfc3339(),
+            "2026-10-08T22:06:00+00:00"
+        );
+        body["handoff_datetime"] = serde_json::json!("not-an-instant");
+        assert!(serde_json::from_value::<CreateShiftHandoffRequest>(body).is_err());
+    }
 }
 
 #[post("/api/emergency/handoff")]
@@ -1101,10 +1355,27 @@ pub async fn create_shift_handoff(
     };
 
     let handoff = req.into_inner();
+    if !handoff.outgoing_nurse.trim().is_empty() && handoff.outgoing_nurse != caller.id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "The outgoing provider must be the signed-in clinician".to_string(),
+            code: "ACCESS_FORBIDDEN".to_string(),
+        });
+    }
     if handoff.incoming_nurse.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "incoming_nurse is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    // A display name cannot identify the account that must receive this handoff.
+    let recipient = get_user(&data, &handoff.incoming_nurse);
+    if !recipient
+        .as_ref()
+        .is_some_and(|user| user.status == "active" && user.role.can_view_medical_records())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Select an active clinician from the staff directory".to_string(),
+            code: "INVALID_RECIPIENT".to_string(),
         });
     }
     if handoff.patients.is_empty() {
@@ -1117,7 +1388,9 @@ pub async fn create_shift_handoff(
     // Handoff date and time are facility wall-clock, exactly like an appointment,
     // so they go through the same conversion rather than being read as UTC — a
     // handoff logged at 19:00 SAST must not be stored as 19:00Z.
-    let when = if handoff.handoff_date.trim().is_empty() {
+    let when = if let Some(instant) = handoff.handoff_datetime {
+        instant
+    } else if handoff.handoff_date.trim().is_empty() {
         Utc::now()
     } else {
         crate::types::appt_to_datetime(&handoff.handoff_date, &handoff.handoff_time)
@@ -1145,11 +1418,8 @@ pub async fn create_shift_handoff(
         let entity = crate::repositories::traits::ShiftHandoffEntity {
             id: id.clone(),
             patient_id: patient.patient_id.clone(),
-            outgoing_provider_id: if handoff.outgoing_nurse.trim().is_empty() {
-                caller.id.clone()
-            } else {
-                handoff.outgoing_nurse.clone()
-            },
+            // Clinical authorship belongs to the authenticated actor, never a supplied identifier.
+            outgoing_provider_id: caller.id.clone(),
             incoming_provider_id: handoff.incoming_nurse.clone(),
             handoff_datetime: when,
             // `handoff_type` is the KIND of handoff the schema constrains
@@ -1264,6 +1534,62 @@ pub async fn get_shift_handoff(
                 error: "The handoff could not be read".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
+        }
+    }
+}
+
+/// Record receipt by the authenticated recipient; repeated calls preserve first receipt.
+/// Path identifies one patient handoff. Receipt does not confirm clinical read-back.
+#[put("/api/emergency/handoff/{id}/receipt")]
+pub async fn acknowledge_shift_handoff(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(response) => return response,
+    };
+    let id = path.into_inner();
+    let record = match data.repositories.shift_handoffs.get_by_id(&id).await {
+        Ok(record) => record,
+        Err(RepositoryError::NotFound(_)) => return HttpResponse::NotFound().finish(),
+        Err(error) => {
+            log::error!("Handoff receipt lookup failed: {error}");
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+    if record.incoming_provider_id != caller.id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the receiving clinician can acknowledge receipt".into(),
+            code: "NOT_RECIPIENT".into(),
+        });
+    }
+    if let Err(response) = crate::support::ensure_not_restricted(&data, &record.patient_id).await {
+        return response;
+    }
+    // This records an authorized request, not a claim that the later write succeeded.
+    let mut audit: AccessLogEntity = AccessLogEntry {
+        access_id: crate::middleware::secure_tokens::generate_access_id(),
+        patient_id: record.patient_id.clone(),
+        accessor_id: caller.id.clone(),
+        accessor_role: caller.role.to_string(),
+        access_type: "handoff_receipt_requested".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }
+    .into();
+    audit.resource_type = "shift_handoff".to_string();
+    audit.resource_id = Some(id.clone());
+    if let Err(response) = crate::support::require_durable_audit(&data, audit).await {
+        return response;
+    }
+    match data.repositories.shift_handoffs.acknowledge(&id).await {
+        Ok(saved) => HttpResponse::Ok().json(saved),
+        Err(error) => {
+            log::error!("Handoff receipt persistence failed: {error}");
+            HttpResponse::InternalServerError().finish()
         }
     }
 }

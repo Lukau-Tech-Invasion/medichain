@@ -27,6 +27,25 @@ macro_rules! pg_json_repo {
 
         #[async_trait]
         impl JsonRecordRepository for $name {
+            async fn create_if_absent(
+                &self,
+                record: JsonRecordEntity,
+            ) -> RepositoryResult<Option<JsonRecordEntity>> {
+                Ok(sqlx::query_as::<_, JsonRecordEntity>(concat!(
+                    "INSERT INTO ",
+                    $table,
+                    " (id, owner_id, data, created_at, updated_at) VALUES ($1,$2,$3,$4,$5) ",
+                    "ON CONFLICT (id) DO NOTHING RETURNING *"
+                ))
+                .bind(&record.id)
+                .bind(&record.owner_id)
+                .bind(&record.data)
+                .bind(record.created_at)
+                .bind(record.updated_at)
+                .fetch_optional(&self.pool)
+                .await?)
+            }
+
             async fn create(&self, record: JsonRecordEntity) -> RepositoryResult<JsonRecordEntity> {
                 let result = sqlx::query_as::<_, JsonRecordEntity>(concat!(
                     "INSERT INTO ",

@@ -5,6 +5,7 @@ use serde_json::Value;
 mod assessments;
 mod crisis;
 mod management;
+mod wound_photos;
 
 pub use assessments::*;
 pub use crisis::*;

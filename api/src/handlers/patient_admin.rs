@@ -2,6 +2,48 @@ use super::*;
 
 use crate::pagination::{decode_cursor, encode_cursor_ms, CursorQuery, Cursorable, MAX_LIMIT};
 
+/// Apply name-only edits without changing previously recorded clinical findings.
+fn reconcile_allergy_names(names: &[String], existing: &[Allergy]) -> Vec<Allergy> {
+    names
+        .iter()
+        .map(|name| {
+            existing
+                .iter()
+                .find(|allergy| allergy.name.trim().eq_ignore_ascii_case(name.trim()))
+                .cloned()
+                .unwrap_or_else(|| Allergy {
+                    name: name.trim().to_string(),
+                    severity: AllergySeverity::Unknown,
+                    reaction: None,
+                    verified_at: None,
+                })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod allergy_name_edit_tests {
+    use super::*;
+
+    #[test]
+    fn name_only_edits_preserve_reaction_and_verification() {
+        let existing = Allergy {
+            name: "Penicillin".into(),
+            severity: AllergySeverity::Severe,
+            reaction: Some("Recorded reaction".into()),
+            verified_at: Some(Utc::now()),
+        };
+        let edited =
+            reconcile_allergy_names(&["penicillin".into(), "Latex".into()], &[existing.clone()]);
+        assert_eq!(edited[0].severity, AllergySeverity::Severe);
+        assert_eq!(edited[0].reaction, existing.reaction);
+        assert_eq!(edited[0].verified_at, existing.verified_at);
+        assert_eq!(edited[1].severity, AllergySeverity::Unknown);
+        assert!(edited[1].reaction.is_none());
+        assert!(edited[1].verified_at.is_none());
+    }
+}
+
 impl Cursorable for PatientProfile {
     fn cursor_ts(&self) -> i64 {
         self.last_updated.timestamp_millis()
@@ -439,16 +481,8 @@ pub async fn update_patient(
 
     // Update fields if provided
     if let Some(allergies) = &req.allergies {
-        // Convert string allergies to Allergy structs with Mild severity
-        patient.emergency_info.allergies = allergies
-            .iter()
-            .map(|name| Allergy {
-                name: name.clone(),
-                severity: AllergySeverity::Mild,
-                reaction: None,
-                verified_at: Some(Utc::now()),
-            })
-            .collect();
+        patient.emergency_info.allergies =
+            reconcile_allergy_names(allergies, &patient.emergency_info.allergies);
     }
     if let Some(meds) = &req.current_medications {
         patient.emergency_info.current_medications = meds.clone();

@@ -1254,8 +1254,8 @@ impl ShiftHandoffRepository for PgShiftHandoffRepository {
     async fn acknowledge(&self, id: &str) -> RepositoryResult<ShiftHandoffEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE shift_handoffs SET ");
         qb.push("acknowledged_by_incoming = true");
-        qb.push(", acknowledged_at = ").push_bind(Utc::now());
-        qb.push(", updated_at = NOW() WHERE id = ").push_bind(id);
+        qb.push(", acknowledged_at = COALESCE(acknowledged_at, NOW())");
+        qb.push(", updated_at = CASE WHEN acknowledged_by_incoming THEN updated_at ELSE NOW() END WHERE id = ").push_bind(id);
         qb.push(" RETURNING *");
 
         let result = qb

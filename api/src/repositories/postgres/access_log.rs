@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::repositories::{
-    AccessLogEntity, AccessLogRepository, DateRange, PaginatedResult, Pagination, RepositoryResult,
+    AccessLogEntity, AccessLogRepository, DateRange, PaginatedResult, Pagination,
+    PatientGrantUsage, RepositoryResult,
 };
 
 /// PostgreSQL-backed access log repository
@@ -23,6 +24,22 @@ impl PgAccessLogRepository {
 
 #[async_trait]
 impl AccessLogRepository for PgAccessLogRepository {
+    async fn patient_grant_usage(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<PatientGrantUsage>> {
+        Ok(sqlx::query_as::<_, PatientGrantUsage>(
+            "SELECT authority_id AS grant_id, COUNT(*) AS access_count,
+                    MAX(accessed_at) AS last_accessed
+             FROM access_logs WHERE patient_id = $1
+               AND authority_type = 'patient_grant' AND authority_id IS NOT NULL
+             GROUP BY authority_id",
+        )
+        .bind(patient_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO access_logs (

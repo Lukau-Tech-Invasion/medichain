@@ -57,6 +57,21 @@ fn json_path<'a>(value: &'a serde_json::Value, field: &str) -> Option<&'a serde_
 
 #[async_trait]
 impl JsonRecordRepository for MemoryJsonRecordRepository {
+    async fn create_if_absent(
+        &self,
+        record: JsonRecordEntity,
+    ) -> RepositoryResult<Option<JsonRecordEntity>> {
+        let mut data = self
+            .data
+            .write()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        if data.contains_key(&record.id) {
+            return Ok(None);
+        }
+        data.insert(record.id.clone(), record.clone());
+        Ok(Some(record))
+    }
+
     async fn create(&self, mut record: JsonRecordEntity) -> RepositoryResult<JsonRecordEntity> {
         let mut data = self
             .data

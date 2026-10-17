@@ -12,11 +12,195 @@ use std::sync::{
     OnceLock,
 };
 
+/// Nullable pediatric observations preserve unknown, negative and positive values in PostgreSQL.
+#[tokio::test]
+async fn test_pg_pediatric_unknown_observations_round_trip() {
+    use crate::repositories::traits::{PediatricAssessmentEntity, PediatricAssessmentRepository};
+    let pool = get_test_pool().await;
+    let patient_id = format!("PEDS-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Doctor', 'Synthetic Pediatric Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let repo = crate::repositories::postgres::PgPediatricAssessmentRepository::new(pool.clone());
+    for observation in [None, Some(false), Some(true)] {
+        let record = PediatricAssessmentEntity {
+            id: format!("PEDS-{}", uuid::Uuid::new_v4()),
+            patient_id: patient_id.clone(),
+            assessed_by: user_id.to_string(),
+            weight_estimated: observation,
+            parent_guardian_present: observation,
+            child_protective_concerns: observation,
+            cps_notified: observation,
+            age_months: observation.map(|_| 0),
+            data: serde_json::json!({"synthetic":true}),
+            ..Default::default()
+        };
+        let created = repo.create(record.clone()).await.unwrap();
+        let stored = repo.get_by_id(&created.id).await.unwrap();
+        assert_eq!(stored.age_months, record.age_months);
+        assert_eq!(stored.weight_estimated, observation);
+        assert_eq!(stored.parent_guardian_present, observation);
+        assert_eq!(stored.child_protective_concerns, observation);
+        assert_eq!(stored.cps_notified, observation);
+        assert_eq!(stored.appearance_score, None);
+        assert_eq!(stored.work_of_breathing, None);
+        assert_eq!(stored.circulation_to_skin, None);
+        assert_eq!(stored.data, record.data);
+    }
+    pool.close().await;
+}
+
+/// PostgreSQL distinguishes missing psychiatric observations from documented negative findings.
+#[tokio::test]
+async fn test_pg_psychiatric_unknown_observations_round_trip() {
+    use crate::repositories::traits::{
+        PsychiatricAssessmentEntity, PsychiatricAssessmentRepository,
+    };
+    let pool = get_test_pool().await;
+    let patient_id = format!("PSY-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Doctor', 'Synthetic Psychiatry Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let repo = crate::repositories::postgres::PgPsychiatricAssessmentRepository::new(pool.clone());
+    for observed in [None, Some(false), Some(true)] {
+        let record = PsychiatricAssessmentEntity {
+            id: format!("PSY-{}", uuid::Uuid::new_v4()),
+            patient_id: patient_id.clone(),
+            assessed_by: user_id.to_string(),
+            suicidal_ideation: observed,
+            presenting_symptoms: serde_json::json!([]),
+            mental_status_exam: serde_json::json!({}),
+            data: serde_json::json!({"suicide_risk":{"ideation":observed,"attempt_count":0}}),
+            ..Default::default()
+        };
+        let created = repo.create(record.clone()).await.unwrap();
+        let stored = repo.get_by_id(&created.id).await.unwrap();
+        assert_eq!(stored.suicidal_ideation, observed);
+        assert_eq!(stored.suicidal_plan, None);
+        assert_eq!(stored.suicidal_intent, None);
+        assert_eq!(stored.suicidal_means_access, None);
+        assert_eq!(stored.homicidal_ideation, None);
+        assert_eq!(stored.risk_level, None);
+        assert_eq!(stored.involuntary_hold, None);
+        assert_eq!(stored.sitter_required, None);
+        assert_eq!(stored.one_to_one_observation, None);
+        assert_eq!(stored.psychiatry_consulted, None);
+        assert_eq!(stored.data, record.data);
+    }
+    pool.close().await;
+}
+
+/// Unknown technique and partial observations survive PostgreSQL without inferred clinical values.
+#[tokio::test]
+async fn test_pg_anesthesia_unknown_and_recorded_techniques_round_trip() {
+    use crate::repositories::traits::{AnesthesiaRecordEntity, AnesthesiaRecordRepository};
+    let pool = get_test_pool().await;
+    let patient_id = format!("ANES-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Doctor', 'Synthetic Anesthesia Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let repo = crate::repositories::postgres::PgAnesthesiaRecordRepository::new(pool.clone());
+    for technique in [None, Some("general"), Some("spinal"), Some("epidural")] {
+        let record = AnesthesiaRecordEntity {
+            id: format!("ANES-{}", uuid::Uuid::new_v4()),
+            patient_id: patient_id.clone(),
+            anesthesiologist_id: user_id.to_string(),
+            anesthesia_type: technique.map(str::to_owned),
+            vital_signs_timeline: Some(serde_json::json!([{"time": "10:00", "hr": 75}])),
+            data: serde_json::json!({"ebl": 0, "vitals": [{"time": "10:00", "hr": 75}]}),
+            ..Default::default()
+        };
+        let created = repo.create(record.clone()).await.unwrap();
+        let stored = repo.get_by_id(&created.id).await.unwrap();
+        assert_eq!(stored.anesthesia_type, record.anesthesia_type);
+        assert!(stored.asa_classification.is_none());
+        assert!(stored.airway_management.is_none());
+        assert_eq!(stored.vital_signs_timeline, record.vital_signs_timeline);
+        assert_eq!(stored.data, record.data);
+        assert!(stored.data.get("urineOutput").is_none());
+    }
+    pool.close().await;
+}
+
 #[tokio::test]
 async fn test_pg_shared_json_repository_parity_contract() {
     let pool = get_test_pool().await;
     let repo = crate::repositories::postgres::PgEPrescriptionV2Repository::new(pool.clone());
     crate::repositories::parity_contract::run_json_record_contract(&repo, "postgres").await;
+    pool.close().await;
+}
+
+/// Re-saving a cannula must retain the bedside history and removal attribution.
+#[tokio::test]
+async fn test_pg_iv_update_preserves_history_and_attribution() {
+    use crate::repositories::traits::{IVAssessmentEntity, IVAssessmentRepository};
+    let pool = get_test_pool().await;
+    let patient_id = format!("IV-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let repo = crate::repositories::postgres::PgIVAssessmentRepository::new(pool.clone());
+    let original = IVAssessmentEntity {
+        id: format!("IV-{}", uuid::Uuid::new_v4()),
+        patient_id,
+        site_id: "SITE-1".into(),
+        site_location: "left-forearm".into(),
+        assessed_by: "FIRST-NURSE".into(),
+        assessed_at: Utc::now(),
+        data: serde_json::json!({"assessments": []}),
+        ..Default::default()
+    };
+    let mut changed = repo.create(original).await.unwrap();
+    changed.assessed_by = "SECOND-NURSE".into();
+    changed.assessed_at = Utc::now();
+    changed.site_discontinued = Some(true);
+    changed.data = serde_json::json!({"assessments": [{"notes": "site assessed"}],
+        "discontinuedAt": changed.assessed_at.to_rfc3339(), "discontinuedBy": "SECOND-NURSE"});
+    repo.update(changed.clone()).await.unwrap();
+    let stored = repo.get_by_id(&changed.id).await.unwrap();
+    assert_eq!(stored.data, changed.data);
+    assert_eq!(stored.assessed_by, changed.assessed_by);
+    assert_eq!(
+        stored.assessed_at.timestamp_micros(),
+        changed.assessed_at.timestamp_micros()
+    );
+    assert_eq!(stored.site_discontinued, Some(true));
+    pool.close().await;
+}
+
+/// Recovery is idempotent when a known account has no authenticator enrollment.
+#[tokio::test]
+async fn test_pg_absent_mfa_enrollment_can_be_reset_twice() {
+    let pool = get_test_pool().await;
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Nurse', 'Recovery Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let state = crate::AppState::new_with_pool(Some(pool.clone()));
+    state
+        .delete_mfa_enrollment(&user_id.to_string())
+        .await
+        .unwrap();
+    state
+        .delete_mfa_enrollment(&user_id.to_string())
+        .await
+        .unwrap();
+    assert!(state
+        .delete_mfa_enrollment("invalid-account-id")
+        .await
+        .is_err());
     pool.close().await;
 }
 
@@ -201,7 +385,7 @@ pub(crate) async fn get_test_pool() -> PgPool {
 /// deployment's `IS_DEMO=true` and `JITSI_PUBLIC_URL`. Seven step-up tests
 /// (demo mode exempts the gate they measure) and a telehealth URL test then
 /// failed or passed depending on which test the scheduler ran first.
-fn test_database_url() -> String {
+pub(crate) fn test_database_url() -> String {
     if let Ok(url) = env::var("DATABASE_URL") {
         return url;
     }
@@ -217,7 +401,7 @@ fn test_database_url() -> String {
         })
 }
 
-async fn create_test_pool() -> PgPool {
+pub(crate) async fn create_test_pool() -> PgPool {
     let database_url = test_database_url();
     let schema = format!(
         "medichain_test_{}_{}_{}",
@@ -348,7 +532,7 @@ fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
-fn create_test_patient(id: &str) -> PatientEntity {
+pub(crate) fn create_test_patient(id: &str) -> PatientEntity {
     PatientEntity {
         id: id.to_string(),
         health_id: health_id_for(id),
@@ -745,16 +929,16 @@ async fn test_pg_sepsis_round_trip_survives_restart() {
 // =============================================================================
 
 /// A fresh `users.id`. The suffix only keeps a test's intent readable.
-fn synthetic_wallet(_suffix: &str) -> String {
+fn synthetic_user_id(_suffix: &str) -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
 /// A fully-populated staff user — every optional field set, so anything that
 /// fails to round-trip surfaces as a concrete difference rather than a silent
 /// `None`.
-fn complete_staff_user(wallet: &str) -> crate::User {
+fn complete_staff_user(account_id: &str) -> crate::User {
     crate::User {
-        id: wallet.to_string(),
+        id: account_id.to_string(),
         username: Some("dr_round_trip".to_string()),
         name: "Dr Round Trip".to_string(),
         role: crate::Role::Doctor,
@@ -774,11 +958,11 @@ fn complete_staff_user(wallet: &str) -> crate::User {
 #[tokio::test]
 async fn test_logical_user_round_trips_across_restart() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("aa01");
+    let account_id = synthetic_user_id("aa01");
 
     // --- write through one AppState ---
     let before = crate::AppState::new_with_pool(Some(pool.clone()));
-    let original = complete_staff_user(&wallet);
+    let original = complete_staff_user(&account_id);
     before
         .persist_user(&original)
         .await
@@ -808,7 +992,7 @@ async fn test_logical_user_round_trips_across_restart() {
         .users
         .read()
         .unwrap()
-        .get(&wallet)
+        .get(&account_id)
         .cloned()
         .expect("user was lost across the restart");
 
@@ -859,7 +1043,7 @@ async fn test_logical_user_round_trips_across_restart() {
          INNER JOIN users u ON u.id = p.user_id
          WHERE u.id = $1::text::uuid",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("the profile row must exist");
@@ -874,7 +1058,7 @@ async fn test_logical_user_round_trips_across_restart() {
          INNER JOIN users u ON u.id = p.user_id
          WHERE u.id = $1::text::uuid",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("the profile row must exist");
@@ -895,10 +1079,10 @@ async fn test_logical_user_round_trips_across_restart() {
 #[tokio::test]
 async fn test_suspended_account_is_not_resurrected_as_active() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("bb02");
+    let account_id = synthetic_user_id("bb02");
 
     let before = crate::AppState::new_with_pool(Some(pool.clone()));
-    let mut suspended = complete_staff_user(&wallet);
+    let mut suspended = complete_staff_user(&account_id);
     suspended.status = "suspended".to_string();
     before
         .persist_user(&suspended)
@@ -908,7 +1092,7 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
     // The stored row must record the suspension, not a boolean that loses it.
     let (stored_status, stored_active): (String, bool) =
         sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
-            .bind(&wallet)
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("suspended user row missing");
@@ -921,7 +1105,7 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
     // After a restart it must not be usable as an active account.
     let after = crate::AppState::new_with_pool(Some(pool.clone()));
     after.load_demo_users_from_db().await.expect("load failed");
-    let reloaded = after.users.read().unwrap().get(&wallet).cloned();
+    let reloaded = after.users.read().unwrap().get(&account_id).cloned();
     assert!(
         reloaded.as_ref().is_none_or(|u| u.status != "active"),
         "D-1: a suspended account came back ACTIVE after a restart"
@@ -935,16 +1119,16 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
 #[tokio::test]
 async fn test_pending_account_is_not_promoted_by_restart() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("cc03");
+    let account_id = synthetic_user_id("cc03");
 
     let state = crate::AppState::new_with_pool(Some(pool.clone()));
-    let mut pending = complete_staff_user(&wallet);
+    let mut pending = complete_staff_user(&account_id);
     pending.status = "pending".to_string();
     state.persist_user(&pending).await.expect("persist failed");
 
     let (stored_status, stored_active): (String, bool) =
         sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
-            .bind(&wallet)
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("pending user row missing");
@@ -963,21 +1147,21 @@ async fn test_pending_account_is_not_promoted_by_restart() {
 #[tokio::test]
 async fn test_deactivate_keeps_status_and_is_active_consistent() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("dd04");
+    let account_id = synthetic_user_id("dd04");
 
     let state = crate::AppState::new_with_pool(Some(pool.clone()));
     state
-        .persist_user(&complete_staff_user(&wallet))
+        .persist_user(&complete_staff_user(&account_id))
         .await
         .expect("persist failed");
     state
-        .deactivate_user_in_db(&wallet)
+        .deactivate_user_in_db(&account_id)
         .await
         .expect("deactivate failed");
 
     let (status, is_active): (String, bool) =
         sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
-            .bind(&wallet)
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("row missing after deactivate");
@@ -993,10 +1177,10 @@ async fn test_deactivate_keeps_status_and_is_active_consistent() {
 #[tokio::test]
 async fn test_unknown_status_coerces_to_inactive_not_active() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("ee05");
+    let account_id = synthetic_user_id("ee05");
 
     let state = crate::AppState::new_with_pool(Some(pool.clone()));
-    let mut odd = complete_staff_user(&wallet);
+    let mut odd = complete_staff_user(&account_id);
     odd.status = "banana".to_string();
     state
         .persist_user(&odd)
@@ -1005,7 +1189,7 @@ async fn test_unknown_status_coerces_to_inactive_not_active() {
 
     let (status, is_active): (String, bool) =
         sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
-            .bind(&wallet)
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("row missing");
@@ -1460,10 +1644,10 @@ async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails()
 #[tokio::test]
 async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
     let pool = get_test_pool().await;
-    let wallet = uuid::Uuid::new_v4().to_string();
+    let account_id = uuid::Uuid::new_v4().to_string();
     let patient_id = format!("claim-patient-{}", uuid::Uuid::new_v4());
     sqlx::query("INSERT INTO users (id, role, name, username, email, is_active, status, created_at) VALUES ($1::text::uuid,'Patient',$2,$3,$4,TRUE,'active',NOW())")
-        .bind(&wallet).bind("Claim Test").bind(&wallet).bind(format!("{wallet}@example.test"))
+        .bind(&account_id).bind("Claim Test").bind(&account_id).bind(format!("{account_id}@example.test"))
         .execute(&pool).await.expect("seed claim user");
     sqlx::query("CREATE FUNCTION reject_identity_claim_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install audit failure function");
@@ -1473,20 +1657,20 @@ async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
         "medical_identity_claimed".into(),
         "patient".into(),
         patient_id.clone(),
-        serde_json::json!({"claimed_by": wallet}),
+        serde_json::json!({"claimed_by": account_id}),
         Utc::now(),
     )
     .expect("prepare event");
     let mut transaction = pool.begin().await.expect("begin transaction");
     assert!(
-        crate::link_user_with_audit(&mut transaction, &wallet, &patient_id, &event,)
+        crate::link_user_with_audit(&mut transaction, &account_id, &patient_id, &event,)
             .await
             .is_err()
     );
     drop(transaction);
     let linked: Option<String> =
         sqlx::query_scalar("SELECT linked_patient_id FROM users WHERE id = $1::text::uuid")
-            .bind(&wallet)
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("read claim user");
@@ -2295,8 +2479,8 @@ async fn test_pg_pre_op_assessment_survives_restart_with_checklist_intact() {
         patient_id: patient_id.clone(),
         scheduled_procedure: "Left inguinal hernia repair".to_string(),
         procedure_datetime: "2026-08-12T09:00:00Z".to_string(),
-        surgeon: "5SurgeonWallet".to_string(),
-        anesthesiologist: Some("5AnaesthetistWallet".to_string()),
+        surgeon: "surgeon-account".to_string(),
+        anesthesiologist: Some("anaesthetist-account".to_string()),
         npo_status: NPOStatus {
             last_solid: Some("2026-08-11T20:00:00Z".to_string()),
             last_liquid: Some("2026-08-12T05:00:00Z".to_string()),
@@ -2324,7 +2508,7 @@ async fn test_pg_pre_op_assessment_survives_restart_with_checklist_intact() {
         iv_access: true,
         checklist_complete: true,
         notes: Some("Patient counselled; consent witnessed.".to_string()),
-        assessed_by: "5SurgeonWallet".to_string(),
+        assessed_by: "surgeon-account".to_string(),
         assessed_at: 1_754_982_000,
     };
 
@@ -2343,7 +2527,7 @@ async fn test_pg_pre_op_assessment_survives_restart_with_checklist_intact() {
     // The typed projection is queryable...
     assert_eq!(stored.patient_id, patient_id);
     assert_eq!(stored.procedure_name, "Left inguinal hernia repair");
-    assert_eq!(stored.surgeon_id, "5SurgeonWallet");
+    assert_eq!(stored.surgeon_id, "surgeon-account");
     assert_eq!(stored.asa_classification.as_deref(), Some("III"));
     assert_eq!(stored.mallampati_score, Some(2));
     assert_eq!(stored.npo_status.as_deref(), Some("compliant"));
@@ -2623,7 +2807,7 @@ async fn test_pg_radiology_order_survives_restart_with_contrast_checks_intact() 
         indication: "Right lower quadrant pain, query appendicitis".to_string(),
         // Exercises the widened priority CHECK.
         priority: OrderPriority::Scheduled,
-        ordering_provider: "5OrderingDoctorWallet".to_string(),
+        ordering_provider: "orderingdoctor-account".to_string(),
         order_time: 1_755_000_000,
         contrast: true,
         allergies_reviewed: true,
@@ -2651,7 +2835,7 @@ async fn test_pg_radiology_order_survives_restart_with_contrast_checks_intact() 
     assert_eq!(stored.priority, "scheduled");
     assert_eq!(stored.status, "preliminary");
     assert_eq!(stored.contrast_required, Some(true));
-    assert_eq!(stored.ordering_provider_id, "5OrderingDoctorWallet");
+    assert_eq!(stored.ordering_provider_id, "orderingdoctor-account");
 
     let back = RadiologyOrder::try_from(stored).expect("stored payload could not be read back");
     assert_eq!(
@@ -2711,7 +2895,7 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         laterality: Some(Laterality::NA),
         indication: "Sudden severe headache".to_string(),
         priority: OrderPriority::Stat,
-        ordering_provider: "5EDDoctorWallet".to_string(),
+        ordering_provider: "eddoctor-account".to_string(),
         order_time: 1_755_000_000,
         contrast: false,
         allergies_reviewed: true,
@@ -2734,7 +2918,7 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         accession_number: "ACC-2026-7781".to_string(),
         study_type: RadiologyStudyType::CT,
         body_part: "Head".to_string(),
-        study_datetime: 1_755_003_600,
+        study_datetime: Some(1_755_003_600),
         technique: "Non-contrast axial CT of the brain".to_string(),
         contrast: None,
         comparison: Some("No prior imaging available".to_string()),
@@ -2750,13 +2934,13 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         critical_finding: true,
         // The read-back record this test exists for.
         critical_communicated: Some(CriticalCommunication {
-            communicated_to: "5EDDoctorWallet".to_string(),
-            communicated_by: "5RadiologistWallet".to_string(),
+            communicated_to: "eddoctor-account".to_string(),
+            communicated_by: "radiologist-account".to_string(),
             communication_time: 1_755_004_200,
             method: "Telephone".to_string(),
             read_back: true,
         }),
-        radiologist: "5RadiologistWallet".to_string(),
+        radiologist: "radiologist-account".to_string(),
         status: RadiologyReportStatus::Final,
         preliminary_time: Some(1_755_003_900),
         final_time: Some(1_755_004_500),
@@ -2777,7 +2961,7 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
     assert_eq!(stored.patient_id, patient_id);
     assert!(stored.critical_finding);
     assert_eq!(stored.status, "final");
-    assert_eq!(stored.radiologist_id, "5RadiologistWallet");
+    assert_eq!(stored.radiologist_id, "radiologist-account");
     // The projection joins the impression list.
     assert!(stored.impression.contains("Subarachnoid haemorrhage"));
 
@@ -2787,12 +2971,40 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         .as_ref()
         .expect("critical-finding communication record was lost");
     assert!(comms.read_back, "critical-finding read-back flag was lost");
-    assert_eq!(comms.communicated_to, "5EDDoctorWallet");
+    assert_eq!(comms.communicated_to, "eddoctor-account");
     assert_eq!(comms.communication_time, 1_755_004_200);
     assert_eq!(comms.method, "Telephone");
     assert_eq!(back.impression.len(), 3, "impression list was flattened");
     assert_eq!(back.preliminary_time, Some(1_755_003_900));
     assert_eq!(back.final_time, Some(1_755_004_500));
+    assert_eq!(back.study_datetime, Some(1_755_003_600));
+
+    // Missing acquisition time must survive the same durable round trip without changing the first row.
+    let mut unknown = back;
+    unknown.report_id = format!("{id}-UNKNOWN");
+    unknown.study_datetime = None;
+    writer
+        .create(unknown.clone().into())
+        .await
+        .expect("unknown study time must be storable");
+    let unknown_stored = reader.get_by_id(&unknown.report_id).await.unwrap();
+    assert_eq!(unknown_stored.study_datetime, None);
+    assert_eq!(
+        RadiologyReport::try_from(unknown_stored)
+            .unwrap()
+            .study_datetime,
+        None
+    );
+    assert_eq!(
+        reader
+            .get_by_id(&id)
+            .await
+            .unwrap()
+            .study_datetime
+            .unwrap()
+            .timestamp(),
+        1_755_003_600
+    );
 
     pool.close().await;
 }
@@ -2872,7 +3084,7 @@ async fn test_pg_pathology_report_survives_restart_with_cancer_staging_intact() 
             ajcc_stage: "IIA".to_string(),
         }),
         comment: Some("Discussed at breast MDT.".to_string()),
-        pathologist: "5PathologistWallet".to_string(),
+        pathologist: "pathologist-account".to_string(),
         report_date: "2026-08-05".to_string(),
         // Exercises the widened status CHECK.
         status: PathologyStatus::Pending,
@@ -2891,7 +3103,7 @@ async fn test_pg_pathology_report_survives_restart_with_cancer_staging_intact() 
 
     assert_eq!(stored.patient_id, patient_id);
     assert_eq!(stored.status, "pending");
-    assert_eq!(stored.pathologist_id, "5PathologistWallet");
+    assert_eq!(stored.pathologist_id, "pathologist-account");
     // The date columns parsed rather than defaulting to now.
     assert_eq!(
         stored.collection_date.format("%Y-%m-%d").to_string(),
@@ -3074,13 +3286,13 @@ async fn test_pg_telehealth_event_types_are_all_accepted_by_the_schema() {
 /// `users(id_text)` and `patient_id` references `patients(id)`.
 /// `provider` and `filed_by` are `users.id` UUIDs.
 async fn seed_appointment_fks(pool: &PgPool, provider: &str, filed_by: &str, patient: &str) {
-    for wallet in [provider, filed_by] {
+    for account_id in [provider, filed_by] {
         sqlx::query(
             "INSERT INTO users (id, role, name, status)
              VALUES ($1::text::uuid, 'Doctor', 'Test Provider', 'active')
              ON CONFLICT (id) DO NOTHING",
         )
-        .bind(wallet)
+        .bind(account_id)
         .execute(pool)
         .await
         .expect("seeding a user failed");
@@ -3102,7 +3314,7 @@ async fn seed_appointment_fks(pool: &PgPool, provider: &str, filed_by: &str, pat
 ///
 /// It did not, and that absence hid a total feature outage. `provider_id`,
 /// `created_by` and `cancelled_by` were `uuid` columns while the application
-/// binds SS58 wallet strings, and the status writer emitted Rust `Debug`
+/// binds account-id strings, and the status writer emitted Rust `Debug`
 /// output ("Scheduled") against a CHECK expecting snake_case ('scheduled'). So
 /// **every** booking failed on the production storage backend and
 /// `SELECT count(*) FROM appointments` was 0 — while the whole suite stayed
@@ -3171,7 +3383,7 @@ async fn test_pg_appointment_round_trip_survives_restart() {
         .expect("appointment lost on restart");
     assert_eq!(
         fetched.provider_id, provider,
-        "provider must survive as a wallet address"
+        "provider must survive as an account id"
     );
     assert_eq!(
         fetched.created_by, filed_by,
@@ -3290,7 +3502,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
         id: consult_id.clone(),
         patient_id: patient_id.clone(),
         consultation_type: "cardiology".to_string(),
-        requesting_provider: "5EDDoctorWallet".to_string(),
+        requesting_provider: "eddoctor-account".to_string(),
         consulting_provider: String::new(),
         reason_for_consultation: "Chest pain on exertion".to_string(),
         clinical_question: Some("Is this stable angina?".to_string()),
@@ -3331,7 +3543,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
     answered.examination_findings = Some("No acute ischaemia; troponin negative.".to_string());
     answered.recommendations = "Outpatient stress test; aspirin 75mg daily.".to_string();
     answered.follow_up_plan = Some("Cardiology clinic in 2 weeks".to_string());
-    answered.consulting_provider = "5EDCardiologistWallet".to_string();
+    answered.consulting_provider = "edcardiologist-account".to_string();
     answered.status = Some("completed".to_string());
     answered.completed_at = Some(completed_at);
     if let Some(blob) = answered.data.as_object_mut() {
@@ -3346,7 +3558,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
         );
         blob.insert(
             "consulting_provider".into(),
-            serde_json::json!("5EDCardiologistWallet"),
+            serde_json::json!("edcardiologist-account"),
         );
     }
     repo.update(answered).await.expect("response must persist");
@@ -3364,7 +3576,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
         reloaded.recommendations,
         "Outpatient stress test; aspirin 75mg daily."
     );
-    assert_eq!(reloaded.consulting_provider, "5EDCardiologistWallet");
+    assert_eq!(reloaded.consulting_provider, "edcardiologist-account");
     assert!(reloaded.completed_at.is_some());
 
     // The blob the read handler serves must agree with the columns. This is the
@@ -3552,8 +3764,8 @@ async fn test_pg_pathology_specimen_accessions_with_a_workflow_status() {
         // Left unset: the lab has not logged a collection record for this
         // accession, which is the ordinary case at booking-in time.
         specimen_id: None,
-        ordering_provider_id: "5EDDoctorWallet".to_string(),
-        pathologist_id: "5EDPathologistWallet".to_string(),
+        ordering_provider_id: "eddoctor-account".to_string(),
+        pathologist_id: "edpathologist-account".to_string(),
         specimen_type: "biopsy".to_string(),
         specimen_source: "Left breast".to_string(),
         collection_date: now,
@@ -3749,11 +3961,11 @@ async fn test_pg_audit_outbox_rejects_an_event_with_no_identity() {
 #[tokio::test]
 async fn test_pg_login_session_survives_refresh_rotation() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let first_jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "generation-one",
         &first_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -3765,7 +3977,7 @@ async fn test_pg_login_session_survives_refresh_rotation() {
     let second_jti = uuid::Uuid::new_v4().to_string();
     let after_first = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "generation-one",
         &first_jti,
         "generation-two",
@@ -3780,7 +3992,7 @@ async fn test_pg_login_session_survives_refresh_rotation() {
     let third_jti = uuid::Uuid::new_v4().to_string();
     let after_second = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "generation-two",
         &second_jti,
         "generation-three",
@@ -3828,11 +4040,11 @@ async fn test_pg_login_session_survives_refresh_rotation() {
 #[tokio::test]
 async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "live-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -3867,7 +4079,7 @@ async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
     let replacement_jti = uuid::Uuid::new_v4().to_string();
     let resurrected = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "live-generation",
         &jti,
         "should-not-exist",
@@ -3893,11 +4105,11 @@ async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
         .ok();
 }
 
-/// Logout-all ends every login for one wallet and leaves other wallets alone.
+/// Logout-all ends every login for one account and leaves other accounts alone.
 #[tokio::test]
-async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
+async fn test_pg_logout_all_revokes_every_session_for_one_account() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let bystander = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
 
     let mut sids = Vec::new();
@@ -3906,7 +4118,7 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
         sids.push(
             crate::auth_sessions::create(
                 &pool,
-                &wallet,
+                &account_id,
                 &format!("device-{index}"),
                 &jti,
                 Utc::now() + chrono::Duration::hours(1),
@@ -3926,10 +4138,10 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
     .await
     .expect("open bystander session");
 
-    let ended = crate::auth_sessions::revoke_all_for_user(&pool, &wallet, "logout_all")
+    let ended = crate::auth_sessions::revoke_all_for_user(&pool, &account_id, "logout_all")
         .await
         .expect("logout all");
-    assert_eq!(ended, 3, "every active login for the wallet ends");
+    assert_eq!(ended, 3, "every active login for the account ends");
 
     for sid in &sids {
         assert!(!crate::auth_sessions::is_session_active(&pool, *sid)
@@ -3940,7 +4152,7 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
         crate::auth_sessions::is_session_active(&pool, other_sid)
             .await
             .expect("bystander state"),
-        "another wallet's session must be untouched"
+        "another account's session must be untouched"
     );
 
     for sid in sids.iter().chain(std::iter::once(&other_sid)) {
@@ -3957,17 +4169,17 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
     }
 }
 
-/// Two independent logins for the same wallet get different sids, so revoking
+/// Two independent logins for the same account get different sids, so revoking
 /// one device does not end the other.
 #[tokio::test]
 async fn test_pg_independent_logins_get_distinct_sessions() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let phone_jti = uuid::Uuid::new_v4().to_string();
     let desk_jti = uuid::Uuid::new_v4().to_string();
     let phone = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "phone-generation",
         &phone_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -3976,7 +4188,7 @@ async fn test_pg_independent_logins_get_distinct_sessions() {
     .expect("phone login");
     let desk = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "desk-generation",
         &desk_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4023,11 +4235,11 @@ async fn test_pg_independent_logins_get_distinct_sessions() {
 #[tokio::test]
 async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "locked-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4044,7 +4256,7 @@ async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
          WHERE g.user_id = $1::text::uuid
          FOR UPDATE OF s",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&mut *holder)
     .await
     .expect("take parent lock");
@@ -4093,11 +4305,11 @@ async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
 #[tokio::test]
 async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "contested-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4109,7 +4321,7 @@ async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
     let (rotated, revoked) = tokio::join!(
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             "contested-generation",
             &jti,
             "successor",
@@ -4160,11 +4372,11 @@ async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
 #[tokio::test]
 async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "contested-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4176,14 +4388,14 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     let (rotated, revoked) = tokio::join!(
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             "contested-generation",
             &jti,
             "successor",
             &replacement_jti,
             Utc::now() + chrono::Duration::hours(1),
         ),
-        crate::auth_sessions::revoke_all_for_user(&pool, &wallet, "logout_all"),
+        crate::auth_sessions::revoke_all_for_user(&pool, &account_id, "logout_all"),
     );
     let rotated = rotated.expect("rotation call");
     revoked.expect("bulk revocation call");
@@ -4198,7 +4410,7 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
         "SELECT COUNT(*) FROM auth_sessions
          WHERE user_id = $1::text::uuid AND revoked_at IS NULL",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("count live generations");
@@ -4208,12 +4420,12 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     );
 
     sqlx::query("DELETE FROM auth_sessions WHERE user_id = $1::text::uuid")
-        .bind(&wallet)
+        .bind(&account_id)
         .execute(&pool)
         .await
         .ok();
     sqlx::query("DELETE FROM auth_login_sessions WHERE user_id = $1::text::uuid")
-        .bind(&wallet)
+        .bind(&account_id)
         .execute(&pool)
         .await
         .ok();
@@ -4264,12 +4476,12 @@ async fn test_pg_session_is_bound_to_its_own_subject() {
 #[tokio::test]
 async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let previous_token = "refresh-token-under-test";
     let previous_jti = uuid::Uuid::new_v4().to_string();
     crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         previous_token,
         &previous_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4282,7 +4494,7 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
     let (first, second) = tokio::join!(
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             previous_token,
             &previous_jti,
             "replacement-one",
@@ -4291,7 +4503,7 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
         ),
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             previous_token,
             &previous_jti,
             "replacement-two",
@@ -4310,7 +4522,7 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
     let (total, active): (i64, i64) = sqlx::query_as(
         "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE user_id = $1::text::uuid",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("read refresh sessions");
@@ -4460,7 +4672,7 @@ async fn lab_review_guard_admits_exactly_one_concurrent_reviewer() {
 ///
 /// `CardRegistry` was a pair of `RwLock<HashMap>` with nothing behind it, so
 /// every card issued was gone at the next restart while the plastic in the
-/// patient's wallet kept its hash and started reading as `CARD_NOT_FOUND`.
+/// patient's account kept its hash and started reading as `CARD_NOT_FOUND`.
 /// This asserts the durable half of the fix: the row survives, and it carries
 /// the status rather than collapsing it into `is_active`.
 #[tokio::test]
@@ -4602,11 +4814,11 @@ async fn test_pg_history_physical_update_if_unchanged_refuses_a_stale_copy() {
 #[tokio::test]
 async fn test_pg_refresh_token_reuse_revokes_the_login() {
     let pool = get_test_pool().await;
-    let wallet = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let first_jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "stolen-generation",
         &first_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4616,7 +4828,7 @@ async fn test_pg_refresh_token_reuse_revokes_the_login() {
     let second_jti = uuid::Uuid::new_v4().to_string();
     crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "stolen-generation",
         &first_jti,
         "legitimate-successor",
@@ -4638,7 +4850,7 @@ async fn test_pg_refresh_token_reuse_revokes_the_login() {
 
     let replay = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "stolen-generation",
         &first_jti,
         "attacker-successor",
@@ -4656,7 +4868,7 @@ async fn test_pg_refresh_token_reuse_revokes_the_login() {
     );
     let successor = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "legitimate-successor",
         &second_jti,
         "next",

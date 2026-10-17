@@ -28,11 +28,12 @@ pub(crate) enum RecordSection {
     IntakeOutput,
     PharmacyDecisions,
     EmsHandoffs,
+    Immunizations,
 }
 
 impl RecordSection {
     /// Every section, for the combined summary.
-    pub(crate) const ALL: [RecordSection; 15] = [
+    pub(crate) const ALL: [RecordSection; 16] = [
         Self::HistoryPhysicals,
         Self::ProgressNotes,
         Self::Wounds,
@@ -48,6 +49,7 @@ impl RecordSection {
         Self::IntakeOutput,
         Self::PharmacyDecisions,
         Self::EmsHandoffs,
+        Self::Immunizations,
     ];
 
     /// The section's key: the last path segment of its own endpoint.
@@ -68,6 +70,7 @@ impl RecordSection {
             Self::IntakeOutput => "intake-output",
             Self::PharmacyDecisions => "pharmacy-decisions",
             Self::EmsHandoffs => "ems-handoffs",
+            Self::Immunizations => "immunizations",
         }
     }
 }
@@ -113,7 +116,21 @@ pub(crate) async fn read_section(
         S::IntakeOutput => intake_output(data, patient_id, page).await,
         S::PharmacyDecisions => pharmacy_decisions(data, patient_id, page).await,
         S::EmsHandoffs => ems_handoffs(data, patient_id, page).await,
+        S::Immunizations => immunizations(data, patient_id, page).await,
     }
+}
+
+/// Return the patient's stored vaccine administrations, with bounded summary paging.
+async fn immunizations(data: &AppState, id: &str, page: Pagination) -> RepositoryResult<Value> {
+    let items = page_of(
+        data.repositories
+            .immunization_records
+            .get_by_patient(id)
+            .await?,
+        page,
+    );
+    let count = items.len();
+    Ok(json!({ "patient_id": id, "immunizations": items, "count": count }))
 }
 
 /// Sections that are one list from one repository.
@@ -215,12 +232,22 @@ async fn procedures(data: &AppState, id: &str, page: Pagination) -> RepositoryRe
     let splints = r.splint_cast_records.get_by_patient(id, page).await?.items;
     let burns = r.burn_assessments.get_by_patient(id, page).await?.items;
     let anesthesia = r.anesthesia_records.get_by_patient(id, page).await?.items;
-    let count =
-        intubations.len() + lacerations.len() + splints.len() + burns.len() + anesthesia.len();
+    let pre_op = r.pre_op_assessments.get_by_patient(id, page).await?.items;
+    let operative = r.operative_notes.get_by_patient(id, page).await?.items;
+    let post_op = r.post_op_notes.get_by_patient(id, page).await?.items;
+    let count = intubations.len()
+        + lacerations.len()
+        + splints.len()
+        + burns.len()
+        + anesthesia.len()
+        + pre_op.len()
+        + operative.len()
+        + post_op.len();
     Ok(json!({
         "success": true, "patient_id": id, "intubations": intubations,
         "laceration_repairs": lacerations, "splints_and_casts": splints,
         "burn_assessments": burns, "anesthesia_records": anesthesia, "count": count,
+        "pre_op_assessments": pre_op, "operative_notes": operative, "post_op_notes": post_op,
     }))
 }
 

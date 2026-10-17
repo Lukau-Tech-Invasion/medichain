@@ -26,7 +26,7 @@ use super::*;
 /// deployment-wide. Real multi-hospital isolation needs organization/facility
 /// ownership pushed *into the query*; filtering afterwards is not isolation.
 /// This narrows who can call these endpoints, not what they return.
-async fn require_registry_reader(
+pub(crate) async fn require_registry_reader(
     data: &web::Data<AppState>,
     http_req: &HttpRequest,
 ) -> Result<(), HttpResponse> {
@@ -536,20 +536,34 @@ pub async fn list_ama_discharges(
 /// child's — and an all-patients read here would add another unscoped bulk read
 /// to a backlog the project is actively trying to shrink. `get_by_patient` is
 /// already on the repository trait, so this needs no new storage surface.
+/// Optional history paging preserves the existing default of 100 records per request.
+#[derive(serde::Deserialize)]
+pub struct PediatricHistoryQuery {
+    page: Option<u32>,
+    limit: Option<u32>,
+}
+
 #[get("/api/clinical/peds/patient/{patient_id}")]
 pub async fn list_peds_for_patient(
     data: web::Data<AppState>,
     path: web::Path<String>,
     http_req: HttpRequest,
+    query: web::Query<PediatricHistoryQuery>,
 ) -> impl Responder {
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
     let patient_id = path.into_inner();
+    let page = query.page.unwrap_or(1).max(1);
+    if page > i32::MAX as u32 / 100 {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"code":"INVALID_PAGE", "error":"Invalid history page"}));
+    }
+    let pagination = Pagination::new(page - 1, query.limit.unwrap_or(100).clamp(1, 100));
     match data
         .repositories
         .pediatric_assessments
-        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .get_by_patient(&patient_id, pagination)
         .await
     {
         Ok(result) => HttpResponse::Ok().json(serde_json::json!({

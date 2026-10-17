@@ -304,6 +304,9 @@ pub struct NfcTagEntity {
 pub struct VitalSignsEntity {
     pub id: String,
     pub patient_id: String,
+    /// Entered observations, absent on readings created before note persistence.
+    #[serde(default)]
+    pub notes: Option<String>,
     pub heart_rate: Option<i32>,
     pub respiratory_rate: Option<i32>,
     pub blood_pressure_systolic: Option<i32>,
@@ -369,6 +372,14 @@ pub struct TriageAssessmentEntity {
     pub facility_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Aggregate of retained disclosure rows attributed to one patient's exact grant.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PatientGrantUsage {
+    pub grant_id: String,
+    pub access_count: i64,
+    pub last_accessed: DateTime<Utc>,
 }
 
 /// Access log entity (database model)
@@ -656,12 +667,17 @@ pub trait TriageAssessmentRepository: Send + Sync + fmt::Debug {
 /// Access log repository trait
 #[async_trait]
 pub trait AccessLogRepository: Send + Sync + fmt::Debug {
+    /// Count retained disclosures by exact grant authority, excluding legacy/unlinked rows.
+    async fn patient_grant_usage(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<PatientGrantUsage>>;
+
     /// Create access log entry
     async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity>;
 
     /// Get logs by accessor. `accessor_ids` is every key the person is known by
-    /// (`actor_directory::actor_keys_for`): rows written before the identity
-    /// migration are sealed and still carry the old wallet address.
+    /// (`actor_directory::actor_keys_for`), which is their `users.id` text form.
     async fn get_by_accessor(
         &self,
         accessor_ids: &[String],
@@ -1845,7 +1861,7 @@ pub struct AnesthesiaRecordEntity {
     pub operative_note_id: Option<String>,
     pub anesthesiologist_id: String,
     pub crna_id: Option<String>,
-    pub anesthesia_type: String,
+    pub anesthesia_type: Option<String>,
     pub asa_classification: Option<String>,
     pub airway_management: Option<serde_json::Value>,
     pub induction_agents: Option<serde_json::Value>,
@@ -2057,7 +2073,7 @@ pub struct RadiologyReportEntity {
     pub order_id: String,
     pub patient_id: String,
     pub radiologist_id: String,
-    pub study_datetime: DateTime<Utc>,
+    pub study_datetime: Option<DateTime<Utc>>,
     pub report_datetime: DateTime<Utc>,
     pub comparison_studies: Option<String>,
     pub technique: Option<String>,
@@ -2733,11 +2749,11 @@ pub struct PsychiatricAssessmentEntity {
     pub previous_hospitalizations: Option<serde_json::Value>,
     pub current_medications: Option<serde_json::Value>,
     pub substance_use: Option<serde_json::Value>,
-    pub suicidal_ideation: bool,
-    pub suicidal_plan: bool,
-    pub suicidal_intent: bool,
-    pub suicidal_means_access: bool,
-    pub homicidal_ideation: bool,
+    pub suicidal_ideation: Option<bool>,
+    pub suicidal_plan: Option<bool>,
+    pub suicidal_intent: Option<bool>,
+    pub suicidal_means_access: Option<bool>,
+    pub homicidal_ideation: Option<bool>,
     pub homicidal_target: Option<String>,
     pub safety_plan: Option<String>,
     pub mental_status_exam: serde_json::Value,
@@ -2752,13 +2768,13 @@ pub struct PsychiatricAssessmentEntity {
     pub cognition: Option<String>,
     pub insight: Option<String>,
     pub judgment: Option<String>,
-    pub risk_level: String,
+    pub risk_level: Option<String>,
     pub disposition: Option<String>,
-    pub involuntary_hold: bool,
+    pub involuntary_hold: Option<bool>,
     pub hold_type: Option<String>,
-    pub sitter_required: bool,
-    pub one_to_one_observation: bool,
-    pub psychiatry_consulted: bool,
+    pub sitter_required: Option<bool>,
+    pub one_to_one_observation: Option<bool>,
+    pub psychiatry_consulted: Option<bool>,
     pub psychiatrist_id: Option<String>,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -2835,9 +2851,9 @@ pub struct PediatricAssessmentEntity {
     pub patient_id: String,
     pub assessed_by: String,
     pub assessment_datetime: DateTime<Utc>,
-    pub age_months: i32,
+    pub age_months: Option<i32>,
     pub weight_kg: Option<rust_decimal::Decimal>,
-    pub weight_estimated: bool,
+    pub weight_estimated: Option<bool>,
     pub length_cm: Option<rust_decimal::Decimal>,
     pub head_circumference_cm: Option<rust_decimal::Decimal>,
     pub broselow_color: Option<String>,
@@ -2862,11 +2878,11 @@ pub struct PediatricAssessmentEntity {
     pub capillary_refill_seconds: Option<rust_decimal::Decimal>,
     pub skin_turgor: Option<String>,
     pub mucous_membranes: Option<String>,
-    pub parent_guardian_present: bool,
+    pub parent_guardian_present: Option<bool>,
     pub parent_guardian_name: Option<String>,
     pub parent_guardian_relationship: Option<String>,
-    pub child_protective_concerns: bool,
-    pub cps_notified: bool,
+    pub child_protective_concerns: Option<bool>,
+    pub cps_notified: Option<bool>,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -4730,6 +4746,11 @@ pub struct JsonRecordEntity {
 /// records (e.g. one language preference per user) and status updates both work.
 #[async_trait]
 pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
+    /// Insert only if absent, atomically; a competing initial writer returns None.
+    async fn create_if_absent(
+        &self,
+        record: JsonRecordEntity,
+    ) -> RepositoryResult<Option<JsonRecordEntity>>;
     /// Insert or replace a record by `id`.
     async fn create(&self, record: JsonRecordEntity) -> RepositoryResult<JsonRecordEntity>;
     /// Fetch a single record by primary key.

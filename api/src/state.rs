@@ -442,25 +442,31 @@ impl AppState {
         .await
         .map_err(|e| e.to_string())?;
 
-        // Contact details are sealed here and never written to the plaintext
-        // `user_profiles.phone` column, which stays deprecated. A cleared phone
-        // number seals to NULL, so clearing one is durable rather than a value
-        // that resurrects on the next restart.
+        self.persist_user_profile_in(&mut tx, user_id, user).await?;
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Keep profile and encrypted contact in the caller's account transaction.
+    pub async fn persist_user_profile_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: uuid::Uuid,
+        user: &User,
+    ) -> Result<(), String> {
         let contact = StaffContact {
             phone: user.phone.clone(),
         };
-        let contact_encrypted = seal_staff_contact(&contact, &self.encryption_keyring);
-
-        // Always upsert the professional profile, including NULL values.
-        // Skipping the write when every field is None would make a "clear all"
-        // profile edit survive only in memory and resurrect stale values after a
-        // restart.
+        let sealed = seal_staff_contact(&contact, &self.encryption_keyring);
+        if !contact.is_empty() && sealed.is_none() {
+            return Err("Staff contact could not be encrypted".to_string());
+        }
         sqlx::query(
             "INSERT INTO user_profiles (
                  user_id, department, specialty, license_number,
                  contact_encrypted, contact_key_version
-             )
-             VALUES ($1, $2, $3, $4, $5, $6)
+             ) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (user_id) DO UPDATE SET
                  department = EXCLUDED.department,
                  specialty = EXCLUDED.specialty,
@@ -473,13 +479,11 @@ impl AppState {
         .bind(&user.department)
         .bind(&user.specialty)
         .bind(&user.license_number)
-        .bind(contact_encrypted)
+        .bind(sealed)
         .bind(self.encryption_keyring.current_version() as i32)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
-
-        tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -729,21 +733,18 @@ impl AppState {
         Ok(())
     }
 
-    /// Delete a persisted MFA enrollment. No-op on memory.
+    /// Delete a persisted MFA enrollment. Already absent is a successful no-op.
     pub async fn delete_mfa_enrollment(&self, user_id: &str) -> Result<(), String> {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
         let user_uuid = crate::actor_directory::parse_user_id(user_id)
             .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
-        let result = sqlx::query("DELETE FROM user_mfa WHERE user_id = $1")
+        sqlx::query("DELETE FROM user_mfa WHERE user_id = $1")
             .bind(user_uuid)
             .execute(pool)
             .await
             .map_err(|e| format!("delete MFA enrollment: {}", e))?;
-        if result.rows_affected() != 1 {
-            return Err("delete MFA enrollment: enrollment not found".to_string());
-        }
         Ok(())
     }
 
@@ -889,7 +890,7 @@ impl AppState {
                     .iter()
                     .map(|name| Allergy {
                         name: name.clone(),
-                        severity: AllergySeverity::Mild,
+                        severity: AllergySeverity::Unknown,
                         reaction: None,
                         verified_at: None,
                     })

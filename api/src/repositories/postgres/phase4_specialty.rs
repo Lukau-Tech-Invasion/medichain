@@ -726,7 +726,7 @@ impl PediatricAssessmentRepository for PgPediatricAssessmentRepository {
         let mut qb: QueryBuilder<Postgres> =
             QueryBuilder::new("SELECT * FROM pediatric_assessments WHERE patient_id = ");
         qb.push_bind(patient_id);
-        qb.push(" ORDER BY assessment_datetime DESC LIMIT ");
+        qb.push(" ORDER BY assessment_datetime DESC, id DESC LIMIT ");
         qb.push_bind(pagination.limit() as i32);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i32);

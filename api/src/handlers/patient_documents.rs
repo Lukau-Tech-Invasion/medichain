@@ -666,4 +666,81 @@ mod records_summary_tests {
         assert_eq!(body["page"], 2);
         assert_eq!(summary(&data, OTHER, "").await.0, 403);
     }
+
+    #[actix_web::test]
+    async fn immunization_summary_lists_only_the_owning_patients_records() {
+        let data = state().await;
+        for (id, patient_id) in [("IMM-OWN", PATIENT_ID), ("IMM-OTHER", "PAT-ELSEWHERE")] {
+            data.repositories
+                .immunization_records
+                .create(crate::repositories::traits::ImmunizationRecordEntity {
+                    id: id.into(),
+                    patient_id: patient_id.into(),
+                    vaccine_name: "QA influenza".into(),
+                    administration_date: chrono::NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        let (status, body) = summary(&data, PATIENT, "").await;
+        assert_eq!(status, 200);
+        let records = body["sections"]["immunizations"]["immunizations"]
+            .as_array()
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["id"], "IMM-OWN");
+        assert_eq!(summary(&data, OTHER, "").await.0, 403);
+    }
+
+    #[actix_web::test]
+    async fn surgical_summary_lists_assessments_and_notes_only_for_the_owner() {
+        use crate::repositories::traits::{
+            OperativeNoteEntity, PostOpNoteEntity, PreOpAssessmentEntity,
+        };
+        let data = state().await;
+        for (suffix, patient_id) in [("OWN", PATIENT_ID), ("OTHER", "PAT-ELSEWHERE")] {
+            data.repositories
+                .pre_op_assessments
+                .create(PreOpAssessmentEntity {
+                    id: format!("PRE-{suffix}"),
+                    patient_id: patient_id.into(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .operative_notes
+                .create(OperativeNoteEntity {
+                    id: format!("OP-{suffix}"),
+                    patient_id: patient_id.into(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .post_op_notes
+                .create(PostOpNoteEntity {
+                    id: format!("POST-{suffix}"),
+                    patient_id: patient_id.into(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        let (status, body) = summary(&data, PATIENT, "").await;
+        assert_eq!(status, 200);
+        let procedures = &body["sections"]["procedures"];
+        assert_eq!(procedures["count"], 3);
+        for (key, id) in [
+            ("pre_op_assessments", "PRE-OWN"),
+            ("operative_notes", "OP-OWN"),
+            ("post_op_notes", "POST-OWN"),
+        ] {
+            let records = procedures[key].as_array().unwrap();
+            assert_eq!(records.len(), 1, "{key}");
+            assert_eq!(records[0]["id"], id);
+        }
+        assert_eq!(summary(&data, OTHER, "").await.0, 403);
+    }
 }

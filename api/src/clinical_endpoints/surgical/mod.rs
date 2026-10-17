@@ -1,10 +1,14 @@
 pub use super::*;
 
+mod certificate_form;
 mod diagnostics;
+mod family_history_member;
+mod immunization_form;
 mod perioperative;
 mod public_health;
 
 pub use diagnostics::*;
+pub use family_history_member::*;
 pub use perioperative::*;
 pub use public_health::*;
 

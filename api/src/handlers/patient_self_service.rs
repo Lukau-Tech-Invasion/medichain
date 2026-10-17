@@ -166,21 +166,7 @@ fn apply_demographics(
                 code: "INVALID_INPUT".to_string(),
             }));
         }
-        // A blank date is an absent one. The form marks both optional, so a
-        // patient who does not know their cover dates leaves them empty, and
-        // storing `""` would record a policy "valid from ''" — which reads as
-        // a value rather than as the absence it is.
-        let blank_to_none = |value: &Option<String>| -> Option<String> {
-            value
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty())
-                .map(str::to_string)
-        };
-        let mut stored = insurance.clone();
-        stored.valid_from = blank_to_none(&insurance.valid_from);
-        stored.valid_to = blank_to_none(&insurance.valid_to);
-        profile.insurance = Some(stored);
+        profile.insurance = Some(normalize_insurance_dates(insurance)?);
     }
     if let Some(languages) = &req.languages {
         profile.emergency_info.languages = languages
@@ -191,6 +177,49 @@ fn apply_demographics(
     }
     profile.last_updated = Utc::now();
     Ok(())
+}
+
+/// Validate optional coverage dates and normalize blanks before storing new insurance input.
+fn normalize_insurance_dates(insurance: &InsuranceInfo) -> Result<InsuranceInfo, HttpResponse> {
+    let start = parse_insurance_date(insurance.valid_from.as_deref())?;
+    let end = parse_insurance_date(insurance.valid_to.as_deref())?;
+    if matches!((start, end), (Some(start), Some(end)) if end < start) {
+        return Err(invalid_insurance_dates());
+    }
+    let mut stored = insurance.clone();
+    stored.valid_from = start.map(|date| date.format("%Y-%m-%d").to_string());
+    stored.valid_to = end.map(|date| date.format("%Y-%m-%d").to_string());
+    Ok(stored)
+}
+
+/// Accept only real calendar dates in YYYY-MM-DD form, or an omitted/blank value.
+fn parse_insurance_date(value: Option<&str>) -> Result<Option<chrono::NaiveDate>, HttpResponse> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let canonical = value.len() == 10
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if index == 4 || index == 7 {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit()
+            }
+        });
+    if !canonical || value.starts_with("0000") {
+        return Err(invalid_insurance_dates());
+    }
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map(Some)
+        .map_err(|_| invalid_insurance_dates())
+}
+
+/// Return a stable, non-sensitive input error rather than parser details.
+fn invalid_insurance_dates() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "Enter valid coverage dates. The end date must be on or after the start date."
+            .to_string(),
+        code: "INVALID_INPUT".to_string(),
+    })
 }
 
 /// Update the demographic and administrative parts of a patient's profile.
@@ -287,4 +316,62 @@ pub async fn replace_emergency_contacts(
         "contacts": profile.emergency_info.emergency_contacts,
         "message": "Emergency contacts updated successfully"
     }))
+}
+
+#[cfg(test)]
+mod insurance_date_tests {
+    use super::*;
+
+    /// Build the public demographic patch, including optional date strings.
+    fn patch(from: Option<&str>, to: Option<&str>) -> UpdateDemographicsRequest {
+        serde_json::from_value(serde_json::json!({"insurance": {
+            "provider": "QA Cover", "policy_number": "QA-1", "coverage_type": "Private",
+            "valid_from": from, "valid_to": to, "is_active": false
+        }}))
+        .unwrap()
+    }
+
+    #[test]
+    fn rejects_invalid_or_reversed_insurance_dates_without_changing_insurance() {
+        for (from, to) in [
+            (Some("2026-12-31"), Some("2026-01-01")),
+            (Some("2026-02-29"), None),
+            (None, Some("2026-04-31")),
+            (Some("2026-1-01"), None),
+            (Some("0000-01-01"), None),
+            (Some("not-a-date"), None),
+        ] {
+            let mut profile = crate::test_fixtures::patient_profile("PAT-QA", "QA Patient");
+            assert!(apply_demographics(&mut profile, &patch(from, to)).is_err());
+            assert!(profile.insurance.is_none());
+        }
+    }
+
+    #[test]
+    fn accepts_optional_equal_leap_and_ordered_insurance_dates() {
+        for (from, to) in [
+            (None, None),
+            (Some(" "), Some("")),
+            (Some("2024-02-29"), None),
+            (None, Some("2026-10-15")),
+            (Some("2026-10-15"), Some("2026-10-15")),
+            (Some(" 2026-01-01 "), Some("2026-12-31")),
+        ] {
+            let mut profile = crate::test_fixtures::patient_profile("PAT-QA", "QA Patient");
+            assert!(apply_demographics(&mut profile, &patch(from, to)).is_ok());
+            let stored = profile.insurance.unwrap();
+            assert_eq!(
+                stored.valid_from,
+                from.map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+            );
+            assert_eq!(
+                stored.valid_to,
+                to.map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+            );
+        }
+    }
 }

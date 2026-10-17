@@ -1,13 +1,8 @@
-//! Every key a person is known by, current or historical (ADR-0010, phase B).
+//! The key a person is known by in actor columns (ADR-0010).
 //!
-//! `users.id` is the only identifier of a user, and every actor column written
-//! since migration `20260930000001` holds it. Rows written before that hold the
-//! user's old key, and some of them are sealed or hashed (access-log rows, audit
-//! leaves, capsule commitments) and so were never rewritten. The
-//! `legacy_wallet_identities` table maps each old key to its user and the
-//! `actor_directory` view unions it with the current ids; this module is the only
-//! reader of them, so a caller asking "everything this person did" or "who was
-//! `5Grw…`" gets one answer.
+//! `users.id` is the only identifier of a user, and every actor column holds its
+//! text form (`users.id_text`). Migration `20261006000002` removed the mapping
+//! from pre-credential keys, so a key that is not a current user id names nobody.
 
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -22,43 +17,38 @@ pub fn parse_user_id(id: &str) -> Option<Uuid> {
     Uuid::parse_str(id).ok()
 }
 
-/// The user a key (current id or legacy key) belongs to, if any.
-#[cfg_attr(not(test), allow(dead_code))] // retained for historical-key lookups
+/// The user an actor key belongs to, if any.
+#[cfg_attr(not(test), allow(dead_code))] // no production caller resolves one key yet
 pub async fn resolve(pool: &PgPool, key: &str) -> Result<Option<Uuid>, sqlx::Error> {
-    sqlx::query_scalar("SELECT user_id FROM actor_directory WHERE actor_key = $1")
+    sqlx::query_scalar("SELECT id FROM users WHERE id_text = $1")
         .bind(key)
         .fetch_optional(pool)
         .await
 }
 
-/// Every key a user's rows may carry: the current id first, then each legacy
-/// key. Queries over sealed history use these with `= ANY($n)`
-/// (`AccessLogRepository::get_by_accessor` takes exactly this list).
+/// Every key a user's rows may carry: exactly the user's id. Queries over
+/// history use these with `= ANY($n)` (`AccessLogRepository::get_by_accessor`
+/// takes exactly this list). A string that is not a user id is its own only key.
 #[cfg_attr(not(test), allow(dead_code))] // no screen lists one clinician's own reads yet
 pub async fn actor_keys_for(pool: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
     let Some(user_uuid) = parse_user_id(user_id) else {
         return Ok(vec![user_id.to_string()]);
     };
-    let legacy: Vec<String> = sqlx::query_scalar(
-        "SELECT actor_key FROM actor_directory WHERE user_id = $1 AND legacy ORDER BY actor_key",
-    )
-    .bind(user_uuid)
-    .fetch_all(pool)
-    .await?;
-    let mut keys = Vec::with_capacity(legacy.len() + 1);
-    keys.push(user_uuid.to_string());
-    keys.extend(legacy);
-    Ok(keys)
+    let known: Option<String> = sqlx::query_scalar("SELECT id_text FROM users WHERE id = $1")
+        .bind(user_uuid)
+        .fetch_optional(pool)
+        .await?;
+    Ok(vec![known.unwrap_or_else(|| user_uuid.to_string())])
 }
 
-/// The user id behind each of `keys` that the directory knows (current ids and
-/// legacy keys alike). Keys it does not know are absent from the result.
+/// The user id behind each of `keys` that names an account. Keys that name no
+/// account are absent from the result.
 pub async fn user_ids_for_keys(
     pool: &PgPool,
     keys: &[String],
 ) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
     let rows: Vec<(String, Uuid)> =
-        sqlx::query_as("SELECT actor_key, user_id FROM actor_directory WHERE actor_key = ANY($1)")
+        sqlx::query_as("SELECT id_text, id FROM users WHERE id_text = ANY($1)")
             .bind(keys)
             .fetch_all(pool)
             .await?;

@@ -2359,8 +2359,8 @@ pub struct RadiologyReport {
     pub study_type: RadiologyStudyType,
     /// Body part examined
     pub body_part: String,
-    /// Study date/time
-    pub study_datetime: i64,
+    /// Observed study date/time, absent when acquisition time was not recorded.
+    pub study_datetime: Option<i64>,
     /// Technique/protocol
     pub technique: String,
     /// Contrast used
@@ -2621,10 +2621,28 @@ pub struct FamilyMedicalHistory {
 /// Family history member (for medical history)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FamilyHistoryMember {
+    /// Stable identifier for retry-safe relative additions; absent on legacy records.
+    #[serde(default)]
+    pub member_id: Option<String>,
+    /// Optional relative name as entered by the recorder.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// General documentation, separate from each condition's notes.
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Unknown remains absent rather than becoming an observed negative answer.
+    #[serde(default)]
+    pub consanguineous: Option<bool>,
+    /// Authenticated recorder of this relative entry (legacy rows may omit it).
+    #[serde(default)]
+    pub recorded_by: Option<String>,
+    /// Server-recorded time in Unix milliseconds.
+    #[serde(default)]
+    pub recorded_at: Option<i64>,
     /// Relationship
     pub relationship: FamilyHistoryRelationship,
     /// Living status
-    pub living: bool,
+    pub living: Option<bool>,
     /// Current age (if living)
     pub current_age: Option<u8>,
     /// Age at death
@@ -2646,6 +2664,8 @@ pub enum FamilyHistoryRelationship {
     PaternalGrandfather,
     Sister,
     Brother,
+    HalfSister,
+    HalfBrother,
     Daughter,
     Son,
     MaternalAunt,
@@ -2661,6 +2681,12 @@ pub struct FamilyCondition {
     pub condition: String,
     pub age_at_diagnosis: Option<u8>,
     pub notes: Option<String>,
+    /// Explicitly recorded category; no disease category is inferred from free text.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Explicit severity, if recorded.
+    #[serde(default)]
+    pub severity: Option<String>,
 }
 
 /// Genetic condition

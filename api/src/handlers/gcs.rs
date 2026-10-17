@@ -160,7 +160,7 @@ pub async fn create_gcs_assessment(
         motor_response: req.motor_response as i32,
         total_score: total_score as i32,
         interpretation: interpretation.clone(),
-        notes: None,
+        notes: req.notes.clone(),
         pupil_assessment: req
             .pupil_assessment
             .as_ref()
@@ -174,6 +174,10 @@ pub async fn create_gcs_assessment(
 
     if let Err(e) = data.repositories.gcs_assessments.create(entity).await {
         log::error!("Failed to store GCS assessment in repository: {}", e);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "The GCS assessment could not be saved. Please try again.".to_string(),
+            code: "DATABASE_ERROR".to_string(),
+        });
     }
 
     // Log access in repository

@@ -85,6 +85,7 @@ pub struct DbUserWithProfile {
 /// MUST be encrypted the same way patient fields already are before any new
 /// write path is connected. Do not remove this table speculatively (CLAUDE.md:
 /// never delete without asking) — the read path is live.
+#[allow(dead_code)] // Struct is part of the required schema, used via SQLx `FromRow`.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUserProfile {
     pub id: Uuid,

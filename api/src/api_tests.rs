@@ -1,5 +1,5 @@
-//! API Integration Tests (In-memory/Mock backend)
-//! These tests focus on endpoint logic, RBAC, and middleware without requiring a real database.
+//! API integration tests. Registration workflows use an isolated schema in the
+//! configured PostgreSQL database because account activation must be durable.
 
 #[cfg(test)]
 mod tests {
@@ -11,12 +11,14 @@ mod tests {
     use chrono::Utc;
     use serde_json::json;
 
+    const DOCTOR_ID: &str = "00000000-0000-4000-8000-000000000001";
+
     async fn setup_app_state() -> web::Data<AppState> {
         let state = AppState::new();
 
         // Setup a mock doctor
         let doctor = User {
-            id: "doctor_user".to_string(),
+            id: DOCTOR_ID.to_string(),
             username: Some("dr_smith".to_string()),
             name: "Dr. Smith".to_string(),
             role: Role::Doctor,
@@ -34,9 +36,203 @@ mod tests {
 
         {
             let mut users = state.users.write().unwrap();
-            users.insert("doctor_user".to_string(), doctor);
+            users.insert(DOCTOR_ID.to_string(), doctor);
         }
 
+        web::Data::new(state)
+    }
+
+    /// Seed audit cases that must remain distinct when counting use of a grant.
+    async fn seed_grant_usage_logs(state: &web::Data<AppState>, grant_id: &str) {
+        for (id, patient_id, authority_type, authority_id) in [
+            (
+                "usage-1",
+                "PAT-USAGE",
+                Some("patient_grant"),
+                Some(grant_id),
+            ),
+            (
+                "usage-2",
+                "PAT-USAGE",
+                Some("patient_grant"),
+                Some(grant_id),
+            ),
+            (
+                "other-patient",
+                "PAT-OTHER",
+                Some("patient_grant"),
+                Some(grant_id),
+            ),
+            (
+                "other-grant",
+                "PAT-USAGE",
+                Some("patient_grant"),
+                Some("GRANT-OTHER"),
+            ),
+            (
+                "other-authority",
+                "PAT-USAGE",
+                Some("care_relationship"),
+                Some(grant_id),
+            ),
+            ("legacy", "PAT-USAGE", None, None),
+        ] {
+            state
+                .repositories
+                .access_logs
+                .create(crate::repositories::AccessLogEntity {
+                    id: id.into(),
+                    accessor_id: DOCTOR_ID.into(),
+                    accessor_role: "Doctor".into(),
+                    patient_id: Some(patient_id.into()),
+                    resource_type: "medical_record".into(),
+                    resource_id: None,
+                    action: "view".into(),
+                    access_reason: Some("Treatment".into()),
+                    is_emergency_access: false,
+                    ip_address: None,
+                    user_agent: None,
+                    accessed_at: Utc::now(),
+                    facility_id: None,
+                    authority_type: authority_type.map(str::to_string),
+                    authority_id: authority_id.map(str::to_string),
+                })
+                .await
+                .unwrap();
+        }
+    }
+
+    #[actix_rt::test]
+    async fn test_access_grant_audit_usage() {
+        let state = setup_app_state().await;
+        state
+            .users
+            .write()
+            .unwrap()
+            .get_mut(DOCTOR_ID)
+            .unwrap()
+            .role = Role::Admin;
+        let request = state
+            .patient_access
+            .create_request(
+                "PAT-USAGE".into(),
+                crate::patient_access::RequestingProvider {
+                    provider_id: DOCTOR_ID.into(),
+                    provider_name: "Synthetic clinician".into(),
+                    provider_role: "Doctor".into(),
+                    organization: "QA".into(),
+                    reason: "Treatment".into(),
+                },
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+        let (_, grant) = state
+            .patient_access
+            .approve_request(
+                &request.id,
+                crate::patient_access::AccessType::Limited,
+                None,
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+        seed_grant_usage_logs(&state, &grant.id).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .service(crate::handlers::list_patient_access_grants),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/api/access/patient/PAT-USAGE/grants")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .to_request();
+        let response = test::call_service(&app, req).await;
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(body["grants"][0]["accessCount"], 2);
+        assert!(body["grants"][0]["lastAccessed"].is_string());
+    }
+
+    #[actix_rt::test]
+    async fn test_pg_access_grant_audit_usage() {
+        let state = setup_registration_state().await;
+        for id in ["PAT-USAGE", "PAT-OTHER"] {
+            state
+                .repositories
+                .patients
+                .create(crate::repositories::postgres::tests::create_test_patient(
+                    id,
+                ))
+                .await
+                .unwrap();
+        }
+        seed_grant_usage_logs(&state, "GRANT-EXACT").await;
+        let usage = state
+            .repositories
+            .access_logs
+            .patient_grant_usage("PAT-USAGE")
+            .await
+            .unwrap();
+        assert_eq!(usage.len(), 2);
+        let exact = usage
+            .iter()
+            .find(|summary| summary.grant_id == "GRANT-EXACT")
+            .unwrap();
+        assert_eq!(exact.access_count, 2);
+        let rows = state
+            .repositories
+            .access_logs
+            .get_by_patient("PAT-USAGE", crate::repositories::Pagination::first_page(100))
+            .await
+            .unwrap();
+        let latest = rows
+            .items
+            .iter()
+            .filter(|row| {
+                row.authority_type.as_deref() == Some("patient_grant")
+                    && row.authority_id.as_deref() == Some("GRANT-EXACT")
+            })
+            .map(|row| row.accessed_at)
+            .max()
+            .unwrap();
+        assert_eq!(exact.last_accessed, latest);
+        assert!(state
+            .repositories
+            .access_logs
+            .patient_grant_usage("PAT-ABSENT")
+            .await
+            .unwrap()
+            .is_empty());
+        state.db_pool.as_ref().unwrap().close().await;
+        assert!(state
+            .repositories
+            .access_logs
+            .patient_grant_usage("PAT-USAGE")
+            .await
+            .is_err());
+    }
+
+    /// Give registration tests persistent storage without creating another database.
+    async fn setup_registration_state() -> web::Data<AppState> {
+        let pool = crate::repositories::postgres::tests::create_test_pool().await;
+        let mut state = AppState::new();
+        state.repositories = crate::repositories::RepositoryContainer::new_postgres(pool.clone())
+            .await
+            .expect("PostgreSQL repositories for registration tests");
+        state.db_pool = Some(pool);
+        let seeded = setup_app_state().await;
+        state
+            .users
+            .write()
+            .unwrap()
+            .extend(seeded.users.read().unwrap().clone());
+        let doctor = state.users.read().unwrap()[DOCTOR_ID].clone();
+        state
+            .persist_user(&doctor)
+            .await
+            .expect("persist test clinician before registering patients");
         web::Data::new(state)
     }
 
@@ -84,13 +280,13 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri("/api/auth/me")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let resp = test::call_service(&app, req).await;
 
         assert!(resp.status().is_success());
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["user_id"], "doctor_user");
+        assert_eq!(body["user_id"], DOCTOR_ID);
         assert_eq!(body["role"], "Doctor");
     }
 
@@ -112,7 +308,7 @@ mod tests {
 
     #[actix_rt::test]
     async fn test_patient_registration_and_retrieval() {
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -141,7 +337,7 @@ mod tests {
         // Register patient
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(&registration_payload)
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -160,7 +356,7 @@ mod tests {
         // Retrieve patient
         let req = test::TestRequest::get()
             .uri(&format!("/api/patients/{}", patient_id))
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let resp = test::call_service(&app, req).await;
 
@@ -174,7 +370,7 @@ mod tests {
     /// group. Registration used to require one of the eight groups.
     #[actix_web::test]
     async fn a_patient_whose_blood_group_is_not_known_registers_as_unknown() {
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -186,7 +382,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -199,7 +395,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri(&format!("/api/patients/{patient_id}"))
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .to_request(),
         )
         .await;
@@ -214,7 +410,7 @@ mod tests {
     #[actix_web::test]
     async fn an_untyped_registration_by_a_patient_is_forbidden() {
         let app_state = setup_app_state().await;
-        let mut patient = app_state.users.read().unwrap()["doctor_user"].clone();
+        let mut patient = app_state.users.read().unwrap()[DOCTOR_ID].clone();
         patient.id = "patient_user".to_string();
         patient.role = Role::Patient;
         app_state
@@ -246,12 +442,12 @@ mod tests {
     async fn an_untyped_registration_with_unavailable_storage_returns_503() {
         let seeded = setup_app_state().await;
         let mut state = AppState::new();
-        let doctor = seeded.users.read().unwrap()["doctor_user"].clone();
+        let doctor = seeded.users.read().unwrap()[DOCTOR_ID].clone();
         state
             .users
             .write()
             .unwrap()
-            .insert("doctor_user".to_string(), doctor);
+            .insert(DOCTOR_ID.to_string(), doctor);
         let pool = sqlx::postgres::PgPoolOptions::new()
             .acquire_timeout(std::time::Duration::from_millis(250))
             .connect_lazy_with(
@@ -269,7 +465,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -295,7 +491,7 @@ mod tests {
     /// A lookup yields only directory fields and one organisation audit event.
     #[actix_web::test]
     async fn patient_directory_search_has_one_audit_and_no_patient_disclosures() {
-        let state = setup_app_state().await;
+        let state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(state.clone())
@@ -308,7 +504,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/register")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .set_json(untyped_registration_payload())
                 .to_request(),
         )
@@ -321,7 +517,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients?q=Untyped")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .insert_header(("x-access-reason", "Treatment"))
                 .to_request(),
         )
@@ -349,7 +545,7 @@ mod tests {
             .collect();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].aggregate_type, "organisation");
-        assert_eq!(events[0].payload["actor_id"], "doctor_user");
+        assert_eq!(events[0].payload["actor_id"], DOCTOR_ID);
         assert_eq!(events[0].payload["purpose"], "Treatment");
         assert_eq!(events[0].payload["result_count"], 1);
         assert!(events[0].payload.get("patient_id").is_none());
@@ -366,7 +562,7 @@ mod tests {
     #[actix_web::test]
     async fn patient_role_cannot_search_the_directory() {
         let state = setup_app_state().await;
-        let mut patient = state.users.read().unwrap()["doctor_user"].clone();
+        let mut patient = state.users.read().unwrap()[DOCTOR_ID].clone();
         patient.id = "patient_user".to_string();
         patient.role = Role::Patient;
         state
@@ -399,7 +595,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .to_request(),
         )
         .await;
@@ -410,7 +606,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .insert_header(("x-access-reason", "Not stated"))
                 .to_request(),
         )
@@ -424,12 +620,12 @@ mod tests {
     async fn directory_audit_storage_failure_returns_503() {
         let seeded = setup_app_state().await;
         let mut state = AppState::new();
-        let doctor = seeded.users.read().unwrap()["doctor_user"].clone();
+        let doctor = seeded.users.read().unwrap()[DOCTOR_ID].clone();
         state
             .users
             .write()
             .unwrap()
-            .insert("doctor_user".to_string(), doctor);
+            .insert(DOCTOR_ID.to_string(), doctor);
         state.db_pool = Some(
             sqlx::postgres::PgPoolOptions::new()
                 .acquire_timeout(std::time::Duration::from_millis(250))
@@ -451,7 +647,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/patients")
-                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                 .insert_header(("x-access-reason", "Treatment"))
                 .to_request(),
         )
@@ -493,7 +689,7 @@ mod tests {
     async fn test_concurrent_patient_registration_load() {
         const CONCURRENCY: usize = 50;
 
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -511,7 +707,7 @@ mod tests {
             async move {
                 let req = test::TestRequest::post()
                     .uri("/api/register")
-                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                    .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                     .set_json(registration_payload(i))
                     .to_request();
                 test::call_service(app, req).await
@@ -560,7 +756,7 @@ mod tests {
     async fn test_concurrent_patient_read_load() {
         const CONCURRENCY: usize = 100;
 
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -573,7 +769,7 @@ mod tests {
         // the read path (RwLock readers) under contention.
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(registration_payload(9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -592,7 +788,7 @@ mod tests {
             async move {
                 let req = test::TestRequest::get()
                     .uri(&format!("/api/patients/{}", patient_id))
-                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                    .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
                     .to_request();
                 test::call_service(app, req).await
             }
@@ -627,7 +823,7 @@ mod tests {
     #[actix_rt::test]
     async fn paramedic_cannot_open_patient_profile() {
         let app_state = setup_app_state().await;
-        let mut paramedic = app_state.users.read().unwrap()["doctor_user"].clone();
+        let mut paramedic = app_state.users.read().unwrap()[DOCTOR_ID].clone();
         paramedic.id = "paramedic_user".to_string();
         paramedic.role = Role::Paramedic;
         app_state
@@ -666,7 +862,7 @@ mod tests {
 
         let save_request = test::TestRequest::post()
             .uri("/api/settings")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(&expected)
             .to_request();
         let save_response = test::call_service(&app, save_request).await;
@@ -674,7 +870,7 @@ mod tests {
 
         let get_request = test::TestRequest::get()
             .uri("/api/settings")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let get_response = test::call_service(&app, get_request).await;
         assert!(get_response.status().is_success());
@@ -688,7 +884,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(app_state).service(save_settings)).await;
         let request = test::TestRequest::post()
             .uri("/api/settings")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(json!(["not", "an", "object"]))
             .to_request();
 
@@ -728,7 +924,7 @@ mod tests {
 
     #[actix_rt::test]
     async fn fhir_patient_carries_real_demographics_not_placeholders() {
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -739,7 +935,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(full_patient_payload())
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -752,7 +948,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri(&format!("/api/fhir/r4/Patient/{patient_id}"))
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -777,7 +973,7 @@ mod tests {
 
     #[actix_rt::test]
     async fn fhir_condition_and_medication_bundles_are_not_silently_empty() {
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -790,7 +986,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(full_patient_payload())
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -803,7 +999,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri(&format!("/api/fhir/r4/Condition?patient={patient_id}"))
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
         assert_eq!(
@@ -828,7 +1024,7 @@ mod tests {
             .uri(&format!(
                 "/api/fhir/r4/MedicationStatement?patient={patient_id}"
             ))
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
         assert_eq!(
@@ -842,7 +1038,7 @@ mod tests {
             .uri(&format!(
                 "/api/fhir/r4/AllergyIntolerance?patient={patient_id}"
             ))
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
         assert_eq!(
@@ -858,7 +1054,7 @@ mod tests {
 
     #[actix_rt::test]
     async fn medical_id_card_shows_conditions_medications_and_contacts() {
-        let app_state = setup_app_state().await;
+        let app_state = setup_registration_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
@@ -869,7 +1065,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/api/register")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .set_json(full_patient_payload())
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -882,7 +1078,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri(&format!("/api/medical-id/{patient_id}"))
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
@@ -912,5 +1108,166 @@ mod tests {
         assert_eq!(body["profile_unavailable"], false);
         assert_eq!(body["allergies"][0]["name"], "Penicillin", "{body}");
         assert_eq!(body["allergies"][0]["severity"], "unknown", "{body}");
+    }
+    /// A clinician cannot attribute a handoff to a different provider through the payload.
+    #[actix_rt::test]
+    async fn shift_handoff_rejects_forged_outgoing_provider() {
+        let state = setup_app_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .service(crate::clinical_endpoints::create_shift_handoff),
+        )
+        .await;
+        for (outgoing, expected) in [("different-provider", 403), (DOCTOR_ID, 400), ("", 400)] {
+            let request = test::TestRequest::post().uri("/api/emergency/handoff")
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .set_json(json!({"outgoing_nurse": outgoing, "incoming_nurse": DOCTOR_ID, "patients": []}))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), expected);
+        }
+    }
+
+    /// A receiving clinician must resolve to an active clinical account before any record is written.
+    #[actix_rt::test]
+    async fn shift_handoff_requires_a_registered_active_clinical_recipient() {
+        let state = setup_app_state().await;
+        let template = state.users.read().unwrap()[DOCTOR_ID].clone();
+        for (id, role, status) in [
+            ("qa-patient", Role::Patient, "active"),
+            ("qa-inactive", Role::Nurse, "inactive"),
+        ] {
+            let mut user = template.clone();
+            user.id = id.into();
+            user.role = role;
+            user.status = status.into();
+            state.users.write().unwrap().insert(id.into(), user);
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .service(crate::clinical_endpoints::create_shift_handoff),
+        )
+        .await;
+        for recipient in [
+            "Nurse QA Free Text",
+            "qa-unknown",
+            "qa-patient",
+            "qa-inactive",
+        ] {
+            let request = test::TestRequest::post().uri("/api/emergency/handoff")
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .set_json(json!({"outgoing_nurse": DOCTOR_ID, "incoming_nurse": recipient, "patients": []}))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), 400);
+            let body: serde_json::Value = test::read_body_json(response).await;
+            assert_eq!(
+                body["error"]["code"], "INVALID_RECIPIENT",
+                "{recipient}: {body}"
+            );
+        }
+    }
+
+    /// Optional contact values can be explicitly cleared without inventing replacements.
+    #[actix_rt::test]
+    async fn clinician_contact_clear_preserves_unknowns_and_rejects_invalid_email() {
+        let state = setup_app_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(crate::handlers::update_user_profile)
+                .service(crate::handlers::get_user_with_profile),
+        )
+        .await;
+        for (email, expected) in [("not-an-email", 400), ("   ", 200)] {
+            let request = test::TestRequest::put()
+                .uri(&format!("/api/users/{DOCTOR_ID}"))
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .set_json(json!({"email":email,"phone":""}))
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, request).await.status().as_u16(),
+                expected
+            );
+        }
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/users/{DOCTOR_ID}"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), 200);
+        let saved: serde_json::Value = test::read_body_json(response).await;
+        assert!(saved["email"].is_null());
+        assert!(saved["phone"].is_null());
+    }
+
+    /// Receipt belongs only to its recipient and retries must retain the first timestamp.
+    #[actix_rt::test]
+    async fn shift_handoff_receipt_is_recipient_only_and_repeat_safe() {
+        let state = setup_app_state().await;
+        let record = crate::repositories::traits::ShiftHandoffEntity {
+            id: "QA-receipt".into(),
+            patient_id: "QA-patient".into(),
+            incoming_provider_id: DOCTOR_ID.into(),
+            outgoing_provider_id: "QA-sender".into(),
+            situation: "Synthetic receipt test".into(),
+            ..Default::default()
+        };
+        state
+            .repositories
+            .shift_handoffs
+            .create(record)
+            .await
+            .unwrap();
+        let mut other = state.users.read().unwrap()[DOCTOR_ID].clone();
+        other.id = "QA-sender".into();
+        state.users.write().unwrap().insert(other.id.clone(), other);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(crate::clinical_endpoints::acknowledge_shift_handoff),
+        )
+        .await;
+        let forbidden = test::TestRequest::put()
+            .uri("/api/emergency/handoff/QA-receipt/receipt")
+            .insert_header(crate::test_fixtures::as_user("QA-sender"))
+            .to_request();
+        assert_eq!(test::call_service(&app, forbidden).await.status(), 403);
+        assert!(
+            !state
+                .repositories
+                .shift_handoffs
+                .get_by_id("QA-receipt")
+                .await
+                .unwrap()
+                .acknowledged_by_incoming
+        );
+        let mut first_time = None;
+        let mut first_update = None;
+        for _ in 0..2 {
+            let request = test::TestRequest::put()
+                .uri("/api/emergency/handoff/QA-receipt/receipt")
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status(), 200);
+            let saved: crate::repositories::traits::ShiftHandoffEntity =
+                test::read_body_json(response).await;
+            assert!(saved.acknowledged_by_incoming);
+            assert!(!saved.read_back_confirmed);
+            assert_eq!(saved.situation, "Synthetic receipt test");
+            assert!(saved.updated_at > chrono::DateTime::<Utc>::default());
+            if let Some(updated_at) = first_update {
+                assert_eq!(saved.updated_at, updated_at);
+            }
+            first_update = Some(saved.updated_at);
+            if let Some(time) = first_time {
+                assert_eq!(saved.acknowledged_at, Some(time));
+            }
+            first_time = saved.acknowledged_at;
+            assert!(first_time.is_some());
+        }
     }
 }

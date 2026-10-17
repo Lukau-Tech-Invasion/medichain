@@ -751,11 +751,9 @@ pub async fn transition_appointment(
     };
 
     let is_provider_of_record = caller.id == appointment.provider_id;
-    // `patient_id` is a record ID (`PAT-…`) and `user_id` is an SS58
-    // account — comparing them directly can never be true, so the patient arm
-    // below was unreachable and every patient got "you are not a party to this
-    // appointment" on their own booking. `caller_owns_patient_record` is the
-    // function that actually bridges the two namespaces.
+    // Appointment patient IDs identify clinical records, while caller IDs
+    // identify accounts. Resolve record ownership before authorizing a patient
+    // to change their own appointment.
     let is_patient =
         crate::support::caller_owns_patient_record(&data, &caller.id, &appointment.patient_id);
     let is_admin = caller.role.is_admin();

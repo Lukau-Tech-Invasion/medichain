@@ -101,14 +101,44 @@ pub async fn list_patient_access_grants(
     if !access.is_permitted() {
         return forbidden("You may not view this patient's access grants");
     }
-    match data
-        .patient_access
-        .list_grants_by_patient(&patient_id, Utc::now())
-        .await
-    {
+    match grants_with_recorded_usage(&data, &patient_id).await {
         Ok(grants) => HttpResponse::Ok().json(serde_json::json!({ "grants": grants })),
         Err(_) => unavailable(),
     }
+}
+
+/// Derive patient-visible usage from retained audit evidence, never stale stored counters.
+async fn grants_with_recorded_usage(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+) -> Result<Vec<crate::repositories::AccessGrantEntity>, ()> {
+    let mut grants = data
+        .patient_access
+        .list_grants_by_patient(patient_id, Utc::now())
+        .await
+        .map_err(|_| ())?;
+    let usage = data
+        .repositories
+        .access_logs
+        .patient_grant_usage(patient_id)
+        .await
+        .map_err(|error| {
+            log::error!("Grant usage audit read failed: {}", error);
+        })?;
+    let mut by_grant: std::collections::HashMap<_, _> = usage
+        .into_iter()
+        .map(|summary| (summary.grant_id.clone(), summary))
+        .collect();
+    for grant in &mut grants {
+        if let Some(summary) = by_grant.remove(&grant.id) {
+            grant.access_count = i32::try_from(summary.access_count).map_err(|_| ())?;
+            grant.last_accessed = Some(summary.last_accessed);
+        } else {
+            grant.access_count = 0;
+            grant.last_accessed = None;
+        }
+    }
+    Ok(grants)
 }
 
 /// List the patient's access requests (pending and decided). Same authorization.

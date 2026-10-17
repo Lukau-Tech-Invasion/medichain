@@ -32,6 +32,35 @@ impl Default for MemoryAccessLogRepository {
 
 #[async_trait]
 impl AccessLogRepository for MemoryAccessLogRepository {
+    async fn patient_grant_usage(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<PatientGrantUsage>> {
+        let storage = self
+            .storage
+            .read()
+            .map_err(|_| RepositoryError::Internal("Access log store unavailable".into()))?;
+        let mut usage: HashMap<String, PatientGrantUsage> = HashMap::new();
+        for row in storage.values().filter(|row| {
+            row.patient_id.as_deref() == Some(patient_id)
+                && row.authority_type.as_deref() == Some("patient_grant")
+        }) {
+            let Some(id) = &row.authority_id else {
+                continue;
+            };
+            let summary = usage
+                .entry(id.clone())
+                .or_insert_with(|| PatientGrantUsage {
+                    grant_id: id.clone(),
+                    access_count: 0,
+                    last_accessed: row.accessed_at,
+                });
+            summary.access_count += 1;
+            summary.last_accessed = summary.last_accessed.max(row.accessed_at);
+        }
+        Ok(usage.into_values().collect())
+    }
+
     async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity> {
         let mut storage = self
             .storage

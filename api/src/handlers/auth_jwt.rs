@@ -524,12 +524,47 @@ pub async fn mfa_challenge(
         .map(|u| u.role.to_string())
         .unwrap_or_else(|| "Patient".to_string());
 
-    // MFA step-up replaces the access token but not the login. Carrying the
-    // existing `sid` forward is what keeps step-up state, and any challenge bound
-    // to this session, attached to the same login rather than orphaned.
-    let login_session_id = get_current_claims(&req).and_then(|claims| claims.sid.clone());
+    // Class B assurance is server-owned. Persist it before minting an elevated
+    // token so the token and /api/auth/assurance agree for this login.
+    let Some(login_session_id) = get_current_claims(&req).and_then(|claims| claims.sid.clone())
+    else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "A current signed-in session is required".to_string(),
+            code: "SESSION_REQUIRED".to_string(),
+        });
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authorization is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    let session_id = uuid::Uuid::parse_str(&login_session_id).ok();
+    let actor_id = uuid::Uuid::parse_str(&user_id).ok();
+    let result = match (session_id, actor_id) {
+        (Some(session_id), Some(actor_id)) => {
+            crate::transaction_authorization::record_step_up(pool, session_id, actor_id).await
+        }
+        _ => Err(sqlx::Error::RowNotFound),
+    };
+    match result {
+        Ok(()) => {}
+        Err(sqlx::Error::RowNotFound) => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "This session has ended; sign in again".to_string(),
+                code: "SESSION_REVOKED".to_string(),
+            });
+        }
+        Err(error) => {
+            log::error!("MFA step-up storage failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Authorization is temporarily unavailable".to_string(),
+                code: "AUTH_STORAGE_REQUIRED".to_string(),
+            });
+        }
+    }
 
-    match jwt::issue_access_token(&user_id, &role, true, login_session_id.as_deref()) {
+    match jwt::issue_access_token(&user_id, &role, true, Some(&login_session_id)) {
         Ok(access) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "access_token": access,

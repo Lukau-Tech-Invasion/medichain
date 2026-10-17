@@ -5,6 +5,7 @@ mod dashboards;
 mod message_attachments;
 mod messaging;
 mod note_templates;
+mod nurse_io;
 mod order_sets;
 mod orders;
 mod tasks;

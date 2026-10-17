@@ -699,7 +699,6 @@ mod runtime_posture_tests {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod smtp_posture_tests {
     use super::validate_smtp_configuration;
 

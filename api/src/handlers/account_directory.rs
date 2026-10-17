@@ -141,42 +141,39 @@ pub async fn get_user_with_profile(
         });
     }
 
-    // Get user
-    let user = match get_user(&data, &user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    // Try to get profile data from database if db_pool is available
-    let mut user_with_profile = user.clone();
-
-    if let Some(pool) = &data.db_pool {
-        // Query the authenticated account's profile by its internal user ID.
-        let profile_result: Result<Option<crate::models::user::DbUserProfile>, _> = sqlx::query_as(
-            r#"
-            SELECT up.* FROM user_profiles up
-            INNER JOIN users u ON up.user_id = u.id
-            WHERE u.id = $1::text::uuid
-            "#,
+    // Pending and inactive accounts are absent from the authorization cache.
+    // Read the durable directory and decrypt contact with its recorded key.
+    let user = if let Some(pool) = &data.db_pool {
+        let Some(id) = crate::actor_directory::parse_user_id(&user_id) else {
+            return HttpResponse::NotFound().finish();
+        };
+        match sqlx::query_as::<_, crate::models::DbUserWithProfile>(
+            "SELECT u.*, p.department, p.specialty, p.license_number,
+                    p.contact_encrypted, p.contact_key_version
+             FROM users u LEFT JOIN user_profiles p ON p.user_id = u.id
+             WHERE u.id = $1",
         )
-        .bind(&user_id)
+        .bind(id)
         .fetch_optional(pool)
-        .await;
-
-        if let Ok(Some(profile)) = profile_result {
-            user_with_profile.phone = profile.phone;
-            user_with_profile.department = profile.department;
-            user_with_profile.specialty = profile.specialty;
-            user_with_profile.license_number = profile.license_number;
+        .await
+        {
+            Ok(Some(row)) => Some(user_from_db_row(row, &data.encryption_keyring)),
+            Ok(None) => None,
+            Err(error) => {
+                log::error!("get_user_with_profile: directory read failed: {error}");
+                return HttpResponse::ServiceUnavailable().finish();
+            }
         }
+    } else {
+        get_user(&data, &user_id)
+    };
+    match user {
+        Some(user) => HttpResponse::Ok().json(user),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        }),
     }
-
-    HttpResponse::Ok().json(user_with_profile)
 }
 
 /// List all users (Admin only) - paginated
@@ -307,6 +304,7 @@ fn user_from_db_row(
             "Admin" => Role::Admin,
             "Doctor" => Role::Doctor,
             "Nurse" => Role::Nurse,
+            "Paramedic" => Role::Paramedic,
             "LabTechnician" => Role::LabTechnician,
             "Pharmacist" => Role::Pharmacist,
             _ => Role::Patient,
@@ -428,10 +426,11 @@ fn apply_profile_update(
         user.phone = Some(trimmed.to_string()).filter(|value| !value.is_empty());
     }
     if let Some(email) = &body.email {
-        if email.len() > 254 || !email.contains('@') {
+        let email = email.trim();
+        if email.len() > 254 || (!email.is_empty() && !email.contains('@')) {
             return Err(("INVALID_EMAIL", "A valid email address is required"));
         }
-        user.email = Some(email.trim().to_string());
+        user.email = Some(email.to_string()).filter(|value| !value.is_empty());
     }
     if let Some(value) = &body.department {
         user.department = Some(value.trim().to_string());
@@ -797,4 +796,41 @@ pub(crate) async fn persist_settings_for_test(
     persist_settings(data, user_id, settings)
         .await
         .expect("settings should store on the memory backend");
+}
+
+#[cfg(test)]
+mod directory_role_tests {
+    use super::*;
+
+    #[test]
+    fn a_paramedic_directory_row_preserves_the_role_when_activated() {
+        let now = Utc::now();
+        let row = crate::models::DbUserWithProfile {
+            user: crate::models::user::DbUser {
+                id: uuid::Uuid::new_v4(),
+                email: None,
+                role: "Paramedic".into(),
+                name: Some("Themba Sithole".into()),
+                username: None,
+                is_active: false,
+                status: "pending".into(),
+                email_verified: false,
+                last_login_at: None,
+                login_count: 0,
+                linked_patient_id: None,
+                created_at: now,
+                updated_at: now,
+                created_by: None,
+            },
+            department: None,
+            specialty: None,
+            license_number: None,
+            contact_encrypted: None,
+            contact_key_version: None,
+        };
+        let state = AppState::new();
+        let user = user_from_db_row(row, &state.encryption_keyring);
+        assert_eq!(user.role, Role::Paramedic);
+        assert_eq!(user.status, "pending");
+    }
 }

@@ -16,6 +16,10 @@ pub struct RegisterStaffRequest {
     pub role: String,
     pub login_id: String,
     pub email: Option<String>,
+    pub phone: Option<String>,
+    pub department: Option<String>,
+    pub specialty: Option<String>,
+    pub license_number: Option<String>,
 }
 
 fn provisioning_error() -> HttpResponse {
@@ -115,13 +119,26 @@ pub async fn register_staff_account(
     let Some(pool) = data.db_pool.as_ref() else {
         return provisioning_error();
     };
-    let account = new_user(
-        body.name.trim(),
-        role.clone(),
-        "pending",
-        Some(admin.id.clone()),
-        body.email.clone(),
-    );
+    if body
+        .phone
+        .as_ref()
+        .is_some_and(|v| v.trim().chars().count() > 32)
+        || body
+            .department
+            .as_ref()
+            .is_some_and(|v| v.trim().chars().count() > 100)
+        || body
+            .specialty
+            .as_ref()
+            .is_some_and(|v| v.trim().chars().count() > 100)
+        || body
+            .license_number
+            .as_ref()
+            .is_some_and(|v| v.trim().chars().count() > 50)
+    {
+        return HttpResponse::BadRequest().finish();
+    }
+    let account = new_staff_user(&body, role.clone(), &admin.id);
     let issuer = crate::actor_directory::parse_user_id(&admin.id);
     match create_account_with_grant(pool, &data, &account, &login_id, issuer, false).await {
         Ok(grant) => HttpResponse::Created().json(serde_json::json!({
@@ -179,10 +196,64 @@ fn new_user(
     }
 }
 
+/// Copy the registration profile into the account committed with its grant.
+fn new_staff_user(body: &RegisterStaffRequest, role: Role, admin_id: &str) -> User {
+    let mut user = new_user(
+        body.name.trim(),
+        role,
+        "pending",
+        Some(admin_id.to_string()),
+        body.email.clone(),
+    );
+    user.phone = body
+        .phone
+        .as_ref()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    user.department = body.department.as_ref().map(|v| v.trim().to_string());
+    user.specialty = body.specialty.as_ref().map(|v| v.trim().to_string());
+    user.license_number = body.license_number.as_ref().map(|v| v.trim().to_string());
+    user
+}
+
 #[derive(Debug)]
 enum CreateError {
     AlreadyBootstrapped,
     Failed(String),
+}
+
+/// A bootstrap is allowed only before any non-system account exists.
+async fn has_bootstrap_blocker(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id <> $1)")
+        .bind(crate::actor_directory::SYSTEM_USER_ID)
+        .fetch_one(&mut **tx)
+        .await
+}
+
+/// Commit a minimal account-creation audit record with the new user and grant.
+async fn insert_provisioning_audit(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user: &User,
+    bootstrap: bool,
+) -> Result<(), CreateError> {
+    let event_type = if bootstrap {
+        "account.bootstrap_provisioned"
+    } else {
+        "account.staff_provisioned"
+    };
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        event_type.to_string(),
+        "user".to_string(),
+        user.id.clone(),
+        serde_json::json!({ "role": user.role.to_string() }),
+        Utc::now(),
+    )
+    .map_err(|error| CreateError::Failed(error.to_string()))?;
+    crate::audit_outbox::insert_event(&mut **tx, &event)
+        .await
+        .map_err(|error| CreateError::Failed(error.to_string()))
 }
 
 /// Keep the account and its one-time code in one durable transaction. The
@@ -206,9 +277,7 @@ async fn create_account_with_grant(
             .execute(&mut *tx)
             .await
             .map_err(|e| CreateError::Failed(e.to_string()))?;
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id <> $1)")
-            .bind(crate::actor_directory::SYSTEM_USER_ID)
-            .fetch_one(&mut *tx)
+        let exists = has_bootstrap_blocker(&mut tx)
             .await
             .map_err(|e| CreateError::Failed(e.to_string()))?;
         if exists {
@@ -231,9 +300,13 @@ async fn create_account_with_grant(
     .execute(&mut *tx)
     .await
     .map_err(|e| CreateError::Failed(e.to_string()))?;
+    data.persist_user_profile_in(&mut tx, user_id, user)
+        .await
+        .map_err(CreateError::Failed)?;
     let grant = credentials::issue_in(&mut tx, user_id, GrantPurpose::Activation, issuer)
         .await
         .map_err(|e| CreateError::Failed(format!("{e:?}")))?;
+    insert_provisioning_audit(&mut tx, user, bootstrap).await?;
     tx.commit()
         .await
         .map_err(|e| CreateError::Failed(e.to_string()))?;
@@ -244,6 +317,92 @@ async fn create_account_with_grant(
             .insert(user.id.clone(), user.clone());
     }
     Ok(grant)
+}
+
+#[cfg(all(test, feature = "postgres"))]
+mod bootstrap_tests {
+    use super::*;
+
+    /// The portal's registration fields must survive request decoding and mapping.
+    #[test]
+    fn staff_registration_keeps_professional_and_contact_fields() {
+        let request: RegisterStaffRequest = serde_json::from_value(serde_json::json!({
+            "name": "Nurse Example", "role": "Nurse", "login_id": "nurse.example",
+            "email": "nurse@example.invalid", "phone": "+27 11 555 0199",
+            "department": "Emergency", "specialty": "Trauma", "license_number": "LIC-1"
+        }))
+        .unwrap();
+        let user = new_staff_user(&request, Role::Nurse, "admin-id");
+        assert_eq!(user.phone.as_deref(), Some("+27 11 555 0199"));
+        assert_eq!(user.department.as_deref(), Some("Emergency"));
+        assert_eq!(user.specialty.as_deref(), Some("Trauma"));
+        assert_eq!(user.license_number.as_deref(), Some("LIC-1"));
+    }
+
+    /// An account event is durable in the transaction and carries no name/code.
+    #[actix_web::test]
+    async fn provisioning_audit_contains_only_role_and_account_id() {
+        let url = crate::repositories::postgres::tests::test_database_url();
+        let pool = sqlx::PgPool::connect(&url)
+            .await
+            .expect("PostgreSQL test pool");
+        let mut tx = pool.begin().await.expect("test transaction");
+        sqlx::query("SET LOCAL search_path = pg_temp, public")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TEMP TABLE audit_events (id TEXT, event_type TEXT, aggregate_type TEXT, aggregate_id TEXT, payload_hash TEXT, payload JSONB, occurred_at TIMESTAMPTZ) ON COMMIT DROP")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let account = new_user("Private Name", Role::Admin, "active", None, None);
+        insert_provisioning_audit(&mut tx, &account, true)
+            .await
+            .unwrap();
+        let row: (String, String, serde_json::Value) =
+            sqlx::query_as("SELECT event_type, aggregate_id, payload FROM audit_events")
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "account.bootstrap_provisioned");
+        assert_eq!(row.1, account.id);
+        assert_eq!(row.2, serde_json::json!({ "role": "Admin" }));
+        tx.rollback().await.unwrap();
+    }
+
+    /// Check the exact post-cleanup guard with a session-local user table.
+    #[actix_web::test]
+    async fn any_non_system_account_blocks_bootstrap() {
+        let url = crate::repositories::postgres::tests::test_database_url();
+        let pool = sqlx::PgPool::connect(&url)
+            .await
+            .expect("PostgreSQL test pool");
+        let mut tx = pool.begin().await.expect("test transaction");
+        sqlx::query("SET LOCAL search_path = pg_temp, public")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TEMP TABLE users (id UUID PRIMARY KEY) ON COMMIT DROP")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert!(!has_bootstrap_blocker(&mut tx).await.unwrap());
+
+        sqlx::query("INSERT INTO users (id) VALUES ($1)")
+            .bind(crate::actor_directory::SYSTEM_USER_ID)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert!(!has_bootstrap_blocker(&mut tx).await.unwrap());
+
+        sqlx::query("INSERT INTO users (id) VALUES ($1)")
+            .bind(Uuid::from_u128(2))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        assert!(has_bootstrap_blocker(&mut tx).await.unwrap());
+        tx.rollback().await.unwrap();
+    }
 }
 
 fn authorized_admin(data: &web::Data<AppState>, req: &HttpRequest) -> Result<User, HttpResponse> {
@@ -366,6 +525,18 @@ pub async fn reset_user_mfa(
     let Some(user_id) = crate::actor_directory::parse_user_id(&path) else {
         return HttpResponse::NotFound().finish();
     };
+    match sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => return HttpResponse::NotFound().finish(),
+        Err(error) => {
+            log::error!("MFA reset account lookup failed: {error}");
+            return provisioning_error();
+        }
+    }
     if let Err(error) = data.delete_mfa_enrollment(&user_id.to_string()).await {
         log::error!("MFA reset failed: {error}");
         return provisioning_error();

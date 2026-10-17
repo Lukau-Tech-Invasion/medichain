@@ -2,7 +2,7 @@
 //!
 //! The caller's identity always comes from a verified JWT. A factor verifies a
 //! server-issued challenge; the eventual mutation must consume that challenge
-//! with its original intent. No wallet or signing key is involved.
+//! with its original intent. No client-held signing key is involved.
 
 use chrono::{Duration, Utc};
 use serde::Serialize;
@@ -401,24 +401,28 @@ pub async fn authorize_transaction(
         .await
         .map_err(|_| AuthorizationFailure::AlreadyConsumed)
 }
+/// Persist a verified second factor on this active login session.
 pub async fn record_step_up(
     pool: &PgPool,
     login_session_id: Uuid,
-    factor: Factor,
-) -> Result<bool, sqlx::Error> {
-    let updated = sqlx::query(
+    user_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let result = sqlx::query(
         "UPDATE auth_login_sessions
-         SET step_up_until = NOW() + make_interval(secs => $2),
-             step_up_method = $3, last_authenticated_at = NOW()
-         WHERE id = $1 AND revoked_at IS NULL",
+         SET step_up_until = NOW() + make_interval(secs => $3)
+         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
     )
     .bind(login_session_id)
-    .bind(STEP_UP_TTL_SECS as i32)
-    .bind(factor.as_str())
+    .bind(user_id)
+    .bind(STEP_UP_TTL_SECS as f64)
     .execute(pool)
     .await?;
-    Ok(updated.rows_affected() == 1)
+    if result.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
 }
+
 pub async fn has_active_step_up(
     pool: &PgPool,
     login_session_id: Uuid,
@@ -451,7 +455,7 @@ mod tests {
     fn only_supported_factors_parse() {
         assert_eq!(Factor::parse("totp"), Some(Factor::Totp));
         assert_eq!(Factor::parse("password"), Some(Factor::Password));
-        assert_eq!(Factor::parse("wallet"), None);
+        assert_eq!(Factor::parse("wallet"), None); // retired-term-negative-assertion
     }
 
     fn intent() -> TransactionIntent {

@@ -228,10 +228,9 @@ impl PsychiatricAssessmentRepository for MemoryPsychiatricAssessmentRepository {
         let items: Vec<_> = data
             .values()
             .filter(|a| {
-                a.suicidal_ideation
-                    || a.homicidal_ideation
-                    || a.risk_level == "high"
-                    || a.risk_level == "critical"
+                a.suicidal_ideation == Some(true)
+                    || a.homicidal_ideation == Some(true)
+                    || matches!(a.risk_level.as_deref(), Some("high" | "imminent"))
             })
             .cloned()
             .collect();
@@ -248,7 +247,7 @@ impl PsychiatricAssessmentRepository for MemoryPsychiatricAssessmentRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(data
             .values()
-            .filter(|a| a.risk_level == risk_level)
+            .filter(|a| a.risk_level.as_deref() == Some(risk_level))
             .cloned()
             .collect())
     }
@@ -428,7 +427,11 @@ impl PediatricAssessmentRepository for MemoryPediatricAssessmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by_key(|b| std::cmp::Reverse(b.assessment_datetime));
+        items.sort_by(|a, b| {
+            b.assessment_datetime
+                .cmp(&a.assessment_datetime)
+                .then_with(|| b.id.cmp(&a.id))
+        });
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -465,7 +468,7 @@ impl PediatricAssessmentRepository for MemoryPediatricAssessmentRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         Ok(data
             .values()
-            .filter(|a| a.child_protective_concerns)
+            .filter(|a| a.child_protective_concerns == Some(true))
             .cloned()
             .collect())
     }
@@ -1398,8 +1401,11 @@ impl ShiftHandoffRepository for MemoryShiftHandoffRepository {
         let handoff = data
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Shift handoff {} not found", id)))?;
+        if !handoff.acknowledged_by_incoming {
+            handoff.updated_at = Utc::now();
+        }
         handoff.acknowledged_by_incoming = true;
-        handoff.acknowledged_at = Some(Utc::now());
+        handoff.acknowledged_at.get_or_insert_with(Utc::now);
         Ok(handoff.clone())
     }
 

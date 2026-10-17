@@ -3,6 +3,8 @@
 //! Provides PostgreSQL connection pooling using SQLx with optimized settings
 //! for a healthcare application.
 
+mod migration_history;
+
 use sqlx::{postgres::PgPoolOptions, Connection, Error, PgPool};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -178,7 +180,17 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
         .await
         .map_err(sqlx::migrate::MigrateError::Execute)?
         .detach();
-    let result = sqlx::migrate!("./migrations").run(&mut conn).await;
+    let migrator = sqlx::migrate!("./migrations");
+    let result =
+        match migration_history::adopt_rewritten_seed_migrations(&mut conn, &migrator).await {
+            Ok(adopted) => {
+                if adopted > 0 {
+                    log::info!("adopted {adopted} rewritten seed-free migration checksum(s)");
+                }
+                migrator.run(&mut conn).await
+            }
+            Err(e) => Err(sqlx::migrate::MigrateError::Execute(e)),
+        };
     // Closing is what releases the lock. A close that itself fails must not
     // mask the migration outcome — and dropping the connection ends the session
     // regardless, which is the same release by a blunter route.
@@ -188,27 +200,6 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
     result?;
     log::info!("Database migrations completed successfully");
     Ok(())
-}
-
-/// How many migrations this binary ships, and how many the database has applied.
-///
-/// sqlx aborts the ENTIRE migration chain if one already-applied migration's
-/// checksum has changed, so a single edited file can leave the schema many
-/// migrations behind while the process still starts. Reporting both numbers
-/// turns "Migration warning: ..." into a statement of how stale the schema
-/// actually is — the difference between a log line and an actionable one.
-pub fn available_migration_count() -> Option<usize> {
-    Some(sqlx::migrate!("./migrations").migrations.len())
-}
-
-/// Count of successfully applied migrations, or `None` if it cannot be read
-/// (e.g. the migrations table does not exist yet on a fresh database).
-pub async fn applied_migration_count(pool: &PgPool) -> Option<usize> {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations WHERE success")
-        .fetch_one(pool)
-        .await
-        .ok()
-        .map(|n| n as usize)
 }
 
 /// Check if database is empty (no users exist)
