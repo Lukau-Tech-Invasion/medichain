@@ -9,6 +9,9 @@ services:
     image: postgres:16-alpine
     container_name: medichain_postgres
     restart: unless-stopped
+    # Concurrent isolated-schema migrations need more than Docker's 64 MiB
+    # default; exhaustion crashed PostgreSQL during the full API test run.
+    shm_size: "1gb"
     environment:
       # Credentials are interpolated from the environment / .env file.
       # Defaults are DEV-ONLY; production MUST set these (see .env.example).
@@ -33,6 +36,7 @@ services:
   # MediChain API
   # =============================================================================
   api:
+    image: medichain-api:local
     build:
       # Context is the repo root so the workspace member (crypto) is
       # available to the build; see api/Dockerfile.
@@ -267,6 +271,7 @@ services:
       args:
         VITE_DEMO_CREDENTIALS_ENABLED: ${VITE_DEMO_CREDENTIALS_ENABLED:-false}
         VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
+        VITE_EMERGENCY_NUMBER: ${VITE_EMERGENCY_NUMBER:-112}
     image: medichain-web:local
     container_name: medichain_nginx
     restart: unless-stopped

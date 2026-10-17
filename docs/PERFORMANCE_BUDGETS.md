@@ -53,11 +53,9 @@ How the budget is held:
 - **Vendor splitting.** `vite.config.ts` `manualChunks` separates long-lived libs
   (`react`/`react-dom` → `vendor`, `react-router-dom` → `router`, `zustand` → `state`,
   `lucide-react` → `icons`, plus `date-fns`/`qrcode`) so they cache across deploys.
-- **Heavy wallet libs are lazy.** `@polkadot/extension-dapp` + `@polkadot/util`
-  (~188 KB gzip) are dynamically imported inside `connectRealWallet`/`signMessage`
-  (`client/shared/src/wallet/service.ts`) — they load only on a real (non-demo)
-  wallet sign, never on first paint. `qrcode` (~9.5 KB gzip) is likewise its own
-  chunk, loaded only by QR pages.
+- **Optional libs are lazy.** `qrcode` (~9.5 KB gzip) is its own chunk, loaded only
+  by QR pages; the push-notification SDK (`firebase/app`, `firebase/messaging`) is
+  dynamically imported in `client/shared/src/push.ts`, never on first paint.
 
 **Inspecting composition:** `ANALYZE=1 npm run build --workspace=<app>` emits a
 gzip/brotli treemap to `dist/stats.html` (via `rollup-plugin-visualizer`). A plain
@@ -74,7 +72,7 @@ gzip/brotli treemap to `dist/stats.html` (via `rollup-plugin-visualizer`). A pla
 - [x] Budgets defined (this document).
 - [x] Server latency histogram via `/api/metrics` (Phase 8.2).
 - [x] Lighthouse CI config + job (`client/.lighthouserc.json`).
-- [x] Code-split both apps (route-level lazy + `manualChunks` + lazy wallet libs) and
+- [x] Code-split both apps (route-level lazy + `manualChunks` + lazy optional libs) and
       bundle analysis (`ANALYZE=1` → `rollup-plugin-visualizer`); both apps measured
       under budget (doctor ~104 KB, patient ~89 KB gzip initial JS).
 - [ ] Wire client-side NFC-segment instrumentation + RUM reporting.

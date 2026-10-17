@@ -131,7 +131,7 @@ graph LR
     REQ(["HTTP request"]) --> SEC["security_headers"]
     SEC --> VER["versioning<br/>/api/v1"]
     VER --> RL["rate_limit"]
-    RL --> AUTH["signature_auth<br/>Sr25519 · JWT · X-User-Id"]
+    RL --> AUTH["session_state<br/>JWT bearer · revoked-session check"]
     AUTH --> IDEM["idempotency"]
     IDEM --> ROUTE{"route dispatch<br/>385 services"}
 

@@ -1,7 +1,7 @@
 # MediChain Setup & Running Guide
 
 > **Platform:** Linux / WSL (Windows Subsystem for Linux)  
-> **Last Updated:** January 6, 2026  
+> **Authentication update:** October 5, 2026. Use `CLAUDE.md` for the current run commands and `docs/DEV_AUTH.md` for account provisioning. Other sections of this older guide still require review.
 > © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 ---
@@ -215,14 +215,14 @@ curl http://localhost:8090/health
 # Get demo info
 curl http://localhost:8090/api/demo
 
-# List patients (requires wallet address auth header)
-# Use your registered wallet address in SS58 format
-curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" http://localhost:8090/api/patients
+# List patients with an access token obtained through the credential sign-in flow
+curl -H "Authorization: Bearer ${ACCESS_TOKEN}" http://localhost:8090/api/patients
 
 # Register a patient (as a registered healthcare provider)
 curl -X POST http://localhost:8090/api/register \
   -H "Content-Type: application/json" \
-  -H "X-User-Id: YOUR_WALLET_SS58_ADDRESS" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Idempotency-Key: ${REQUEST_ID}" \
   -d '{
     "full_name": "Test Patient",
     "date_of_birth": "1990-01-01",
@@ -242,7 +242,7 @@ curl -X POST http://localhost:8090/api/register \
 
 ### Authentication
 
-MediChain currently uses **wallet-based authentication**. Users authenticate with their wallet (Polkadot.js, Subwallet, etc.) and the system uses their SS58 address for identification. ADR-0010 replaces this with password sign-in in Phase C.
+The first administrator is created with `POST /api/auth/bootstrap` using the operator-provided `MEDICHAIN_BOOTSTRAP_KEY`. The returned one-time credential code must be redeemed at `POST /api/auth/credentials/redeem` before sign-in. Administrators register staff accounts, and patients receive an activation code during clinical registration. The portals derive the password proof used by `POST /api/auth/login`. Protected requests use the resulting bearer token. See `docs/DEV_AUTH.md` for the current flow.
 
 **Roles:**
 - **Admin** - Full system access
@@ -250,9 +250,10 @@ MediChain currently uses **wallet-based authentication**. Users authenticate wit
 - **Nurse** - Can register patients, edit medical records
 - **LabTechnician** - Can submit lab results
 - **Pharmacist** - Can view prescriptions
-- **Patient** - Read-only access to own records
+- **Patient** - Access to their own records and patient workflows
+- **Paramedic** - Emergency care workflows within assigned permissions
 
-> **Note:** Legacy demo user IDs (e.g., `DOC-001`, `ADMIN-001`) are deprecated. Register users with their wallet addresses.
+> **Note:** Use an isolated development database for synthetic fixtures. Existing legacy demo accounts have no current credentials and must not be used for sign-in.
 
 ---
 
@@ -613,8 +614,8 @@ curl localhost:8090/health
 # Demo info
 curl localhost:8090/api/demo
 
-# List patients (as doctor with wallet address)
-curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" localhost:8090/api/patients
+# List patients after credential sign-in
+curl -H "Authorization: Bearer ${ACCESS_TOKEN}" localhost:8090/api/patients
 
 # IPFS health
 curl localhost:8090/api/ipfs/health
@@ -622,4 +623,4 @@ curl localhost:8090/api/ipfs/health
 
 ---
 
-**Happy Coding! 🏥⛓️**
+**Happy Coding!**

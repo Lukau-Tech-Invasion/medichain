@@ -55,7 +55,7 @@ Assign a severity:
 - **SEV-3 Low** — contained policy violation, no data exposure.
 
 ### 2.2 Containment
-- **Revoke access:** disable the implicated wallet/user; for JWT sessions, rotate `JWT_SECRET` to invalidate all outstanding access tokens (they are stateless and signed with this key).
+- **Revoke access:** reset the implicated account's credential (an administrator reset clears the password and ends every server-tracked session for that account; the user can also use `POST /api/auth/logout-all`). To cut off every account at once, rotate `JWT_SECRET`, which invalidates all outstanding access tokens signed with it.
 - **Force MFA / re-auth:** enrolled users must step up again after secret rotation.
 - **Isolate:** if a node or service is compromised, remove it from the load balancer; preserve it for forensics (do not wipe).
 - **Throttle:** tighten rate limits; enable `REQUIRE_SIGNATURES=true` if not already on.
@@ -98,7 +98,7 @@ Assign a severity:
 
 ```
 1. IC paged → open incident channel, assign roles.
-2. On-call: disable implicated wallet(s); rotate JWT_SECRET.
+2. On-call: reset implicated account(s) to end their sessions; rotate JWT_SECRET.
 3. Security Officer: snapshot logs + DB + alert buffer for forensics.
 4. Confirm scope (subjects, data classes) with Privacy Officer.
 5. POST /api/admin/security/breach  → 72h clock starts.
@@ -146,9 +146,10 @@ and run without inventing this process under time pressure.
 ### 6.2 Scope
 In scope:
 - The public API surface (`api/src/routes.rs` — all `/api/*` endpoints),
-  wallet-based auth + JWT (`api/src/security/jwt.rs`) + MFA
-  (`api/src/security/mfa.rs`), rate limiting and signature verification
-  middleware.
+  login ID + password sign-in (`POST /api/auth/login`), one-time credential-code
+  redemption, JWT bearer sessions (`api/src/security/jwt.rs`,
+  `api/src/auth_sessions.rs`) + MFA (`api/src/security/mfa.rs`), rate limiting
+  and the request-authentication middleware (`api/src/middleware/authorized_user.rs`).
 - The doctor-portal and patient-app web clients as deployed (not local dev
   builds).
 - Network perimeter: TLS termination (`docs/TLS.md`), exposed ports per

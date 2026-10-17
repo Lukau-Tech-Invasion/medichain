@@ -53,11 +53,9 @@ jobs:
               run: python scripts/check-write-authorization.py
 
             # Both gates above look at the server. This one looks at the client:
-            # the legacy `X-User-Id` header is a caller-supplied wallet address,
-            # and the only module allowed to decide whether to send it is the
-            # shared session helper. A page writing that literal itself sends the
-            # identifier even when a Bearer session already carries it, and has
-            # to be found again the day the legacy path is withdrawn.
+            # the legacy `X-User-Id` header was a caller-supplied account id. The
+            # API now refuses it, and only negative assertions may still send it,
+            # so a page that writes the literal is a regression to be found.
             - name: Only the shared session helper emits the legacy identity header
               run: python scripts/check-legacy-identity-headers.py
 
@@ -673,7 +671,7 @@ jobs:
     # invisible until the backend was first exercised — at which point patient
     # registration turned out to be impossible (a 64-char SHA3 hash into a
     # VARCHAR(32)), four repository methods were unimplemented, and 16 actor
-    # columns were typed uuid while the application writes wallet addresses.
+    # columns were typed uuid while the application wrote pre-account identifiers.
     #
     # The matrix is the point: a defect that only appears on one backend must
     # fail the build. `scripts/synthetic-e2e-test.sh` already parameterises

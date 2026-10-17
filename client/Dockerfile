@@ -31,6 +31,9 @@ ARG VITE_DEMO_CREDENTIALS_ENABLED=false
 ENV VITE_DEMO_CREDENTIALS_ENABLED=$VITE_DEMO_CREDENTIALS_ENABLED
 # Presentation build: shows the labelled "Demo accounts" sign-in shortcut.
 # Off unless docker-compose.demo.yml (or a deliberate override) sets it.
+ARG VITE_EMERGENCY_NUMBER=112
+ENV VITE_EMERGENCY_NUMBER=$VITE_EMERGENCY_NUMBER
+
 ARG VITE_DEMO_MODE=false
 ENV VITE_DEMO_MODE=$VITE_DEMO_MODE
 

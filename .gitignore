@@ -125,10 +125,14 @@ client/**/*.png
 *.png
 fix-results.tsv
 
-# Browser-test identity fixtures: throwaway synthetic credentials and
-# recovery phrases. Regenerate with scripts/seed-browser-test-fixtures.ts;
+# Browser-test identity fixtures: throwaway synthetic login IDs, passwords and
+# medical IDs. Regenerate with scripts/seed-browser-test-fixtures.ts;
 # never commit them.
 .browser-test/
+
+# Browser-audit evidence: screenshots and page snapshots of synthetic patient
+# records. Kept locally as audit evidence; never commit them.
+output/
 
 # Playwright saved sign-in state (contains a live session token)
 client/**/.auth/

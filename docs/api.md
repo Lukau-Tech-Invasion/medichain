@@ -1,7 +1,7 @@
 ````markdown
 # MediChain API Reference (generated summary)
 
-Source: `api/src/main.rs` (routes scanned 2026-01-28)
+Source: `api/src/routes.rs` and `api/src/handlers` (authentication reviewed 2026-10-05)
 
 Note: This is a concise reference. For full request/response shapes see `api/src/models` and `api/src/clinical.rs`.
 
@@ -12,23 +12,23 @@ Note: This is a concise reference. For full request/response shapes see `api/src
 - GET /api/health/detailed — Detailed system health (services, uptime, `audit_seal`)
 
 ## Authentication / Users
-- POST /api/auth/challenge — Get authentication challenge (wallet)
-- POST /api/auth/login — Login with signed challenge
-- GET /api/auth/login/{address} — Login (GET) for frontend compatibility
-- POST /api/auth/bootstrap — Bootstrap first admin (requires boot key)
-- POST /api/auth/register — Register new user (Admin only)
-- POST /api/auth/demo-login — Dev/demo login (dev mode only)
+- POST /api/auth/login — Login with `identifier`, derived `auth_proof`, and optional `totp_code`
+- POST /api/auth/credentials/redeem — Redeem a one-time activation or reset code
+- POST /api/auth/credentials/change — Change the credential proof
+- POST /api/auth/bootstrap — Bootstrap the first admin with `MEDICHAIN_BOOTSTRAP_KEY`
+- POST /api/auth/register — Register a pending staff account (Admin only)
 - GET /api/auth/me — Get current user info (requires auth)
-- GET /api/auth/wallet/{address} — Lookup user by wallet (public-ish)
+- POST /api/auth/jwt/refresh — Refresh a session
+- POST /api/auth/logout — End the current session
 
 ## RBAC / Staff
-- POST /api/roles/assign — Assign role to wallet (Admin only)
+- POST /api/roles/assign — Assign a role to a user (Admin only)
 - DELETE /api/roles/revoke — Revoke role (Admin only)
 - GET /api/staff/all — List staff (Admin only)
 - GET /api/providers — List healthcare providers (filterable)
 - GET /api/users — List users
-- GET /api/users/{wallet_address} — Get user by wallet
-- PUT /api/users/{wallet_address} — Update user
+- GET /api/users/{user_id} — Get user by account ID
+- PUT /api/users/{user_id} — Update user
 
 ## Patients & Records
 - POST /api/register — Register a new patient (providers only)
@@ -52,9 +52,8 @@ Note: This is a concise reference. For full request/response shapes see `api/src
 - GET /api/access/logs — List all access logs (providers only)
 - GET /api/access-logs/{patient_id} — Patient-specific access logs (providers or patient)
 
-## IPFS & File Storage
-- GET /api/ipfs/health — IPFS health
-- POST /api/records/upload — Upload encrypted medical record to IPFS (providers)
+## Encrypted File Storage
+- POST /api/records/upload — Upload an encrypted medical record (providers)
 - POST /api/records/download — Download/decrypt record (patient or provider)
 - GET /api/records/{patient_id} — List records for a patient
 
@@ -97,7 +96,7 @@ The API exposes many clinical endpoints under `/api/clinical/*`. Examples:
 
 © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-> Updated: 2026-01-28 — See `docs/PROJECT_STATUS_FOR_PRESENTATION.md` for current implementation notes and presentation summary.
+> Authentication section reviewed against registered handlers on 2026-10-05. Other endpoint summaries require a route-by-route reconciliation before this page can serve as an authoritative API contract.
 
 ## Overview
 
@@ -109,27 +108,20 @@ MediChain REST API provides secure access to patient identity, medical records, 
 
 ## Authentication
 
-### Wallet-based authentication (to be replaced)
+### Credential authentication
 
-MediChain currently uses **wallet-based authentication** with SS58 addresses. Users authenticate by signing a challenge with their wallet. ADR-0010 replaces this with password sign-in in Phase C; this section describes the interim behaviour.
-
-For API testing, the `X-User-Id` header accepts a user's wallet address (SS58 format):
-
-```http
-X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
-```
+`POST /api/auth/login` accepts a login `identifier`, client-derived `auth_proof`, and an optional `totp_code`. The API issues a durable session only for an active account whose proof verifies. Protected routes require the issued session credentials. Caller-supplied identity headers are not authentication.
 
 ### User Registration
 
-New users are registered with their wallet address and assigned a role:
+The first administrator is provisioned with `POST /api/auth/bootstrap` and a deployment-supplied `MEDICHAIN_BOOTSTRAP_KEY`. An administrator can register pending staff accounts with a login ID and role. The one-time credential code must be redeemed before the new account signs in. The supported roles are:
 - **Admin** - Full system access, user management
 - **Doctor** - Patient registration, medical record access/edit
 - **Nurse** - Patient registration, medical record access/edit
 - **LabTechnician** - Lab results upload, limited record access
 - **Pharmacist** - Prescription verification, medication records
+- **Paramedic** - Emergency care workflows
 - **Patient** - Read-only access to own records
-
-> **Note:** Demo user IDs (e.g., `DOC-001`, `ADMIN-001`) are deprecated. Use wallet addresses for all authentication.
 
 ---
 
@@ -468,13 +460,13 @@ List all users and their roles.
 {
   "users": [
     {
-      "user_id": "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY",
-      "username": "admin_wallet",
+      "user_id": "00000000-0000-4000-8000-000000000101",
+      "username": "admin.example",
       "role": "Admin"
     },
     {
-      "user_id": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-      "username": "dr_smith_wallet",
+      "user_id": "00000000-0000-4000-8000-000000000102",
+      "username": "doctor.example",
       "role": "Doctor"
     }
   ]
@@ -522,17 +514,16 @@ Get demo information and available endpoints.
 
 This section documents implementation details discovered during a repo audit to keep `docs/api.md` aligned with the source.
 
-- Base URL: `http://localhost:8090` (API server default in `api/`; 8080 is the IPFS gateway)
-- The server expects wallet-based authentication via the `X-User-Id` header (SS58 address). See `docs/DEV_AUTH.md` for developer guidance.
+- Local base URL: `http://localhost:8090` unless the API port is overridden.
+- Protected routes use the issued bearer/session credentials. A client-selected user ID is not an authentication credential.
 - There are two health endpoints present in code: `/api/health` and `/api/health/detailed` (use `/api/health/detailed` for richer diagnostics).
 - Some client call-sites use a legacy route `/api/access/logs` while canonical server handlers use `/api/access-logs/{patient_id}`; both are supported by the API to preserve backward compatibility.
-- Demo and seeding endpoints exist (`/api/demo`, `/api/auth/demo-login`) and are used by client apps in development. These endpoints are gated to development in server configuration but may be enabled by environment or seed scripts.
+- `GET /api/demo` describes the demo workflow. Synthetic browser accounts should be seeded only into an isolated development database.
 
 ### Important Headers
 
 - `Authorization: Bearer <access-token>` (required for authenticated requests).
-- `X-Provider-Role` (recommended for provider-scoped requests): role name such as `Doctor`, `Nurse`, `LabTechnician`, `Pharmacist`.
-- `X-Health-Id` (optional): patient health ID used by client apps when making patient-scoped requests.
+- `X-Access-Reason` where a protected patient read requires a declared purpose; it does not replace server-side authorization.
 
 ### Demo & Seed Guidance (short)
 
@@ -544,24 +535,26 @@ This section documents implementation details discovered during a repo audit to 
 
 ---
 
-## IPFS Medical Records
+## Encrypted Medical Documents
 
-Medical documents are stored on IPFS with end-to-end encryption using ChaCha20-Poly1305.
+Medical documents are encrypted with ChaCha20-Poly1305 before storage. A PostgreSQL-backed API stores their encrypted bytes in `encrypted_document_blobs`. The response still calls the content identifier `ipfs_hash` for compatibility; on PostgreSQL its value begins with `pg-sha256-`.
 
-### IPFS Health Check
+### Document Storage Health Check
 
 #### `GET /api/ipfs/health`
 
-Check IPFS daemon connection status.
+Reports the active document storage backend. On a PostgreSQL-backed API, `storage_backend` is `postgres` and the legacy IPFS connection fields are empty or false.
 
 **Authentication:** None required
 
 **Response (200 OK):**
 ```json
 {
-  "ipfs_connected": true,
-  "api_url": "http://localhost:5001",
-  "gateway_url": "http://localhost:8080"
+  "ipfs_connected": false,
+  "api_url": "",
+  "gateway_url": "",
+  "storage_backend": "postgres",
+  "storage_connected": true
 }
 ```
 
@@ -571,7 +564,7 @@ Check IPFS daemon connection status.
 
 #### `POST /api/records/upload`
 
-Upload an encrypted medical document to IPFS.
+Encrypt and store a medical document. Explicit `"encrypted": false` is rejected.
 
 **Authentication:** Doctor, Nurse, or Admin required
 
@@ -592,11 +585,11 @@ Upload an encrypted medical document to IPFS.
 ```json
 {
   "success": true,
-  "ipfs_hash": "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
-  "metadata_hash": "QmZK3LwJ2K4GpQk8Q9K7LjM8N9P2Q4R5S6T7U8V9W0X1Y2",
+  "ipfs_hash": "pg-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "metadata_hash": "pg-sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "record_reference": {
-    "content_hash": "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
-    "metadata_hash": "QmZK3LwJ2K4GpQk8Q9K7LjM8N9P2Q4R5S6T7U8V9W0X1Y2",
+    "content_hash": "pg-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "metadata_hash": "pg-sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "record_type": "lab_result",
     "uploaded_at": 1704380400,
     "content_checksum": "a1b2c3d4e5f6..."
@@ -609,7 +602,7 @@ Upload an encrypted medical document to IPFS.
 - `400 Bad Request` - Invalid base64 content
 - `403 Forbidden` - Caller cannot upload medical records
 - `404 Not Found` - Patient not found
-- `500 Internal Server Error` - IPFS upload failed
+- `500 Internal Server Error` - Encrypted storage failed
 
 ---
 
@@ -617,15 +610,15 @@ Upload an encrypted medical document to IPFS.
 
 #### `POST /api/records/download`
 
-Download and decrypt a medical document from IPFS.
+Download and decrypt an authorized medical document using its content and metadata identifiers.
 
 **Authentication:** Healthcare Provider, or Patient (own records only)
 
 **Request Body:**
 ```json
 {
-  "content_hash": "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
-  "metadata_hash": "QmZK3LwJ2K4GpQk8Q9K7LjM8N9P2Q4R5S6T7U8V9W0X1Y2"
+  "content_hash": "pg-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "metadata_hash": "pg-sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 }
 ```
 
@@ -637,15 +630,15 @@ Download and decrypt a medical document from IPFS.
   "filename": "lab_results_2026-01-04.pdf",
   "content_type": "application/pdf",
   "record_type": "lab_result",
-  "uploaded_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+  "uploaded_by": "00000000-0000-4000-8000-000000000102",
   "uploaded_at": 1704380400
 }
 ```
 
 **Errors:**
 - `403 Forbidden` - Patient can only download own records
-- `404 Not Found` - Record not found on IPFS
-- `500 Internal Server Error` - IPFS download or decryption failed
+- `404 Not Found` - Record content not found
+- `500 Internal Server Error` - Encrypted storage or decryption failed
 
 ---
 

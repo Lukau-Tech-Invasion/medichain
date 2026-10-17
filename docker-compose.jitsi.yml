@@ -35,7 +35,13 @@ services:
       - JWT_APP_SECRET=${JITSI_APP_SECRET:?set JITSI_APP_SECRET in .env}
       - JWT_ACCEPTED_ISSUERS=${JITSI_APP_ID:-medichain}
       - JWT_ACCEPTED_AUDIENCES=jitsi
-      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.medichain.local}
+      # Preserve the public HTTPS port and match the API's XMPP/JWT domain.
+      # Official reference: github.com/jitsi/docker-jitsi-meet (env.example).
+      - PUBLIC_URL=${JITSI_PUBLIC_URL:-https://${JITSI_DOMAIN:-meet.medichain.local}}
+      - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_MUC_DOMAIN=muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_BOSH_URL_BASE=http://jitsi-prosody:5280
       - TZ=UTC
       # E2EE off so recording/transcription is possible (per the recording decision).
       - ENABLE_E2EE=0
@@ -101,6 +107,7 @@ services:
       - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_MUC_DOMAIN=muc.${JITSI_DOMAIN:-meet.medichain.local}
       # The account prosody created for this component. Without it the
       # container exits with "Jicofo auth password must be set" and restarts
       # forever, while web and prosody stay up — so the stack looks two-thirds
@@ -165,7 +172,13 @@ services:
       - jibri_recordings:/config/recordings
       - ./scripts/jibri-finalize.sh:/usr/local/bin/medichain-finalize.sh:ro
     environment:
-      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.medichain.local}
+      # Preserve the public HTTPS port and match the API's XMPP/JWT domain.
+      # Official reference: github.com/jitsi/docker-jitsi-meet (env.example).
+      - PUBLIC_URL=${JITSI_PUBLIC_URL:-https://${JITSI_DOMAIN:-meet.medichain.local}}
+      - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_MUC_DOMAIN=muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_BOSH_URL_BASE=http://jitsi-prosody:5280
       - XMPP_SERVER=jitsi-prosody
       - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
       - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}

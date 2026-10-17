@@ -2,7 +2,9 @@ openapi: 3.0.3
 info:
   title: MediChain API
   description: |
-    MediChain REST API provides secure access to patient identity, medical records, 
+    This specification covers selected routes, not the complete API. The registered
+    handlers under api/src remain authoritative until route and schema coverage is complete.
+    MediChain REST API provides secure access to patient identity, medical records,
     and access control functionality for a national health ID system with a sealed,
     tamper-evident audit stream (see ADR-0010).
     
@@ -10,9 +12,9 @@ info:
     
     ## Authentication
     
-    MediChain currently uses **wallet-based authentication** with SS58 addresses
-    (scheduled for replacement by password sign-in under ADR-0010, Phase C). 
-    For API testing, include the `X-User-Id` header with a valid wallet address.
+    MediChain uses credential-proof sign-in. Protected requests present the
+    issued bearer access token; browser refresh tokens use an HttpOnly cookie.
+    A caller-supplied identity header is never authentication.
     
     ## Role-Based Access Control
     
@@ -22,7 +24,8 @@ info:
     - **Nurse** - Patient registration, medical record access/edit
     - **LabTechnician** - Lab results upload, limited record access
     - **Pharmacist** - Prescription verification, medication records
-    - **Patient** - Read-only access to own records
+    - **Paramedic** - Emergency care workflows
+    - **Patient** - Access to own records
     
     ## Audit sealing
     
@@ -56,11 +59,11 @@ tags:
   - name: Health
     description: API health check endpoints
   - name: Authentication
-    description: Wallet-based authentication endpoints
+    description: Credential and session authentication endpoints
   - name: Patients
     description: Patient registration and management
   - name: Records
-    description: Medical records management (IPFS-backed)
+    description: Encrypted medical documents (PostgreSQL-backed when a database is configured)
   - name: Access Logs
     description: Access audit trail
   - name: Lab Results
@@ -73,7 +76,7 @@ tags:
     description: Staff/user management (Admin only)
 
 security:
-  - WalletAuth: []
+  - BearerAuth: []
 
 paths:
   /health:
@@ -116,7 +119,7 @@ paths:
       summary: Bootstrap admin account
       description: |
         Creates the initial admin account. Only works once and requires 
-        BOOTSTRAP_KEY environment variable in production.
+        MEDICHAIN_BOOTSTRAP_KEY environment variable.
       security: []
       requestBody:
         required: true
@@ -131,8 +134,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BootstrapResponse'
-        '400':
-          description: Admin already exists
+        '409':
+          description: First administrator already provisioned
           content:
             application/json:
               schema:
@@ -141,21 +144,21 @@ paths:
   /api/auth/register:
     post:
       tags: [Authentication]
-      summary: Register new user
-      description: Register a new user with their wallet address. Only Admin can register healthcare providers.
+      summary: Register pending staff account
+      description: An administrator with privileged assurance creates a pending staff account and receives a one-time activation code.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/WalletRegisterRequest'
+              $ref: '#/components/schemas/StaffRegisterRequest'
       responses:
         '201':
           description: User registered
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WalletRegisterResponse'
+                $ref: '#/components/schemas/StaffRegisterResponse'
         '400':
           description: Invalid request
         '403':
@@ -164,53 +167,28 @@ paths:
   /api/auth/login:
     post:
       tags: [Authentication]
-      summary: Login with wallet
-      description: Authenticate with wallet address
+      summary: Sign in with a credential proof
+      description: Authenticate an active account with its login identifier and client-derived proof. MFA accounts also require a TOTP code.
       security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [wallet_address]
-              properties:
-                wallet_address:
-                  type: string
-                  description: SS58 encoded wallet address
-                  example: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+              $ref: '#/components/schemas/PasswordLoginRequest'
       responses:
         '200':
           description: Login successful
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WalletLoginResponse'
-        '404':
-          description: Wallet not registered
-
-  /api/auth/login/{address}:
-    get:
-      tags: [Authentication]
-      summary: Login with wallet (GET)
-      description: Authenticate with wallet address (GET version for frontend compatibility)
-      security: []
-      parameters:
-        - name: address
-          in: path
-          required: true
-          schema:
-            type: string
-          description: SS58 wallet address
-      responses:
-        '200':
-          description: Login successful
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WalletLoginResponse'
-        '404':
-          description: Wallet not registered
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials or MFA required
+        '429':
+          description: Account temporarily locked
+        '503':
+          description: Credential storage unavailable
 
   /api/auth/me:
     get:
@@ -223,9 +201,47 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WalletUserInfo'
+                $ref: '#/components/schemas/CurrentUser'
         '401':
           description: Unauthorized
+
+  /api/auth/credentials/redeem:
+    post:
+      tags: [Authentication]
+      summary: Redeem an activation or reset code
+      description: Stores the new credential proof and activates an eligible account. A staff account pending approval remains pending.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemCredentialRequest'
+      responses:
+        '200':
+          description: Credential redeemed and session issued, or MFA enrollment required
+        '202':
+          description: Credential redeemed; staff approval is still pending
+        '401':
+          description: Code invalid or expired
+        '409':
+          description: Login ID already taken
+
+  /api/auth/credentials/change:
+    post:
+      tags: [Authentication]
+      summary: Change the signed-in account's credential proof
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeCredentialRequest'
+      responses:
+        '200':
+          description: Credential changed and other sessions ended
+        '401':
+          description: Current credential proof invalid
 
   /api/register:
     post:
@@ -356,31 +372,31 @@ paths:
         '403':
           description: Patients can only view their own logs
 
-  /api/emergency-access:
+  /api/emergency/access:
     post:
       tags: [Patients]
-      summary: Request emergency access
-      description: Request emergency access to a patient's records
+      summary: Obtain a grant-bound emergency summary
+      description: Requires an active professional work context, an approved device and a valid NFC tag.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [patient_id, reason]
+              required: [nfc_tag_id, device_id, work_context_id, reason_code]
               properties:
-                patient_id:
-                  type: string
-                reason:
-                  type: string
-                  maxLength: 256
+                nfc_tag_id: { type: string }
+                device_id: { type: string }
+                work_context_id: { type: string }
+                reason_code: { type: string }
+                reason_text: { type: string }
       responses:
         '200':
-          description: Emergency access granted
+          description: Minimum emergency summary and bounded grant issued
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmergencyAccessResponse'
+                $ref: '#/components/schemas/GrantBoundEmergencyAccessResponse'
         '403':
           description: Emergency access denied
 
@@ -433,7 +449,7 @@ paths:
     post:
       tags: [Records]
       summary: Upload medical record
-      description: Upload an encrypted medical record to IPFS
+      description: Encrypt and store a medical document. A PostgreSQL-backed API stores encrypted blobs in its database; the response retains a legacy `ipfs_hash` field name for the content identifier.
       requestBody:
         required: true
         content:
@@ -455,6 +471,10 @@ paths:
                 record_type:
                   type: string
                   enum: [lab_result, imaging, prescription, clinical_note]
+                encrypted:
+                  type: boolean
+                  default: true
+                  description: Explicit false is rejected.
       responses:
         '201':
           description: Record uploaded
@@ -467,22 +487,18 @@ paths:
     post:
       tags: [Records]
       summary: Download medical record
-      description: Download and decrypt a medical record from IPFS
+      description: Download and decrypt an authorized document by its content and metadata identifiers.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [patient_id, ipfs_hash, metadata_hash, encryption_key]
+              required: [content_hash, metadata_hash]
               properties:
-                patient_id:
-                  type: string
-                ipfs_hash:
+                content_hash:
                   type: string
                 metadata_hash:
-                  type: string
-                encryption_key:
                   type: string
       responses:
         '200':
@@ -598,36 +614,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenerateNFCCardResponse'
-
-  /api/nfc/tap:
-    post:
-      tags: [NFC Cards]
-      summary: NFC card tap
-      description: Handle NFC card tap for patient identification
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [card_hash]
-              properties:
-                card_hash:
-                  type: string
-      responses:
-        '200':
-          description: Patient identified
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  patient_id:
-                    type: string
-                  patient:
-                    $ref: '#/components/schemas/PatientProfile'
 
   /api/nfc/cards:
     get:
@@ -757,33 +743,6 @@ paths:
         '403':
           description: Only Admin can list users
 
-  /api/staff/all:
-    get:
-      tags: [Staff]
-      summary: List staff
-      description: Get paginated list of all staff members (Admin only)
-      parameters:
-        - $ref: '#/components/parameters/PageParam'
-        - $ref: '#/components/parameters/LimitParam'
-      responses:
-        '200':
-          description: Staff list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  staff:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/StaffMember'
-                  pagination:
-                    $ref: '#/components/schemas/PaginationMeta'
-        '403':
-          description: Only Admin can list staff
-
   /api/roles/assign:
     post:
       tags: [Staff]
@@ -795,13 +754,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [wallet_address, role]
+              required: [user_id, name, role]
               properties:
-                wallet_address:
+                user_id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                username:
                   type: string
                 role:
                   type: string
-                  enum: [Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient]
+                  enum: [Doctor, Nurse, LabTechnician, Pharmacist, Paramedic, Patient]
       responses:
         '200':
           description: Role assigned
@@ -819,10 +783,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [wallet_address]
+              required: [user_id]
               properties:
-                wallet_address:
+                user_id:
                   type: string
+                  format: uuid
       responses:
         '200':
           description: Role revoked
@@ -831,11 +796,10 @@ paths:
 
 components:
   securitySchemes:
-    WalletAuth:
-      type: apiKey
-      in: header
-      name: X-User-Id
-      description: SS58 encoded wallet address
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
 
   parameters:
     PageParam:
@@ -974,11 +938,13 @@ components:
         has_prev:
           type: boolean
 
-    WalletUserInfo:
+    CurrentUser:
       type: object
+      required: [user_id, name, role, status, permissions]
       properties:
-        wallet_address:
+        user_id:
           type: string
+          format: uuid
         name:
           type: string
         role:
@@ -987,62 +953,120 @@ components:
           type: string
         linked_patient_id:
           type: string
-
-    WalletRegisterRequest:
-      type: object
-      required: [wallet_address, name, role]
-      properties:
-        wallet_address:
+        status:
           type: string
+        permissions:
+          type: object
+          properties:
+            is_admin: { type: boolean }
+            is_healthcare_provider: { type: boolean }
+            can_view_medical_records: { type: boolean }
+            can_edit_medical_records: { type: boolean }
+
+    StaffRegisterRequest:
+      type: object
+      required: [name, role, login_id]
+      properties:
         name:
           type: string
-        username:
+        login_id:
           type: string
         role:
           type: string
-          enum: [Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient]
+          enum: [Doctor, Nurse, LabTechnician, Pharmacist, Paramedic]
+        email:
+          type: string
+          format: email
 
-    WalletRegisterResponse:
+    StaffRegisterResponse:
       type: object
+      required: [success, user_id, role, status, activation_required, credential_code, credential_expires_at]
       properties:
         success:
           type: boolean
-        user:
-          $ref: '#/components/schemas/WalletUserInfo'
-        message:
+        user_id:
           type: string
+          format: uuid
+        role: { type: string }
+        status: { type: string }
+        activation_required: { type: boolean }
+        credential_code: { type: string }
+        credential_expires_at:
+          type: string
+          format: date-time
 
-    WalletLoginResponse:
+    PasswordLoginRequest:
       type: object
+      required: [identifier, auth_proof]
       properties:
-        success:
-          type: boolean
-        user:
-          $ref: '#/components/schemas/WalletUserInfo'
-        message:
+        identifier: { type: string }
+        auth_proof:
           type: string
+          description: Client-derived authentication proof; do not send a raw password.
+        totp_code: { type: string }
+
+    RedeemCredentialRequest:
+      type: object
+      required: [identifier, code, auth_proof]
+      properties:
+        identifier: { type: string }
+        code: { type: string }
+        auth_proof: { type: string }
+        username: { type: string }
+
+    ChangeCredentialRequest:
+      type: object
+      required: [current_auth_proof, new_auth_proof]
+      properties:
+        current_auth_proof: { type: string }
+        new_auth_proof: { type: string }
+
+    TokenResponse:
+      type: object
+      required: [success, access_token, token_type, expires_in, mfa, mfa_required]
+      properties:
+        success: { type: boolean }
+        access_token: { type: string }
+        refresh_token:
+          type: string
+          description: Present only for non-browser clients requesting body transport.
+        token_type: { type: string }
+        expires_in: { type: integer }
+        mfa: { type: boolean }
+        mfa_required: { type: boolean }
+        user:
+          $ref: '#/components/schemas/CredentialUser'
+
+    CredentialUser:
+      type: object
+      required: [user_id, name, role]
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string }
+        linked_patient_id: { type: string }
 
     BootstrapRequest:
       type: object
-      required: [wallet_address, name]
+      required: [name, login_id, secret_key]
       properties:
-        wallet_address:
-          type: string
         name:
           type: string
-        bootstrap_key:
+        login_id:
           type: string
-          description: Required in production
+        secret_key:
+          type: string
+          description: Operator-supplied bootstrap secret.
 
     BootstrapResponse:
       type: object
+      required: [success, user_id, login_id, credential_code, credential_expires_at]
       properties:
-        success:
-          type: boolean
-        message:
-          type: string
-        admin:
-          $ref: '#/components/schemas/WalletUserInfo'
+        success: { type: boolean }
+        user_id: { type: string, format: uuid }
+        login_id: { type: string }
+        credential_code: { type: string }
+        credential_expires_at: { type: string, format: date-time }
 
     PatientProfile:
       type: object
@@ -1219,38 +1243,39 @@ components:
         pagination:
           $ref: '#/components/schemas/PaginationMeta'
 
-    EmergencyAccessResponse:
+    GrantBoundEmergencyAccessResponse:
       type: object
+      required: [grant_id, expires_at, emergency_info, commitment_verified]
       properties:
-        success:
-          type: boolean
-        access_id:
-          type: string
-        patient_id:
+        grant_id:
           type: string
         expires_at:
           type: string
           format: date-time
-        message:
-          type: string
+        emergency_info:
+          type: object
+          description: Minimum emergency capsule data; see the EmergencyInfo type in the API source.
+        dnr_actionable:
+          type: boolean
+          nullable: true
+        commitment_verified:
+          type: boolean
 
     MedicalRecord:
       type: object
+      required: [content_hash, metadata_hash, record_type, uploaded_at, content_checksum, seal_status]
       properties:
-        record_id:
-          type: string
-        ipfs_hash:
+        content_hash:
           type: string
         metadata_hash:
           type: string
         record_type:
           type: string
-        filename:
-          type: string
-        uploaded_by:
-          type: string
         uploaded_at:
           type: integer
+          format: int64
+        content_checksum:
+          type: string
         seal_status:
           $ref: '#/components/schemas/SealStatus'
 
@@ -1270,6 +1295,7 @@ components:
 
     UploadRecordResponse:
       type: object
+      required: [success, ipfs_hash, metadata_hash, record_reference, seal_status, message]
       properties:
         success:
           type: boolean
@@ -1279,11 +1305,14 @@ components:
           type: string
         metadata_hash:
           type: string
+        record_reference:
+          $ref: '#/components/schemas/MedicalRecord'
         seal_status:
           $ref: '#/components/schemas/SealStatus'
 
     DownloadRecordResponse:
       type: object
+      required: [success, content_base64, filename, content_type, record_type, uploaded_by, uploaded_at]
       properties:
         success:
           type: boolean
@@ -1293,6 +1322,14 @@ components:
           type: string
         content_type:
           type: string
+        record_type:
+          type: string
+        uploaded_by:
+          type: string
+          format: uuid
+        uploaded_at:
+          type: integer
+          format: int64
 
     SubmitLabResultRequest:
       type: object
@@ -1558,8 +1595,9 @@ components:
     StaffMember:
       type: object
       properties:
-        wallet_address:
+        user_id:
           type: string
+          format: uuid
         name:
           type: string
         role:
@@ -1576,6 +1614,6 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/WalletUserInfo'
+            $ref: '#/components/schemas/CurrentUser'
         pagination:
           $ref: '#/components/schemas/PaginationMeta'

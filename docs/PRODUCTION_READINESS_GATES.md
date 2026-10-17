@@ -418,3 +418,6 @@ only the separate, later decision to process real patient data or deploy to
 real users. See `.horizon/authorization-scope.json` for the campaign's own
 authorization state and `.horizon/findings-private/HZ-003.md` for how this
 gate connects to that specific finding.
+
+### Emergency contact routing
+Configure the web build argument `VITE_EMERGENCY_NUMBER` for the deployment jurisdiction. The South African default is `112` (cellphone emergency service), independent of display language. Rebuild the web image after changing it; it is not a runtime nginx environment setting. Verify both symptom-checker contact links and newly generated discharge instructions in the target region. Reference: https://www.westerncape.gov.za/health-wellness/know-who-you-can-call-emergency

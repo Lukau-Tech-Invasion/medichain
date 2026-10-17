@@ -47,7 +47,6 @@ of whether it is exploitable today.
 | Integrity commitments | SHA3-256 | Domain-separated and length-prefixed, so no two distinct inputs share a digest |
 | National ID digests | SHA3-256, **keyed** | Keyed so digests are not brute-forceable from a small identifier space |
 | Audit batch signatures | Ed25519 | Signs each sealed audit batch (`AUDIT_SEAL_SIGNING_KEY`); see `docs/AUDIT_LOG.md` |
-| Wallet signatures | Sr25519 (Schnorrkel) | Sign-in only, until ADR-0010 Phase C replaces wallet sign-in |
 | Sessions | JWT HS256 | 1 h access, 7 d refresh |
 | Step-up auth | TOTP, RFC-6238 | For ePHI access |
 | Key material | `zeroize` on drop | |

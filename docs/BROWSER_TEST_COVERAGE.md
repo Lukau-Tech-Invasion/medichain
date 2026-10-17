@@ -1,8 +1,8 @@
 # Browser test coverage
 
-Maps every route in each portal's router, and every cross-role workflow, to the Playwright spec(s) that cover it. Written 2026-09-30 during the wallet removal (Phases B/C); the new specs are written and type-checked but **not yet run** (Phase D runs them, alone, against the rebuilt stack).
+Maps every route in each portal's router, and every cross-role workflow, to the Playwright spec(s) that cover it. Written 2026-09-30 during the identity removal of ADR-0010 (Phases B/C); the new specs are written and type-checked but **not yet run** (Phase D runs them, alone, against the rebuilt stack).
 
-Sources: `client/doctor-portal/src/App.tsx` and `config/navigation.ts`; `client/patient-app/src/App.tsx`; the spec files in each `e2e/` directory. Specs are named without `.spec.ts`.
+Sources: `client/doctor-portal/src/App.tsx` and `config/navigation.ts`; `client/patient-app/src/App.tsx`; the spec files in each `e2e/` directory. Specs are named without `.spec.ts`, except `identity-removal`, which stands for the identity-removal spec (its file keeps its original name from before ADR-0010).
 
 ## What "Render sweep" means
 
@@ -13,7 +13,7 @@ The four sweeps open every link in each role's own sidebar, so a screen added to
 | `colour-sweep` | text is readable in both themes |
 | `roles` | contrast and target size again, and that a role cannot open another role's route |
 | `route-api-refusals` | no 401/403/404/405/5xx from the API on any screen a role is offered |
-| `no-retired-terms` (new) | no chain or wallet words on screen and no chain or wallet fields in any JSON answer |
+| `no-retired-terms` (new) | no retired identity or ledger words on screen and no retired fields in any JSON answer |
 
 "Render sweep" = covered by those only: the screen opens, is readable and is answered, but nothing on it is operated. "Workflow" = a spec operates it. "GAP" = neither.
 
@@ -25,8 +25,8 @@ Workflow 36, Render sweep only 52, GAP 2. "Reached by" is the role navigation th
 
 | Route | Reached by | Swept for | Workflow spec(s) | Status |
 | --- | --- | --- | --- | --- |
-| `/login` | - | - | staff-login, wallet-removed, login, no-retired-terms | Workflow |
-| `/activate` | - | - | admin-accounts, wallet-removed, no-retired-terms | Workflow |
+| `/login` | - | - | staff-login, identity-removal, login, no-retired-terms | Workflow |
+| `/activate` | - | - | admin-accounts, identity-removal, no-retired-terms | Workflow |
 | `/dashboard` | Admin, Doctor, Nurse, LabTechnician, Pharmacist | Admin, Doctor, Nurse, LabTechnician, Pharmacist | journeys (all five roles), staff-login, seal-ui | Workflow |
 | `/settings` | Admin, Doctor, Nurse, LabTechnician, Pharmacist, Paramedic | Admin, Doctor, Nurse, LabTechnician, Pharmacist | mfa, change-password | Workflow |
 | `/notifications` | (all, via bell) | - | - | GAP |
@@ -78,7 +78,7 @@ Workflow 36, Render sweep only 52, GAP 2. "Reached by" is the role navigation th
 | `/burn` | Doctor | Doctor | - | Render sweep |
 | `/psych` | Doctor | Doctor | - | Render sweep |
 | `/toxicology` | Doctor | Doctor | workflows (SI units) | Workflow |
-| `/pediatrics` | Doctor | Doctor | - | Render sweep |
+| `/pediatrics` | Doctor | Doctor | pediatrics-unknown (2026-10-13: required fields named; unobserved findings stored as NULL, checked in PostgreSQL) | Workflow |
 | `/obstetrics` | Doctor | Doctor | - | Render sweep |
 | `/intubation` | Doctor | Doctor | procedure-readback | Workflow |
 | `/laceration-repair` | Doctor | Doctor | laceration | Workflow |
@@ -128,8 +128,8 @@ Workflow 36, Render sweep only 52, GAP 2. "Reached by" is the role navigation th
 
 | Route | Spec(s) | Status |
 | --- | --- | --- |
-| `/login` | patient-login, wallet-removed, activation, colour-sweep | Workflow |
-| `/activate` | activation, wallet-removed | Workflow |
+| `/login` | patient-login, identity-removal, activation, colour-sweep | Workflow |
+| `/activate` | activation, identity-removal | Workflow |
 | `/dashboard` | sign-in landing for every spec; accessibility, contrast, colour-sweep | Workflow |
 | `/profile` | colour-sweep, no-retired-terms | Render sweep |
 | `/records` | workflows (doctor-written SOAP note and EMS handover read by the patient), patient-login (protected redirect), accessibility, contrast | Workflow |
@@ -182,8 +182,8 @@ Workflow 36, Render sweep only 52, GAP 2. "Reached by" is the role navigation th
 | Doctor registers patient, code shown once, patient activates | `patient-activation` (new), `activation` (new), `workflows` | Covered |
 | Wrong activation codes kill the grant; re-issue | `patient-activation` (new), API level | Covered; re-issue has no UI |
 | Patient sign-in, lockout, TOTP, reload, sign-out | `patient-login` (new) | Covered |
-| Wallet paths gone (UI, localStorage, `X-User-Id`, removed endpoints) | `wallet-removed` in both portals (new) | Covered |
-| No chain or wallet wording or fields anywhere | `no-retired-terms` in both portals (new) | Covered |
+| Retired identity paths gone (UI, localStorage, `X-User-Id`, removed endpoints) | `identity-removal` in both portals (new) | Covered |
+| No retired identity or ledger wording or fields anywhere | `no-retired-terms` in both portals (new) | Covered |
 | Seal badges on access logs; audit-seal panel; patient access history | `seal-ui` in both portals (new) | Covered; capsule verification UI is a gap |
 | Emergency read with checkpoint sink `none`; patient sees it; admin ends the grant | `emergency-read` (new), `devices`, `emergency-capsule` | Covered |
 | Prescribe, pharmacy receives, partial and full dispense, patient reads | `prescribe-dispense` (new), `workflows` | Covered |
@@ -217,4 +217,4 @@ Notes for the runner:
 - `AdminApi` (in `client/doctor-portal/e2e/identity.ts`) enrols the fixture administrator in TOTP only if the API demands it, and releases it in `afterAll`. If a run is killed mid-way, turn the administrator's authenticator off in Settings before anything else signs in as Admin.
 - `IS_DEMO=true` exempts Class B, so the step-up dialog cannot appear there.
 - `patient-activation` (last test) drives the patient app at `PATIENT_APP_URL` (default `http://127.0.0.1/patient`, as `workflows` does) and skips itself if unreachable.
-- Account-creating patient specs run on the `desktop` project only; the form and wallet checks run on both.
+- Account-creating patient specs run on the `desktop` project only; the form and identity-removal checks run on both.
