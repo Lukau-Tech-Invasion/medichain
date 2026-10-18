@@ -591,7 +591,7 @@ export class ApiClient {
         lastError = error as Error;
         
         // Determine if we should retry
-        const shouldRetry = this.isRetryableError(error) && attempt < maxAttempts - 1;
+        const shouldRetry = this.isRetryableError(error, method) && attempt < maxAttempts - 1;
         
         if (shouldRetry) {
           const delay = calculateBackoff(attempt);
@@ -774,16 +774,20 @@ export class ApiClient {
   }
 
   /**
-   * Check if an error is retryable
+   * Check if an error is retryable.
+   *
+   * A mutation is retried only when its response was lost (a network error or
+   * timeout). When the server answered with a 5xx it received the request,
+   * and `middleware/idempotency.rs` keeps the key's claim for any 5xx because
+   * the write may have partly committed -- so a retry under the same key can
+   * only be refused as IDEMPOTENCY_DUPLICATE, and that refusal ("already
+   * submitted") replaced the server's real answer even when nothing was saved.
+   * Reads have no such guard and keep retrying a 5xx.
    */
-  private isRetryableError(error: unknown): boolean {
+  private isRetryableError(error: unknown, method: string): boolean {
     if (error instanceof ApiClientError) {
-      // Retry on network errors, timeouts, and 5xx server errors
-      return (
-        error.code === 'NETWORK_ERROR' ||
-        error.code === 'TIMEOUT' ||
-        error.status >= 500
-      );
+      const responseLost = error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT';
+      return responseLost || (!isMutationMethod(method) && error.status >= 500);
     }
     return this.isNetworkError(error);
   }

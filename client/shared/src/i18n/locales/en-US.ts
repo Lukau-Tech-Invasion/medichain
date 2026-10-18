@@ -8308,6 +8308,7 @@ const en_US: TranslationRecord = {
     queueSubtitle: 'Patients sorted by ESI level and arrival time',
     loadingQueue: 'Loading triage queue...',
     noPatientsInQueue: 'No patients in triage queue',
+    queueUnavailable: 'The triage queue could not be loaded. Patients may be waiting; try again.',
     startNewTriage: 'Start New Triage',
     esiBadge: 'ESI {{level}}: {{name}}',
   },
