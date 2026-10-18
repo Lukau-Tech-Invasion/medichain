@@ -550,7 +550,7 @@ const DrugInteractionsPage: React.FC = () => {
             {/* Drug Search */}
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted w-5 h-5" />
-              <input
+              <input aria-label={t('docDrugInteractions.searchPh')}
                 type="text"
                 value={drugSearch}
                 onChange={(e) => setDrugSearch(e.target.value)}
@@ -713,7 +713,7 @@ const DrugInteractionsPage: React.FC = () => {
                 </h2>
                 {interactions.length > 0 && (
                   <div className="flex gap-2">
-                    <select
+                    <select aria-label={t('common.filterBySeverity')}
                       value={severityFilter}
                       onChange={(e) => setSeverityFilter(e.target.value as InteractionSeverity | 'all')}
                       className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
@@ -724,7 +724,7 @@ const DrugInteractionsPage: React.FC = () => {
                       <option value="moderate">{t('docDrugInteractions.severity_moderate')}</option>
                       <option value="minor">{t('docDrugInteractions.severity_minor')}</option>
                     </select>
-                    <select
+                    <select aria-label={t('common.filterByType')}
                       value={typeFilter}
                       onChange={(e) => setTypeFilter(e.target.value as InteractionType | 'all')}
                       className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"

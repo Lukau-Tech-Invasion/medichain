@@ -19,8 +19,7 @@ import {
   useValidatedForm,
   newUserSchema,
   confirmDialog,
-  formatTimestamp,
-} from '@medichain/shared';
+  formatTimestamp, ModalPanel } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { OneTimeCodePanel } from '../components/OneTimeCodePanel';
 
@@ -1031,10 +1030,9 @@ const UserManagementPage: React.FC = () => {
       )}
 
       {showEditModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="user-management-dialog-title" closeOnBackdrop={false} onClose={() => { setShowEditModal(false); setSelectedUser(null); }} overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" className="bg-surface rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-content">{t('docUserManagement.editUserTitle')}</h2>
+              <h2 id="user-management-dialog-title" className="text-xl font-bold text-content">{t('docUserManagement.editUserTitle')}</h2>
               <button
                 onClick={() => {
                   setShowEditModal(false);
@@ -1165,15 +1163,13 @@ const UserManagementPage: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
 
       {showPermissionsModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-lg shadow-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="user-permissions-dialog-title" closeOnBackdrop={false} onClose={() => { setShowPermissionsModal(false); setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u))); setSelectedUser(null); }} overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" className="bg-surface rounded-lg shadow-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-content">{t('docUserManagement.managePermissionsModalTitle', { name: selectedUser.name })}</h2>
+              <h2 id="user-permissions-dialog-title" className="text-xl font-bold text-content">{t('docUserManagement.managePermissionsModalTitle', { name: selectedUser.name })}</h2>
               <button
                 onClick={() => {
                   setShowPermissionsModal(false);
@@ -1254,8 +1250,7 @@ const UserManagementPage: React.FC = () => {
                 {t('docUserManagement.savePermissionsButton')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
 
       <StepUpDialog state={stepUp} />

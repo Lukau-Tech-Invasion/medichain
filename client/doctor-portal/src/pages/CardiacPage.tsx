@@ -354,8 +354,9 @@ export default function CardiacPage() {
 
               {/* Killip Classification */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-content mb-4">{t('docCardiac.killipTitle')}</h2>
+                <h2 id="cardiac-killip-heading" className="text-lg font-semibold text-content mb-4">{t('docCardiac.killipTitle')}</h2>
                 <select
+                  aria-labelledby="cardiac-killip-heading"
                   value={killipClass}
                   onChange={(e) => setKillipClass(e.target.value)}
                   className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"

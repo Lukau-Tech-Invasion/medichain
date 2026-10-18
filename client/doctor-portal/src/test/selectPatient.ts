@@ -33,10 +33,17 @@ export async function selectPatient(
   // WP10: the first time a patient is picked in a tab, the clinician says why
   // and the server opens an access context. Answer the way a clinician does.
   // The calling test's fetch mock answers the access-context POST.
-  const reasonDialog = screen.queryByRole('dialog');
+  // The picker may itself sit in a page's dialog, so find the reason prompt by
+  // what it asks rather than by being the only dialog.
+  // The innermost match: the prompt renders inside the picker, so an enclosing
+  // dialog contains its buttons too.
+  const reasonDialog = screen
+    .queryAllByRole('dialog')
+    .filter((dialog) => within(dialog).queryByRole('button', { name: 'Treatment' }))
+    .pop();
   if (reasonDialog) {
     fireEvent.click(within(reasonDialog).getByRole('button', { name: 'Treatment' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(reasonDialog).not.toBeInTheDocument());
   }
 
   // `getAllBy`: a page may echo the chosen patient's name elsewhere (the AMA

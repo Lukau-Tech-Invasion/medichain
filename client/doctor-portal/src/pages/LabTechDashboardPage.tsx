@@ -45,6 +45,9 @@ export default function LabTechDashboardPage() {
   const [recollectResult, setRecollectResult] = useState<Record<string, string>>({});
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [completionResult, setCompletionResult] = useState<Record<string, string>>({});
+  // A completed recollection leaves the open list on reload, so its
+  // confirmation is shown at page level rather than on the row that vanishes.
+  const [recollectionNotice, setRecollectionNotice] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -191,10 +194,7 @@ export default function LabTechDashboardPage() {
     setCompletionResult((previous) => ({ ...previous, [recollectionId]: '' }));
     try {
       await completeSpecimenRecollection(recollectionId, replacementId.trim());
-      setCompletionResult((previous) => ({
-        ...previous,
-        [recollectionId]: t('docLabDashboard.recollectionCompleted'),
-      }));
+      setRecollectionNotice(t('docLabDashboard.recollectionCompleted'));
       await loadDashboard();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -384,6 +384,12 @@ export default function LabTechDashboardPage() {
           <p className="text-sm text-content-muted text-center py-4">{t('docLabDashboard.noPending')}</p>
         )}
       </div>
+
+      {recollectionNotice && (
+        <p role="status" className="p-3 rounded border border-border bg-surface text-sm text-content">
+          {recollectionNotice}
+        </p>
+      )}
 
       {data?.open_recollections && data.open_recollections.length > 0 && (
         <div className="bg-surface rounded-lg shadow p-4 border border-border">

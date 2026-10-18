@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import {
   listConsults,
   createConsult,
@@ -168,6 +169,8 @@ const ConsultPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<ConsultStatus | 'all'>('all');
   const [specialtyFilter, setSpecialtyFilter] = useState<ConsultSpecialty | 'all'>('all');
   const [selectedConsult, setSelectedConsult] = useState<string>('');
+  // A consult with its answer, previewed apart from the application and printed.
+  const [printConsult, setPrintConsult] = useState<unknown>(null);
   const [isRespondingBusy, setIsRespondingBusy] = useState(false);
 
   const [newConsult, setNewConsult] = useState({
@@ -402,6 +405,7 @@ const ConsultPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <RecordPrintPreview title="Consultation" record={printConsult} onClose={() => setPrintConsult(null)} />
       <div className="bg-gradient-to-r from-blue-700 to-cyan-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docConsult.title')}</h1>
         <p className="text-white">{t('docConsult.subtitle')}</p>
@@ -654,6 +658,12 @@ const ConsultPage: React.FC = () => {
                           </div>
                         </div>
                       </div>
+                    )}
+
+                    {consult.response && (
+                      <button type="button" onClick={() => setPrintConsult(consult)} className="mt-3 px-3 py-1 text-sm rounded-lg border">
+                        {t('docConsult.printConsult')}
+                      </button>
                     )}
 
                     {consult.notes && (

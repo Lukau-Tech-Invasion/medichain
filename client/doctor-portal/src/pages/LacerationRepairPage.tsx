@@ -22,8 +22,7 @@ import {
   getApiClient,
   getApiErrorMessage,
   useTranslation,
-  clickable,
-} from '@medichain/shared';
+  clickable, ModalPanel } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -462,7 +461,7 @@ const LacerationRepairPage: React.FC = () => {
             <div className="p-4">
               <div className="relative mb-4">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-                <input
+                <input aria-label={t('docLaceration.searchPh')}
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -744,10 +743,9 @@ const LacerationRepairPage: React.FC = () => {
 
       {/* Detail Modal */}
       {selectedRepair && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="laceration-repair-dialog-title" onClose={() => setSelectedRepair(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold">{t('docLaceration.repairDetails')}</h2>
+              <h2 id="laceration-repair-dialog-title" className="text-xl font-semibold">{t('docLaceration.repairDetails')}</h2>
               <button onClick={() => setSelectedRepair(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
@@ -804,8 +802,7 @@ const LacerationRepairPage: React.FC = () => {
               )}
               <WoundPhotoViewer key={selectedRepair.id} patientId={selectedRepair.patientId} hashes={selectedRepair.photos} />
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

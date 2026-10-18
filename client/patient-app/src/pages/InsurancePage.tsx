@@ -15,7 +15,7 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog, ModalPanel } from '@medichain/shared';
 import type { EobDocument } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -457,7 +457,7 @@ const InsurancePage: React.FC = () => {
     <div className="min-h-screen bg-surface-sunken">
       {/* Loading State */}
       {loading && (
-        <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
+        <div role="status" aria-live="polite" className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('insurance.loadingInsurance')}</span>
@@ -933,11 +933,22 @@ const InsurancePage: React.FC = () => {
 
       {/* Upload Modal */}
       {showUploadModal && selectedCard && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">
+        <ModalPanel labelledBy="insurance-dialog-2-title" onClose={() => { if (!uploadingImage) { setShowUploadModal(false); setUploadError(null); } }} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl w-full max-w-md p-6">
+            <h3 id="insurance-dialog-2-title" className="text-lg font-semibold mb-4">
               {t('insurance.uploadCardTitle', { side: uploadSide === 'front' ? t('insurance.sideFront') : t('insurance.sideBack') })}
             </h3>
+
+            {(() => {
+              // "View Front" opens this dialog: show what is stored before offering to replace it.
+              const stored = uploadSide === 'front' ? selectedCard.frontImageUrl : selectedCard.backImageUrl;
+              const side = uploadSide === 'front' ? t('insurance.sideFront') : t('insurance.sideBack');
+              return stored ? (
+                <figure className="mb-4">
+                  <img src={stored} alt={t('insurance.storedCardPhoto', { side })} className="w-full rounded-lg border border-border" />
+                  <figcaption className="mt-2 text-sm text-content-muted">{t('insurance.replaceCardPhoto')}</figcaption>
+                </figure>
+              ) : null;
+            })()}
 
             <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-4">
               {uploadingImage ? (
@@ -997,8 +1008,7 @@ const InsurancePage: React.FC = () => {
             >
               {t('insurance.cancelButton')}
             </button>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

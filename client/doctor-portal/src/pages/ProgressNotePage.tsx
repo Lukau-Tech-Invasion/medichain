@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
 import StaffName from '../components/StaffName';
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import {
   createProgressNote,
   listProgressNotes,
@@ -18,8 +19,7 @@ import {
   Textarea,
   useValidatedForm,
   progressNoteSchema,
-  progressNoteDraftSchema,
-} from '@medichain/shared';
+  progressNoteDraftSchema, ModalPanel } from '@medichain/shared';
 import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import PatientSelect, { type Patient, useDirectoryNames } from '../components/PatientSelect';
@@ -66,6 +66,7 @@ const ProgressNotePage: React.FC = () => {
   const noteNames = useDirectoryNames(storedNotes.map((n) => n.patientId));
   const notes = storedNotes.map((n) => ({ ...n, patientName: noteNames.get(n.patientId) ?? n.patientName }));
   const [selectedNote, setSelectedNote] = useState<ProgressNote | null>(null);
+  const [printNote, setPrintNote] = useState<ProgressNote | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<NoteType | 'all'>('all');
   const [loading, setLoading] = useState(true);
@@ -251,6 +252,7 @@ const ProgressNotePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Progress note" record={printNote} onClose={() => setPrintNote(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -321,7 +323,7 @@ const ProgressNotePage: React.FC = () => {
           <div className="flex gap-2 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-              <input
+              <input aria-label={t('docProgressNote.searchPlaceholder')}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -510,16 +512,18 @@ const ProgressNotePage: React.FC = () => {
 
       {/* Note Detail Modal */}
       {selectedNote && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="progress-note-dialog-title" onClose={() => setSelectedNote(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold">{selectedNote.patientName}</h2>
+                  <h2 id="progress-note-dialog-title" className="text-xl font-semibold">{selectedNote.patientName}</h2>
                   {getStatusBadge(selectedNote.status)}
                 </div>
                 <p className="text-sm text-content-muted">{t('docProgressNote.noteSuffix', { type: noteTypeLabel(selectedNote.noteType), date: selectedNote.createdAt.toLocaleString() })}</p>
               </div>
+              <button type="button" onClick={() => setPrintNote(selectedNote)} className="mr-2 px-3 py-1 text-sm rounded-lg border">
+                {t('docProgressNote.printNote')}
+              </button>
               <button aria-label={t('common.close')} onClick={() => setSelectedNote(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
@@ -560,8 +564,7 @@ const ProgressNotePage: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

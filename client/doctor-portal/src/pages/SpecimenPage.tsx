@@ -24,8 +24,7 @@ import {
   createSpecimen,
   rejectSpecimen,
   getApiErrorMessage,
-  formatTimestamp,
-} from '@medichain/shared';
+  formatTimestamp, ModalPanel } from '@medichain/shared';
 import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -329,8 +328,12 @@ const SpecimenPage: React.FC = () => {
   };
 
   const filteredSpecimens = specimens.filter(s => {
-    const matchesSearch = s.patientDisplay.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.patientId.includes(searchQuery) || s.id.toLowerCase().includes(searchQuery.toLowerCase());
+    // By patient, specimen id, or the test ordered: "full blood count" is how a
+    // technician looks for the tube in their hand.
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = s.patientDisplay.toLowerCase().includes(query) ||
+      s.patientId.includes(searchQuery) || s.id.toLowerCase().includes(query) ||
+      s.testOrdered.toLowerCase().includes(query);
     const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -410,7 +413,7 @@ const SpecimenPage: React.FC = () => {
               <div className="flex gap-2 mb-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-                  <input
+                  <input aria-label={t('docSpecimen.searchPlaceholder')}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -418,7 +421,7 @@ const SpecimenPage: React.FC = () => {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg"
                   />
             </div>
-            <select
+            <select aria-label={t('common.filterByStatus')}
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as CollectionStatus | 'all')}
               className="border rounded-lg px-3 py-2"
@@ -630,13 +633,12 @@ const SpecimenPage: React.FC = () => {
 
       {/* Specimen Detail Modal */}
       {selectedSpecimen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="specimen-dialog-title" closeOnBackdrop={false} onClose={() => setSelectedSpecimen(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {getSpecimenIcon(selectedSpecimen.specimenType)}
                 <div>
-                  <h2 className="text-xl font-semibold">{selectedSpecimen.id}</h2>
+                  <h2 id="specimen-dialog-title" className="text-xl font-semibold">{selectedSpecimen.id}</h2>
                   <p className="text-sm text-content-muted">{t('docSpecimen.specimenSuffix', { type: typeLabel(selectedSpecimen.specimenType) })}</p>
                 </div>
               </div>
@@ -744,8 +746,7 @@ const SpecimenPage: React.FC = () => {
                 </button>
               </form>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

@@ -15,7 +15,7 @@ import {
   Printer,
   RefreshCw
 } from 'lucide-react';
-import { getAllLabSubmissions, useTranslation, clickable, Alert, LoadingSpinner } from '@medichain/shared';
+import { getAllLabSubmissions, useTranslation, clickable, Alert, LoadingSpinner, ModalPanel } from '@medichain/shared';
 
 import StaffName from '../components/StaffName';
 /**
@@ -344,11 +344,10 @@ const LabResultPage: React.FC = () => {
 
       {/* Result Detail Modal */}
       {selectedResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="lab-result-dialog-title" onClose={() => setSelectedResult(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold">{selectedResult.panelName}</h2>
+                <h2 id="lab-result-dialog-title" className="text-xl font-semibold">{selectedResult.panelName}</h2>
                 <p className="text-sm text-content-muted">{selectedResult.patientName} • {t('docLabResult.mrn', { mrn: selectedResult.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -417,8 +416,7 @@ const LabResultPage: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

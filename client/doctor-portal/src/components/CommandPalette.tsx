@@ -147,7 +147,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
 
       {/* Dialog */}
       <div className="fixed inset-0 flex items-start justify-center pt-[15vh] px-4">
-        <div className="relative w-full max-w-lg bg-surface rounded-xl shadow-2xl overflow-hidden">
+        <div role="dialog" aria-modal="true" aria-label="Go to page" className="relative w-full max-w-lg bg-surface rounded-xl shadow-2xl overflow-hidden">
           {/* Search Input */}
           <div className="flex items-center gap-3 px-4 py-3 border-b">
             <Search className="text-content-muted" size={20} />

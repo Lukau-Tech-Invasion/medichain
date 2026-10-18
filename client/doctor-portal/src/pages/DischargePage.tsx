@@ -1,4 +1,4 @@
-import { getEmergencyNumber } from '@medichain/shared';
+import { getEmergencyNumber, ModalPanel } from '@medichain/shared';
 import { useState, useEffect, useCallback } from 'react';
 import {
   LogOut,
@@ -722,10 +722,9 @@ function DischargePage() {
 
       {/* New Discharge Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="discharge-dialog-title" closeOnBackdrop={false} onClose={() => setShowForm(false)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b border-border p-6 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-content">{t('docDischarge.createModalTitle')}</h2>
+              <h2 id="discharge-dialog-title" className="text-xl font-bold text-content">{t('docDischarge.createModalTitle')}</h2>
               <button onClick={() => setShowForm(false)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
@@ -1007,8 +1006,7 @@ function DischargePage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

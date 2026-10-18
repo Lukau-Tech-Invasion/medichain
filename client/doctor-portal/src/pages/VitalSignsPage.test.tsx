@@ -152,8 +152,12 @@ describe('VitalSignsPage', () => {
     );
 
     await waitFor(() => {
-      const cell = screen.getAllByText('85/50').find((el) => el.tagName === 'TD');
+      const cell = screen.getAllByText(/^85\/50/).find((el) => el.tagName === 'TD');
       expect(cell?.className).toContain('bg-critical-subtle');
+      // In words too, not only in colour (WCAG 1.4.1): the flowsheet cell and
+      // the latest-reading tile both say it.
+      expect(cell?.textContent).toContain('Critical');
+      expect(screen.getAllByText('Critical').length).toBeGreaterThanOrEqual(2);
     });
   });
 

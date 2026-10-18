@@ -135,6 +135,32 @@ function VitalSignsPage() {
     const flag = vitalFlag(value, key, scoringCatalog);
     return flag === 'critical' || flag === 'abnormal';
   };
+  // The flag in words. The tiles used to say "critical" only with a red border
+  // and a red icon, which a nurse with a colour-vision deficiency, or anyone
+  // using a screen reader, never receives (WCAG 1.4.1).
+  const flagText = (value: number | null, key: string): string | null => {
+    const flag = vitalFlag(value, key, scoringCatalog);
+    if (flag === 'critical') return t('docVitalSigns.flagCritical');
+    if (flag === 'abnormal') return t('docVitalSigns.flagAbnormal');
+    return null;
+  };
+  const flagBadge = (value: number | null, key: string) => {
+    const text = flagText(value, key);
+    return text ? <span className="ml-auto text-xs font-semibold uppercase text-critical-subtle-fg">{text}</span> : null;
+  };
+  // The flowsheet's compact form of the same flag: a mark a colour-blind reader
+  // sees, and a word a screen reader says.
+  const cellFlag = (value: number | null, key: string) => {
+    const text = flagText(value, key);
+    if (!text) return null;
+    const critical = vitalFlag(value, key, scoringCatalog) === 'critical';
+    return (
+      <span className="ml-1 text-xs font-bold" title={text}>
+        <span aria-hidden="true">{critical ? '!!' : '!'}</span>
+        <span className="sr-only">{text}</span>
+      </span>
+    );
+  };
   const gcsScale: GcsScale | null = scoringCatalog?.glasgow_coma_scale ?? null;
   const [gcsEye, setGcsEye] = useState('');
   const [gcsVerbal, setGcsVerbal] = useState('');
@@ -689,6 +715,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.heart_rate ?? '—'}</span>
                 <span className="text-sm text-content-muted">bpm</span>
+                {flagBadge(lastReading.heart_rate, 'heart_rate')}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'up' && <TrendingUp size={16} className="text-critical" />}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'down' && <TrendingDown size={16} className="text-ok" />}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'stable' && <Minus size={16} className="text-content-muted" />}
@@ -706,6 +733,7 @@ function VitalSignsPage() {
                   {lastReading.blood_pressure_systolic ?? '—'}/{lastReading.blood_pressure_diastolic ?? '—'}
                 </span>
                 <span className="text-sm text-content-muted">mmHg</span>
+                {flagBadge(lastReading.blood_pressure_systolic, 'bp_systolic')}
               </div>
             </div>
 
@@ -718,6 +746,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.oxygen_saturation ?? '—'}</span>
                 <span className="text-sm text-content-muted">%</span>
+                {flagBadge(lastReading.oxygen_saturation, 'oxygen_saturation')}
               </div>
             </div>
 
@@ -730,6 +759,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.temperature_celsius?.toFixed(1) ?? '—'}</span>
                 <span className="text-sm text-content-muted">°C</span>
+                {flagBadge(lastReading.temperature_celsius, 'temperature')}
               </div>
             </div>
 
@@ -742,6 +772,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.respiratory_rate ?? '—'}</span>
                 <span className="text-sm text-content-muted">/min</span>
+                {flagBadge(lastReading.respiratory_rate, 'respiratory_rate')}
               </div>
             </div>
           </div>
@@ -789,29 +820,29 @@ function VitalSignsPage() {
                         {formatTimestamp(reading.recorded_at)}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.heart_rate, 'heart_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.heart_rate, 'heart_rate') ? 'text-caution-subtle-fg' : ''}`}>
-                        {reading.heart_rate ?? '—'}
+                        {reading.heart_rate ?? '—'}{cellFlag(reading.heart_rate, 'heart_rate')}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.blood_pressure_systolic, 'bp_systolic') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.blood_pressure_systolic ?? '—'}/{reading.blood_pressure_diastolic ?? '—'}
+                        {reading.blood_pressure_systolic ?? '—'}/{reading.blood_pressure_diastolic ?? '—'}{cellFlag(reading.blood_pressure_systolic, 'bp_systolic')}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-caution-subtle-fg' : ''}`}>
-                        {reading.oxygen_saturation ?? '—'}%
+                        {reading.oxygen_saturation ?? '—'}%{cellFlag(reading.oxygen_saturation, 'oxygen_saturation')}
                       </td>
                       <td className={`px-4 py-3 text-center ${isAbnormal(reading.temperature_celsius, 'temperature') ? 'text-caution-subtle-fg' : ''}`}>
-                        {reading.temperature_celsius?.toFixed(1) ?? '—'}°C
+                        {reading.temperature_celsius?.toFixed(1) ?? '—'}°C{cellFlag(reading.temperature_celsius, 'temperature')}
                       </td>
                       <td className={`px-4 py-3 text-center ${isCritical(reading.respiratory_rate, 'respiratory_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.respiratory_rate ?? '—'}
+                        {reading.respiratory_rate ?? '—'}{cellFlag(reading.respiratory_rate, 'respiratory_rate')}
                       </td>
                       <td className={`px-4 py-3 text-center ${reading.pain_scale && reading.pain_scale > 6 ? 'text-critical-subtle-fg' : ''}`}>
                         {reading.pain_scale ?? '—'}/10
                       </td>
                       <td className={`px-4 py-3 text-center ${isCritical(reading.gcs_total, 'gcs') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.gcs_total ?? '—'}
+                        {reading.gcs_total ?? '—'}{cellFlag(reading.gcs_total, 'gcs')}
                       </td>
                       {/* Recorded and returned all along, and shown nowhere. */}
                       <td className={`px-4 py-3 text-center ${isCritical(reading.blood_glucose, 'blood_glucose') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.blood_glucose ?? '—'}
+                        {reading.blood_glucose ?? '—'}{cellFlag(reading.blood_glucose, 'blood_glucose')}
                       </td>
                       <td className="px-4 py-3 text-center">{reading.weight_kg ?? '—'}</td>
                       <td className="px-4 py-3 min-w-48 whitespace-pre-wrap">{reading.notes || t('docNursing.notRecorded')}</td>

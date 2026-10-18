@@ -121,4 +121,24 @@ export async function activateWithCode(input: {
 export function clearSessionMemory(): void {
   forgetLoginId();
   getApiClient().setUserId(undefined);
+  void clearOfflineRecordCache();
+}
+
+/**
+ * Delete the service worker's cached API responses.
+ *
+ * The patient worker keeps the medical ID for offline emergency use, in plain
+ * Cache Storage. It must not outlive the session that fetched it: on a shared
+ * phone the next person to pick it up, signed in or not, could otherwise read
+ * the previous patient's blood type, allergies and conditions offline. Only
+ * the data caches go; the static shell stays so the app still opens offline.
+ */
+export async function clearOfflineRecordCache(): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  try {
+    const names = await caches.keys();
+    await Promise.all(names.filter((name) => /^medichain-.*data/.test(name)).map((name) => caches.delete(name)));
+  } catch {
+    // Storage the browser refuses to open holds nothing to clear.
+  }
 }

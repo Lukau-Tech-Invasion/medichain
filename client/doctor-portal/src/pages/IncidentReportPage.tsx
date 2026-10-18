@@ -24,8 +24,7 @@ import {
   Input,
   Textarea,
   useValidatedForm,
-  incidentReportSchema,
-} from '@medichain/shared';
+  incidentReportSchema, ModalPanel } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
@@ -393,7 +392,7 @@ const IncidentReportPage: React.FC = () => {
               <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-              <input
+              <input aria-label={t('docIncidentReport.searchPh')}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -401,7 +400,7 @@ const IncidentReportPage: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border rounded-lg"
               />
             </div>
-            <select
+            <select aria-label={t('common.filterByType')}
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
               className="px-4 py-2 border rounded-lg"
@@ -414,7 +413,7 @@ const IncidentReportPage: React.FC = () => {
               <option value="behavioral">{t('docIncidentReport.typeOption_behavioral')}</option>
               <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
             </select>
-            <select
+            <select aria-label={t('common.filterByStatus')}
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               className="px-4 py-2 border rounded-lg"
@@ -714,10 +713,9 @@ const IncidentReportPage: React.FC = () => {
 
       {/* Detail Modal */}
       {selectedIncident && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="incident-report-dialog-title" onClose={() => setSelectedIncident(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold">{selectedIncident.id}</h2>
+              <h2 id="incident-report-dialog-title" className="text-xl font-semibold">{selectedIncident.id}</h2>
               <button onClick={() => setSelectedIncident(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
             <div className="p-6 space-y-4">
@@ -741,8 +739,7 @@ const IncidentReportPage: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

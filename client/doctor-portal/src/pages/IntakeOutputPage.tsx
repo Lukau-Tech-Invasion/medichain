@@ -26,8 +26,7 @@ import {
   Input,
   useValidatedForm,
   intakeOutputSchema,
-  getPatients,
-} from '@medichain/shared';
+  getPatients, ModalPanel } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -403,7 +402,7 @@ const IntakeOutputPage: React.FC = () => {
               <div className="flex gap-4 mb-6">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-                  <input
+                  <input aria-label={t('docIntakeOutput.searchPh')}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -666,11 +665,10 @@ const IntakeOutputPage: React.FC = () => {
 
       {/* Patient Detail Modal */}
       {detailOpen && selectedPatient && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="intake-output-dialog-title" onClose={() => setDetailOpen(false)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold">{selectedPatient.patientName}</h2>
+                <h2 id="intake-output-dialog-title" className="text-xl font-semibold">{selectedPatient.patientName}</h2>
                 <p className="text-sm text-content-muted">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -738,8 +736,7 @@ const IntakeOutputPage: React.FC = () => {
                 </table>
               </div>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
         </>
       )}

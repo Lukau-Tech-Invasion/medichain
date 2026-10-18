@@ -437,7 +437,7 @@ const RadiologyPage: React.FC = () => {
             <div className="flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2 flex-1 min-w-64">
                 <Search className="w-5 h-5 text-gray-300" />
-                <input
+                <input aria-label={t('docRadiology.searchPlaceholder')}
                   type="text"
                   placeholder={t('docRadiology.searchPlaceholder')}
                   value={searchTerm}

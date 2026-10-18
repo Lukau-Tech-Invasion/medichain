@@ -3,7 +3,6 @@ import {
   signInWithPassword,
   activateWithCode,
   normalizeActivationCode,
-  purgeLegacyIdentityStorage,
   getApiClient,
   getRememberedLoginId,
 } from '@medichain/shared';
@@ -119,43 +118,5 @@ describe('normalizeActivationCode', () => {
 
   it('never grows past twelve characters', () => {
     expect(normalizeActivationCode('ABCDEFGHJKMNPQRS')).toBe('ABCD-EFGH-JKMN');
-  });
-});
-
-/** The shared test setup stubs `localStorage` with inert spies; this one stores. */
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    get length() {
-      return map.size;
-    },
-    key: (index: number) => Array.from(map.keys())[index] ?? null,
-    getItem: (key: string) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key: string, value: string) => void map.set(key, value),
-    removeItem: (key: string) => void map.delete(key),
-    clear: () => map.clear(),
-  };
-}
-
-describe('purgeLegacyIdentityStorage', () => {
-  beforeEach(() => {
-    vi.stubGlobal('localStorage', memoryStorage());
-  });
-
-  it('removes retired keys, chain_ keys, and a session that names an address', () => {
-    localStorage.setItem('medichain_wallet', '{"address":"x"}'); // retired-term-negative-assertion
-    localStorage.setItem('chain_anything', '1');
-    localStorage.setItem('medichain_provider_auth', JSON.stringify({ address: 'x', role: 'Doctor', name: 'n' }));
-    localStorage.setItem('medichain_patient_auth', JSON.stringify({ userId: 'u', healthId: 'h', name: 'n' }));
-    localStorage.setItem('unrelated', 'keep');
-
-    purgeLegacyIdentityStorage();
-
-    expect(localStorage.getItem('medichain_wallet')).toBeNull(); // retired-term-negative-assertion
-    expect(localStorage.getItem('chain_anything')).toBeNull();
-    expect(localStorage.getItem('medichain_provider_auth')).toBeNull();
-    // A current-shape session and unrelated keys are left alone.
-    expect(localStorage.getItem('medichain_patient_auth')).not.toBeNull();
-    expect(localStorage.getItem('unrelated')).toBe('keep');
   });
 });

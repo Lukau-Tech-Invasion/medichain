@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useTranslation, LanguageSwitcher } from '@medichain/shared';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation, LanguageSwitcher, returnPathFrom } from '@medichain/shared';
 import { Heart, Shield, User, KeyRound } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -23,6 +23,8 @@ import { usePatientAuthStore } from '../store/authStore';
  */
 export function LoginPage() {
   const navigate = useNavigate();
+  // The page a protected route was asked for before sign-in, or the dashboard.
+  const destination = returnPathFrom(useLocation().state);
   const { t } = useTranslation();
   const { login, isAuthenticated, isLoading, error, mfaRequired, clearError } = usePatientAuthStore();
 
@@ -34,9 +36,9 @@ export function LoginPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard');
+      navigate(destination, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, destination]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +60,7 @@ export function LoginPage() {
     // submit needs it again); a failed password is retyped, never left in state.
     if (result !== 'mfa_required') setPassword('');
     if (result === true) {
-      navigate('/dashboard');
+      navigate(destination, { replace: true });
     }
   };
 

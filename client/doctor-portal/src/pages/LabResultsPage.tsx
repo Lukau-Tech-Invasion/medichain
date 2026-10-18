@@ -7,8 +7,7 @@ import {
   reviewLabResult,
   submitLabResults,
   useTranslation,
-  clickable,
-} from '@medichain/shared';
+  clickable, ModalPanel } from '@medichain/shared';
 import type { LabPanelTemplate } from '@medichain/shared';
 import {
   FlaskConical,
@@ -780,9 +779,8 @@ function LabResultsPage() {
 
       {/* Reject Modal */}
       {showRejectModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
+        <ModalPanel labelledBy="lab-results-dialog-title" closeOnBackdrop={false} onClose={() => { setShowRejectModal(null); setRejectionReason(''); }} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50" className="bg-surface rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 id="lab-results-dialog-title" className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <XCircle className="text-critical" size={24} />
               {t('docLabResults.rejectTitle')}
             </h3>
@@ -820,8 +818,7 @@ function LabResultsPage() {
                 {t('docLabResults.rejectSubmission')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

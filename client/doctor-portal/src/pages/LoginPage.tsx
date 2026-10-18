@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
 import {
   Shield,
@@ -14,7 +14,7 @@ import {
   Pill,
   type LucideIcon,
 } from 'lucide-react';
-import { FEATURES, getDemoCredentials, useTranslation, type DemoCredential as DemoCredentialRow } from '@medichain/shared';
+import { FEATURES, getDemoCredentials, returnPathFrom, useTranslation, type DemoCredential as DemoCredentialRow } from '@medichain/shared';
 
 /**
  * Demo sign-in shortcut.
@@ -54,6 +54,8 @@ const ROLE_STYLES: Record<string, string> = {
 function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  // The page a protected route was asked for before sign-in, or the dashboard.
+  const destination = returnPathFrom(useLocation().state);
   const { loginWithCredentials, isLoading, error, mfaRequired, clearError } = useAuthStore();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -79,7 +81,7 @@ function LoginPage() {
     // failure the user retypes it rather than leaving it sitting behind an error.
     if (result !== 'mfa_required') setPassword('');
     if (result === true) {
-      navigate('/dashboard');
+      navigate(destination, { replace: true });
     }
   };
 
@@ -122,7 +124,7 @@ function LoginPage() {
     clearError();
     const success = await loginWithCredentials(account.login_id, account.password);
     if (success) {
-      navigate('/dashboard');
+      navigate(destination, { replace: true });
     }
   };
 

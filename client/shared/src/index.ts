@@ -89,5 +89,8 @@ export * from './components/field';
 export * from './components/FieldParts';
 export * from './utils/clickable';
 export * from './utils/localDateTime';
+export { returnPathFrom } from './utils/returnPath';
+export { csvCell, csvRow } from './utils/csv';
+export { reloadOnStaleChunks } from './utils/staleChunks';
 
 export { getEmergencyNumber } from './utils/emergencyNumber';

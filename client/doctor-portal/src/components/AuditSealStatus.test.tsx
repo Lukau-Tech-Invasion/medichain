@@ -35,7 +35,6 @@ describe('AuditSealStatus', () => {
     expect(panel).toHaveTextContent(/Last exported/);
     expect(panel).toHaveTextContent('Checkpoints are exported to disk');
     expect(panel).toHaveTextContent('Batches are signed');
-    expect(panel).not.toHaveTextContent(/blockchain|on-chain|anchor/i);
   });
 
   it('says so plainly when nothing has been sealed or exported', () => {

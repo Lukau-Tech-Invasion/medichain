@@ -29,8 +29,7 @@ import {
   Input,
   amaDetailsSchema,
   collectAmaSignatures,
-  getApiErrorMessage,
-} from '@medichain/shared';
+  getApiErrorMessage, ModalPanel } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -391,7 +390,7 @@ const AMAPage: React.FC = () => {
                 <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-                    <input
+                    <input aria-label={t('docAMA.searchPh')}
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
@@ -399,7 +398,7 @@ const AMAPage: React.FC = () => {
                       className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                     />
                   </div>
-                  <select
+                  <select aria-label={t('common.filterByStatus')}
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as AMAStatus | 'all')}
                     className="px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
@@ -1035,9 +1034,8 @@ const AMAPage: React.FC = () => {
           A form marked handled with nothing behind it leaves the record as
           unevidenced as before, which is what this button used to do. */}
       {signingRecord && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-content">
+        <ModalPanel labelledBy="ama-dialog-title" closeOnBackdrop={false} onClose={() => setSigningRecord(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 id="ama-dialog-title" className="text-lg font-semibold text-content">
               {t('docAMA.collectSignaturesTitle')}
             </h2>
             <div>
@@ -1116,8 +1114,7 @@ const AMAPage: React.FC = () => {
                 {t('docAMA.sigSubmit')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

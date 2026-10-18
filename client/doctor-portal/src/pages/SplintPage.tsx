@@ -383,7 +383,7 @@ const SplintPage: React.FC = () => {
                       {t('docSplint.nvStatusIntact')}
                     </span>
                   </label>
-                  <input
+                  <input aria-label={t('docSplint.nvNotesPh')}
                     type="text"
                     value={preNV.notes}
                     onChange={e => setPreNV({ ...preNV, notes: e.target.value })}
@@ -404,7 +404,7 @@ const SplintPage: React.FC = () => {
                       {t('docSplint.nvStatusIntact')}
                     </span>
                   </label>
-                  <input
+                  <input aria-label={t('docSplint.nvNotesPh')}
                     type="text"
                     value={postNV.notes}
                     onChange={e => setPostNV({ ...postNV, notes: e.target.value })}
@@ -525,7 +525,7 @@ const SplintPage: React.FC = () => {
             {/* Notes */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docSplint.notes')}</h2>
-              <textarea
+              <textarea aria-label={t('docSplint.notesPh')}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"

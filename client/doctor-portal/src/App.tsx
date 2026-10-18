@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
@@ -161,9 +161,11 @@ const PharmacistDashboardPage = lazy(() => import('./pages/PharmacistDashboardPa
  */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
+  const location = useLocation();
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    // Remember where they were going; sign-in returns them there.
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return <>{children}</>;
@@ -194,6 +196,32 @@ function SmartDashboardRouter() {
     default:
       return <DashboardPage />;
   }
+}
+
+/** The dashboard each role owns, keyed by the normalised role name. */
+const DASHBOARD_ROLES: Record<string, string> = {
+  doctor: 'doctor',
+  nurse: 'nurse',
+  labtechnician: 'lab',
+  lab_technician: 'lab',
+  lab: 'lab',
+  pharmacist: 'pharmacist',
+  admin: 'admin',
+};
+
+/**
+ * A role's own dashboard, opened directly.
+ *
+ * These aliases rendered for anyone signed in, so a pharmacist could open the
+ * nurse's ward board by typing its address. The endpoints behind each panel
+ * enforce their own roles, so the result was a screen of refusals rather than
+ * a leak -- still the wrong answer. Anyone else is sent to their own dashboard.
+ */
+function OwnDashboard({ dashboard, children }: { dashboard: string; children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  const own = DASHBOARD_ROLES[user?.role?.toLowerCase() ?? ''];
+  if (own !== dashboard) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
 }
 
 /**
@@ -253,11 +281,11 @@ function App() {
         <Route path="notifications" element={<LazyRoute element={<NotificationsPage />} />} />
 
         {/* Role-Specific Dashboards (direct access) */}
-        <Route path="dashboard/doctor" element={<DashboardPage />} />
-        <Route path="dashboard/nurse" element={<LazyRoute element={<NurseDashboardPage />} />} />
-        <Route path="dashboard/lab" element={<LazyRoute element={<LabTechDashboardPage />} />} />
-        <Route path="dashboard/pharmacist" element={<LazyRoute element={<PharmacistDashboardPage />} />} />
-        <Route path="dashboard/admin" element={<LazyRoute element={<AdminDashboardPage />} />} />
+        <Route path="dashboard/doctor" element={<OwnDashboard dashboard="doctor"><DashboardPage /></OwnDashboard>} />
+        <Route path="dashboard/nurse" element={<OwnDashboard dashboard="nurse"><LazyRoute element={<NurseDashboardPage />} /></OwnDashboard>} />
+        <Route path="dashboard/lab" element={<OwnDashboard dashboard="lab"><LazyRoute element={<LabTechDashboardPage />} /></OwnDashboard>} />
+        <Route path="dashboard/pharmacist" element={<OwnDashboard dashboard="pharmacist"><LazyRoute element={<PharmacistDashboardPage />} /></OwnDashboard>} />
+        <Route path="dashboard/admin" element={<OwnDashboard dashboard="admin"><LazyRoute element={<AdminDashboardPage />} /></OwnDashboard>} />
 
         {/* Patient Management */}
         <Route path="patients" element={<LazyRoute element={<PatientSearchPage />} />} />

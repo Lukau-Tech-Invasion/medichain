@@ -27,8 +27,7 @@ import {
   clickable,
   Input,
   useValidatedForm,
-  woundAssessmentSchema,
-} from '@medichain/shared';
+  woundAssessmentSchema, ModalPanel } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -435,7 +434,7 @@ const WoundCarePage: React.FC = () => {
         <div className="p-4">
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-            <input
+            <input aria-label={t('docWoundCare.searchPh')}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -725,11 +724,10 @@ const WoundCarePage: React.FC = () => {
 
       {/* Wound Detail Modal */}
       {selectedWound && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="wound-care-dialog-title" onClose={() => setSelectedWound(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-semibold">{patientLabel(selectedWound.patientId)}</h2>
+                <h2 id="wound-care-dialog-title" className="text-xl font-semibold">{patientLabel(selectedWound.patientId)}</h2>
                 <p className="text-sm text-content-muted">{selectedWound.location} • {getWoundTypeLabel(selectedWound.woundType)}</p>
               </div>
               <button onClick={() => setSelectedWound(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
@@ -809,8 +807,7 @@ const WoundCarePage: React.FC = () => {
                 <Camera className="w-5 h-5" /> {t('docWoundCare.addNewAssessment')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

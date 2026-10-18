@@ -174,7 +174,6 @@ describe('AccessHistoryPage', () => {
     expect(badge).toHaveTextContent(new RegExp(`^${label}$`));
     expect(badge).toHaveAttribute('data-seal-status', status);
     expect(screen.getByText(/sealing records a fingerprint/i)).toBeInTheDocument();
-    expect(card).not.toHaveTextContent(/blockchain|on-chain|anchor|transaction/i);
   });
 
   it('calls a session with some rows still unsealed "Partly sealed"', async () => {

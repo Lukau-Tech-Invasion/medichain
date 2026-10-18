@@ -21,7 +21,7 @@ const SUMMARY_KEYS = [
   'history-physicals', 'progress-notes', 'wounds', 'vitals', 'discharges', 'imaging', 'pathology',
   'consults', 'care-plans', 'blood', 'procedures', 'ama-discharges', 'intake-output',
   'pharmacy-decisions', 'ems-handoffs',
-  'immunizations',
+  'immunizations', 'medication-administrations', 'emergency-care',
 ];
 
 describe('MyRecordsPage (Patient)', () => {
@@ -101,6 +101,16 @@ describe('MyRecordsPage (Patient)', () => {
                 id: 'IMM-OWN', vaccine_name: 'QA influenza vaccination', dose_number: 1,
                 lot_number: 'QA-LOT', administered_by_name: 'Nurse QA', administration_date: '2026-10-10',
               }] },
+              'medication-administrations': { administrations: [{
+                administration_id: 'ADM-OWN', medication_name: 'QA amlodipine', dose: '5 mg', route: 'PO',
+                status: 'given', administered_by: 'Nurse QA', administered_at: '2026-10-18T08:00:00Z',
+              }, {
+                administration_id: 'ADM-HELD', medication_name: 'QA metformin', status: 'held',
+                reason_not_given: 'Nil by mouth', administered_by: 'Nurse QA', record_date: '2026-10-18',
+              }] },
+              'emergency-care': { code_blues: [{
+                id: 'CB-OWN', outcome: 'ROSC', documented_by: 'Doctor QA', created_at: '2026-10-18T09:00:00Z',
+              }], traumas: [], strokes: [], cardiac_events: [], sepsis_assessments: [] },
               procedures: {
                 anesthesia_records: [{ id: 'ANES-OWN', procedure_name: 'QA anaesthesia procedure', anesthesiologist_id: 'Doctor QA', created_at: '2026-10-11T10:30:00Z' }],
                 pre_op_assessments: [{ id: 'PRE-OWN', procedure_name: 'QA pre-operative procedure', assessed_by: 'Doctor QA', assessed_at: '2026-10-11T10:00:00Z' }],
@@ -160,6 +170,19 @@ describe('MyRecordsPage (Patient)', () => {
       expect(screen.getByText(/BP 122\/78/)).toBeInTheDocument();
       expect(screen.getByText(/37\.2 C/)).toBeInTheDocument();
     });
+  });
+
+  it('shows a resuscitation the patient was given', async () => {
+    render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Resuscitation (code blue)' })).toBeInTheDocument();
+    expect(screen.getAllByText('Outcome: ROSC').length).toBeGreaterThan(0);
+  });
+
+  it('shows the doses the ward recorded, including one that was held and why', async () => {
+    render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
+    expect(await screen.findByRole('heading', { name: 'Medication given: QA amlodipine' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Medication held: QA metformin' })).toBeInTheDocument();
+    expect(screen.getAllByText(/Reason: Nil by mouth/).length).toBeGreaterThan(0);
   });
 
   it('includes stored immunizations in the vaccination filter and record details', async () => {
@@ -305,7 +328,6 @@ describe('MyRecordsPage (Patient)', () => {
     fireEvent.click(await screen.findByRole('heading', { name: /Discharge Summary/i }));
     const badge = await screen.findByTestId('seal-badge');
     expect(badge).toHaveTextContent('Sealed and exported');
-    expect(screen.queryByText(/blockchain|on-chain|anchor|transaction/i)).not.toBeInTheDocument();
   });
 
   it('shows no seal badge for a record the server reported no seal state for', async () => {

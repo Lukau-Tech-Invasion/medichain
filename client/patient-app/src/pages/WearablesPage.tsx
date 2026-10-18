@@ -544,7 +544,7 @@ const WearablesPage: React.FC = () => {
     <div className="min-h-screen bg-surface-sunken pb-20">
       {/* Loading State */}
       {loading && (
-        <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
+        <div role="status" aria-live="polite" className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('wearables.loading')}</span>

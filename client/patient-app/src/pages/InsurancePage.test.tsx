@@ -185,6 +185,34 @@ describe('InsurancePage (Patient)', () => {
     ));
   });
 
+  it('shows the stored card photo when its side is opened', async () => {
+    vi.mocked(shared.getInsuranceCards).mockResolvedValue({
+      success: true,
+      count: 1,
+      cards: [{
+        id: 'ICARD-1', patient_id: mockPatient.healthId, type: 'medical',
+        providerName: 'Acme Health', planName: 'Standard', memberId: 'MEM-123',
+        groupNumber: '', subscriberName: 'Test Patient', subscriberId: 'SUB-1',
+        effectiveDate: '2026-01-01', terminationDate: null, status: 'active', currency: 'ZAR',
+        copay: { primaryCare: 0, specialist: 0, urgentCare: 0, emergency: 0 },
+        deductible: { individual: 0, family: 0, met: 0 },
+        outOfPocketMax: { individual: 0, family: 0, met: 0 },
+        frontImageUrl: null, backImageUrl: null, customerServicePhone: '',
+        providerPortalUrl: '', isPrimary: true, lastVerified: '',
+      }],
+    });
+    vi.mocked(shared.downloadInsuranceCardImage).mockImplementation(async (_id, side) => {
+      if (side !== 'front') throw new Error('No image');
+      return { content_type: 'image/png', content_base64: 'AAAA' } as never;
+    });
+
+    render(<MemoryRouter><InsurancePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: /View Front/i }));
+
+    const photo = await screen.findByRole('img', { name: /Stored front of the card/i });
+    expect(photo).toHaveAttribute('src', 'data:image/png;base64,AAAA');
+  });
+
   /** A stored claim as the API returns it, with `eob_documents`. */
   function claimWith(documents: unknown[]) {
     return {

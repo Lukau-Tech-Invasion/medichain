@@ -1360,7 +1360,9 @@ export type PatientDocumentKind =
   | 'blood'
   | 'procedures'
   | 'ama-discharges'
-  | 'ems-handoffs';
+  | 'ems-handoffs'
+  | 'medication-administrations'
+  | 'emergency-care';
 
 /**
  * One of a patient's document collections, with its envelope intact.
@@ -1413,6 +1415,8 @@ const PATIENT_DOCUMENT_PATHS: Record<PatientDocumentKind, (id: string) => string
   procedures: (id) => `/api/clinical/patient/${id}/procedures`,
   'ama-discharges': (id) => `/api/clinical/patient/${id}/ama-discharges`,
   'ems-handoffs': (id) => `/api/clinical/patient/${id}/ems-handoffs`,
+  'medication-administrations': (id) => `/api/clinical/patient/${id}/medication-administrations`,
+  'emergency-care': (id) => `/api/clinical/patient/${id}/emergency-care`,
 };
 
 /**

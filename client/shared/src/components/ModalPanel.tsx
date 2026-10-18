@@ -32,6 +32,12 @@ export function trapTab(event: React.KeyboardEvent<HTMLElement>): void {
   }
 }
 
+/**
+ * Open panels, innermost last. Escape closes the topmost only, so a
+ * confirmation over a form closes the confirmation and leaves the form.
+ */
+const openPanels: object[] = [];
+
 export interface ModalPanelProps {
   /** Id of the visible heading that names the dialog. */
   labelledBy?: string;
@@ -41,6 +47,11 @@ export interface ModalPanelProps {
   /** A destructive confirmation: announced as an alert. */
   alert?: boolean;
   onClose: () => void;
+  /**
+   * Whether a click on the backdrop closes the dialog. Off for a form: one
+   * stray click beside the panel would otherwise discard everything typed.
+   */
+  closeOnBackdrop?: boolean;
   /** Where focus goes on open; defaults to the first focusable control. */
   initialFocus?: RefObject<HTMLElement | null>;
   /** Classes for the overlay that positions the panel. */
@@ -55,12 +66,36 @@ export function ModalPanel({
   describedBy,
   alert = false,
   onClose,
+  closeOnBackdrop = true,
   initialFocus,
   overlayClassName = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50',
   className,
   children,
 }: ModalPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  // Escape is heard on the document, not the panel: when the control that had
+  // focus unmounts (a Save button replaced by its result), focus falls to
+  // <body>, and a panel-level listener then never hears the key at all.
+  useEffect(() => {
+    const entry = {};
+    openPanels.push(entry);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (openPanels[openPanels.length - 1] !== entry) return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      openPanels.splice(openPanels.indexOf(entry), 1);
+    };
+  }, []);
 
   // Focus goes where the user is expected to act, and returns to whatever
   // opened the dialog when it closes.
@@ -77,7 +112,7 @@ export function ModalPanel({
     <div
       className={overlayClassName}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (closeOnBackdrop && event.target === event.currentTarget) onClose();
       }}
     >
       <div
@@ -88,13 +123,7 @@ export function ModalPanel({
         aria-label={labelledBy ? undefined : label}
         aria-describedby={describedBy}
         tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation();
-            onClose();
-          }
-          trapTab(event);
-        }}
+        onKeyDown={trapTab}
         className={className}
       >
         {children}

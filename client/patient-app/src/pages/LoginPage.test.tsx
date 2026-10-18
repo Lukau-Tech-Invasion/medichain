@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { LoginPage } from './LoginPage';
@@ -84,8 +84,23 @@ describe('LoginPage (Patient)', () => {
 
     await waitFor(() => {
       expect(mockLogin).toHaveBeenCalledWith('thandi.n', 'a long enough password', undefined);
-      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
     });
+  });
+
+  it('returns to the page a deep link asked for before sign-in', async () => {
+    mockLogin.mockResolvedValue(true);
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: { pathname: '/medications' } } }]}>
+        <LoginPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText(/^Username$/i), { target: { value: 'thandi.n' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a long enough password' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/medications', { replace: true }));
   });
 
   it('asks for the authenticator code when the account requires it', async () => {

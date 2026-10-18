@@ -5,8 +5,7 @@ import {
   getApiErrorMessage,
   MIN_PASSWORD_LENGTH,
   rememberLoginId,
-  useTranslation,
-} from '@medichain/shared';
+  useTranslation, ModalPanel } from '@medichain/shared';
 import { X, Loader2 } from 'lucide-react';
 
 /**
@@ -87,10 +86,9 @@ export default function ChangePasswordDialog({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface rounded-xl shadow-xl w-full max-w-md">
+    <ModalPanel labelledBy="change-password-dialog-title" closeOnBackdrop={false} onClose={onClose} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl w-full max-w-md">
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <h2 className="text-lg font-semibold text-content">
+          <h2 id="change-password-dialog-title" className="text-lg font-semibold text-content">
             {t('docSettings.changePassword')}
           </h2>
           <button
@@ -219,7 +217,6 @@ export default function ChangePasswordDialog({
             </div>
           </form>
         )}
-      </div>
-    </div>
+      </ModalPanel>
   );
 }

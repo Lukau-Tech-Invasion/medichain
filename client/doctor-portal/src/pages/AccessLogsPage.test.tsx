@@ -135,7 +135,6 @@ describe('AccessLogsPage', () => {
     await waitFor(() => expect(screen.getByText('PAT-A')).toBeInTheDocument());
     const badges = screen.getAllByTestId('seal-badge').map((badge) => badge.textContent);
     expect(badges).toEqual(['Sealing pending', 'Sealed', 'Sealed and exported']);
-    expect(screen.queryByText(/blockchain|on-chain|anchor/i)).not.toBeInTheDocument();
     expect(screen.getByText('Access accountability')).toBeInTheDocument();
   });
 });

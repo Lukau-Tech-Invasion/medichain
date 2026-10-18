@@ -4,6 +4,7 @@ import type { Mock } from 'vitest';
 import AppointmentSchedulerPage from './AppointmentSchedulerPage';
 import { useAuthStore } from '../store/authStore';
 import * as endpoints from '../../../shared/src/api/endpoints';
+import { answerConfirm } from '../../../shared/src/testing/dialogs';
 
 // Spread the real module: it also exports `isHealthcareProvider`,
 // `canEditMedicalRecords` and `isAdmin`, and replacing the whole module leaves
@@ -190,6 +191,38 @@ describe('AppointmentSchedulerPage', () => {
     expect(await screen.findByRole('button', { name: /^Complete$/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Check in$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Confirm$/i })).not.toBeInTheDocument();
+  });
+
+  it('asks before recording a no-show, and records nothing when the clinician cancels', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () =>
+        Promise.resolve({
+          appointments: [
+            {
+              appointment_id: 'APT-2', patient_id: 'PAT-001-DEMO', patient_name: 'Thabo Mokoena',
+              provider_id: '5GrwvaEF...mock', appointment_type: 'Consultation',
+              scheduled_date: '2099-01-01', start_time: '09:00', status: 'confirmed',
+            },
+          ],
+        }),
+    });
+    vi.mocked(endpoints.setAppointmentStatus).mockResolvedValue(undefined as never);
+    render(<AppointmentSchedulerPage />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Upcoming/i }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /^No show$/i }));
+    // The confirmation mounts its own host on first use; wait for it.
+    await screen.findByRole('alertdialog', {}, { timeout: 5000 });
+    await answerConfirm(false);
+    expect(endpoints.setAppointmentStatus).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
+    fireEvent.click(await screen.findByRole('button', { name: /^No show$/i }));
+    await screen.findByRole('alertdialog', {}, { timeout: 5000 });
+    await answerConfirm(true);
+    await waitFor(() => expect(endpoints.setAppointmentStatus).toHaveBeenCalledWith('APT-2', 'no_show', undefined));
   });
 
   it('marks a telehealth appointment as virtual', async () => {

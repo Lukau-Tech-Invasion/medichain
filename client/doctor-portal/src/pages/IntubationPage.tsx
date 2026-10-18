@@ -622,7 +622,7 @@ const IntubationPage: React.FC = () => {
             {/* Notes */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docIntubation.notesHeading')}</h2>
-              <textarea
+              <textarea aria-label={t('docIntubation.notesPh')}
                 value={formData.notes}
                 onChange={e => setFormData({ ...formData, notes: e.target.value })}
                 className="w-full border rounded p-2 h-24"

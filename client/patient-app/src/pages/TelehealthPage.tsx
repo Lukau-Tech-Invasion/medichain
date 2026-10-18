@@ -292,7 +292,7 @@ export function TelehealthPage() {
 
       {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
       {!activeCall && activeCallUrl && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div role="dialog" aria-modal="true" aria-label={t('telehealth.videoCallTitle')} className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-neutral-900 text-white">
             <span className="flex items-center gap-2 font-medium">
               <Video className="w-5 h-5" /> {t('telehealth.videoCallTitle')}

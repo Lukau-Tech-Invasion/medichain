@@ -551,10 +551,10 @@ function DashboardPage() {
                 >
                   <div>
                     <p className="font-medium text-content">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
-                    <p className="text-sm text-content-muted">{t('docDashboard.locationLabel', { value: code.location })}</p>
+                    <p className="text-sm text-notice-subtle-fg">{t('docDashboard.locationLabel', { value: code.location })}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-content-muted">{teamLeader || t('docDashboard.noTeamLeader')}</p>
+                    <p className="text-sm text-notice-subtle-fg">{teamLeader || t('docDashboard.noTeamLeader')}</p>
                     <p className={`text-xs px-2 py-1 rounded ${outcomeClass}`}>
                       {outcomeDisplay}
                     </p>

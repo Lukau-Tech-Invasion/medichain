@@ -510,7 +510,7 @@ const PediatricsPage: React.FC = () => {
           )}
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-            <input
+            <input aria-label={t('docPediatrics.searchPh')}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

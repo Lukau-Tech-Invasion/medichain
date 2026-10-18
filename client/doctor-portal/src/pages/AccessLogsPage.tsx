@@ -8,6 +8,7 @@ import {
   useTranslation,
   formatTimestamp as formatStamp,
   SealStatusBadge,
+  csvRow,
 } from '@medichain/shared';
 import type { EmergencyAccessGrant, SealStatus } from '@medichain/shared';
 import { 
@@ -214,12 +215,14 @@ function AccessLogsPage() {
     // somebody reads during an access review, and a column of UUIDs
     // answers "was this access appropriate?" for nobody. The id stays
     // beside it because it is the unambiguous identifier.
+    // Quoted and formula-safe: a location or access type somebody typed must
+    // neither shift the columns nor run as a spreadsheet formula.
     const csvContent = [
-      'Access ID,Patient ID,Accessor ID,Accessor Name,Role,Access Type,Location,Timestamp,Emergency',
-      ...filteredLogs.map(log => {
-        const name = (staffName(log.accessor_id) || '').replace(/,/g, ' ');
-        return `${log.access_id},${log.patient_id},${log.accessor_id},${name},${log.accessor_role},${log.access_type},${log.location || 'N/A'},${log.timestamp},${log.emergency}`;
-      })
+      csvRow(['Access ID', 'Patient ID', 'Accessor ID', 'Accessor Name', 'Role', 'Access Type', 'Location', 'Timestamp', 'Emergency']),
+      ...filteredLogs.map(log => csvRow([
+        log.access_id, log.patient_id, log.accessor_id, staffName(log.accessor_id) || '',
+        log.accessor_role, log.access_type, log.location || 'N/A', log.timestamp, log.emergency,
+      ])),
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });

@@ -306,7 +306,7 @@ const ImagingPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4 flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2 flex-1 min-w-64">
                 <Search className="w-5 h-5 text-content-muted" />
-                <input
+                <input aria-label={t('docImaging.searchPlaceholder')}
                   type="text"
                   placeholder={t('docImaging.searchPlaceholder')}
                   value={searchTerm}
@@ -314,7 +314,7 @@ const ImagingPage: React.FC = () => {
                   className="flex-1 border rounded p-2"
                 />
               </div>
-              <select
+              <select aria-label={t('common.filterByStatus')}
                 value={filterStatus}
                 onChange={e => setFilterStatus(e.target.value)}
                 className="border rounded p-2"
@@ -326,7 +326,7 @@ const ImagingPage: React.FC = () => {
                 <option value="prelim">{t('docImaging.stPrelim')}</option>
                 <option value="final">{t('docImaging.stFinal')}</option>
               </select>
-              <select
+              <select aria-label={t('common.filterByModality')}
                 value={filterModality}
                 onChange={e => setFilterModality(e.target.value)}
                 className="border rounded p-2"

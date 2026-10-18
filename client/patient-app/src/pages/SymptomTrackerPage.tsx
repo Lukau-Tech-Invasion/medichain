@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSymptomHistory, logSymptom, retractSymptom, useTranslation } from '@medichain/shared';
+import { getSymptomHistory, logSymptom, retractSymptom, useTranslation, ModalPanel } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -480,11 +480,10 @@ export function SymptomTrackerPage() {
 
       {/* Add Symptom Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-t-2xl md:rounded-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+        <ModalPanel labelledBy="symptom-tracker-dialog-title" closeOnBackdrop={false} onClose={() => setSelectedCategory(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-4" className="bg-surface rounded-t-2xl md:rounded-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface p-4 border-b border-border">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-content">{t('symptomTracker.logSymptom')}</h2>
+                <h2 id="symptom-tracker-dialog-title" className="text-lg font-semibold text-content">{t('symptomTracker.logSymptom')}</h2>
                 <button
                   onClick={() => {
                     setShowAddModal(false);
@@ -614,8 +613,7 @@ export function SymptomTrackerPage() {
                 </>
               )}
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

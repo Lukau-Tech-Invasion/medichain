@@ -10,6 +10,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   openAccessContext: vi.fn(),
   getPatients: vi.fn(),
+  createCodeBlue: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -62,6 +63,24 @@ describe('CodeBluePage', () => {
     expect(screen.getByText(/Quick Actions/i)).toBeInTheDocument();
     expect(screen.getByText(/Stop Code/i)).toBeInTheDocument();
     expect(screen.getByText(/CPR Cycle/i)).toBeInTheDocument();
+  });
+
+  it('finalises only with an outcome the clinician chose, and invents no team member', async () => {
+    vi.mocked(shared.createCodeBlue).mockResolvedValue({ id: 'CB-1' } as never);
+    render(<CodeBluePage />);
+    await startCode();
+    fireEvent.click(screen.getByText(/Stop Code/i));
+
+    const finalize = screen.getByRole('button', { name: /Finalize Record/i });
+    expect(finalize).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Outcome/i), { target: { value: 'rosc' } });
+    expect(finalize).toBeEnabled();
+    fireEvent.click(finalize);
+
+    await waitFor(() => expect(shared.createCodeBlue).toHaveBeenCalled());
+    const sent = vi.mocked(shared.createCodeBlue).mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.outcome).toBe('rosc');
+    expect(sent.team_members).toEqual([]);
   });
 
   it('allows recording medications during code', async () => {

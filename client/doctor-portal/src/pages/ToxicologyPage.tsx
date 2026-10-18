@@ -346,8 +346,9 @@ const ToxicologyPage: React.FC = () => {
                   const value = toxScreen[item.key as keyof ToxScreen] as number | null;
                   return (
                     <div key={item.key}>
-                      <label className="text-xs text-content-muted">{item.label}</label>
+                      <label htmlFor={`tox-level-${item.key}`} className="text-xs text-content-muted">{item.label}</label>
                       <input
+                        id={`tox-level-${item.key}`}
                         type="number"
                         value={value ?? ''}
                         onChange={e => setToxScreen({ ...toxScreen, [item.key]: e.target.value ? Number(e.target.value) : null })}
@@ -453,7 +454,7 @@ const ToxicologyPage: React.FC = () => {
                   <span className="font-medium">{t('docToxicology.poisonControlContacted')}</span>
                 </label>
                 {poisonControlCalled && (
-                  <input
+                  <input aria-label={t('docToxicology.caseNumberPh')}
                     type="text"
                     value={caseNumber}
                     onChange={e => setCaseNumber(e.target.value)}
@@ -466,8 +467,9 @@ const ToxicologyPage: React.FC = () => {
 
             {/* Disposition */}
             <div className="bg-surface rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">{t('docToxicology.disposition')}</h2>
+              <h2 id="tox-disposition-heading" className="font-semibold mb-3">{t('docToxicology.disposition')}</h2>
               <select
+                aria-labelledby="tox-disposition-heading"
                 value={disposition}
                 onChange={e => setDisposition(e.target.value)}
                 className="w-full border rounded p-2"
@@ -486,7 +488,7 @@ const ToxicologyPage: React.FC = () => {
             {/* Notes */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docToxicology.notes')}</h2>
-              <textarea
+              <textarea aria-label={t('docToxicology.notesPh')}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"

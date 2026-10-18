@@ -5,9 +5,10 @@ import App from './App';
 import { useAuthStore } from './store/authStore';
 import { ToastProvider } from './components/Toast';
 import './index.css';
+import { reloadOnStaleChunks } from '@medichain/shared';
 
-// Browser state left by earlier sign-in designs is removed by
-// `purgeLegacyIdentityStorage`, which `@medichain/shared` runs once when it loads.
+// A tab opened before a deploy asks for chunks that no longer exist.
+reloadOnStaleChunks();
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(<div role="status" className="min-h-screen flex items-center justify-center">Restoring your session…</div>);

@@ -35,8 +35,7 @@ import {
   recordPharmacyDecision,
   controlledSubstanceReport,
   promptDialog,
-  formatTimestamp,
-} from '@medichain/shared';
+  formatTimestamp, ModalPanel } from '@medichain/shared';
 
 interface SecondaryVerification {
   required: boolean;
@@ -957,9 +956,8 @@ export default function PharmacistDashboardPage() {
           and the patient, and "the pharmacist said no" is not an answer either
           of them can act on. */}
       {decisionFor && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-content">
+        <ModalPanel labelledBy="pharmacist-dashboard-dialog-title" closeOnBackdrop={false} onClose={() => setDecisionFor(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <h2 id="pharmacist-dashboard-dialog-title" className="text-lg font-semibold text-content">
               {decisionFor.decision === 'refused_to_dispense'
                 ? t('docPharmDashboard.refuseTitle')
                 : t('docPharmDashboard.queryTitle')}
@@ -1010,8 +1008,7 @@ export default function PharmacistDashboardPage() {
                 {t('docPharmDashboard.decisionSubmit')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

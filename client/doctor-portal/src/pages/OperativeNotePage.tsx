@@ -15,6 +15,7 @@ import {
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
+import StaffName from '../components/StaffName';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'none';
 type WoundClass = 'clean' | 'clean-contaminated' | 'contaminated' | 'dirty';
@@ -673,7 +674,7 @@ const OperativeNotePage: React.FC = () => {
                   </div>
                   <div className="text-sm space-y-1">
                     <p><strong>{t('docOperativeNote.procedureColLabel')}</strong> {n.procedureName}</p>
-                    <p><strong>{t('docOperativeNote.surgeonColLabel')}</strong> {n.surgeon}</p>
+                    <p><strong>{t('docOperativeNote.surgeonColLabel')}</strong> <StaffName id={n.surgeon} /></p>
                     <p><strong>{t('docOperativeNote.eblColLabel')}</strong> {n.ebl === undefined ? t('docOperativeNote.notRecorded') : `${n.ebl} mL`} | <strong>{t('docOperativeNote.specimensColLabel')}</strong> {n.specimens.length}</p>
                     {n.complications && <p className="text-critical-subtle-fg">{t('docOperativeNote.complicationsLine', { text: n.complications })}</p>}
                     <details className="mt-3 rounded border border-border-interactive p-3">

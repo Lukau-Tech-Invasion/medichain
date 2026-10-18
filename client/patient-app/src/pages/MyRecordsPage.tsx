@@ -178,6 +178,8 @@ export function MyRecordsPage() {
         gcsData,
         emsData,
         immunizationData,
+        administrationData,
+        emergencyCareData,
       ] = await Promise.all([
         settle('lab', getPatientLabSubmissions(patientId), []),
         settle('documents', getPatientRecords(patientId), []),
@@ -240,6 +242,12 @@ export function MyRecordsPage() {
         // What the ambulance crew found and did before the hospital door.
         section('ems-handoffs'),
         section('immunizations'),
+        // Each dose the ward recorded as given, held or refused. A patient
+        // could be given a drug and have no way to see that it was given.
+        section('medication-administrations'),
+        // Resuscitation, trauma, stroke, cardiac and sepsis care. A patient who
+        // was resuscitated could not see that it happened.
+        section('emergency-care'),
       ]);
 
       const labRecords = labData.map(sub => ({
@@ -552,6 +560,44 @@ export function MyRecordsPage() {
         metadataHash: String(handoff.id),
       }));
       allRecords.push(...emsRecords);
+
+      const DOSE_STATUS: Record<string, string> = {
+        given: 'Given', held: 'Held', refused: 'Refused', 'not-given': 'Not given', missed: 'Missed',
+      };
+      const administrationRecords = (((administrationData as { administrations?: Array<Record<string, unknown>> })
+        .administrations) || []).map(dose => ({
+        id: String(dose.administration_id),
+        type: 'prescription' as const,
+        title: `Medication ${(DOSE_STATUS[String(dose.status)] ?? 'recorded').toLowerCase()}: ${String(dose.medication_name || 'medication not named')}`,
+        description: [dose.dose, dose.route, dose.reason_not_given ? `Reason: ${dose.reason_not_given}` : null]
+          .filter(Boolean).join(' · '),
+        provider: String(dose.administered_by || 'Nurse not recorded'),
+        date: timestampDate((dose.administered_at || dose.record_date) as string | undefined),
+        contentHash: `dose-${dose.administration_id}`,
+        metadataHash: String(dose.administration_id),
+      }));
+      allRecords.push(...administrationRecords);
+
+      const emergencyKinds: Array<[string, string, (row: Record<string, unknown>) => string]> = [
+        ['code_blues', 'Resuscitation (code blue)', (row) => row.outcome ? `Outcome: ${row.outcome}` : ''],
+        ['traumas', 'Trauma assessment', (row) => String(row.mechanism || '')],
+        ['strokes', 'Stroke assessment', (row) => row.nihss_total != null ? `NIHSS ${row.nihss_total}` : ''],
+        ['cardiac_events', 'Cardiac event', (row) => String(row.event_type || '')],
+        ['sepsis_assessments', 'Sepsis screening', (row) => String(row.severity || '')],
+      ];
+      for (const [field, title, describe] of emergencyKinds) {
+        const rows = ((emergencyCareData as Record<string, unknown>)[field] as Array<Record<string, unknown>> | undefined) || [];
+        allRecords.push(...rows.map(row => ({
+          id: String(row.id),
+          type: 'other' as const,
+          title,
+          description: describe(row),
+          provider: String(row.documented_by || row.assessed_by || row.created_by || 'Emergency team'),
+          date: timestampDate(row.created_at as string | undefined),
+          contentHash: `${field}-${row.id}`,
+          metadataHash: String(row.id),
+        })));
+      }
 
       const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
         .history_physicals) || []).map(hp => ({
@@ -869,7 +915,7 @@ export function MyRecordsPage() {
       <div className="space-y-4">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-          <input
+          <input aria-label={t('records.search')}
             type="text"
             placeholder={t('records.search')}
             value={searchQuery}

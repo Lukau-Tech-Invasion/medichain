@@ -329,6 +329,10 @@ export default function PatientSelect({
               onFocus={() => setIsOpen(true)}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
+              // A placeholder is not a label: it disappears as soon as the
+              // clinician types. Pages that pass `label` are labelled by it;
+              // the rest still need a name a screen reader can announce.
+              aria-label={label ? undefined : 'Patient: search by name or record ID'}
               disabled={disabled}
               className={`
                 w-full pl-10 pr-10 py-2.5 

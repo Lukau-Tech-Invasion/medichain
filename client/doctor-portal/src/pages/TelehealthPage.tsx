@@ -528,7 +528,7 @@ export default function TelehealthPage() {
 
       {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
       {!activeCall && activeCallUrl && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        <div role="dialog" aria-modal="true" aria-label={t('docTelehealth.videoCall')} className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-gray-900 text-white">
             <span className="flex items-center gap-2 font-medium">
               <Video size={20} /> {t('docTelehealth.videoCall')}

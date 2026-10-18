@@ -1,6 +1,6 @@
 import { useTextSize } from './hooks/useTextSize';
 import { usePatientAuthStore } from './store/authStore';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import { Layout, I18nProvider, DialogHost, TransactionAuthorizationHost } from '@medichain/shared';
 import { ToastProvider } from './components/Toast';
@@ -106,6 +106,7 @@ function App() {
   useTextSize();
   const logout = usePatientAuthStore(state => state.logout);
   const isAuthenticated = usePatientAuthStore(state => state.isAuthenticated);
+  const location = useLocation();
   return (
     <I18nProvider>
     <ToastProvider>
@@ -120,7 +121,7 @@ function App() {
         path="/"
         element={
           <Suspense fallback={<PageLoader />}>
-            {isAuthenticated ? <Layout variant="patient" onLogout={logout} /> : <Navigate to="/login" replace />}
+            {isAuthenticated ? <Layout variant="patient" onLogout={logout} /> : <Navigate to="/login" replace state={{ from: location }} />}
           </Suspense>
         }
       >

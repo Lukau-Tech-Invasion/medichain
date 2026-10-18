@@ -477,7 +477,7 @@ const DeathCertificatePage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-              <input
+              <input aria-label={t('docDeathCertificate.searchPh')}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -485,7 +485,7 @@ const DeathCertificatePage: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-slate-500"
               />
             </div>
-            <select
+            <select aria-label={t('common.filterByStatus')}
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as CertificateStatus | 'all')}
               className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-slate-500"
@@ -990,10 +990,10 @@ const DeathCertificatePage: React.FC = () => {
                   {causeInfo.underlyingCauses.map((cause, idx) => (
                     <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div className="md:col-span-3">
-                        <label className="block text-sm font-medium text-content-secondary mb-1">
+                        <label htmlFor={`death-certificate-cause-${idx}`} className="block text-sm font-medium text-content-secondary mb-1">
                           {t('docDeathCertificate.dueToLabel', { letter: String.fromCharCode(98 + idx) })}
                         </label>
-                        <input
+                        <input id={`death-certificate-cause-${idx}`}
                           type="text"
                           value={cause.cause}
                           onChange={(e) => {
@@ -1005,8 +1005,8 @@ const DeathCertificatePage: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.durationLabel')}</label>
-                        <input
+                        <label htmlFor={`death-certificate-duration-${idx}`} className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.durationLabel')}</label>
+                        <input id={`death-certificate-duration-${idx}`}
                           type="text"
                           value={cause.duration}
                           onChange={(e) => {

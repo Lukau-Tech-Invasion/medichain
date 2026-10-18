@@ -40,7 +40,9 @@ export default function CodeBluePage() {
   const [events, setEvents] = useState<string[]>([]);
   const [teamMembers, setTeamMembers] = useState<string>('');
   const [narrative, setNarrative] = useState('');
-  const [outcome, setOutcome] = useState('ongoing');
+  // Chosen by the clinician: a record finalised as "ongoing" because nobody
+  // picked is a finding nobody made.
+  const [outcome, setOutcome] = useState('');
   // Where the code was called and what arrested the patient. Both used to be
   // literals in the submit payload — `'Emergency Department'` and
   // `'Cardiac Arrest'` — with no control anywhere. A code blue on a ward, in
@@ -142,7 +144,7 @@ export default function CodeBluePage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedPatient || !startTime) return;
+    if (!selectedPatient || !startTime || !outcome) return;
 
     try {
       const codeData = {
@@ -152,7 +154,8 @@ export default function CodeBluePage() {
         primary_cause: primaryCause.trim() || null,
         outcome,
         narrative: narrative + '\n\nLog:\n' + events.join('\n'),
-        team_members: teamMembers.split(',').map(s => s.trim()),
+        // Only the names entered: an empty field is no team, not a member named "".
+        team_members: teamMembers.split(',').map(s => s.trim()).filter(Boolean),
         medications_administered: events.filter(e => e.includes('Medication')).map(e => e.replace(/.*Medication: /, '')),
         shocks_delivered: events.filter(e => e.includes('Shock')).length,
         cpr_cycles: events.filter(e => e.includes('CPR')).length,
@@ -398,6 +401,7 @@ export default function CodeBluePage() {
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
                 >
+                  <option value="">{t('docCodeBlue.outcomeNotChosen')}</option>
                   <option value="ongoing">{t('docCodeBlue.outcomeOngoing')}</option>
                   <option value="rosc">{t('docCodeBlue.outcomeRosc')}</option>
                   <option value="expired">{t('docCodeBlue.outcomeExpired')}</option>
@@ -429,7 +433,7 @@ export default function CodeBluePage() {
           <div className="mt-6 pt-6 border-t border-border">
             <button
               onClick={handleSubmit}
-              disabled={isActive || !startTime}
+              disabled={isActive || !startTime || !outcome}
               className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4 mr-2" />

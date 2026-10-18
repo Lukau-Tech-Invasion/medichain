@@ -62,9 +62,9 @@ describe('LoginPage', () => {
     });
   }
 
-  function renderPage() {
+  function renderPage(from?: string) {
     return render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: from ? { from: { pathname: from } } : null }]}>
         <LoginPage />
       </MemoryRouter>
     );
@@ -132,8 +132,19 @@ describe('LoginPage', () => {
 
     await waitFor(() => {
       expect(mockLoginWithCredentials).toHaveBeenCalledWith('dr.mbeki', 'a-real-password', undefined);
-      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
     });
+  });
+
+  it('returns to the page a deep link asked for before sign-in', async () => {
+    mockLoginWithCredentials.mockResolvedValue(true);
+    renderPage('/soap');
+
+    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), { target: { value: 'dr.mbeki' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a-real-password' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/soap', { replace: true }));
   });
 
   it('clears the password field after a failed attempt and stays put', async () => {

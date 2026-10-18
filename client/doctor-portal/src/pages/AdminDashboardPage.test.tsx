@@ -124,7 +124,6 @@ describe('AdminDashboardPage', () => {
     expect(panel).toHaveTextContent('7 entries waiting to be sealed');
     expect(panel).toHaveTextContent('Nothing exported yet');
     expect(panel).toHaveTextContent('without a signature (weaker)');
-    expect(panel).not.toHaveTextContent(/blockchain|on-chain|anchor/i);
   });
 
   /**

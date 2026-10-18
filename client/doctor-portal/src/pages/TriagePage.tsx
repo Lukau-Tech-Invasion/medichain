@@ -647,7 +647,7 @@ function TriagePage() {
           {/* Notes */}
           <div className="bg-surface rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold text-content mb-4">{t('docTriage.notesTitle')}</h2>
-            <textarea
+            <textarea aria-label={t('docTriage.notesPlaceholder')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder={t('docTriage.notesPlaceholder')}

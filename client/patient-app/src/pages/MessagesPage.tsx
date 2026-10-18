@@ -324,7 +324,7 @@ export function MessagesPage() {
             </p>
           )}
           <div className="flex items-center gap-3">
-            <input
+            <input aria-label={t('messages.typePlaceholder')}
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
@@ -370,7 +370,7 @@ export function MessagesPage() {
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-        <input
+        <input aria-label={t('messages.searchPlaceholder')}
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}

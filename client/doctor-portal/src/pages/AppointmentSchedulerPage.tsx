@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createAppointment, getApiClient, setAppointmentStatus, useTranslation, promptDialog } from '@medichain/shared';
+import { createAppointment, getApiClient, setAppointmentStatus, useTranslation, promptDialog, confirmDialog } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useCurrentProvider } from '../hooks/useCurrentProvider';
@@ -261,6 +261,11 @@ export default function AppointmentSchedulerPage() {
         if (!reason.trim()) {
           return; // Dismissed the prompt; leave the appointment alone.
         }
+      }
+      // Recorded against the patient and closes the booking: one stray click
+      // beside "Check in" must not do it.
+      if (to === 'no_show' && !(await confirmDialog({ message: t('docAppointments.confirmNoShow'), destructive: true }))) {
+        return;
       }
       await setAppointmentStatus(id, to, reason);
       showSuccess(t(`docAppointments.moved_${to}`));
@@ -541,7 +546,7 @@ export default function AppointmentSchedulerPage() {
                             className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                               destructive
                                 ? 'bg-critical-subtle text-critical-subtle-fg hover:bg-critical-subtle dark:bg-red-900/40 dark:text-red-200'
-                                : 'bg-blue-600 text-critical-fg hover:bg-blue-700'
+                                : 'bg-brand text-brand-fg hover:opacity-90'
                             }`}
                           >
                             {busy === `${a.appointment_id}-${to}` ? (

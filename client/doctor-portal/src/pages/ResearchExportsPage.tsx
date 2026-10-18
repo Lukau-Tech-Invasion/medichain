@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { Download, FlaskConical, Loader2 } from 'lucide-react';
 import {
   approveResearchExport,
+  csvRow,
   executeResearchExport,
   listResearchExports,
   proposeResearchExport,
@@ -20,9 +21,8 @@ type LoadState = 'loading' | 'ready' | 'error';
 
 /** The released records as CSV, one row per record. */
 function toCsv(records: ResearchRecord[]): string {
-  const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
-  const rows = records.map((r) => [r.pseudonym, r.age_band, r.sex, r.conditions.join('; ')].map(quote).join(','));
-  return ['pseudonym,age_band,sex,conditions', ...rows].join('\n');
+  const rows = records.map((r) => csvRow([r.pseudonym, r.age_band, r.sex, r.conditions.join('; ')]));
+  return [csvRow(['pseudonym', 'age_band', 'sex', 'conditions']), ...rows].join('\n');
 }
 
 /**

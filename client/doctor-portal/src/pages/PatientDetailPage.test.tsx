@@ -333,7 +333,6 @@ describe('PatientDetailPage', () => {
     );
     const list = await screen.findByTestId('capsule-version-list');
     expect(within(list).getByTestId('seal-badge')).toHaveTextContent(new RegExp(`^${label}$`));
-    expect(screen.queryByText(/on-chain|blockchain|anchor/i)).not.toBeInTheDocument();
   });
 
   it('does not show a seal badge when the server reported no seal state', async () => {

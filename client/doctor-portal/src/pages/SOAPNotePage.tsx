@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { StoredSoapDetails } from '../components/StoredSoapDetails';
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 interface PhysicalExamFinding {
@@ -146,6 +147,8 @@ function SOAPNotePage() {
   // `GET /api/clinical/soap/{id}` had no caller either, which is why the list
   // below could show a note's id and chief complaint and nothing else.
   const [addendumFor, setAddendumFor] = useState<string | null>(null);
+  // The signed note, previewed apart from the application and printed.
+  const [printNote, setPrintNote] = useState<unknown>(null);
   const [addendumText, setAddendumText] = useState('');
   const [addendumBusy, setAddendumBusy] = useState(false);
   const [addendumError, setAddendumError] = useState('');
@@ -401,6 +404,7 @@ function SOAPNotePage() {
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
+      <RecordPrintPreview title="SOAP note" record={printNote} onClose={() => setPrintNote(null)} />
       {/* Header */}
       <div className="mb-8">
         <button
@@ -470,6 +474,14 @@ function SOAPNotePage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-mono text-content-muted">{note.note_id}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPrintNote(note)}
+                        aria-label={t('docSOAPNote.printNote')}
+                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary min-h-[28px] whitespace-nowrap"
+                      >
+                        {t('docSOAPNote.printNote')}
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
