@@ -36,7 +36,15 @@
  */
 
 import { deriveAuthProof } from './lib/auth';
-import { PASSWORD, loadManifest, passwordFor, type Manifest, type PatientFixture } from './lib/journey';
+import {
+  PASSWORD,
+  http as journeyHttp,
+  loadManifest,
+  passwordFor,
+  rememberCredentials,
+  type Manifest,
+  type PatientFixture,
+} from './lib/journey';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://127.0.0.1:8090/api';
 
@@ -108,48 +116,17 @@ interface Session {
   token: string;
 }
 
+/**
+ * The journeys' transport: the same retry rule for transport failures, and the
+ * same ADR-0008 Class C confirmation -- a gated step made by the right person is
+ * confirmed as that person, so what this harness measures is still who may act.
+ */
 async function http(
   method: string,
   path: string,
   opts: { token?: string; body?: unknown } = {}
 ): Promise<{ status: number; json: Json }> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-  if (method !== 'GET') headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
-
-  // A transport failure is not a result. `fetch` rejects when the connection
-  // never completes — which happened repeatedly while a heavy build saturated
-  // this host — and reporting that as an authorization outcome would put a red
-  // FAIL against a control that was never consulted. HTTP statuses, including
-  // 4xx and 5xx, are answers and are returned unretried.
-  let res: Response | undefined;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      res = await fetch(`${API}${path}`, {
-        method,
-        headers,
-        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-      });
-      break;
-    } catch (e) {
-      lastError = e;
-      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
-    }
-  }
-  if (!res) {
-    throw new Error(
-      `transport failure after 3 attempts for ${method} ${path}: ${String(lastError)}`
-    );
-  }
-
-  let json: Json = {};
-  try {
-    json = (await res.json()) as Json;
-  } catch {
-    /* empty bodies are legitimate */
-  }
-  return { status: res.status, json };
+  return journeyHttp(method, path, opts);
 }
 
 /**
@@ -181,6 +158,7 @@ async function loginAs(loginId: string, password: string, label: string, role?: 
     throw new Error(`login failed for ${loginId}: ${login.status} ${JSON.stringify(login.json)}`);
   }
   const user = (login.json.user ?? {}) as Json;
+  rememberCredentials(String(login.json.access_token), loginId, password);
   return {
     label,
     role: String(role ?? user.role),
@@ -708,6 +686,22 @@ async function qualifyConsentLifecycle(
 
   const patientId = m.patient.linked_patient_id;
 
+  // The browser fixtures approve this doctor on purpose, so a shared stack can
+  // arrive here with a live grant. The patient withdraws it first; re-running
+  // seed-browser-test-fixtures.ts restores it for the browser suites.
+  const existing = await http('GET', `/access/patient/${patientId}/grants`, { token: patientA.token });
+  const existingGrants: Json[] = Array.isArray(existing.json)
+    ? existing.json
+    : (existing.json.grants ?? existing.json.items ?? []);
+  for (const grant of existingGrants.slice(0, 50)) {
+    const live = (grant.providerId ?? grant.provider_id) === doctorB.userId &&
+      !(grant.revokedAt ?? grant.revoked_at) && grant.status !== 'revoked';
+    if (!live) continue;
+    const id = String(grant.grantId ?? grant.id ?? grant.grant_id ?? '');
+    const withdrawn = await http('POST', `/access/grants/${id}/revoke`, { token: patientA.token });
+    expectStatus('a grant left by an earlier run is withdrawn first', withdrawn.status, 200, withdrawn.json);
+  }
+
   const beforeGrant = await http('GET', `/records/${patientId}`, { token: doctorB.token });
   expectStatus(
     'a doctor without patient consent cannot list the patient records',
@@ -1016,12 +1010,13 @@ async function qualifyCredentialCodes(admin: Session): Promise<void> {
   expectStatus('a code that was never issued is refused', bogus.status, 401, bogus.json);
   record('and the refusal says INVALID_GRANT', codeOf(bogus.json) === 'INVALID_GRANT', `code ${codeOf(bogus.json)}`);
 
-  // A malformed proof is refused as one, and does not burn the real code.
+  // A malformed proof is refused with the same answer as a wrong code, so the
+  // response does not say which half was wrong, and it does not burn the code.
   const badProof = await http('POST', '/auth/credentials/redeem', {
     body: { identifier: first.loginId, code: first.code, auth_proof: 'zz-not-a-proof' },
   });
-  expectStatus('a malformed proof is refused at redemption', badProof.status, 400, badProof.json);
-  record('and the refusal says INVALID_AUTH_PROOF', codeOf(badProof.json) === 'INVALID_AUTH_PROOF', `code ${codeOf(badProof.json)}`);
+  expectStatus('a malformed proof is refused at redemption', badProof.status, 401, badProof.json);
+  record('and the refusal says INVALID_GRANT', codeOf(badProof.json) === 'INVALID_GRANT', `code ${codeOf(badProof.json)}`);
 
   const redeemed = await redeemCode(first.loginId, first.code, first.loginId);
   expectStatus('the real code still redeems afterwards', redeemed.status, 200, redeemed.json);
@@ -1045,12 +1040,14 @@ async function qualifyCredentialCodes(admin: Session): Promise<void> {
   // Five wrong attempts kill the grant, so the right code stops working too.
   const third = await createDisposable(admin, 'grant lockout');
   if (third) {
-    let locked = false;
-    for (let attempt = 0; attempt < 8 && !locked; attempt += 1) {
+    // The grant dies without announcing it: every wrong code gets the same
+    // INVALID_GRANT, so an attacker cannot tell when the count ran out.
+    let uniform = true;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
       const r = await redeemCode(third.loginId, NEVER_ISSUED_CODE, third.loginId);
-      locked = r.status === 429 && codeOf(r.json) === 'GRANT_LOCKED';
+      uniform &&= r.status === 401 && codeOf(r.json) === 'INVALID_GRANT';
     }
-    record('repeated wrong codes lock the grant (GRANT_LOCKED)', locked, 'eight wrong codes never produced GRANT_LOCKED');
+    record('five wrong codes are each refused the same way', uniform, 'a wrong code got a distinguishable answer');
     const after = await redeemCode(third.loginId, third.code, third.loginId);
     record(
       'a locked grant refuses even the real code',
@@ -1169,11 +1166,11 @@ async function qualifyPatientActivation(m: Manifest, sessions: Record<string, Se
 
   const taken = await redeemCode(patientId, code, m.patient.login_id, m.patient.login_id);
   expectStatus("a username somebody already holds is refused", taken.status, 409, taken.json);
-  record('and the refusal says USERNAME_TAKEN', codeOf(taken.json) === 'USERNAME_TAKEN', `code ${codeOf(taken.json)}`);
+  record('and the refusal says LOGIN_ID_TAKEN', codeOf(taken.json) === 'LOGIN_ID_TAKEN', `code ${codeOf(taken.json)}`);
 
   const badName = await redeemCode(patientId, code, 'a b!', 'a b!');
   expectStatus('a username with spaces or punctuation is refused', badName.status, 400, badName.json);
-  record('and the refusal says INVALID_USERNAME', codeOf(badName.json) === 'INVALID_USERNAME', `code ${codeOf(badName.json)}`);
+  record('and the refusal says INVALID_LOGIN_ID', codeOf(badName.json) === 'INVALID_LOGIN_ID', `code ${codeOf(badName.json)}`);
 
   const foreign = await redeemCode(m.patient_b.linked_patient_id, code, `xr${stamp}`, `xr${stamp}`);
   expectStatus("a code does not activate a different patient's account", foreign.status, 401, foreign.json);
@@ -1712,6 +1709,10 @@ async function qualifyTelehealth(
       recording_enabled: false,
     },
   });
+  if (create.status === 503 && codeOf(create.json) === 'TELEHEALTH_UNAVAILABLE') {
+    skip('telehealth', 'this deployment has no telehealth provider configured');
+    return;
+  }
   if (!expectStatus('a clinician schedules a session', create.status, [200, 201], create.json)) return;
 
   const session = (create.json.session ?? create.json) as Json;

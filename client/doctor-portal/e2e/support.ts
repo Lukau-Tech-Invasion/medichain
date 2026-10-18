@@ -458,6 +458,33 @@ export async function answerStepUp(
   return true;
 }
 
+/**
+ * Answer an ADR-0008 Class C password confirmation with this fixture account's
+ * credentials, when the action asks for one. Returns whether it was asked: a
+ * gated action only asks when there is something to confirm (for example a
+ * device that still carries someone else's emergency grant).
+ */
+export async function answerPasswordConfirmation(
+  page: Page,
+  role: RoleName,
+  fixtureIndex?: number,
+  waitMs = 6000
+): Promise<boolean> {
+  const dialog = page.getByRole('dialog').filter({ has: page.locator('#step-up-password') });
+  const shown = await dialog
+    .waitFor({ state: 'visible', timeout: waitMs })
+    .then(() => true)
+    .catch(() => false);
+  if (!shown) return false;
+  const fixture = getStaffFixture(role, fixtureIndex ?? 0);
+  const loginField = dialog.locator('#step-up-login-id');
+  if (await loginField.isVisible()) await loginField.fill(fixture.login_id);
+  await dialog.locator('#step-up-password').fill(fixture.password);
+  await dialog.getByRole('button', { name: /^confirm$/i }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 30000 });
+  return true;
+}
+
 /** Every route the signed-in account's own sidebar offers, sections expanded. */
 export async function sidebarRoutes(page: Page): Promise<string[]> {
   for (let pass = 0; pass < 2; pass += 1) {

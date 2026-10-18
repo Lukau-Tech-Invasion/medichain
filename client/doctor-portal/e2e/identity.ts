@@ -173,17 +173,30 @@ export async function api(
   request: APIRequestContext,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   path: string,
-  options: { token?: string; data?: unknown; headers?: Record<string, string> } = {}
+  options: {
+    token?: string;
+    data?: unknown;
+    headers?: Record<string, string>;
+    /**
+     * Who confirms a Class C demand (ADR-0008) on this call, as the portals do
+     * through their dialog: the account's login id and password, or a current
+     * authenticator code for an account with one enrolled.
+     */
+    confirm?: { loginId: string; password?: string; totp?: () => Promise<string> };
+  } = {}
 ): Promise<ApiResult> {
   const headers: Record<string, string> = { ...(options.headers ?? {}) };
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   if (method !== 'GET' && !headers['Idempotency-Key']) {
     headers['Idempotency-Key'] = `e2e-${stamp()}-${Math.random().toString(16).slice(2)}`;
   }
+  // Sent as this exact text, so a Class C confirmation can bind to its digest.
+  const bodyText = options.data === undefined ? undefined : JSON.stringify(options.data);
+  if (bodyText !== undefined) headers['Content-Type'] = 'application/json';
   const response = await request.fetch(path, {
     method,
     headers,
-    ...(options.data === undefined ? {} : { data: options.data }),
+    ...(bodyText === undefined ? {} : { data: bodyText }),
     failOnStatusCode: false,
   });
   const text = await response.text();
@@ -193,7 +206,76 @@ export async function api(
   } catch {
     body = { raw: text };
   }
-  return { status: response.status(), body };
+  const result: ApiResult = { status: response.status(), body };
+  if (
+    result.status === 428 &&
+    errorCodeOf(result.body) === 'TRANSACTION_AUTHORIZATION_REQUIRED' &&
+    options.confirm &&
+    options.token &&
+    !headers['X-Transaction-Authorization']
+  ) {
+    const authorization = await confirmTransaction(
+      request,
+      options.token,
+      options.confirm,
+      (result.body as { error?: { details?: Record<string, unknown> } }).error?.details ?? {},
+      bodyText ?? '',
+      headers['Idempotency-Key']
+    );
+    return api(request, method, path, {
+      ...options,
+      headers: { ...headers, 'X-Transaction-Authorization': authorization },
+    });
+  }
+  return result;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** A verified Class C authorization for exactly this request (see `api`'s `confirm`). */
+async function confirmTransaction(
+  request: APIRequestContext,
+  token: string,
+  confirm: { loginId: string; password?: string; totp?: () => Promise<string> },
+  details: Record<string, unknown>,
+  bodyText: string,
+  idempotencyKey: string
+): Promise<string> {
+  const challenge = await api(request, 'POST', '/api/auth/transaction/challenge', {
+    token,
+    data: {
+      action: details.action,
+      method: details.method,
+      path: details.path,
+      body_digest: await sha256Hex(bodyText),
+      resource_id: details.resource_id,
+      expected_state: details.expected_state,
+      idempotency_key: idempotencyKey,
+    },
+  });
+  const issued = challenge.body?.challenge ?? challenge.body;
+  if (challenge.status !== 200 || !issued?.challenge_id) {
+    throw new Error(`Class C challenge refused: ${challenge.status} ${JSON.stringify(challenge.body)}`);
+  }
+  let answer: Record<string, string>;
+  if (issued.required_factor === 'totp') {
+    if (!confirm.totp) throw new Error('This account confirms with an authenticator code; none was supplied.');
+    answer = { code: await confirm.totp() };
+  } else {
+    if (!confirm.password) throw new Error('This account confirms with its password; none was supplied.');
+    answer = { auth_proof: await deriveAuthProof(confirm.password, confirm.loginId) };
+  }
+  const verified = await api(request, 'POST', '/api/auth/transaction/verify', {
+    token,
+    data: { challenge_id: issued.challenge_id, ...answer },
+  });
+  if (verified.status !== 200 || !verified.body?.authorization_id) {
+    throw new Error(`Class C confirmation refused: ${verified.status} ${JSON.stringify(verified.body)}`);
+  }
+  return verified.body.authorization_id;
 }
 
 /** The machine-readable code of an error body, in either envelope the API uses. */
@@ -366,16 +448,26 @@ export class AdminApi {
     path: string,
     data?: unknown
   ): Promise<ApiResult> {
-    let result = await api(this.request, method, path, { token: this.token, data });
+    // A Class C demand (ADR-0008) -- activating, suspending or changing a
+    // person's role -- is confirmed as the administrator: by authenticator code
+    // once one is enrolled, otherwise by password. The server chooses which.
+    const send = () => api(this.request, method, path, { token: this.token, data, confirm: this.confirmer() });
+    let result = await send();
     if (result.status === 403 && errorCodeOf(result.body) === 'MFA_ENROLLMENT_REQUIRED') {
       await this.ensureEnrolled();
-      result = await api(this.request, method, path, { token: this.token, data });
+      result = await send();
     }
     if (result.status === 403 && errorCodeOf(result.body) === 'MFA_REQUIRED' && this.device) {
       this.token = await stepUp(this.request, this.token, this.device);
-      result = await api(this.request, method, path, { token: this.token, data });
+      result = await send();
     }
     return result;
+  }
+
+  /** How this administrator confirms a Class C demand. */
+  private confirmer(): { loginId: string; password: string; totp?: () => Promise<string> } {
+    const device = this.device;
+    return { loginId: this.loginId, password: this.password, totp: device ? () => device.code() : undefined };
   }
 
   /** Turn the authenticator off again. Always call this if `enrolled()`. */

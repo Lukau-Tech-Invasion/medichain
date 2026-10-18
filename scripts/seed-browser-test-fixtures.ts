@@ -56,6 +56,7 @@
  */
 
 import { deriveAuthProof, type LoginBody } from './lib/auth';
+import { confirmTransaction, isTransactionDemand, type Confirmer } from './lib/transaction-authorization';
 import { isAbsolute } from 'node:path';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://localhost/api';
@@ -189,7 +190,10 @@ async function call(
   method: string,
   path: string,
   body?: unknown,
-  token?: string
+  token?: string,
+  /** Who confirms a Class C demand on this call (ADR-0008). */
+  confirmer?: Confirmer,
+  extraHeaders: Record<string, string> = {}
 ): Promise<{ status: number; json: Json }> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -201,18 +205,32 @@ async function call(
   // requests, not retries, so replaying one would mean something has gone
   // wrong and should surface rather than be absorbed.
   if (method !== 'GET' && token) {
-    headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
+    headers['Idempotency-Key'] = extraHeaders['Idempotency-Key'] ?? globalThis.crypto.randomUUID();
   }
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  Object.assign(headers, extraHeaders);
+  const bodyText = body === undefined ? undefined : JSON.stringify(body);
+  const res = await fetch(`${API}${path}`, { method, headers, body: bodyText });
   let json: Json = {};
   try {
     json = (await res.json()) as Json;
   } catch {
     /* empty body is fine for some 2xx responses */
+  }
+  if (token && confirmer && !extraHeaders['X-Transaction-Authorization'] && isTransactionDemand(res.status, json)) {
+    const authorization = await confirmTransaction(
+      (p, t, b) => call('POST', p, b, t),
+      token,
+      confirmer,
+      json,
+      bodyText ?? '',
+      headers['Idempotency-Key']
+    );
+    if (authorization) {
+      return call(method, path, body, token, confirmer, {
+        'Idempotency-Key': headers['Idempotency-Key'],
+        'X-Transaction-Authorization': authorization,
+      });
+    }
   }
   return { status: res.status, json };
 }
@@ -262,7 +280,9 @@ async function ensurePatientAccess(patientId: string, patient: Account, provider
   const requestId = String((request.json.request as Json | undefined)?.id ?? '');
   if (request.status !== 201 || !requestId) fail('request patient access', request.status, request.json);
   const approval = await call('POST', `/access/requests/${requestId}/approve`,
-    { expires_at: new Date(Date.now() + 7 * 86400000).toISOString() }, patient.token);
+    { expires_at: new Date(Date.now() + 7 * 86400000).toISOString() }, patient.token,
+    // The patient confirms their own decision, as in the portal.
+    { loginId: patient.loginId, password: PASSWORD });
   if (!ok(approval.status)) fail('patient approves access', approval.status, approval.json);
 }
 

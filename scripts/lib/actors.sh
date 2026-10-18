@@ -74,7 +74,7 @@ login_as() {
   c=$(code POST /api/auth/login "$(python -c '
 import json, sys
 print(json.dumps({"identifier": sys.argv[1], "auth_proof": sys.argv[2]}))' "$lid" "$(proof "$lid" "$pw")")")
-  [ "$c" = "200" ] && store_actor "$key"
+  [ "$c" = "200" ] && store_actor "$key" && remember_credentials "$key" "$lid" "$pw"
   printf '%s' "$c"
 }
 
@@ -90,7 +90,7 @@ b = {"identifier": sys.argv[1], "code": sys.argv[2], "auth_proof": sys.argv[3]}
 if sys.argv[4]:
     b["username"] = sys.argv[4]
 print(json.dumps(b))' "$ident" "$cd_" "$(proof "$lid" "$SYN_PASSWORD")" "$uname")")
-  [ "$c" = "200" ] && store_actor "$key"
+  [ "$c" = "200" ] && store_actor "$key" && remember_credentials "$key" "$lid" "$SYN_PASSWORD"
   printf '%s' "$c"
 }
 
@@ -112,19 +112,66 @@ provision_patient() {
   redeem_as "$1" "$2" "$4" "$3" "$3"
 }
 
-# code METHOD PATH [BODY] [ACTOR_KEY]
+# remember_credentials KEY LOGIN_ID PASSWORD -- kept beside the token so a
+# gated step can be confirmed as the person who signed in (ADR-0008 Class C).
+remember_credentials() {
+  printf '%s' "$2" > "$ACTOR_DIR/$1.login"
+  printf '%s' "$3" > "$ACTOR_DIR/$1.password"
+}
+
+# confirm_transaction KEY BODY IDEMPOTENCY_KEY -- answer the 428 in /tmp/mc_body
+# as the portals do through their dialog: a challenge bound to the SHA-256 of
+# BODY's exact bytes and this key, verified with the actor's password proof.
+# Echoes the authorization id, or nothing when the actor cannot confirm.
+confirm_transaction() {
+  local u="$1" b="$2" key="$3" digest request cid factor answer
+  [ -f "$ACTOR_DIR/$u.login" ] || return 0
+  digest=$(printf '%s' "$b" | sha256sum | cut -d' ' -f1)
+  request=$(body | python -c '
+import json, sys
+details = (json.load(sys.stdin).get("error") or {}).get("details") or {}
+print(json.dumps({k: details.get(k) for k in ("action", "method", "path", "resource_id", "expected_state")}
+                 | {"body_digest": sys.argv[1], "idempotency_key": sys.argv[2]}))' "$digest" "$key")
+  [ "$(code POST /api/auth/transaction/challenge "$request" "$u")" = "200" ] || return 0
+  cid=$(jget challenge challenge_id); factor=$(jget challenge required_factor)
+  [ "$factor" = "password" ] && [ -n "$cid" ] || return 0
+  answer=$(python -c 'import json, sys; print(json.dumps({"challenge_id": sys.argv[1], "auth_proof": sys.argv[2]}))' \
+    "$cid" "$(proof "$(cat "$ACTOR_DIR/$u.login")" "$(cat "$ACTOR_DIR/$u.password")")")
+  [ "$(code POST /api/auth/transaction/verify "$answer" "$u")" = "200" ] && jget authorization_id
+}
+
+# code METHOD PATH [BODY] [ACTOR_KEY] [AUTHORIZATION]
 code() {
-  local m="$1" p="$2" b="${3:-}" u="${4:-}"
+  local m="$1" p="$2" b="${3:-}" u="${4:-}" authorization="${5:-}" key="" status
   local args=(-s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "$BASE$p")
   # Only when there is a caller. The middleware refuses a *keyed* mutation
   # that carries no subject (409 IDEMPOTENCY_AUTH_REQUIRED) before
   # authorization runs, so sending a key on a deliberately anonymous request
   # replaces the 401 those assertions are about with a 409 from a different
   # layer. An anonymous caller has no operation to make idempotent.
-  [ -n "$u" ] && while IFS= read -r a; do [ -n "$a" ] && args+=("$a"); done < <(idem_args "$m")
-  [ -n "$u" ] && args+=(-H "Authorization: Bearer $(tok_of "$u")")
+  if [ -n "$u" ]; then
+    case "$m" in
+      POST|PUT|PATCH|DELETE)
+        key="${MC_IDEMPOTENCY_KEY:-$(python -c 'import uuid;print(uuid.uuid4())')}"
+        args+=(-H "Idempotency-Key: $key")
+        ;;
+    esac
+    args+=(-H "Authorization: Bearer $(tok_of "$u")")
+  fi
+  [ -n "$authorization" ] && args+=(-H "X-Transaction-Authorization: $authorization")
   [ -n "$b" ] && args+=(-H 'Content-Type: application/json' -d "$b")
-  curl "${args[@]}"
+  status=$(curl "${args[@]}")
+  # A Class C demand on a gated step made by the right person: confirm once as
+  # that person and resend under the same key.
+  if [ "$status" = "428" ] && [ -n "$u" ] && [ -z "$authorization" ] \
+    && grep -q TRANSACTION_AUTHORIZATION_REQUIRED /tmp/mc_body 2>/dev/null; then
+    authorization=$(confirm_transaction "$u" "$b" "$key")
+    if [ -n "$authorization" ]; then
+      MC_IDEMPOTENCY_KEY="$key" code "$m" "$p" "$b" "$u" "$authorization"
+      return
+    fi
+  fi
+  printf '%s' "$status"
 }
 body() { cat /tmp/mc_body 2>/dev/null; }
 

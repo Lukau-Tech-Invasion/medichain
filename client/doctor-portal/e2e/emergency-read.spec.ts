@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { api, fixtureToken, readFixtures } from './identity';
-import { settle, signIn } from './support';
+import { settle, signIn, answerPasswordConfirmation } from './support';
 
 /**
  * The emergency read: tap a card, see the blood type and the allergies, and leave
@@ -148,6 +148,9 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     const open = await endButtons.count();
     if (open > 0) {
       await endButtons.first().click();
+      // Ending another person's emergency grant is ADR-0008 Class C: the
+      // administrator confirms it.
+      await answerPasswordConfirmation(admin, 'Admin');
       await expect.poll(() => endButtons.count(), { timeout: 30000 }).toBeLessThan(open);
     }
   } finally {
@@ -155,6 +158,9 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     await settle(admin, '/devices');
     const row = admin.locator('[data-testid="device-table"] tr').filter({ hasText: deviceName });
     await row.getByRole('button', { name: /^revoke$/i }).click();
+    // Revoking a device that still carries another person's emergency grant
+    // revokes that grant too: ADR-0008 Class C, confirmed by the administrator.
+    await answerPasswordConfirmation(admin, 'Admin');
     await expect(row).toContainText(/revoked/i, { timeout: 20000 });
     await admin.close();
   }
@@ -183,6 +189,9 @@ test('a tag that belongs to no patient is refused, and refused plainly', async (
     await settle(admin, '/devices');
     const row = admin.locator('[data-testid="device-table"] tr').filter({ hasText: deviceName });
     await row.getByRole('button', { name: /^revoke$/i }).click();
+    // Revoking a device that still carries another person's emergency grant
+    // revokes that grant too: ADR-0008 Class C, confirmed by the administrator.
+    await answerPasswordConfirmation(admin, 'Admin');
     await expect(row).toContainText(/revoked/i, { timeout: 20000 });
     await admin.close();
   }

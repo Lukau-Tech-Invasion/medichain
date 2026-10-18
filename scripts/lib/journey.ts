@@ -37,8 +37,9 @@
  */
 
 import { deriveAuthProof } from './auth';
+import { confirmTransaction } from './transaction-authorization';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const API = process.env.MEDICHAIN_API_URL ?? 'http://127.0.0.1/api';
@@ -89,8 +90,14 @@ export function loadManifest(): Manifest {
         `and is only ever pointed at a local endpoint.`
     );
   }
+  // The same selector the browser suites use, so a run against an isolated QA
+  // stack reads that stack's accounts rather than the working stack's.
+  const configured = process.env.MEDICHAIN_FIXTURE_MANIFEST;
+  if (configured && !isAbsolute(configured)) {
+    throw new Error('MEDICHAIN_FIXTURE_MANIFEST must be an absolute path.');
+  }
   const manifest = JSON.parse(
-    readFileSync(join(REPO_ROOT, '.browser-test', 'fixtures.json'), 'utf8')
+    readFileSync(configured ?? join(REPO_ROOT, '.browser-test', 'fixtures.json'), 'utf8')
   ) as Manifest;
   for (const account of [...manifest.staff, manifest.patient, manifest.patient_b]) {
     if (account.password) passwords.set(account.login_id, account.password);
@@ -101,6 +108,25 @@ export function loadManifest(): Manifest {
 // ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// ADR-0008 Class C confirmation
+// ---------------------------------------------------------------------------
+
+/** Who signed in with each token, so a gated step can be confirmed as that person. */
+const credentialsByToken = new Map<string, { loginId: string; password: string }>();
+/** A current authenticator code for accounts that have one enrolled. */
+const totpByLogin = new Map<string, () => Promise<string>>();
+
+/** Remember the credentials behind a token obtained outside `loginWithPassword`. */
+export function rememberCredentials(token: string, loginId: string, password: string): void {
+  credentialsByToken.set(token, { loginId, password });
+}
+
+/** Register how to produce a current TOTP code for an account with an authenticator. */
+export function rememberTotp(loginId: string, code: () => Promise<string>): void {
+  totpByLogin.set(loginId, code);
+}
 
 export async function http(
   method: string,
@@ -116,7 +142,11 @@ export async function http(
   // arrives without one. A fresh key per call is right: each step of a journey
   // is a distinct intent, and reusing one across two requests is answered
   // IDEMPOTENCY_KEY_REUSED because the key is bound to a request digest.
-  if (method !== 'GET') headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
+  if (method !== 'GET' && !headers['Idempotency-Key']) {
+    headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
+  }
+  // Sent as this exact text so a Class C confirmation can bind to its digest.
+  const bodyText = opts.body === undefined ? undefined : JSON.stringify(opts.body);
 
   // A transport failure is not a result. `fetch` rejects when the connection
   // never completes, and recording that as a clinical outcome would put a red
@@ -129,7 +159,7 @@ export async function http(
       res = await fetch(`${API}${path}`, {
         method,
         headers,
-        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        body: bodyText,
       });
       break;
     } catch (e) {
@@ -157,6 +187,36 @@ export async function http(
       json = JSON.parse(text) as Json;
     } catch {
       json = { _raw: text.slice(0, 600) };
+    }
+  }
+  // A Class C demand on a gated step: confirm once as the signed-in person and
+  // resend under the same key -- what the portals do through their dialog.
+  if (
+    res.status === 428 &&
+    json?.error?.code === 'TRANSACTION_AUTHORIZATION_REQUIRED' &&
+    opts.token &&
+    !headers['X-Transaction-Authorization']
+  ) {
+    const credentials = credentialsByToken.get(opts.token);
+    const authorization = credentials
+      ? await confirmTransaction(
+          (path, token, body) => http('POST', path, { token, body }),
+          opts.token,
+          { ...credentials, totp: totpByLogin.get(credentials.loginId) },
+          json,
+          bodyText ?? '',
+          headers['Idempotency-Key']
+        )
+      : undefined;
+    if (authorization) {
+      return http(method, path, {
+        ...opts,
+        headers: {
+          ...(opts.headers ?? {}),
+          'Idempotency-Key': headers['Idempotency-Key'],
+          'X-Transaction-Authorization': authorization,
+        },
+      });
     }
   }
   return { status: res.status, json };
@@ -241,6 +301,7 @@ export async function loginWithPassword(
   if (login.status !== 200 || !login.json.access_token) {
     throw new Error(`login failed for ${loginId}: ${login.status} ${JSON.stringify(login.json)}`);
   }
+  credentialsByToken.set(login.json.access_token, { loginId, password });
   return sessionFromLogin(login, label, loginId, role);
 }
 

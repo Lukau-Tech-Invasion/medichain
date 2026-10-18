@@ -14,7 +14,7 @@ import {
   stamp,
   type Throwaway,
 } from './identity';
-import { answerStepUp, expectSignedOut, settle, signInWithCredentials, signOut, skipFirstVisitReload } from './support';
+import { answerPasswordConfirmation, answerStepUp, expectSignedOut, settle, signInWithCredentials, signOut, skipFirstVisitReload } from './support';
 
 /**
  * An administrator's control of other people's accounts, through the screen an
@@ -131,6 +131,13 @@ test('an administrator creates staff; the code is shown once; the person activat
   const card = await userCard(adminPage, name);
   await expect(card).toContainText(/pending/i);
   await card.getByRole('button', { name: /^approve$/i }).click();
+  // Activating an account grants a person access: ADR-0008 Class C, confirmed by
+  // the administrator with a code once enrolled, otherwise with a password.
+  for (let dialog = 0; dialog < 2; dialog += 1) {
+    if (await answerStepUp(adminPage, adminCode, 4000)) continue;
+    if (await answerPasswordConfirmation(adminPage, 'Admin', undefined, 4000)) continue;
+    break;
+  }
   await expect(card).toContainText(/active/i, { timeout: 30000 });
 
   // The new person, on their own machine: activates with the code, choosing a password.
@@ -250,6 +257,14 @@ test('a person the administrator suspends can no longer sign in', async ({ brows
 
   const card = await userCard(adminPage, target.name);
   await card.getByRole('button', { name: /^suspend$/i }).click();
+  // The MFA step-up when this session is not fresh, then the ADR-0008 Class C
+  // confirmation of this exact status change: a code once enrolled, otherwise
+  // the password.
+  for (let dialog = 0; dialog < 2; dialog += 1) {
+    if (await answerStepUp(adminPage, adminCode, 4000)) continue;
+    if (await answerPasswordConfirmation(adminPage, 'Admin', undefined, 4000)) continue;
+    break;
+  }
   await expect(card).toContainText(/suspended/i, { timeout: 30000 });
 
   // Refused with the same generic answer as a wrong password: the form must not

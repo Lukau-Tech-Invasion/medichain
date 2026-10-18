@@ -9,7 +9,7 @@ import {
   stamp,
   type Throwaway,
 } from '../../doctor-portal/e2e/identity';
-import { settle, signInAsFixturePatient } from './support';
+import { confirmWithPassword, settle, signInAsFixturePatient } from './support';
 
 /**
  * The patient decides who may see their record.
@@ -37,6 +37,8 @@ let api_: APIRequestContext;
 let doctorToken: string;
 let patientId: string;
 let patientToken: string;
+/** The patient confirms Class C decisions with their own credentials. */
+let patientConfirm: { loginId: string; password: string };
 let admin: AdminApi | undefined;
 let requester: Throwaway | undefined;
 
@@ -52,6 +54,7 @@ test.beforeAll(async ({ playwright }, testInfo) => {
     login_id: fixtures.patient.login_id,
     password: fixtures.patient.password ?? '',
   });
+  patientConfirm = { loginId: fixtures.patient.login_id, password: fixtures.patient.password ?? '' };
 });
 
 test.afterAll(async () => {
@@ -60,14 +63,14 @@ test.afterAll(async () => {
       const pending = await api(api_, 'GET', `/api/access/patient/${patientId}/requests`, { token: patientToken });
       for (const request of pending.body?.requests ?? []) {
         if (request.providerId === requester.userId && request.status === 'pending') {
-          const result = await api(api_, 'POST', `/api/access/requests/${request.id}/deny`, { token: patientToken, data: {} });
+          const result = await api(api_, 'POST', `/api/access/requests/${request.id}/deny`, { token: patientToken, data: {}, confirm: patientConfirm });
           expect(result.status).toBe(200);
         }
       }
       const grants = await api(api_, 'GET', `/api/access/patient/${patientId}/grants`, { token: patientToken });
       for (const grant of grants.body?.grants ?? []) {
         if (grant.providerId === requester.userId && grant.status === 'active') {
-          const result = await api(api_, 'POST', `/api/access/grants/${grant.id}/revoke`, { token: patientToken, data: {} });
+          const result = await api(api_, 'POST', `/api/access/grants/${grant.id}/revoke`, { token: patientToken, data: {}, confirm: patientConfirm });
           expect(result.status).toBe(200);
         }
       }
@@ -114,6 +117,8 @@ test('a request is approved, becomes a grant the patient can see, and is withdra
   await expect(request).toContainText(/doctor/i);
 
   await request.getByRole('button', { name: /^approve$/i }).click();
+  // ADR-0008 Class C: the decision is confirmed with the patient's password.
+  await confirmWithPassword(page);
   await expect(request).toHaveCount(0, { timeout: 30000 });
 
   // It is now a standing grant, in the Active tab.
@@ -139,6 +144,7 @@ test('a request is approved, becomes a grant the patient can see, and is withdra
   await expect(confirm).toBeVisible();
   await expect(page.getByRole('button', { name: /^cancel$/i })).toBeFocused();
   await page.getByRole('button', { name: /^revoke access grant$/i }).click();
+  await confirmWithPassword(page);
   await expect(page.getByRole('heading', { name: 'Revoke this access grant?' })).toHaveCount(0, { timeout: 30000 });
 
   // It leaves the Active tab and is kept, marked revoked, in History.
@@ -164,6 +170,7 @@ test('a request the patient denies never becomes access', async ({ page }) => {
   const request = page.locator('.patient-card').filter({ hasText: reason });
   await expect(request).toBeVisible({ timeout: 30000 });
   await request.getByRole('button', { name: /^deny$/i }).click();
+  await confirmWithPassword(page);
   await expect(request).toHaveCount(0, { timeout: 30000 });
 
   // The decision is the server's, not the page's: reload and it is still decided.
@@ -197,7 +204,9 @@ test('a patient cannot approve a request for someone else\'s record', async () =
     const unchanged = await api(api_, 'GET', `/api/access/patient/${other.linked_patient_id}/requests`, { token: otherToken });
     expect(unchanged.body?.requests.find((request: { id: string }) => request.id === id)?.status).toBe('pending');
   } finally {
-    const cleanup = await api(api_, 'POST', `/api/access/requests/${id}/deny`, { token: otherToken, data: {} });
+    const cleanup = await api(api_, 'POST', `/api/access/requests/${id}/deny`, {
+      token: otherToken, data: {}, confirm: { loginId: other.login_id, password: other.password ?? '' },
+    });
     expect(cleanup.status).toBe(200);
   }
 });

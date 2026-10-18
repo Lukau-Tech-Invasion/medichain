@@ -15,6 +15,25 @@ import { readFixtures, retiredTermsIn } from '../../doctor-portal/e2e/identity';
  */
 
 // ---------------------------------------------------------------------------
+// Confirming a gated action (ADR-0008 Class C)
+// ---------------------------------------------------------------------------
+
+/**
+ * Answer the "Confirm it is you" dialog a gated action opens -- deciding access,
+ * changing consent -- with the fixture patient's password, as the patient does.
+ */
+export async function confirmWithPassword(page: Page, which: 'patient' | 'patient_b' = 'patient') {
+  const fx = (readFixtures() as unknown as Fixtures)[which];
+  const dialog = page.getByRole('dialog').filter({ has: page.locator('#step-up-password') });
+  await dialog.waitFor({ state: 'visible', timeout: 20000 });
+  const loginField = dialog.locator('#step-up-login-id');
+  if (await loginField.isVisible()) await loginField.fill(fx.login_id);
+  await dialog.locator('#step-up-password').fill(fx.password ?? '');
+  await dialog.getByRole('button', { name: /^confirm$/i }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 30000 });
+}
+
+// ---------------------------------------------------------------------------
 // Signing in as a real, registered patient
 // ---------------------------------------------------------------------------
 
