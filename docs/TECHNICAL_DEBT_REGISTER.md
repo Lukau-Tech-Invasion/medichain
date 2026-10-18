@@ -5039,3 +5039,53 @@ all against the Docker stack. Four defects surfaced that no suite had seen.
   persisted refresh token or a cookie-borne session, each a security trade-off
   for the owner to choose. For a demo: navigate inside the application, do not
   reload or type a URL.
+
+## Patient pickers saw only the first 50 patients — found 2026-10-17, fixed 2026-10-18
+
+`GET /api/patients` answers 50 rows by default. Triage loaded that page once
+and filtered it in the browser, so a nurse could not find any patient past
+the fiftieth; the browser workflow test failed the day the QA database grew
+past 50. 33 screens called `getPatients()`; three different defects followed.
+
+### Fixed in this pass
+
+* **Nine screens could not select the patient at all** — Triage, Autopsy,
+  Burn, Cardiac, Care Plan, Fall Risk, IV Site, Pre-op, Shift Handoff. Each now
+  uses the server-searched `PatientSelect`; a `?patient=` link resolves through
+  `findDirectoryPatient`.
+* **Six screens refused to save, silently, past the fiftieth patient** —
+  Blood Bank, Chain of Custody, Consult, Critical Value, Immunization,
+  Pathology — because the save looked the patient up in the first page and
+  returned when it found nobody. Ten more saved a blank patient name. They
+  now use `useDirectoryPatient`. Where a save is guarded against a double press
+  (Anesthesia, Intubation, Operative Note, Post-op, Splint, Psych) the entry is
+  read synchronously: awaiting the lookup before the guard let two presses
+  through, which the existing double-submit tests caught.
+* **Lists labelled records past the fiftieth patient with a bare id or
+  "Unknown patient"** — Imaging, Blood Bank, Psych history, Medication
+  Administration, Progress Notes. `useDirectoryNames` resolves each distinct
+  patient once per session. Medication Administration and two others loaded
+  the directory inside the same `Promise.all` as their own records, so a failed
+  directory read emptied the MAR; that dependency is gone.
+* **The triage queue named nobody past the fiftieth.** The API now returns
+  `patient_name` per entry (`resolve_patient_names`, moved to `support.rs`).
+* **A failed triage read answered `queue: []`** — "nobody is waiting". Both
+  triage reads now answer 503 `TRIAGE_UNAVAILABLE`, and the page says the queue
+  could not be loaded, with Retry.
+
+### Left as found — needs an owner decision
+
+* **Discharge summaries record admission at the moment of discharge.** The
+  form never asks for an admission date; `create_discharge_summary` reads
+  `admission_datetime` and defaults to `now`. The page sent an invented
+  `admission_date` (today) that the server ignored; that field is removed.
+  Fixing the record needs a collected field plus either a nullable column or
+  a required one — a schema decision.
+* **The paediatrics caseload is the children among the first 50 patients.**
+  Assessment selection already searches the server and an unknown age is sent
+  as unknown. A real caseload needs either an age filter in the API (dates of
+  birth are encrypted, so the server decrypts to filter) or a caseload drawn
+  from care relationships — see the nurse "My Patients" note.
+* **Blood Bank, Chain of Custody, Consult, Critical Value, Immunization,
+  Obstetrics, Pathology and Toxicology have no double-submit guard.** Unchanged
+  by this pass; Part B's chains will exercise them.

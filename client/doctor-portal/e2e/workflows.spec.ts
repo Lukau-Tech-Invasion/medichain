@@ -173,8 +173,7 @@ test('a nurse triages a patient and they join the triage queue', async ({ page }
   test.setTimeout(240000);
   await quickLogin(page, 'Nurse');
   await settle(page, '/triage');
-  await page.getByPlaceholder(/search patient/i).fill('Thandiwe');
-  await page.getByText('Thandiwe Ndlovu').first().click();
+  await pickPatient(page, '#triage-patient', PATIENT_A());
   await page.getByRole('button', { name: /^3\s*Urgent/i }).click();
   await page.locator('#triage-chief-complaint').fill('Abdominal pain, vomiting since morning');
   await page.locator('#triage-heart-rate').fill('102');
