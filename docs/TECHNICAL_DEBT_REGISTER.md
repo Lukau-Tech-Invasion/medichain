@@ -5093,3 +5093,40 @@ past 50. 33 screens called `getPatients()`; three different defects followed.
 * **Eight pages had no double-submit guard.** `useSubmitGuard` wraps their
   fourteen save handlers: one write at a time per page, a blocked form submit
   still prevented, the button disabled while pending.
+
+## ADR-0008 Class C phase 1 — implemented 2026-10-18
+
+The verifier (`transaction_authorization.rs`) and the client dialog existed
+with no caller; clippy reported the verifier as dead code. Phase 1 wires it:
+
+* **Server gate** — `require_exact_authorization` (`handlers/transaction_auth.rs`)
+  runs after every existing check, immediately before the mutation, on:
+  access request approve/deny, access grant revoke, consent sign/revoke, role
+  assign/revoke, account status change, revoking *another* person's emergency
+  grant (ending your own is Class A and never gated), and retention
+  decide/execute. A request without an authorization answers
+  `428 TRANSACTION_AUTHORIZATION_REQUIRED` naming the action, resource and the
+  record's current state. The authorization binds to the session, method, path,
+  the SHA-256 of the transmitted bytes (recorded by the idempotency middleware,
+  not re-serialised), the resource and its state, and the idempotency key, and
+  is consumed once. A record that cannot take the step (a decided request, an
+  inactive grant, a withdrawn consent, an approval in the wrong state) is
+  refused before anyone is asked to confirm.
+* **Client** — `ApiClient` answers a 428 once through the registered
+  `TransactionAuthorizationHost` (mounted in both apps), which reuses the
+  existing step-up dialog: password, or authenticator code when enrolled. No
+  page handles the exchange.
+* **Harnesses** — the journeys, cross-role qualification, fixture seeder
+  (`scripts/lib/transaction-authorization.ts`), the synthetic suite
+  (`scripts/lib/actors.sh`) and the e2e `api()` helper confirm as the signed-in
+  person, so they still measure who may act.
+
+### Left for phase 2 (ADR-0008's remaining Class C list)
+
+Guardian authority create/change/revoke, NFC/identity credential issue and
+revoke, trusted-device authority changes, bulk PHI export, and final signing of
+treatment orders and attesting clinical records. Consumption precedes the
+mutation rather than sharing its transaction (ADR-0008 Decision 6): a failed
+mutation needs a fresh confirmation, and no authorization can execute twice.
+The in-memory development backend has no challenge store and skips the gate;
+production refuses to start without PostgreSQL.

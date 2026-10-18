@@ -85,6 +85,19 @@ pub async fn assign_role(
             code: "USER_NOT_FOUND".to_string(),
         });
     };
+    // ADR-0008 Class C: changing another person's authority is confirmed
+    // exactly, bound to the role they hold now.
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &req,
+        "role.assign",
+        &body.user_id,
+        &user.role.to_string(),
+    )
+    .await
+    {
+        return response;
+    }
     user.role = role.clone();
     // A name may accompany a role change; everything else is theirs.
     if !body.name.trim().is_empty() {
@@ -170,16 +183,22 @@ pub async fn revoke_role(
         });
     }
 
-    let exists = data
-        .users
-        .read()
-        .ok()
-        .is_some_and(|users| users.contains_key(&body.user_id));
-    if !exists {
+    let Some(target) = get_user(&data, &body.user_id) else {
         return HttpResponse::NotFound().json(ErrorResponse {
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
+    };
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &req,
+        "role.revoke",
+        &body.user_id,
+        &target.role.to_string(),
+    )
+    .await
+    {
+        return response;
     }
     if let Err(e) = data.deactivate_then_evict_user(&body.user_id).await {
         log::error!(

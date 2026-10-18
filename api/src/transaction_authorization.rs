@@ -60,6 +60,18 @@ impl SecurityEvent {
     }
 }
 
+/// What the idempotency middleware buffered for a mutation: the SHA-256 of the
+/// exact request bytes and the request's idempotency key. A Class C gate reads
+/// this instead of re-serialising the parsed body.
+#[derive(Debug, Clone)]
+pub struct TransmittedRequest {
+    pub body_digest: String,
+    pub idempotency_key: String,
+}
+
+/// The header carrying a verified Class C authorization id.
+pub const AUTHORIZATION_HEADER: &str = "x-transaction-authorization";
+
 pub fn body_digest(body: &[u8]) -> String {
     use sha2::Digest as _;
     format!("{:x}", sha2::Sha256::digest(body))

@@ -556,6 +556,7 @@ pub async fn update_user_profile(
         }
     };
 
+    let previous_status = existing.status.clone();
     let updated_user = match apply_profile_update(existing, &body) {
         Ok(user) => user,
         Err((code, message)) => {
@@ -565,6 +566,22 @@ pub async fn update_user_profile(
             })
         }
     };
+    // ADR-0008 Class C: suspending or reactivating an account changes that
+    // person's authority, so the change itself is confirmed exactly. A profile
+    // edit that leaves the status alone is not.
+    if updated_user.status != previous_status {
+        if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+            &data,
+            &req,
+            "account.status",
+            &user_id,
+            &previous_status,
+        )
+        .await
+        {
+            return response;
+        }
+    }
 
     if let Err(e) = data.persist_then_cache_user(updated_user).await {
         log::error!("Failed to persist profile update for {}: {}", user_id, e);

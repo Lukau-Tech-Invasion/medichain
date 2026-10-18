@@ -260,6 +260,23 @@ pub async fn approve_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
+    // A decided request cannot be decided again; nobody is asked to confirm it.
+    if existing.status != "pending" {
+        return bad_request("This access request has already been decided");
+    }
+    // ADR-0008 Class C: an exact, single-use confirmation of this decision,
+    // bound to the record's current state, immediately before the change.
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &req,
+        "access_request.approve",
+        &request_id,
+        &existing.status,
+    )
+    .await
+    {
+        return response;
+    }
     let grant_id = format!("GRANT-{}", uuid::Uuid::new_v4());
     let event = match crate::audit_outbox::AuditOutbox::prepare_event(
         "access_request_approved".into(),
@@ -319,6 +336,22 @@ pub async fn deny_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
+    if existing.status != "pending" {
+        return bad_request("This access request has already been decided");
+    }
+    // ADR-0008 Class C: an exact, single-use confirmation of this decision,
+    // bound to the record's current state, immediately before the change.
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &req,
+        "access_request.deny",
+        &request_id,
+        &existing.status,
+    )
+    .await
+    {
+        return response;
+    }
     let now = Utc::now();
     let event = match crate::audit_outbox::AuditOutbox::prepare_event(
         "access_request_denied".into(),
@@ -371,6 +404,23 @@ pub async fn revoke_access_grant(
     .await;
     if !access.is_permitted() {
         return forbidden("Only the patient may revoke this grant");
+    }
+    // Only an active grant can be revoked; nobody is asked to confirm otherwise.
+    if existing.status != "active" {
+        return bad_request("This access grant is no longer active");
+    }
+    // ADR-0008 Class C: an exact, single-use confirmation of this decision,
+    // bound to the record's current state, immediately before the change.
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &req,
+        "access_grant.revoke",
+        &grant_id,
+        &existing.status,
+    )
+    .await
+    {
+        return response;
     }
     let now = Utc::now();
     let event = match crate::audit_outbox::AuditOutbox::prepare_event(

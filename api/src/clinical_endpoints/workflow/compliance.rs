@@ -472,6 +472,20 @@ pub async fn sign_consent(
             .map(|_| current_user_id.clone()),
     };
 
+    // ADR-0008 Class C: consent changes what may be done with the record, so
+    // it is confirmed exactly, once, immediately before it is stored.
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &http_req,
+        "consent.sign",
+        &format!("{patient_id}:{consent_type}"),
+        "new",
+    )
+    .await
+    {
+        return response;
+    }
+
     match data.repositories.consent_records.create(entity).await {
         Ok(created) => {
             let payload = serde_json::json!({
@@ -558,6 +572,24 @@ pub async fn revoke_consent(
             error: "Not permitted to revoke this consent".to_string(),
             code: "CONSENT_REVOKE_FORBIDDEN".to_string(),
         });
+    }
+    // A consent already withdrawn cannot be withdrawn again; nobody is asked to confirm it.
+    if existing.revoked == Some(true) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            error: "Consent is no longer active".to_string(),
+            code: "CONSENT_NOT_ACTIVE".to_string(),
+        });
+    }
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &http_req,
+        "consent.revoke",
+        &consent_id,
+        &existing.consent_status,
+    )
+    .await
+    {
+        return response;
     }
 
     match data

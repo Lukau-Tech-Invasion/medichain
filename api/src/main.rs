@@ -211,6 +211,12 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                 ));
             }
             println!("  [INFO] No DATABASE_URL set - using in-memory storage (demo mode)");
+            // Said once, at the start, rather than discovered later: the
+            // challenge store lives in PostgreSQL, so this mode cannot ask for
+            // an exact confirmation of a sensitive action.
+            println!(
+                "  [WARN] ADR-0008 Class C confirmation is NOT enforced on in-memory storage; sensitive actions run without it. Production refuses this mode."
+            );
             None
         }
     })

@@ -108,6 +108,113 @@ fn invalid_authorization() -> HttpResponse {
     })
 }
 
+/// The intent a gated mutation must be authorized for, told to a client that
+/// sent none so it can request exactly this challenge.
+fn authorization_required(
+    action: &str,
+    method: &str,
+    path: &str,
+    resource_id: &str,
+    expected_state: &str,
+) -> HttpResponse {
+    HttpResponse::build(actix_web::http::StatusCode::PRECONDITION_REQUIRED).json(
+        crate::middleware::error_handling::error_envelope_json(
+            "TRANSACTION_AUTHORIZATION_REQUIRED",
+            "Confirm this action to continue.",
+            Some(serde_json::json!({
+                "action": action,
+                "method": method,
+                "path": path,
+                "resource_id": resource_id,
+                "expected_state": expected_state,
+            })),
+        ),
+    )
+}
+
+/// Require an exact, single-use Class C authorization for this request
+/// (ADR-0008 Decision 5): bound to the session, the action, the method and
+/// path, the SHA-256 of the transmitted bytes, the resource and its current
+/// state, and the idempotency key -- consumed once.
+///
+/// `expected_state` is the resource's state as the server reads it now, so an
+/// authorization issued against `pending` cannot approve what has since become
+/// `revoked`. Consumption precedes the mutation: if the mutation then fails,
+/// the person confirms again; an authorization can never execute twice.
+///
+/// Production cannot run without PostgreSQL (`validate_production_storage_and_origins`),
+/// where the challenge store lives. The in-memory development backend has no
+/// such store and skips the gate; `startup` says so when it starts.
+pub async fn require_exact_authorization(
+    data: &web::Data<AppState>,
+    req: &HttpRequest,
+    action: &str,
+    resource_id: &str,
+    expected_state: &str,
+) -> Result<(), HttpResponse> {
+    let Some(pool) = data.db_pool.as_ref() else {
+        return Ok(());
+    };
+    let Some((user_id, sid)) = authenticated_session(req) else {
+        return Err(session_required());
+    };
+    let method = req.method().as_str().to_uppercase();
+    let path = req.path().to_string();
+    let Some(header) = req.headers().get(txn::AUTHORIZATION_HEADER) else {
+        return Err(authorization_required(
+            action,
+            &method,
+            &path,
+            resource_id,
+            expected_state,
+        ));
+    };
+    let challenge_id = header
+        .to_str()
+        .ok()
+        .and_then(|value| Uuid::parse_str(value.trim()).ok())
+        .ok_or_else(invalid_authorization)?;
+    let Some(transmitted) = actix_web::HttpMessage::extensions(req)
+        .get::<txn::TransmittedRequest>()
+        .cloned()
+    else {
+        log::error!("Class C gate on {path} ran without the idempotency middleware");
+        return Err(storage_required());
+    };
+    let intent = TransactionIntent {
+        action: action.to_string(),
+        method,
+        path,
+        body_digest: transmitted.body_digest,
+        resource_id: Some(resource_id.to_string()),
+        expected_state: Some(expected_state.to_string()),
+        idempotency_key: Some(transmitted.idempotency_key),
+    };
+    let proof = txn::TransactionProof {
+        challenge_id,
+        subject: &user_id,
+        login_session_id: sid,
+    };
+    match txn::authorize_transaction(pool, proof, &intent).await {
+        Ok(()) => Ok(()),
+        Err(failure) => {
+            txn::record_security_event(
+                pool,
+                failure.security_event(),
+                Some(&user_id),
+                Some(sid),
+                Some(challenge_id),
+                Some(action),
+            )
+            .await;
+            Err(HttpResponse::Unauthorized().json(ErrorResponse {
+                error: failure.client_message().to_string(),
+                code: "AUTHORIZATION_REJECTED".to_string(),
+            }))
+        }
+    }
+}
+
 /// The stored challenge chooses the factor; a caller cannot downgrade it.
 async fn verify_challenge_factor(
     data: &web::Data<AppState>,
@@ -290,5 +397,183 @@ pub async fn session_assurance(data: web::Data<AppState>, req: HttpRequest) -> H
             log::error!("Assurance lookup failed: {error}");
             storage_required()
         }
+    }
+}
+
+#[cfg(test)]
+mod class_c_gate_pg_tests {
+    use super::*;
+    use actix_web::{test, HttpMessage};
+
+    /// A signed-in caller with a live login session, and a request the gate
+    /// can read: its token carries the `sid`, and the middleware's record of
+    /// the transmitted bytes is attached as it would be in the running server.
+    struct Caller {
+        data: web::Data<AppState>,
+        pool: sqlx::PgPool,
+        user_id: String,
+        sid: Uuid,
+    }
+
+    async fn caller() -> Caller {
+        let pool = crate::repositories::postgres::tests::create_test_pool().await;
+        let user_id = crate::test_fixtures::insert_pg_user(&pool, "Admin").await;
+        let sid = crate::auth_sessions::create(
+            &pool,
+            &user_id,
+            "refresh-under-test",
+            &Uuid::new_v4().to_string(),
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .await
+        .expect("login session");
+        let mut state = AppState::new();
+        state.db_pool = Some(pool.clone());
+        Caller {
+            data: web::Data::new(state),
+            pool,
+            user_id,
+            sid,
+        }
+    }
+
+    fn request(caller: &Caller, body: &[u8], authorization: Option<Uuid>) -> HttpRequest {
+        let token = crate::security::jwt::issue_access_token(
+            &caller.user_id,
+            "Admin",
+            false,
+            Some(&caller.sid.to_string()),
+        )
+        .unwrap();
+        let mut builder = test::TestRequest::post()
+            .uri("/api/access/requests/REQ-1/approve")
+            .insert_header(("Authorization", format!("Bearer {token}")));
+        if let Some(id) = authorization {
+            builder = builder.insert_header((txn::AUTHORIZATION_HEADER, id.to_string()));
+        }
+        let req = builder.to_http_request();
+        req.extensions_mut().insert(txn::TransmittedRequest {
+            body_digest: txn::body_digest(body),
+            idempotency_key: "key-under-test".to_string(),
+        });
+        req
+    }
+
+    /// A verified challenge for exactly this approval of `REQ-1` in `pending`.
+    async fn verified_challenge(caller: &Caller, body: &[u8], state: &str) -> Uuid {
+        let intent = TransactionIntent {
+            action: "access_request.approve".to_string(),
+            method: "POST".to_string(),
+            path: "/api/access/requests/REQ-1/approve".to_string(),
+            body_digest: txn::body_digest(body),
+            resource_id: Some("REQ-1".to_string()),
+            expected_state: Some(state.to_string()),
+            idempotency_key: Some("key-under-test".to_string()),
+        };
+        let issued =
+            txn::issue_transaction_challenge(&caller.pool, &caller.user_id, caller.sid, &intent)
+                .await
+                .expect("challenge");
+        let id = Uuid::parse_str(&issued.challenge_id).unwrap();
+        let proof = txn::TransactionProof {
+            challenge_id: id,
+            subject: &caller.user_id,
+            login_session_id: caller.sid,
+        };
+        txn::mark_verified(&caller.pool, proof, Factor::Password)
+            .await
+            .expect("verified");
+        id
+    }
+
+    async fn gate(caller: &Caller, req: &HttpRequest, state: &str) -> Result<(), HttpResponse> {
+        require_exact_authorization(&caller.data, req, "access_request.approve", "REQ-1", state)
+            .await
+    }
+
+    /// Without an authorization the request is told exactly what to confirm.
+    #[actix_rt::test]
+    async fn an_unconfirmed_request_is_told_what_to_confirm() {
+        let caller = caller().await;
+        let refused = gate(&caller, &request(&caller, b"{}", None), "pending")
+            .await
+            .unwrap_err();
+        assert_eq!(refused.status().as_u16(), 428);
+        let body: serde_json::Value = serde_json::from_slice(
+            &actix_web::body::to_bytes(refused.into_body())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["error"]["code"], "TRANSACTION_AUTHORIZATION_REQUIRED");
+        assert_eq!(body["error"]["details"]["expected_state"], "pending");
+        assert_eq!(body["error"]["details"]["resource_id"], "REQ-1");
+    }
+
+    /// A verified authorization passes once and never again.
+    #[actix_rt::test]
+    async fn a_verified_authorization_is_consumed_exactly_once() {
+        let caller = caller().await;
+        let id = verified_challenge(&caller, b"{\"expires_at\":\"x\"}", "pending").await;
+        let req = request(&caller, b"{\"expires_at\":\"x\"}", Some(id));
+        assert!(gate(&caller, &req, "pending").await.is_ok());
+        let replay = gate(&caller, &req, "pending").await.unwrap_err();
+        assert_eq!(replay.status().as_u16(), 401);
+    }
+
+    /// Different bytes, or a record whose state moved on, are not what was confirmed.
+    #[actix_rt::test]
+    async fn changed_bytes_or_a_changed_record_are_refused() {
+        let caller = caller().await;
+        let id = verified_challenge(&caller, b"{\"days\":7}", "pending").await;
+        let other_bytes = request(&caller, b"{\"days\":30}", Some(id));
+        assert_eq!(
+            gate(&caller, &other_bytes, "pending")
+                .await
+                .unwrap_err()
+                .status()
+                .as_u16(),
+            401
+        );
+
+        let id = verified_challenge(&caller, b"{\"days\":7}", "pending").await;
+        let same_bytes = request(&caller, b"{\"days\":7}", Some(id));
+        assert_eq!(
+            gate(&caller, &same_bytes, "approved")
+                .await
+                .unwrap_err()
+                .status()
+                .as_u16(),
+            401
+        );
+    }
+
+    /// An issued but unverified challenge authorizes nothing.
+    #[actix_rt::test]
+    async fn an_unverified_challenge_authorizes_nothing() {
+        let caller = caller().await;
+        let intent = TransactionIntent {
+            action: "access_request.approve".to_string(),
+            method: "POST".to_string(),
+            path: "/api/access/requests/REQ-1/approve".to_string(),
+            body_digest: txn::body_digest(b"{}"),
+            resource_id: Some("REQ-1".to_string()),
+            expected_state: Some("pending".to_string()),
+            idempotency_key: Some("key-under-test".to_string()),
+        };
+        let issued =
+            txn::issue_transaction_challenge(&caller.pool, &caller.user_id, caller.sid, &intent)
+                .await
+                .unwrap();
+        let id = Uuid::parse_str(&issued.challenge_id).unwrap();
+        let req = request(&caller, b"{}", Some(id));
+        assert_eq!(
+            gate(&caller, &req, "pending")
+                .await
+                .unwrap_err()
+                .status()
+                .as_u16(),
+            401
+        );
     }
 }

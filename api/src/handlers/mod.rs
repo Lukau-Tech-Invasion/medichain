@@ -60,7 +60,7 @@ mod retention_admin;
 mod session;
 mod sms_preferences;
 mod soap;
-mod transaction_auth;
+pub(crate) mod transaction_auth;
 mod triage;
 mod vitals;
 

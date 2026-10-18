@@ -318,6 +318,64 @@ pub struct DecideApprovalRequest {
     pub reason: Option<String>,
 }
 
+/// ADR-0008 Class C for a retention decision or execution: confirmed exactly,
+/// once, bound to the approval's status and to the digest of the assessment it
+/// authorises -- so a confirmation of one record set cannot act on another.
+async fn require_retention_authorization(
+    data: &web::Data<AppState>,
+    req: &HttpRequest,
+    action: &str,
+    token: &str,
+) -> Result<(), HttpResponse> {
+    let approval = match data
+        .repositories
+        .retention_execution
+        .get_approval(token)
+        .await
+    {
+        Ok(approval) => approval,
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+            return Err(HttpResponse::NotFound().json(error_envelope_json(
+                "APPROVAL_NOT_FOUND",
+                "No retention approval has this token",
+                None,
+            )));
+        }
+        Err(error) => {
+            log::error!("Retention approval lookup failed: {error}");
+            return Err(HttpResponse::ServiceUnavailable().json(error_envelope_json(
+                "RETENTION_UNAVAILABLE",
+                "Retention approvals are temporarily unavailable",
+                None,
+            )));
+        }
+    };
+    // An approval that cannot take this step is refused before anyone is asked
+    // to confirm it: deciding needs `pending`, executing needs an executable approval.
+    let possible = match action {
+        "retention.decide" => approval.status == "pending",
+        _ => approval.is_executable(chrono::Utc::now()),
+    };
+    if !possible {
+        return Err(HttpResponse::BadRequest().json(error_envelope_json(
+            "APPROVAL_NOT_ACTIONABLE",
+            &format!(
+                "This retention approval is {} and cannot be {}",
+                approval.status,
+                if action == "retention.decide" {
+                    "decided"
+                } else {
+                    "executed"
+                }
+            ),
+            None,
+        )));
+    }
+    let state = format!("{}:{}", approval.status, approval.assessment_digest);
+    crate::handlers::transaction_auth::require_exact_authorization(data, req, action, token, &state)
+        .await
+}
+
 /// POST /api/admin/retention/approvals/{token}/decide
 #[post("/api/admin/retention/approvals/{token}/decide")]
 pub async fn decide_retention_approval(
@@ -331,6 +389,11 @@ pub async fn decide_retention_approval(
         Err(resp) => return resp,
     };
     let token = path.into_inner();
+    if let Err(response) =
+        require_retention_authorization(&data, &req, "retention.decide", &token).await
+    {
+        return response;
+    }
 
     match data
         .repositories
@@ -365,6 +428,11 @@ pub async fn execute_retention_approval(
         Err(resp) => return resp,
     };
     let token = path.into_inner();
+    if let Err(response) =
+        require_retention_authorization(&data, &req, "retention.execute", &token).await
+    {
+        return response;
+    }
 
     match crate::retention::execution::execute_approved(&data, &token, &uid).await {
         Ok(outcome) => HttpResponse::Ok().json(serde_json::json!({

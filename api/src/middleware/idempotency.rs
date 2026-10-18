@@ -405,6 +405,14 @@ where
             }
             let body: Bytes = body.freeze();
             let digest = digest_request(&subject, &method, &route, &key, &body);
+            // A Class C gate binds its authorization to these exact bytes and
+            // this key (ADR-0008): hashing the transmitted bytes, not a
+            // re-serialisation, removes the field-order problem entirely.
+            req.extensions_mut()
+                .insert(crate::transaction_authorization::TransmittedRequest {
+                    body_digest: crate::transaction_authorization::body_digest(&body),
+                    idempotency_key: key.clone(),
+                });
             req.set_payload(Payload::from(body));
 
             let claim = match &pool {

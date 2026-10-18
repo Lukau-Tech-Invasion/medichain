@@ -4,7 +4,7 @@
 //! available until every consumer moves to grant-bound emergency summaries.
 
 use super::*;
-use crate::emergency_grants::EmergencyGrantScope;
+use crate::emergency_grants::{EmergencyGrantScope, EmergencyGrantStatus};
 
 #[derive(Debug, Deserialize)]
 pub struct IssueEmergencyGrantRequest {
@@ -235,6 +235,22 @@ pub async fn revoke_emergency_grant(
             error: "Only the grant owner or an administrator can revoke this grant".into(),
             code: "GRANT_REVOKE_FORBIDDEN".into(),
         });
+    }
+    // ADR-0008 Class E table: a responder ending their own emergency session is
+    // Class A and must never be impeded; revoking someone else's emergency
+    // authority is Class C and is confirmed exactly.
+    if existing.requesting_person_id != user_id && existing.status == EmergencyGrantStatus::Active {
+        if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+            &data,
+            &req,
+            "emergency_grant.revoke",
+            &existing.id,
+            &format!("{:?}", existing.status).to_lowercase(),
+        )
+        .await
+        {
+            return response;
+        }
     }
     match data
         .emergency_grants
