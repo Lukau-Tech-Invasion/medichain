@@ -43,6 +43,10 @@ test('filing a discharge also files the take-home instructions', async ({ browse
 
   const diagnosis = `Community-acquired pneumonia (e2e ${Date.now()})`;
   await page.locator('#dc-primary-diagnosis').fill(diagnosis);
+  // Nothing is pre-chosen any more: the clinician states where the patient goes
+  // and their condition, and the summary is refused without them.
+  await page.locator('#dc-discharge-disposition').selectOption('home');
+  await page.getByRole('button', { name: /^improved$/i }).click();
 
   await page.getByRole('button', { name: /create discharge summary/i }).click();
 

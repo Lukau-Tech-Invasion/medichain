@@ -5073,19 +5073,23 @@ past 50. 33 screens called `getPatients()`; three different defects followed.
   triage reads now answer 503 `TRIAGE_UNAVAILABLE`, and the page says the queue
   could not be loaded, with Retry.
 
-### Left as found — needs an owner decision
+### Closed 2026-10-18, after the owner's decisions
 
-* **Discharge summaries record admission at the moment of discharge.** The
-  form never asks for an admission date; `create_discharge_summary` reads
-  `admission_datetime` and defaults to `now`. The page sent an invented
-  `admission_date` (today) that the server ignored; that field is removed.
-  Fixing the record needs a collected field plus either a nullable column or
-  a required one — a schema decision.
-* **The paediatrics caseload is the children among the first 50 patients.**
-  Assessment selection already searches the server and an unknown age is sent
-  as unknown. A real caseload needs either an age filter in the API (dates of
-  birth are encrypted, so the server decrypts to filter) or a caseload drawn
-  from care relationships — see the nurse "My Patients" note.
-* **Blood Bank, Chain of Custody, Consult, Critical Value, Immunization,
-  Obstetrics, Pathology and Toxicology have no double-submit guard.** Unchanged
-  by this pass; Part B's chains will exercise them.
+* **Discharge summaries recorded admission at the moment of discharge** — and
+  more: the page's `primary_diagnosis` never reached `principal_diagnosis`, and
+  its `discharge_condition` never reached `condition_at_discharge`, which was
+  then stored as `stable`; the page itself pre-chose "home", "stable" and a diet.
+  The downloaded summary is built from those columns. The handler now reads the
+  page's names through a typed struct, refuses a summary without a stated
+  condition or disposition, takes the author from the session, and stores an
+  admission time only when given (`admission_datetime` is nullable —
+  migration `20261018000001`). The form asks for an optional admission date.
+  Rows written before keep their values; defaulted ones cannot be told apart.
+* **The paediatrics caseload was the children among the first 50 patients.**
+  `GET /api/patients/paediatric-caseload` scans the directory in bounded keyset
+  batches, decrypting each date of birth, and returns every under-18 with an
+  age in months computed on the server; it says `truncated` if the scan reaches
+  its cap. The page says when the caseload could not be loaded.
+* **Eight pages had no double-submit guard.** `useSubmitGuard` wraps their
+  fourteen save handlers: one write at a time per page, a blocked form submit
+  still prevented, the button disabled while pending.
