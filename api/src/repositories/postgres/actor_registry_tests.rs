@@ -183,8 +183,7 @@ async fn a_migrated_database_has_no_seeded_or_legacy_identity_state() {
         "SELECT c.relname::text FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = current_schema()
-           AND c.relname IN ('legacy_wallet_identities', 'actor_directory',
-                             'bootstrap_legacy_demo_seeds')",
+           AND c.relname IN ('actor_directory', 'bootstrap_legacy_demo_seeds')",
     )
     .fetch_all(&pool)
     .await

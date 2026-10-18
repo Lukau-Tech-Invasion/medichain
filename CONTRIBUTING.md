@@ -9,8 +9,7 @@ welcome; please read this before opening a pull request.
    harms a patient. Prefer the boring, verifiable construction.
 2. **No personal health information in audit events or checkpoints.** Hashes,
    commitments, pointers and privacy-minimised audit entries only. This is not
-   negotiable — see [ADR-0004](docs/adr/0004-commitment-not-plaintext-on-chain.md)
-   and [ADR-0010](docs/adr/0010-remove-blockchain-and-wallet-identity.md).
+   negotiable — see [ADR-0010](docs/adr/0010-sealed-audit-stream-and-account-identity.md).
 3. **Never commit secrets.** Everything comes from the environment.
 4. **Synthetic data only** in tests, fixtures and examples.
 

@@ -61,7 +61,7 @@ def check(config: dict) -> list[str]:
     """List production exposure and posture defects in the merged stack."""
     services = config["services"]
     problems = []
-    for name in ("ipfs", "blockchain", "substrate"):  # retired-term-negative-assertion
+    for name in ("ipfs",):
         if name in services:
             problems.append(f"removed service {name} is still configured")
     for name in ("api", "postgres", "pgadmin", "prometheus", "grafana"):

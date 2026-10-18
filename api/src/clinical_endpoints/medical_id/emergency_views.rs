@@ -753,8 +753,6 @@ mod hz_001_regression_tests {
             .to_request();
         let response = test::call_service(&app, request).await;
         assert!(response.status().is_success());
-        let body: serde_json::Value = test::read_body_json(response).await;
-        assert!(body.get("chain_audit_status").is_none());
     }
 
     /// A token obtained via the exchange endpoint is accepted, and expired

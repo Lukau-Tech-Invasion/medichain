@@ -61,6 +61,19 @@ assessments, vitals, fall risk, MAR, IV sites, appointments, messages,
 consents, telehealth, symptom checker, medication reminders, adherence,
 emergency card.
 
+> **Correction, 2026-10-18.** "MAR" in this list was also wrong. The patient
+> application read no medication-administration data at all; the doses lived
+> only behind the ward-wide, clinical-staff `GET /api/emergency/mar/administrations`.
+> Closed the same day: `GET /api/clinical/patient/{patient_id}/medication-administrations`,
+> a `medication-administrations` records-summary section, and "Medication
+> given / held / refused" entries on My Records.
+>
+> Same day, the emergency team's records: code blue, trauma, stroke, cardiac
+> events and sepsis screens were readable only through clinician-facing lists,
+> and the code-blue list refused the patient outright. Closed with
+> `GET /api/clinical/patient/{patient_id}/emergency-care`, an `emergency-care`
+> records-summary section, and the matching entries on My Records.
+
 > **Correction, 2026-09-15.** This list previously included **GCS**, and that
 > was wrong — an unverified claim in my own document. `createGCS`, `getGCS` and
 > `getPatientGCS` all sat in the shared client with no caller at either end:

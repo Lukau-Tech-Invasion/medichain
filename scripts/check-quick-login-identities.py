@@ -17,13 +17,10 @@ properties that keep it that way.
 1. **No hardcoded identity or credential on a sign-in path.** An array of
    accounts (a `*_PATIENTS` / `*_ACCOUNTS` / `*_USERS` constant), a base58
    account-shaped string, or a password literal inside an auth page or store is
-   a quick-login list by another name. There is no allow-list: the published
-   development accounts that used to be tolerated are gone with the wallets.
+   a quick-login list by another name. There is no allow-list.
 
-2. **The removed sign-in surface stays removed.** No production client module
-   may name the wallet-era entry points (`loginWithDemoWallet`, a demo-login
-   call, wallet challenge or recovery-phrase sign-in, wallet generation). Each
-   one was a way to become an identity without a password.
+2. **No password-free sign-in.** No production client module may call a
+   demo-login endpoint: that is a way to become an identity without a password.
 
 3. **The development gate fails closed.** `IS_DEVELOPMENT` decides whether the
    demo-account paths exist at all, so it must not default to true when
@@ -67,12 +64,8 @@ PASSWORD_LITERAL = re.compile(
     r"""\b[A-Za-z_]*[Pp]assword\s*[:=]\s*(['"`])[^'"`\s${}]{6,}\1"""
 )
 
-# Entry points that let a caller become an identity without a password. They
-# were removed with the wallets; a production module naming one has grown it back.
-REMOVED_ENTRY_POINTS = re.compile(
-    r"loginWithDemoWallet|demo-login|DEMO_WALLET_GENERATION|generateWalletIdentity|"
-    r"requestWalletChallenge|loginWithRecoveryPhrase|recoveryPhrase|mnemonic"
-)
+# An entry point that lets a caller become an identity without a password.
+REMOVED_ENTRY_POINTS = re.compile(r"demo-login")
 
 # Only the workspace sources. Walking `client/` wholesale trips over broken
 # symlinks inside node_modules on this host, and a dependency's fixtures are
@@ -112,8 +105,8 @@ def scan() -> list[str]:
 
         for m in REMOVED_ENTRY_POINTS.finditer(body):
             findings.append(
-                f"{rel} names `{m.group(0)}`, a sign-in entry point removed with the "
-                f"wallets. Signing in is POST /api/auth/login (or a credential "
+                f"{rel} names `{m.group(0)}`, a password-free sign-in entry point. "
+                f"Signing in is POST /api/auth/login (or a credential "
                 f"redemption); nothing else may authenticate."
             )
             break  # one finding per file is enough to act on

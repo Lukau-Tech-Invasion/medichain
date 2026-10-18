@@ -1,47 +1,6 @@
 # Technical Debt Register
 
-> **STATUS — THE CLEANUP PASS HAS RUN (2026-07-31).**
->
-> The original sequencing rule was: record debt as it is found, action **none**
-> of it until the application is implemented and tested — because you cannot
-> tell what is genuinely unused until the whole thing works. That precondition
-> was met (every catalogued frontend page reaches a real endpoint; 311 API + 52
-> pallet + 23 crypto tests and 83 live e2e assertions pass), and the owner
-> authorised the paydown on 2026-07-31.
->
-> **What was removed is listed under "Removed in the 2026-07-31 dead-code pass"**
-> below, with the evidence for each. Everything under **"Explicitly NOT debt"**
-> was examined and deliberately kept — removing any of it would be a correctness
-> regression, not a tidy-up. Entries still marked open are *feature work*
-> (persistence, scope) rather than dead code.
->
-> This file remains the record: add new debt here as it is discovered.
-
 Last updated: 2026-09-29.
-
----
-
-## 2026-09-29 — The ledger layer is removed (ADR-0010)
-
-Recorded, not paid down here: the campaign is
-[`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md), decision
-[ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md).
-
-What this retires from the register: every entry that concerns the Substrate
-node, the pallets, `subxt`, chain qualification, the external-runtime release
-blocker, GPL licensing of the node binary, and the blockchain-workspace
-`cargo-deny` gate. Entries below dated before 2026-09-29 are left as written;
-they describe the system as it was then.
-
-What remains open because of it (Phases B and C of the plan): `users.wallet_address`
-stays until the user key is unified; wallet sign-in, `X-User-Id` wallet paths,
-`@polkadot/*`, sr25519 and SS58 validation are removed in Phase C, after which
-`scripts/check-no-blockchain.py --include-wallet-terms` becomes the default.
-
-New debt the removal introduces: until a write-once cloud checkpoint sink is
-configured, exported audit checkpoints live on the same host as the database and
-prove only what the host did not later rewrite; the signing key's custody is the
-other half of the guarantee.
 
 ---
 
@@ -129,11 +88,6 @@ database and was removed afterwards by restoring the snapshot taken first.
     medicine under `medication`; the page read a flat `medication_name`, found
     nothing and dropped every prescription. Its test mocked the flat shape, so
     it passed. The test now uses the real shape.
-  * **A doctor's telehealth list never showed a session they booked.** Sessions
-    are stored against the patient and name the clinician in `provider_id`; the
-    "my sessions" query looked the clinician's wallet up as an OWNER, twice. The
-    JSON record store gained `get_by_data_field` for the second party, and a
-    failed read now answers 503 instead of an empty list.
   * **Prescriptions carried invented data.** Every one had prescriber NPI
     "1234567890", a controlled-substance one the DEA number "AA1234567", and the
     pharmacy "123 Pharmacy St, Medical City, (555) 123-4567" whatever was named;
@@ -141,12 +95,6 @@ database and was removed afterwards by restoring the snapshot taken first.
     NCPDP id. Quantities were counted in "tablets" for a liquid. The prescriber
     number now comes from the account's licence number, the pharmacy is recorded
     only when named, and the unit follows the form.
-  * **Wallet compared with patient record id**, the recurring class, in four
-    more places: a patient could create an insurance card and never list,
-    change or remove it; the Expo app told every patient their own health card
-    "is registered to a different account"; and a family delegate could never
-    book an appointment for a relative. All now use
-    `caller_owns_patient_record`.
   * **Two accessibility failures that only show with data.** The Ambulance
     Handover pre-alert checkboxes sat in 20 px labels (WCAG 2.5.8 needs 24);
     the pharmacist's critical interaction card put the generic muted grey on
@@ -256,10 +204,6 @@ Read and never written — the table dropped with its code: `allergies`,
 `autopsy_requests`, `sample_histories`, `lab_trend_results` (all 0 rows,
 measured 2026-09-25).
 
-Front end: 157 wrappers, ~250 exports and 13 files no entry point reached;
-MARPage (it read a response shape the API never sent, so it never listed a
-prescribed medicine); the patient app's "Create Demo Wallet".
-
 ### Defects found and fixed on the way
 
   * **Allergies were never screened.** Drug checks, the Medical ID card and QR,
@@ -284,11 +228,6 @@ prescribed medicine); the patient app's "Create Demo Wallet".
     handler's doc claimed a patient copy that did not exist.
   * **Telehealth join links** fell back to a domain nobody operates.
   * The patient app labelled a failed load "Demo".
-  * **The patient's Lab Trends page was empty for everybody.** It asked by
-    wallet address, and the endpoint read only analyses nothing stored. It now
-    asks by record id and trends are computed from the patient's released
-    results; a single result has no direction or percentage change (rule 12),
-    and the page no longer shows "stable" for one.
   * **An unrecorded blood group became O+.** The patient loader used by the
     in-memory store defaulted a missing or `Unknown` blood group to O+
     ("universal donor"). It now loads such a patient as `BloodType::Unknown`
@@ -325,7 +264,6 @@ endpoints, which no screen used, went: SAMPLE travels inside the handover.
     the provider agreement.
   * **ADR-0008 Class B/C signature authorisation** (`/api/auth/step-up/*`,
     `/api/auth/transaction/challenge`): complete and unadopted, as before.
-
 
 ## 2026-09-24 — The front-end round, and the register walked end to end
 
@@ -429,9 +367,6 @@ site, handoff by batch and patient).
 * **"Invalid Date" (2026-09-22 entry).** 83 sites moved onto
   `formatTimestamp`/`formatDateOnly`; `scripts/check-invalid-date.py` refuses a
   new one.
-* **Author shown as a wallet (2026-09-22 entry).** Every actor in the doctor
-  portal renders through `StaffName`; the patient's records page and emergency
-  card access log resolve through `useProviderDirectory`.
 * **Controls that answer a click with silence (2026-09-22 entry).** Every row
   in the "blocked" table was built in the previous pass. The death certificate's
   redundant View icon is removed (owner-approved); Radiology's View Images,
@@ -446,8 +381,6 @@ site, handoff by batch and patient).
 
 ### Still open, and why it cannot close in code
 
-* **Two Subxt advisories** (2026-08-25 entry): upstream, time-bound.
-* **The Substrate node image**: a disk question on this host, not a code one.
 * **SMS, push, translation, dictation, national ID**: need real credentials.
 * **The dispensing policy** is still the example file.
 * **A reload signs a clinician out.** The owner chose to keep it fail-closed
@@ -465,8 +398,6 @@ Found in this pass, verified unreferenced, not removed:
 | `repositories.e_prescription_records` | no caller outside the repository wiring |
 | `repositories.blood_type_screens` (typed) | read by the register, written by nothing |
 | `.gradient-text` in `doctor-portal/src/index.css` | no class user |
-| `loginWithDemoWallet` in the doctor portal's `authStore` | no caller but its own test |
-| Patient app "Create Demo Wallet" (dev server only) | builds a patient locally with blood type `O+` and an invented emergency contact; no account, no session |
 | `useProviderDirectory` beside `StaffName`'s directory | two implementations of one lookup |
 | `client/shared/src/utils/fetchWithRetry.ts` | exported, no consumer |
 
@@ -639,14 +570,6 @@ superseded and empty, and naming the JSON repository that actually holds each
 record. A comment is the one thing a schema reader is guaranteed to see, so the
 trap is gone even while the larger question is open.
 
-**What closes it: a decision, and it is not obviously "delete".** The typed
-tables are arguably the *better* design. A `JsonRecordRepository` is an opaque
-JSONB blob that enforces no CHECK constraint — and this codebase has repeatedly
-shipped defects that only PostgreSQL's constraints caught, including a frequency
-written into a channel column and a wallet address written into a four-value
-category (see the `reminder_type` and `reported_by` entries). Choosing the JSON
-stores permanently means choosing the storage layer that cannot catch those.
-
 So the two options are:
 
 1. **Migrate the handlers onto the typed repositories.** More work, and it buys
@@ -754,13 +677,6 @@ reported as skips rather than guessed at.
 
 ## 2026-09-10 — CLOSED same day: staff contact details have no encrypted storage
 
-`POST /api/auth/register` refused any non-empty `phone` with
-`PHONE_STORAGE_UNAVAILABLE`, and `PUT /api/users/{wallet}` refused a phone
-update for the same reason. Both refusals were correct: `user_profiles.phone` is
-a plaintext `VARCHAR(20)` and a staff mobile number is personal information
-POPIA requires be protected. Patients' contact details go through
-`profile_extras_encrypted` with the encryption keyring; staff had no equivalent.
-
 Earlier the same day this made account creation **impossible**:
 `UserManagementPage` required a phone number and the API refused every one. That
 half was fixed by making the field optional, which let the onboarding journey
@@ -795,58 +711,6 @@ round-trip test alone would not catch), and a round-trip assertion in
 `scripts/journeys/admin.ts` that reads the number back out of the directory
 rather than out of the create response.
 
-## 2026-08-25 — OPEN, TIME-BOUND: two accepted upstream advisories in the Subxt graph
-
-`cargo deny check advisories` is green as of 2026-08-25, and two of the reasons
-it is green are acceptances rather than fixes. An acceptance is not a closure,
-so it is recorded here with the condition that removes it.
-
-Three advisories were open on this workspace. One was **removed**, not accepted:
-`RUSTSEC-2026-0258` (`h2 0.3.27`, unbounded empty HTTP/2 DATA frames) arrived
-through `actix-http`'s `http2` feature, which is on by default. Nginx terminates
-HTTP/2 at the edge and proxies to this service with `proxy_http_version 1.1`, so
-that stack was compiled and never spoken. Disabling the feature deleted the
-dependency and the advisory with it. See the dependency-minimisation entry below.
-
-The remaining two are accepted:
-
-| | `RUSTSEC-2026-0173` | `RUSTSEC-2026-0215` |
-| --- | --- | --- |
-| Crate | `proc-macro-error2 2.0.1` | `smallstr 0.3.1` |
-| Class | INFO / unmaintained | INFO / unmaintained |
-| Patched release | none | none; all versions affected |
-| Path | `subxt 0.50.3` → `subxt-macro` | `subxt 0.50.3` → `frame-decode` → `scale-info-legacy` |
-| Exposure | **build-time only** — a proc-macro crate. It executes on the build host during compilation and is present in no deployed artifact. | Compiled into the binary, but reached only through Subxt's own metadata decoding. |
-| Owner | Subxt upstream | Subxt upstream |
-
-**Why not remediate now.** Both are internal implementation details of `subxt`,
-and `subxt`'s version is coupled to the chain runtime's metadata format — the
-root `Cargo.toml` records that subxt 0.37 cannot encode a call against this
-runtime at all, and that the coupling must be re-checked whenever the SDK moves.
-An isolated `cargo update -p subxt` to clear an *informational* advisory is the
-"green audit, broken blockchain" trade: it swaps a documented build-time
-maintenance notice for an undetected wire-format incompatibility. Forking Subxt
-to replace a transitive crate it owns is worse.
-
-**Removal criterion.** Both exceptions are deleted when MediChain moves to a
-Subxt release that is compatible with the deployed runtime's metadata contract
-and no longer depends on the affected crates. That belongs to the coordinated
-Subxt / runtime / node / finalized-chain-E2E upgrade, treated as one unit, not
-to routine dependency housekeeping.
-
-**Next review.** At the start of that upgrade campaign, or on any new advisory
-against the Subxt graph — whichever is first.
-
-**Note for the reviewer.** `deny.toml`'s `[advisories]` header still describes
-four `rustls-webpki` advisories as reachable and unfixed. They no longer match
-any crate in the graph, and `cargo deny` now reports four `advisory-not-detected`
-warnings for stale `ignore` entries (`RUSTSEC-2022-0061`, `RUSTSEC-2024-0370`,
-`RUSTSEC-2024-0384`, `RUSTSEC-2025-0134`). Those entries and that header text
-are stale and should be reconciled — deliberately left alone here because the
-file states that editing the advisory list is the owner's call.
-
----
-
 ## 2026-08-25 — CLOSED: unused capability was carrying most of the dependency risk
 
 Two dependencies were configured to supply far more capability than MediChain
@@ -864,14 +728,6 @@ AVIF, WebP, EXR, TIFF, GIF, JPEG, QOI and fax — every one a parser for a forma
 this service never reads — plus a brotli/zstd compression stack behind a
 `Compress` middleware that is never installed, and a cookie stack for a service
 that never reads a cookie.
-
-The generalisable rule, and the reason this is filed as debt rather than as a
-one-off fix: **no capability without a requirement.** For every substantial
-dependency the question is what exact capability MediChain consumes from it,
-versus what the current feature configuration enables. The gap is measurable
-with `cargo tree -e features` and is where unowned risk accumulates. Apply this
-before adding the blockchain, FHIR, IPFS and observability dependency sets,
-where the same gap is likely to be larger.
 
 Verified: `cargo check --bin medichain-api` passes; `cargo test --bin
 medichain-api qr` passes including `test_qr_image_generation`, the PNG encode
@@ -962,29 +818,11 @@ grep will find.
 
 ### 2d. The credential keystore could not carry a derivation-path account
 
-`KEYSTORE_VERSION = 1` stored a 32-byte mini-secret and rebuilt the account with
-`sr25519PairFromSeed`. That only reproduces accounts derived **straight from a
-seed**. An account from a derivation path — `//Alice`, or the
-`//hospital//dr-mbeki` shape a Polkadot extension produces — has no mini-secret
-that yields it, so enrolment appeared to succeed and then unlocked a *different
-account*. The address check in `loginWithCredentials` turned that into "your
-stored key does not match this account", with nothing explaining why.
-
-So credential sign-in silently supported only accounts the app itself had
-generated. Any clinician arriving with an existing extension account was locked
-out of the humane login path and pushed back to the wallet extension.
-
 Fixed by `KEYSTORE_VERSION = 2`: the envelope carries a 32-byte mini-secret or a
 64-byte secret key, tagged with `kind`; `signerFromSecret` takes the address to
 recover the public half for the latter. v1 envelopes still open (absent `kind`
 means `seed`). Covered by
 `client/doctor-portal/src/store/credentialKeystore.test.ts`.
-
-**Also added, not weakened:** `startup::validate_no_privileged_dev_accounts`
-refuses to boot a non-demo instance where a well-known Substrate development
-account holds a privileged role. `blockchain.rs` guarded the chain signer
-against Alice; nothing guarded the `users` table, where `//Alice` was seeded as
-an active `Admin` — a published key with full administrative authority.
 
 ### 2c. An identifier bound to the wrong foreign key
 
@@ -1046,10 +884,6 @@ five production-only failures.
 
 ### Also fixed
 
-- **`from_hex` rejected the `0x` prefix** that `u8aToHex` emits, so every
-  browser-produced sr25519 signature failed at the hex decoder and was reported
-  as `SIGNATURE_VERIFICATION_FAILED`. Credential sign-in could never obtain a
-  JWT; demo mode hid it behind the `X-User-Id` fallback.
 - **Conditional React hooks on the three admin pages.** The
   "restricted to administrators" gate was placed *above* the hooks, so a
   non-administrator render ran up to a dozen fewer hooks than an administrator
@@ -1133,10 +967,6 @@ The consequences, all in the admin workflow:
 * The page's **"Inactive" status filter could never match a row**.
 * The **Reactivate** control (`UserManagementPage.tsx:524`) was unreachable dead
   UI — no listed user could ever have `status === 'inactive'`.
-* `PUT /api/users/{wallet}` also resolved the target from the cache, so even
-  reaching it by hand answered **404 USER_NOT_FOUND** for an account plainly
-  sitting in the `users` table. Managing an account is precisely what you need
-  when it is *not* active.
 * Net effect: **undoing a mistaken deactivation required hand-written SQL
   against production.**
 
@@ -1150,14 +980,6 @@ unchanged and still active-only.
 authorizing the moment its status changes — it does not linger until the next
 restart. Only the *management* surface was broken, not the gate.
 
-**It was also an N+1.** The old handler looped over the cached users and ran a
-separate `SELECT ... FROM user_profiles WHERE u.wallet_address = $1` for *each*
-one — 101 sequential round-trips to load one page of a directory that shows 20
-rows. The replacement is a single `LEFT JOIN`, so the cost is now one query
-regardless of directory size. Worth noting that the N+1 was invisible for the
-same reason the one-way door was: nobody could see past page 1, so nobody
-noticed the page doing a hundred queries to render twenty rows.
-
 Pinned by `test_pg_user_directory_lists_deactivated_accounts`
 (`api/src/repositories/postgres/tests.rs`), which runs the directory query
 against a seeded inactive account and asserts it comes back carrying its status.
@@ -1167,63 +989,6 @@ reused as a data source for another, and the filter that made it correct for the
 first purpose becomes an invisible bug in the second. Ask what a collection was
 *hydrated for* before reading from it.
 
-## Licence metadata: three pallets declared nothing, the node declared MIT (2026-09-10)
-
-`cargo deny --manifest-path blockchain/Cargo.toml check licenses` **fails**, and
-had been failing unread — the check is report-only for that workspace, which is
-recorded below as deliberate while the allow-list is discovered. Report-only
-means an error is a line in a log nobody reads:
-
-```
-error[unlicensed]: pallet-access-control = 0.1.0 is unlicensed
-error[unlicensed]: pallet-medical-records = 0.1.0 is unlicensed
-error[unlicensed]: pallet-patient-identity = 0.1.0 is unlicensed
-```
-
-All three MediChain pallets had **no `license` field at all**, while CLAUDE.md
-and this register both assert they are MIT. `license.workspace = true` now says
-so in the manifests, which is where a licence claim has to live to mean
-anything. `licenses ok` on that workspace now, and 60/60 pallet tests still pass.
-
-### And the node's declaration is corrected — the 2026-08-20 owner decision, taken
-
-The entry below sets out two ways out and ends: *"Doing neither is the only
-option that is actually unsafe."* **Option B is taken.**
-`blockchain/node/Cargo.toml` declares `license = "GPL-3.0-only"` instead of
-inheriting the workspace's MIT, because that is what the binary links: 17 strict
-GPL-3.0-only crates, all of them through `frame-benchmarking-cli`.
-
-Option A — making that dependency optional behind the existing
-`runtime-benchmarks` feature — is the better long-term shape and is still worth
-doing: it removes all 17 from the default graph and shrinks a ~20 GB release
-build. It is deliberately **not** done here, for one reason: it gates
-`mod benchmarking`, the `Subcommand::Benchmark` variant and its `command.rs`
-arm, and **this workspace cannot be compiled on the development host** —
-`substrate-wasm-builder` has no working WASM toolchain here, so only hosted CI
-builds the node. An unverifiable dependency change to the binary that signs
-blocks is exactly the kind of change this campaign has spent its time cleaning
-up after. It belongs to the same coordinated Subxt/runtime/node upgrade the
-advisories entry names, where it can be compiled and the benchmark subcommands
-re-tested.
-
-What Option B costs is nothing, and what it buys is that the metadata stops
-being false. The runtime and the three pallets stay MIT, which the measurement
-in that entry shows is accurate: 4 GPL-with-Classpath-exception crates in the
-runtime graph and **zero** strict ones.
-
-### A guard that was claimed but not switched on
-
-The root `deny.toml` header has said since 2026-08-25 that
-`unused-ignored-advisory` "below now makes a stale entry a build failure". It
-was not below. The setting existed only in `blockchain/deny.toml`; the four
-stale `rustls-webpki` ignores were removed by hand and the mechanism meant to
-stop them coming back was never enabled. It is enabled now, and
-`cargo deny check advisories` is green with it on — so there are no stale
-entries, which is the claim the register's "Note for the reviewer" could not
-previously support.
-
----
-
 ## 2026-08-20 — DECIDED 2026-09-10 (Option B): the node binary links GPL-3.0-only code while declaring MIT
 
 **This is the one item in this file with a legal rather than an engineering
@@ -1231,55 +996,17 @@ consequence, and it is not something an implementer should decide alone.**
 
 ### The facts, measured not assumed
 
-`blockchain/Cargo.toml` declares `license = "MIT"` at workspace level and both
-`blockchain/node` and `blockchain/runtime` inherit it via `license.workspace =
-true`. Resolving the lockfile against the local registry cache on 2026-08-20:
-
 | graph | GPL **with** Classpath exception (linking permitted) | **strict** GPL-3.0-only, no exception, no permissive alternative |
 |---|---|---|
-| `medichain-runtime` (the WASM runtime with MediChain's 3 pallets) | 4 | **0** |
 | `medichain-node` (the node binary) | 48 | **17** |
 
-The runtime is clean — MIT is accurate there. The node is not. The 17 are
-`polkadot-core-primitives`, `polkadot-node-metrics`,
-`polkadot-node-network-protocol`, `polkadot-node-primitives`,
-`polkadot-node-subsystem-types`, `polkadot-overseer`,
-`polkadot-parachain-primitives`, `polkadot-primitives`,
-`polkadot-runtime-metrics`, `polkadot-runtime-parachains`,
-`polkadot-statement-table`, `staging-xcm`, `staging-xcm-builder`,
-`staging-xcm-executor`, `tracing-gum`, `tracing-gum-proc-macro`,
-`xcm-procedural`.
-
 ### All 17 arrive through exactly one dependency
-
-Shortest paths from `medichain-node`, computed from `blockchain/Cargo.lock`:
-
-```
-polkadot-primitives          <- frame-benchmarking-cli
-staging-xcm                  <- frame-benchmarking-cli -> cumulus-primitives-core
-polkadot-runtime-parachains  <- frame-benchmarking-cli -> frame-storage-access-test-runtime
-                                -> cumulus-pallet-parachain-system
-tracing-gum                  <- frame-benchmarking-cli -> cumulus-client-parachain-inherent
-                                -> cumulus-relay-chain-interface -> polkadot-overseer
-```
-
-Every one runs through **`frame-benchmarking-cli`**, which `blockchain/node/Cargo.toml`
-lists as an unconditional dependency. It pulls the entire Cumulus / parachain /
-XCM stack into a **solo chain that has no parachain and no XCM**, and it is the
-reason a release build of this node needs roughly 20 GB (see the note in
-`.github/workflows/blockchain-node-release.yml`).
 
 ### Why it has not bitten yet
 
 GPL obligations attach on **distribution**, not on internal use, and this node
 is not distributed today:
 
-* `blockchain-node-release.yml` uploads the binary as a **workflow artifact**
-  scoped to the run, and says in its own header that promoting a build to a real
-  release is "a separate, deliberate" step that has not been taken.
-* `CLAUDE.md` records that production points at an external node via
-  `SUBSTRATE_WS_URL`, and that `blockchain/node/` is not in the production
-  Compose profile.
 * `publish = false`, so it never reaches crates.io.
 
 So this is a latent problem, not a live breach. It becomes live the moment
@@ -1295,21 +1022,6 @@ existing `runtime-benchmarks` feature, gating `mod benchmarking`, the
 All 17 strict-GPL crates leave the default graph, the binary becomes
 MIT-consistent, and the build shrinks enormously.
 
-*Cost, stated plainly:* `medichain-node benchmark …` disappears from a default
-build. `benchmark pallet` and `benchmark storage` already refuse to run without
-`--features runtime-benchmarks` (`command.rs:136`), so nothing is lost there —
-but `benchmark block`, `overhead`, `extrinsic` and `machine` **do** work in a
-default build today and would then require the feature flag. That is a removal
-of working functionality, which under this project's rule 7 needs explicit
-sign-off before it is done.
-
-**Option B — keep the dependency and correct the label.** Set
-`blockchain/node/Cargo.toml` to `license = "GPL-3.0-only"` (overriding the
-workspace inherit; the runtime and pallets stay MIT, which the table above
-shows is accurate). Nothing about the build changes; the metadata simply stops
-being wrong, and any future distribution carries the obligations it actually
-carries.
-
 **Doing neither is the only option that is actually unsafe**, because the
 current state is a binary whose declared licence does not match what it links.
 
@@ -1319,37 +1031,6 @@ Nothing that presumes the decision. A supply-chain gate was added so this can
 never again go unobserved: see the next entry.
 
 ---
-
-## 2026-08-20 — CLOSED: the blockchain workspace had no supply-chain scanning at all
-
-`cargo-deny` ran only from the repository root, so it saw only the root
-workspace. `blockchain/` is a **separate** cargo workspace with its own
-`Cargo.lock`, which meant its **1171 locked dependencies — the whole Substrate
-networking, consensus and crypto stack, including the code that signs blocks —
-had no advisory, licence, or source scanning whatsoever**, while the API's much
-smaller tree was fully covered. This is precisely the workspace-scoping trap
-`.github/workflows/ci.yml` already documents for the test job; the supply-chain
-job had the same hole and nobody had noticed because the job was green.
-
-Closed by adding `blockchain/deny.toml` and two steps to the `supply-chain` job:
-
-* **`sources` — enforced.** Verified clean at the time of writing: 1166 packages
-  resolve from the crates.io registry, **zero** from any git source, and there is
-  no reference anywhere to the pre-monorepo `paritytech/substrate` repository. A
-  git or vendored source appearing in the tree that builds the block-signing node
-  is exactly the supply-chain entry point worth blocking on.
-* **`licenses` + `advisories` + `bans` — report-only.** The licence allow-list
-  was derived offline from 1074 of the 1171 locked packages (97 were not in the
-  local registry cache), so it is a discovery gate until a full CI run confirms
-  it is complete. Advisories match the root workspace's report-only posture: the
-  Substrate tree carries upstream advisories this project cannot patch.
-
-Note also a stale justification found in the **root** `deny.toml`: the ignore for
-`RUSTSEC-2022-0061` (parity-wasm) is reasoned as "MediChain's Substrate node
-(`node/`) is a stub — no pallet WASM is actually compiled or executed by this
-codebase today". That stopped being true on 2026-08-11, when the node began
-building and producing a real dev chain. The ignore may still be defensible; the
-stated reason for it is not.
 
 ## 2026-08-20 — the recurring "unreadable UI" reports were one setting, not many bugs
 
@@ -1403,14 +1084,6 @@ read `BEHAVIOURAL 0` throughout, and every automated gate was green.
 
 ### A layout defect on the same screens
 
-`UserManagementPage` rendered its detail block as `grid-cols-4`, fixed at every
-breakpoint, with no `min-w-0` on the cells. A CSS Grid track cannot shrink below
-its content's intrinsic width without `min-w-0`, and an SS58 wallet address is
-48 unbreakable characters — so the first column pushed past its share and all
-four values rendered on top of each other. Now responsive, with `break-all` and
-a monospaced face (a transposed character in a proportional-type address is
-genuinely hard to spot).
-
 ### Related finding: `client/shared` has no test runner
 
 It holds credential derivation, the keystore envelope and 130+ API functions,
@@ -1458,13 +1131,6 @@ a **fresh** outbox to stand in for the process after a restart, asserts that
 fresh instance is empty, and then reads the event back out of PostgreSQL — so
 the test cannot pass on the in-memory copy. A second test asserts a malformed
 event is refused rather than silently recorded.
-
-**Note on a correction:** an earlier read of this session assumed `audit_outbox`
-was an alternative to writing `access_logs`, and that the new telehealth-join
-audit should have gone through it. That was wrong. `access_logs` is the
-queryable access trail and is the correct home for the join row; the outbox is a
-separate privacy-minimised event stream for chain anchoring and delivery. They
-are complementary. The real defect was durability, not routing.
 
 ## 2026-08-20 — a gate that asks the narrower authorization question
 
@@ -1527,12 +1193,6 @@ cargo clippy -p medichain-api --all-targets
 
 ## 1. Tests that do not run — HIGHEST VALUE, fix before anything is deleted
 
-`tests/integration_tests.rs` (902 lines, 28 tests) and `tests/e2e_tests.rs`
-(672 lines, 21 tests) sit at the repository root. The root `Cargo.toml` is a
-**virtual workspace** — its `members` are `pallets/*`, `crypto`, `api`, and it
-is not itself a package. Rust only builds `tests/` for a package, so these
-files belong to nothing and are **never compiled or executed**.
-
 Confirmed 2026-07-29:
 
 ```
@@ -1555,12 +1215,6 @@ They therefore test *mock reimplementations*, not MediChain. Wiring them into
 the workspace would produce 49 additional passing tests that verify nothing
 about the real system, taking the suite from 351 to 400 while making the number
 mean less. That is worse than leaving them unbuilt.
-
-**Revised action:** do not resurrect them as-is. Either convert them to exercise
-the real crates (`medichain_api`, `medichain_crypto`, the pallets), or retire
-them in favour of the live-API harness at `scripts/synthetic-e2e-test.sh`, which
-tests the running system rather than a copy of it. Retiring requires owner
-approval per CLAUDE.md rule 7.
 
 Either way, **correct `CLAUDE.md`'s testing section**, which cites these as
 "28+ tests" and "18+ tests" of real coverage.
@@ -1652,11 +1306,6 @@ table names against `api/src/repositories/` to find orphans.
 
 ## 5. Documentation drift
 
-- ~~`CLAUDE.md`'s testing section documents two test commands that cannot run
-  and test counts that are not real.~~ — **RESOLVED 2026-07-31.** Rewritten with
-  counts re-verified by running them (311 API / 21+19+12 pallet / 23 crypto / 83
-  e2e), the `--bin` gotcha stated, the unrunnable `--test` commands removed with
-  a note explaining why, and per-workspace frontend commands.
 - ~~`CLAUDE.md`'s "Current State" section predates this campaign's work.~~ —
   **RESOLVED 2026-07-31.** Rewritten against verified state, including the
   completed frontend↔backend connection work.
@@ -1747,15 +1396,6 @@ Recorded so the deletions are auditable (all recoverable from git history):
   was worse than deleting it. `encryption_keyring.rs`'s doc comment that
   referenced it was rewritten to state plainly that envelope encryption is not
   implemented.
-- **`tests/integration_tests.rs` + `tests/e2e_tests.rs`** (49 KB, 49 `#[test]`
-  functions) — the root `tests/` directory belonged to no workspace member, so
-  they never compiled or ran. Worse, they imported **no project code at all**
-  (only `std::collections::HashMap`): they defined a local `MockStorage`, a
-  duplicate `Role` enum, and hand-copied "constants matching the pallets", then
-  asserted that those mocks behaved as written. Running them would have proved
-  nothing about MediChain while being counted as 49 tests of coverage. Real
-  coverage of the same ground: 311 API tests, 52 pallet tests, 23 crypto tests,
-  83 live-server e2e assertions.
 - **`GuardianAuthorityEvidence::parse` / `ChildAssentStatus::parse`** — dead
   hand-written string parsers duplicating what `#[serde(rename_all)]` already
   does on both enums. Their `as_str()` counterparts are used and were kept.
@@ -1876,14 +1516,6 @@ assertion as a question about the product, not just about the test.
   full run, which is the worst shape for trust in a green suite. Fixed with a
   module-level `Mutex` both tests hold across their env mutation. **Any future
   test that touches env vars must take the same lock**, or the race returns.
-- **`scripts/test-all-apis.sh` was permanently red (8/28 failing) — fixture, not
-  API.** It declared five role wallets but never registered them, so every
-  role-scoped call returned 401 (unknown user) and `/api/auth/me` returned 404;
-  it also called `/api/tasks/nurse`, while the registered route is
-  `/api/nurse/tasks` (the word-order swap already known from the 2026-07-22
-  route-drift audit). A suite everyone expects to be red is not a signal, so it
-  now seeds its own accounts (idempotently) and uses the correct path:
-  **28/28 pass**.
 - **`/api/ipfs/health` reported hardcoded URLs** (`localhost:5001` /
   `localhost:8080`) instead of the configured `IPFS_API_URL` /
   `IPFS_GATEWAY_URL`. Since the endpoint exists to diagnose IPFS connectivity,
@@ -1905,9 +1537,6 @@ Recorded so a future cleanup pass does not "tidy" away something load-bearing:
   They look redundant beside `rename_all = "snake_case"`. They are not —
   removing either silently breaks the wire/storage contract and disables the
   Children's Act §129 checks. See finding HZ-015; there is a regression test.
-- **Reserved pallet call indices 2 and 3** in `pallet-medical-records`. They are
-  intentionally left unused so a stale client cannot bind to a different
-  extrinsic. Reusing them is a correctness bug, not a tidy-up.
 - **`retention::execution` stopping short of deletion.** The absence of
   destructive code is the design, not an unfinished feature.
 
@@ -2201,56 +1830,12 @@ literal is the signal.
 
 ---
 
-## Wallet-vs-record-id namespace bug: three more sites
-
-**Fixed 2026-08-12.** Found by repairing the synthetic e2e harness.
-
-`support::caller_owns_patient_record` documents that 26 handlers once compared
-`current_user_id` (an SS58 wallet) against `patient_id` (a `PAT-…` record id) —
-two namespaces that are never equal for a real patient account, so every such
-guard denied the patient their own data. That sweep missed three sites:
-
-| Site | Effect |
-|---|---|
-| `handlers/ipfs_records.rs` (two checks) | A patient could **never download their own medical record** — 403 `ACCESS_DENIED` every time. |
-| `clinical_endpoints/engagement/symptoms.rs` | A patient could not read their own symptom-checker session. |
-| `clinical_endpoints/workflow/messaging.rs` | A patient's logged symptom was **filed under their wallet** while `GET /api/symptoms/{patient_id}` reads by record id — so a patient logged a symptom and it vanished from their own history. |
-
-The first three fail closed (denial, not disclosure). The messaging one is a
-silent data-loss bug: the write succeeded, returned 201, and the entry was
-simply unreachable afterwards.
-
-**Why the sweep missed them:** all three read naturally. `entity.patient_id !=
-current_user_id` looks like an ownership check, and it *is* one — just between
-the wrong pair of identifiers. Grep for the shape, not the intent:
-
-```
-grep -rn "patient_id != current_user_id\|patient_id == current_user_id" api/src/
-```
-
-That still returns matches in `billing/e_prescriptions.rs`,
-`clinical_support/telehealth.rs`, `engagement/appointments.rs` and
-`engagement/family.rs`. Each needs reading before changing — some compare
-against ids that genuinely *are* wallets (family group members, telehealth
-provider ids), so a blanket replacement would break them. They are not known to
-be wrong; they are unexamined.
-
----
-
 ## The synthetic e2e harness had drifted three contracts behind
 
 **Fixed 2026-08-12.** The harness reported 59 pass / 102 fail. None of it was a
 product regression — the product had grown four security requirements the
 harness never learned:
 
-1. **Accounts start `pending`.** `support::get_user` resolves only `active`
-   users, so an admin-created doctor is refused 401 `USER_NOT_FOUND` until
-   activated via `PUT /api/users/{wallet}`. The harness never activated
-   anything, so ~100 assertions failed looking like authorization bugs.
-2. **Callers are wallets, not patient ids.** The harness passed `PAT-…` as
-   `X-User-Id` for every "patient does X" assertion. It now provisions a real
-   wallet per synthetic patient — register, activate, claim identity — which is
-   what the product actually expects.
 3. **Break-glass needs a responder, a device and a reason.**
    `POST /api/emergency/nfc-token` requires an authenticated healthcare
    responder plus `device_id` and `reason_code`, and the device must be enrolled
@@ -2264,11 +1849,6 @@ harness never learned:
 **Result: 59 → 170 passing.** The three product defects above were found only
 because fixing the harness exposed them; while it was 102-failures-red, a real
 regression would have been invisible in the noise.
-
-**Keep it honest:** this harness is only meaningful against a **fresh** server.
-It is not idempotent — a second run against the same instance sees 409s on
-bootstrap, never captures the admin wallet, and cascades into false failures.
-Restart the API between runs.
 
 ---
 
@@ -2346,7 +1926,6 @@ site made it fail with that exact line, and it passed again once restored.
 to 815 MB. Test teardown creates them and does not drop them; a previous cleanup
 took the database from 1.4 GB to 624 MB and the leak simply recurred.
 
-
 ## Superseded structured mappers (2026-08-19, round two)
 
 `io_record_entity`, `nursing_care_plan_entity` and `incident_report_entity` in
@@ -2380,55 +1959,6 @@ first screenful" without inventing a silent constant — there is no page size
 that is right by default, and `new(page, size)` makes every caller say which it
 wants.
 
-## `connectWallet()` hardcodes demo mode and has no callers (2026-08-26, CLOSED 2026-09-09)
-
-`client/shared/src/wallet/service.ts` contains:
-
-```ts
-export async function connectWallet(address?: SubstrateAddress) {
-  // Check if we are in demo mode
-  const IS_DEMO = true; // Should come from config
-  if (!IS_DEMO) {
-    const accounts = await connectRealWallet();
-    ...
-```
-
-`IS_DEMO` is a local constant set to `true`, so the real-extension branch is
-unreachable and the function always falls through to the simulator lookup
-(`getAccount(address)` against locally stored accounts), storing the result as
-the current wallet with no extension involvement and no signature.
-
-**It is not a live authentication bypass.** The function has zero callers: every
-apparent hit across both portals is an i18n string (`auth.connectWallet`) or a
-`title` attribute, not this import. Sign-in goes through `signMessage()` in the
-same file, which does perform the correct ordering — `web3Enable('MediChain')`,
-extension check, `web3Accounts()`, `web3FromSource(account.meta.source)`,
-`signRaw` — and the server issues no JWT without a verified sr25519 challenge.
-
-It is recorded rather than deleted because this register is where removals wait
-until the app is finished, and because deleting code needs the owner's
-confirmation. Two things made it worth doing early:
-
-* a hardcoded `IS_DEMO = true` sitting in the same module as the real signing
-  path is exactly the shape that gets copied into something live;
-* `scripts/check-uncontrolled-defaults.py` does not currently flag it, so the
-  gate that exists for this defect class has a blind spot worth closing at the
-  same time.
-
-**The first is fixed (2026-09-09).** `config.ts` already exported a real
-`IS_DEMO`, reading `VITE_DEMO_MODE` and defaulting to **false**; the local
-constant was shadowing it for no reason. `service.ts` imports the real one now,
-so the extension branch is reachable and a production build takes it. The
-function still has no callers and is still not deleted — that needs the owner's
-confirmation, and it is now inert rather than quietly wrong.
-
-**The second is still open.** `check-uncontrolled-defaults.py` scans
-`useState({...})` initialisers and cannot see a bare `const X = true` inside a
-function body, so this defect class has a blind spot the size of every module-
-level and function-level constant in the codebase.
-
----
-
 ## `client/shared` had two dead hooks, and one of them was an auth bypass (2026-09-10)
 
 Chasing the last eight lint warnings in `client/shared` — the only workspace not
@@ -2443,21 +1973,6 @@ would go stale. Nothing was broken, because nothing used it — what it offered 
 future caller was three stale-closure bugs in a wrapper that looks safe.
 
 **`AuthProvider` / `useAuth`** (153 lines), and this one is not merely dead:
-
-```tsx
-const savedWalletAddress = localStorage.getItem('medichain_wallet_address');
-if (savedWalletAddress) {
-  loginInternal(savedWalletAddress);      // -> isAuthenticated: true
-}
-```
-
-It restores a session by reading a wallet address out of `localStorage` on
-mount. That is precisely the path `authStore.restoreSession` **fails closed on
-by design** — no access token, refresh token or signing key is persisted, so
-nothing is supposed to survive a full page load, and the long comment there
-records that a durable session needs a cookie-borne refresh token and that
-trade-off has not been decided. Both portals use their own Zustand `authStore`;
-this was the old model left in the shared package.
 
 A dead weaker auth path sitting beside the live one is a trap, not spare
 capacity — the same shape as [[dead-durable-variant-beside-live-volatile-one]],
@@ -2544,14 +2059,6 @@ Counted that way, **two** functions were over the limit, not 326:
 Both are exactly the functions a reviewer would name.
 
 ### What was done to the two
-
-**`main` → 4 named phases.** Startup was four separate decisions in one body,
-and reading any one of them meant reading all four. Now
-`initialise_storage`, `connect_blockchain`, `hydrate_caches` and
-`spawn_background_jobs`, with `main` reading as the sequence it always was.
-Behaviour is unchanged; the only reordering is that the blockchain outbox job is
-spawned alongside the other three rather than a few milliseconds earlier, and
-none of them ticks for at least 30 seconds.
 
 **`sign_consent` → two legal determinations lifted out.** Both seams were
 already there in the comments:
@@ -2640,9 +2147,6 @@ waiting:
  1004 | active | Lock            | advisory   | SELECT pg_advisory_lock($1)
   822 | idle   |                 |            | SELECT * FROM appointments ORDER BY ...
 ```
-
-PID 822 held the lock and was **idle**. It belonged to the API container, whose
-image predated three migrations added that day, so its migration chain failed:
 
 ```
 migration 20260909000001 was previously applied but is missing in the resolved migrations
@@ -3148,8 +2652,6 @@ were not simply dead:
   that does nothing when clicked is worse than no control — the clinician
   cannot tell it from a broken app — so the buttons went with the state.
   Building the four modals is a feature, not debt removal.
-
-`connectWallet()` is deleted, and `cardiac_entity` / `sepsis_entity` with it.
 
 ### Handler length: measured, and the mechanical fix made it worse — CLOSED 2026-09-10
 
@@ -3845,18 +3347,6 @@ What that did *not* touch, and why:
 * **`can_view_medical_records` still includes `Admin`.** Reading is not writing,
   and an administrator investigating an access-log entry needs to see what was
   accessed.
-* **`pallet_access_control::can_edit_medical_records` is unchanged.** It gates
-  which *chain account* may submit a medical-record extrinsic, and the API's own
-  service signer holds `Role::Admin` there — the dev genesis grants `//Alice`
-  Admin precisely because it is the API's default signer. Removing it there would
-  stop every on-chain write the API makes. That predicate is about a service
-  identity; the API one is about a person. Same name, different question.
-
-The blast radius was checked before the change: 59 call sites, all of which
-compile; both scripts that act as the administrator (the synthetic e2e harness
-and the fixture seeder) use it only for account management and already route
-clinical writes through clinician wallets; and no test asserted that an
-administrator could edit.
 
 One pre-existing bug surfaced while checking it. `handlers/lab.rs` gated a
 **read** on `can_edit_medical_records`, against a comment that said "healthcare
@@ -3864,12 +3354,6 @@ provider" — so it had always excluded pharmacists, who are providers and who n
 to see a lab result before dispensing against it. It now uses
 `can_view_medical_records`, which is both correct on its own terms and immune to
 changes in the edit predicate.
-
-The two frontend mirrors of the predicate — `canEditMedicalRecords` in
-`client/shared/src/wallet/types.ts` and the `editor` list in
-`useCurrentProvider.ts` — were updated with it. Leaving either behind would have
-put the UI straight back into the state this entry exists to describe: offering
-an affordance the server refuses.
 
 The boundary is now asserted rather than described:
 `api/src/types/domain.rs::role_authority_tests` pins what an administrator
@@ -3896,7 +3380,6 @@ The interface now matches what is written and read, and the form's literal is
 typed with it, so they cannot drift apart again. This sat directly behind two
 crashes that were live — `patientName` and `vitalSigns`, both fixed in the same
 pass — and is the same drift.
-
 
 ### Two e-prescription systems, writing to two different stores — CLOSED 2026-09-16
 
@@ -4023,7 +3506,6 @@ afternoon proving a feature exists.
 Result: 13 verb+path pairs reported uncalled, now 10, with nothing removed from
 the API. The three that disappeared all had callers all along.
 
-
 ## Endpoints with no client caller, triaged 2026-09-15 (SUPERSEDED 2026-09-25 — see the closing round above; this count was inflated by unimported wrappers)
 
 The uncalled-endpoint audit went from 62 to 13 over this campaign. What is left
@@ -4036,14 +3518,6 @@ each handler, not `routes.rs`. A handler carrying an attribute is not
 necessarily reachable, which is why the first bucket exists at all.
 
 ### Not registered — unreachable by design (3)
-
-  * `POST /api/auth/login`, `GET /api/auth/login/{address}`,
-    `GET /api/auth/wallet/{address}` — `wallet_login`, `wallet_login_get`,
-    `wallet_lookup`. `routes.rs` says so out loud: "Legacy anonymous wallet
-    lookup/login routes remain unregistered. Private account information is
-    returned only after challenge proof." Verified: zero `.service()`
-    registrations for all three. They are dead code, and deleting them needs
-    authorisation rather than a judgement call.
 
 ### Infrastructure, deliberately UI-less (4)
 
@@ -4094,7 +3568,6 @@ same data is a second thing to keep honest.
 Adopting Class C would mean binding each mutation to a signature over its exact
 body digest — a real improvement over session elevation, and a change to every
 privileged call site. It needs a decision, not a quiet wiring-up.
-
 
 ## 2026-09-16 — CLOSED: a dead-code sweep, and the four live defects hiding in it
 
@@ -4153,27 +3626,7 @@ This register said it was green as of 2026-08-25. It was not:
   * A **yanked** `chacha20 0.10.1`, reached via `rand` → `postgres-protocol`.
     Not the crate `medichain-crypto` uses for PHI. Updated to 0.10.2.
 
-`cargo deny check` now reports `advisories ok, bans ok, licenses ok, sources ok`.
-The two accepted Subxt advisories stay accepted on their existing criterion; the
-note in this register about four stale `rustls-webpki` ignore entries is itself
-out of date — they were removed, and `unused-ignored-advisory = "deny"` now
-stops them coming back.
-
 ### What was removed (24 items)
-
-Three unregistered legacy wallet-auth handlers and their two request/response
-types; four superseded audit and notification helpers (`log_access`,
-`audit_prescription_event`, `store_verification_event`, `audit_unavailable`,
-`notify_appointment`, `notify_lab_result`) — every one checked to confirm a live
-path already does the job, and in the prescription case that path is strictly
-better because it writes record and audit atomically; `generate_auth_challenge`
-and its type; three unadopted validators and two generators; four duplicate
-clinical types; `RateLimitConfig.admin_limit`;
-`SignPrescriptionRequest.password`, which no client sent and no handler read — a
-password accepted over the wire for nothing reaches request logs having bought
-nothing; `PgDeathCertificateRepository`, which named a table **no migration
-creates**; and `client/patient-app/src/utils/offlineStorage.ts`, 660 lines with
-zero importers beside a live `offlineQueue` in shared.
 
 All 36 generated Postgres repositories were audited against the migrations.
 Exactly one named a table that does not exist — the one above.
@@ -4204,7 +3657,6 @@ across the whole codebase; all five are cleared and the settings are now on.
 verified — `cfg(test)` code only compiles under `--all-targets`, and two
 deletions broke tests that `cargo check` reported as clean.
 
-
 ## 2026-09-16 — CLOSED: the rest of the sweep, and a lint that was wrong
 
 Continued from the entry above, across the areas the first pass had not touched.
@@ -4215,13 +3667,6 @@ Found by searching for the *shape* of the lab-trend fabricator rather than for
 dead code — an endpoint that returns a plausible result instead of saying it
 cannot produce one.
 
-  * **`POST /api/platform/translate`** answered 200 with
-    `[TRANSLATED to fr]: <the original English>`. No screen calls it yet, but
-    `translateContent` already exists in the shared client, so the first one to
-    wire it would have shown a patient their own medication instructions in
-    English and told them they were reading French. Now
-    `503 TRANSLATION_PROVIDER_UNAVAILABLE`, the same rule the blockchain writes
-    follow: a disabled capability returns a typed error, never a fake result.
   * **`GET /api/appointments/slots/{provider}/{date}`** offers the same ten
     times for every provider, because nothing stores working hours —
     `ProviderSchedule`, `WorkingDay` and `BlockedTime` are types with no storage
@@ -4246,24 +3691,7 @@ anyone that way. Removed.
 and which nothing produces — it could not run. `repo_inventory.py` and
 `export_federation_inventory.ps1` went with it as completed one-offs.
 
-**Four orphaned scripts were kept**, because each serves a release blocker named
-in CLAUDE.md rather than being spare: `run-synthetic-chain.sh` and
-`synthetic-chain-e2e-test.sh` (external Substrate runtime qualification), and
-`suggest-test-label.py` and `repair-test-subtitles.py` (the 173 failing
-generated frontend tests). Deleting tooling for a campaign that has not run only
-means writing it again.
-
 ### Dependencies
-
-`medichain-api` declared `tracing-log`, referenced only in comments — the bridge
-comes through `tracing-subscriber`'s feature. `medichain-crypto` declared
-`ss58-registry` and decodes SS58 by hand with `bs58`. Neither removal shrinks
-the graph (both still arrive transitively, `ss58-registry` via `sp-core`), but a
-direct dependency declares intent and pins a version the crate does not need —
-in the PHI crypto crate, a supply-chain surface claimed for no reason.
-
-All 73 npm dependencies across the four workspaces are referenced. The three
-pallets and the crypto crate contain no dead code at all.
 
 ### A regression of mine, and how it surfaced
 
@@ -4279,14 +3707,9 @@ once is not verified after the next change.
 
 ### Final state
 
-649 API, 411 doctor-portal, 99 patient-app, 78 doctor-portal browser, 60 pallet,
-32 crypto. `clippy --all-targets -D warnings` clean, `cargo fmt` clean, 23 static
-gates pass, `cargo deny check` reports advisories/bans/licenses/sources all ok.
-
 Dead items reported by `--force-warn dead_code`: **141 → 113**, of which 90 are
 the `clinical.rs` domain model discussed above and 23 are individually accounted
 for.
-
 
 ## 2026-09-16 (later) — Nine clinical pages could not save anything at all
 
@@ -4372,14 +3795,6 @@ acts on nothing — a different defect from a 400. `OfflineSyncPage` posts
 
 Separately, and with the same shape.
 
-**No push notification to a patient could ever be delivered.** `register_device`
-stores FCM tokens under the caller's **wallet address**; all five dispatchers
-passed a `PAT-` record id. `get_by_user` matched nothing, `send_push_to_user`
-logged "No device tokens for user" and returned `Ok(())` — indistinguishable
-from delivery — and the appointment reminder wrote `ReminderStatus::Sent` to the
-patient's record. One `notify_patient` now bridges the namespaces and reports
-whether delivery was attempted, so the reminder history records the truth.
-
 **The patient's notification settings were stored and never read.** Four of the
 five dispatchers consulted nothing. "SMS Notifications" gated no SMS. "Access
 Alerts — when someone views your records" had no notification behind it anywhere
@@ -4399,14 +3814,6 @@ typed error, the breach path warns that the notification must be sent by hand,
 and the test asserts zero.
 
 ### Removed
-
-`POST /api/auth/session` and `GET /api/auth/verify` minted a bearer token for
-any well-formed SS58 address while accepting and discarding a `signature` field.
-No middleware consumed the token and no client called it, so it authorised
-nothing — but it is registered, publicly reachable and named like
-authentication, and CLAUDE.md's own rule is that a verified sr25519 challenge is
-mandatory before any credential is issued. The register had flagged this pair as
-"worth a decision"; this is the decision.
 
 `EmergencyAccessRequest::accessor_id` and `accessor_role`: the handler always
 read the accessor from the authenticated caller. Ignoring them was safe;
@@ -4431,7 +3838,6 @@ annotated, an external wire shape, a documented provider seam, a field accepted
 and explicitly documented as not stored, or the `error_codes` module whose
 constants are unused while their values appear as literals 100+ times (the
 duplication is the debt; adopting the module is its own change).
-
 
 ## 2026-09-16 (later still) — Three capabilities that refused, and two gates that lied
 
@@ -4571,33 +3977,12 @@ authorisation rather than a judgement call.
     today, because the handlers own those fields. `ConsultPage` sending
     `consultId` is the WF-020 shape — a client choosing a record id — and is
     the one worth removing first if anyone touches these pages.
-  * ~~**The dev database migration checksum for `20260916000001`**~~ —
-    **CLOSED, and the earlier diagnosis was wrong.** `9373ca7` recorded that
-    the recorded checksum "no longer matches any reconstruction" of the file
-    and offered hand-written `UPDATE _sqlx_migrations` SQL. It does match: the
-    byte-identical restore had worked, and the chain had simply never been
-    re-run, because the Docker CLI hangs on this host and that was read as
-    "no database". PostgreSQL itself is reachable on 5432 regardless — the
-    695-test suite's `repositories::postgres::tests` were passing against it
-    all along. Starting the API with `MEDICHAIN_STORAGE=postgres` applied
-    `20260916000002` through the product's own migrator; `provider_schedules`
-    exists and no hand-written SQL was needed.
-
-    Two things worth keeping from that. First, **a hung `docker ps` says
-    nothing about whether the database is up** — connect to 5432 and ask.
-    Second, `20260916000002` is now applied, so the lesson written at the top
-    of it is itself immutable; editing that comment would halt the chain
-    exactly as editing `20260916000001` was believed to have done.
 
     Verified on PostgreSQL, not only in memory: the schedule saves, reads back
     with its break and blocked date intact, produces the same slot list as the
     memory backend (`14:00 14:30 15:00 15:30 16:30 17:00 17:30`, the 16:00 slot
     correctly absent), and the row is present in `provider_schedules` when the
     table is queried directly.
-  * **Pallet tests** were not re-run: `blockchain/target` was deleted to
-    recover disk and the host has under 3 GB free, which will not build
-    polkadot-sdk. `git diff` confirms that workspace is unchanged since the
-    green 60-test run.
 
 ### Every encrypted record download failed against a default kubo node
 
@@ -4654,29 +4039,11 @@ not silently reclassify every missing record as an outage.
 Every number below was produced by running it, on 2026-09-16, against a
 PostgreSQL-backed API and a real kubo node.
 
-    cargo test --bin medichain-api        700 passed, 0 failed, 2 ignored
-    synthetic-e2e-test.sh (PostgreSQL)    261 passed, 0 failed
-    role-journeys.ts                      266/266, 2 legitimate skips
-    cross-role-qualification.ts           108/108, 1 skip (its own per-wallet
-                                          challenge limiter firing mid-section
-                                          — a control refusing the harness)
-    doctor-portal vitest                  425 passed (94 files)
-    patient-app vitest                    105 passed (27 files)
-    static gates                          24/24
-    unused-endpoints.py                   440 of 448 called; 8 triaged
-
 The synthetic run used a database created fresh for it (`CREATE DATABASE
 medichain_e2e`), because the harness bootstrap 409s on a second run and every
 later section then fails for reasons that have nothing to do with the product.
 All 90 migrations applied from scratch on that database, which is the clearest
 evidence available that a fresh deployment migrates cleanly.
-
-**Not re-run: the 60 pallet tests.** `blockchain/target` was deleted earlier to
-recover disk and this host has under 3 GB free, which will not build
-polkadot-sdk. `git diff` confirms that workspace is unchanged since its green
-run on 2026-09-15. Docker's data disk on this host is 65 GB and `docker ps`
-hangs; `docker system prune` would reclaim most of it, but that is an owner
-decision, not a judgement call.
 
 ## 2026-09-17 — The last in-process stores, and which of them mattered
 
@@ -4845,29 +4212,6 @@ the middle of a verification run.
 
 ---
 
-## An author shown as a wallet address — 2026-09-22 (CLOSED 2026-09-24)
-
-Seen live on the order-sets screen: a set drafted by Dr Browser Test is
-attributed to `5GnPcTux4PX1F8RchBGn9QBgS3fPu3AnVQyQc9snQ74LoCDG`. The record is
-correct — the wallet *is* the identity the API stores — but a clinician reading
-"created by 5GnPcTux…" learns nothing, and cannot tell two colleagues apart.
-
-The same applies to the CDS rules screen (`rule.createdBy`) and, wherever an
-author, reviewer or retiring user is rendered, to note templates, order-set
-reviewers (`reviewedBy`) and custody hand-overs (`recordedBy`).
-
-There is already a `StaffSelect` component that resolves staff for a picker, so
-the directory read exists. What is missing is a small shared
-`useStaffNames(ids)` that resolves a set of wallets to display names once per
-screen and falls back to the address when a wallet is not in the directory —
-which is the honest fallback, because an unresolvable wallet must not be shown
-as somebody else's name.
-
-Not urgent, and not a correctness defect: the stored attribution is right. It
-is a legibility defect on every screen that names who did something.
-
----
-
 ## `telehealth_retention`: constructed twice, read never — re-confirmed 2026-09-22 (REMOVED 2026-09-24)
 
 `TelehealthRetentionStore::new()` is called in both `AppState` constructors and
@@ -4933,7 +4277,6 @@ What that silently disabled, each confirmed from the API's own startup output:
 
 | Feature | How it failed | Now |
 | --- | --- | --- |
-| Blockchain anchoring | `No SUBSTRATE_WS_URL set - blockchain features disabled` | node containerised; see below |
 | Self-hosted telehealth | fell back to public `meet.jit.si`, open rooms | four Jitsi services in the stack, JWT auth, guests off |
 | Regulator breach email | `SMTP_HOST` unset — never sent, never faked | MailHog, real SMTP, inbox at :8025 |
 | Appointment + join windows | "appointment times are being treated as UTC" | `CLINIC_TIMEZONE=Africa/Johannesburg` |
@@ -4965,17 +4308,6 @@ to diagnose.
 
 ### Still open
 
-* **The Substrate node.** `blockchain/Dockerfile` and
-  `docker-compose.blockchain.yml` now exist and the compose config validates,
-  so there is something to start where previously `docker-compose.prod.yml`
-  declared a `substrate-node` service with a healthcheck, no image and no
-  build. Whether it can be built *on this host* is a disk question: a Polkadot
-  SDK node wants 20-30 GB of intermediate artifacts, and C: had 3.9 GB free
-  with roughly 14 GB reclaimed inside the Docker VHDX — which does not shrink,
-  so freeing space inside it does not return space to the host. If the build
-  cannot complete here it is not a code defect: production points
-  `SUBSTRATE_WS_URL` at an externally managed, independently qualified node by
-  design, and the dev chain is a convenience.
 * **SMS, push, translation, dictation, national ID** need real third-party
   credentials. Deliberately not stubbed: a fake SMS gateway would make "the
   message was sent" true in the stack and false in the world.
@@ -5008,13 +4340,6 @@ all against the Docker stack. Four defects surfaced that no suite had seen.
   queue under a blank name. The handler now uses `require_known_patient`
   (400 `MISSING_PATIENT_ID`, 404 `PATIENT_NOT_FOUND`), and the queue labels
   such a row "No patient recorded" rather than leaving the cell empty.
-* **`GET /api/patients/{id}` omitted `wallet_address`.** The wallet is a
-  column on the patient row, not part of the encrypted profile the handler
-  serialised, so a correctly bound wallet read back as absent.
-* **A generated recovery phrase could be lost before anyone saw it.**
-  Registration now waits on an explicit "the patient has this phrase"
-  confirmation, offers Copy and a print slip holding only the phrase, and
-  keeps it on the success screen, which is when the patient first signs in.
 * **Eight API tests failed by scheduling order.** The PostgreSQL test helper
   called `dotenvy::dotenv()`, exporting the deployment `.env` -- including
   `IS_DEMO=true` and `JITSI_PUBLIC_URL` -- into the process every test
@@ -5130,3 +4455,48 @@ mutation rather than sharing its transaction (ADR-0008 Decision 6): a failed
 mutation needs a fresh confirmation, and no authorization can execute twice.
 The in-memory development backend has no challenge store and skips the gate;
 production refuses to start without PostgreSQL.
+
+## 2026-10-18 — OPEN: the admin dashboard counts only the first 100 patients
+
+`api/src/clinical_endpoints/workflow/dashboards.rs` builds the stroke, trauma
+and sepsis counts and the NFC card list by walking `patients.list(Pagination::new(0, 100))`,
+because those repositories are only queryable per patient. Past 100 patients
+every figure is silently a count of the first 100. Found when the browser
+fixture seeder, which read its patient's NFC tag from that list, stopped
+finding it on the QA stack (131 tags). The seeder now reuses the tag it
+recorded in its own manifest; the dashboard still undercounts.
+
+Fix when touched: a ward-wide count query per repository (`SELECT count(*)`),
+or state the scope on the panel ("first 100 patients") rather than present a
+partial count as the total.
+
+## 2026-10-18 — OPEN: emergency-protocol lists are not care-scoped
+
+`require_emergency_list_access` (`api/src/clinical_endpoints/emergency/mod.rs`)
+lets any healthcare-provider role read any patient's trauma, stroke, cardiac
+and sepsis lists, and the code-blue list does the same through its own check.
+There is no care-relationship or access-context test, so a pharmacist or lab
+technician anywhere in the deployment can list a stranger's resuscitations.
+This belongs with the "41 unscoped bulk reads" in
+`docs/FEATURE_END_TO_END_AUDIT.md`: the fix is `resolve_patient_access` (or the
+access-context gate) in place of the role test, plus the same cross-patient
+denial tests the records summary has. Found while making these records
+patient-readable; not changed in that pass, because narrowing clinician access
+needs the same review as the other unscoped reads.
+
+## 2026-10-18 — PARTLY CLOSED: the patient's offline medical ID sat in plain Cache Storage after sign-out
+
+`client/patient-app/public/sw.js` caches `GET /api/medical-id/*` (blood type,
+allergies, conditions) for offline emergency use. Nothing ever deleted it, so on
+a shared phone it outlived the session that fetched it.
+
+Closed the same day: `clearSessionMemory()` (`client/shared/src/auth/session.ts`)
+now deletes the `medichain-*data*` caches on sign-out and on an abandoned
+sign-in, in both portals; the static shell is kept so the app still opens
+offline. A failed session restore deliberately does NOT clear it, because that
+is exactly what happens offline, when the cache is the point.
+
+Still open: while signed in, the cached responses are unencrypted at rest. The
+ledger's "encrypted offline PHI ownership" item needs a keyed store (WebCrypto,
+key held in memory, released on sign-out) in place of raw Cache Storage. Until
+then the offline medical ID is as private as the device's own lock.

@@ -40,66 +40,6 @@ If any answer is vague, the feature isn't ready to build.
 
 ## PRD Template (Product Requirements Document)
 
-```markdown
-# PRD: <Feature Name>
-
-## Problem
-<Who has this problem, what the pain is, evidence it exists>
-
-## Goal
-<The single sentence that says what success looks like>
-
-## Non-goals
-<What this feature is NOT trying to do — explicitly>
-
-## User stories
-- As a <persona>, I want to <action> so that <outcome>.
-- As a <persona>, I want to <action> so that <outcome>.
-
-## User flow
-1. User does X
-2. System shows Y
-3. User does Z
-4. System persists W
-
-## Requirements
-### Must have (M)
-- ...
-
-### Should have (S)
-- ...
-
-### Could have (C)
-- ...
-
-### Won't have this round (W)
-- ...
-
-## Out of scope
-<Things people will ask about that we are NOT addressing now>
-
-## Risks & open questions
-- Risk: <thing>. Mitigation: <thing>.
-- Open: <question>. Owner: <name>. Decide by: <date>.
-
-## Success metrics
-- Metric 1: <baseline> → <target>
-- Metric 2: <baseline> → <target>
-
-## Estimated effort
-- Backend: <N days>
-- Frontend: <N days>
-- On-chain: <N days>
-- QA + docs: <N days>
-- Total: <N days>
-
-## Privacy / security review
-- PHI involved? Y/N. Where stored?
-- New on-chain state? Describe.
-- POPIA implications? See PRIVACY.md mapping.
-- Threat model update needed? Y/N.
-```
-
 ---
 
 ## MoSCoW for Hackathon-Speed Shipping
@@ -139,23 +79,6 @@ used, the v1 features have a real signal to inform priorities.
 
 ## Roadmap (rolling, never written in stone)
 
-```
-NOW (this 2-week sprint)
-- [Building] Emergency NFC reader PWA
-- [Building] On-chain EmergencyAccessLog
-- [Reviewing] PRD: Doctor consent revocation UX
-
-NEXT (next 4 weeks)
-- Doctor portal v1 (search, request consent, view granted records)
-- Patient app v1 polish + onboarding flow
-- POPIA compliance review with external counsel
-
-LATER (queued, not committed)
-- Multi-language support (isiZulu, isiXhosa, Afrikaans)
-- Insurance integration POC (Discovery Health partner intro?)
-- Wallet-less onboarding (custodial fallback)
-```
-
 `NOW` should be small enough that you finish it. `NEXT` is best guess. `LATER` is
 "don't forget about this" — not a commitment.
 
@@ -172,9 +95,6 @@ For every dependency or feature, force the choice:
 | Delay  | Not yet validated as needed, no user has actually asked for it   |
 
 For MediChain:
-- **Build:** the on-chain program (this IS the product)
-- **Buy/SDK:** wallet adapters (use `@solana/wallet-adapter`), QR libraries, NFC
-  hardware (off-the-shelf NTAGs)
 - **Delay:** advanced analytics, bulk hospital onboarding, anything that requires
   enterprise sales motion before you have product-market fit
 

@@ -4,14 +4,6 @@ Status of the "MediChain remaining features" build prompt (WP1–WP16): what is
 done, what is in progress, and the plan for everything left. Pick up from
 **"Resume here"**.
 
-> **2026-09-29 — superseded in part by ADR-0010.** WP12.2 (wallet step-up) and
-> WP12.3 (patient key custody) are superseded by
-> [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md) and the campaign
-> plan [`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md): step-up becomes
-> TOTP/password (Phase C) and there are no patient wallets or recovery phrases to
-> custody. Do not implement those two packages as written below. The rest of this
-> handoff is a record of the state on 2026-09-26.
-
 ## Continuation evidence (2026-09-26, Windows)
 
 ### Latest verified state (17:55 SAST)
@@ -36,9 +28,6 @@ done, what is in progress, and the plan for everything left. Pick up from
   and build artifacts. The subsequent Rust test compilation consumed the recovered
   headroom; C: had about 0.67 GiB free at the latest check. No database volumes,
   source files or user documents were deleted. Cache deletion was policy-blocked.
-- Known remaining WP12.1 edge: logout during a tokenless refresh invalidates the
-  JavaScript response, but server-side cookie revocation for that race still
-  needs investigation. Mobile legacy wallet login is not yet qualified.
 
 The notes below record earlier checkpoints, superseded by the latest state above.
 
@@ -49,9 +38,6 @@ not been started in this continuation.
 - Owner decision: keep existing emergency-access behavior unchanged until
   a pilot and feedback from doctors and nurses. Do not enable a new emergency
   signature-step-up gate or bypass under WP12.2 without revisiting that decision.
-- WP12.1: the mobile example requests body transport at issuance and refresh
-  and retains the rotated refresh token. Its existing legacy login mechanism
-  has not been qualified against current wallet-challenge authentication.
 - WP12.1: the shared browser client invalidates pending refresh responses on
   logout or new login and clears local credentials immediately on logout.
   Both portal stores check that restoration is still current before signing in;
@@ -82,10 +68,6 @@ Further progress in the same continuation:
 - Docker's unused build cache was pruned (6.337 GB). NTFS compression of the
   Rust incremental cache preserved 6,614,145,178 bytes in 3,408,773,979 bytes
   of disk space. No source or database volumes were deleted.
-- Signature-step-up client plumbing now handles `STEP_UP_REQUIRED` using
-  the existing ADR-0008 challenge/verify endpoints and wallet extension.
-  Cancellation and login changes prevent a pending signature retry; storage
-  failures show a translated safe error. Server enforcement is still pending.
 - Current frontend evidence: doctor gate 192/192, patient gate 107/107;
   focused auth and signature tests 25/25; shared, doctor and patient
   typechecks passed (doctor re-run after test additions); all 31 static gates
@@ -118,7 +100,6 @@ Further progress in the same continuation:
 | 7.4 | [#22](https://github.com/Lukau-Tech-Invasion/medichain/pull/22) | `feature/7-4-research-export` | Consented, de-identified research export (two-admin approval) |
 | 7.5 | [#23](https://github.com/Lukau-Tech-Invasion/medichain/pull/23) | `feature/7-5-blood-inventory` | Blood-unit inventory |
 | 7.6 | [#24](https://github.com/Lukau-Tech-Invasion/medichain/pull/24) | `feature/7-6-telehealth-recording` | Consented telehealth recording + Jibri (opt-in compose profile) |
-| 8 | [#25](https://github.com/Lukau-Tech-Invasion/medichain/pull/25) | `feature/8-merkle-anchoring` | Merkle-batched audit anchoring, verify endpoint, `add_alert` removed with storage migration |
 | 9 | [#26](https://github.com/Lukau-Tech-Invasion/medichain/pull/26) | `feature/9-care-relationships` | Care relationships + break-glass gate on chart reads |
 | 10 | [#27](https://github.com/Lukau-Tech-Invasion/medichain/pull/27) | `feature/10-access-reason-everywhere` | Access reason on every chart; server-issued access contexts |
 | 11 | [#28](https://github.com/Lukau-Tech-Invasion/medichain/pull/28) | `feature/11-operations` | Advisory-locked jobs, records-summary endpoint, pgBackRest backups (rehearsed) |
@@ -186,12 +167,6 @@ clinical sign-off on that choice.
 
 ### 12.3 Patient keys: plan
 
-1. Stop showing the recovery phrase on the clinician's screen during
-   registration (doctor `RegisterPatientPage.tsx`; find where the mnemonic is
-   rendered).
-2. The patient app generates keys on the device (WebCrypto or
-   `client/wasm-crypto`) at first sign-in or claim. The server only ever
-   receives the public key/wallet.
 3. Custodial option for patients without smartphones:
    - a server-held key in a key store (reuse `encryption_keyring` patterns; the key encrypted at rest);
    - an admin/clinician flow that prints a sealed recovery card: a PDF (`api/src/pdf.rs` exists) with a one-time recovery code;

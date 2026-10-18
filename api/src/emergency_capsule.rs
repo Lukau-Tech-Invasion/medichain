@@ -1,17 +1,15 @@
-//! Emergency capsule and its sealed commitment (Horizon HZ-003, ADR-0010).
+//! Emergency capsule and its sealed commitment (Horizon HZ-003).
 //!
 //! # Why this exists
 //!
-//! `blood_type`, `organ_donor`, and `dnr_status` used to be stored in the clear
-//! in an immutable ledger, as a documented exception to this project's "hashes
-//! and pointers only" rule, so a paramedic could read them without a decrypt
-//! round-trip. A POPIA legal review on 2026-07-28 concluded that exception does
-//! not survive contact with real patient data: an immutable ledger cannot honour
-//! the correction, deletion, and retention-limitation duties POPIA places on
-//! health information, and a pseudonymous account id does not cure it — the
-//! Information Regulator's de-identification standard turns on whether data can
-//! be re-linked to a person "by a reasonably foreseeable method", and this
-//! project already accepts that such correlation may happen.
+//! `blood_type`, `organ_donor`, and `dnr_status` are what a paramedic needs
+//! first, and they are health information under POPIA: they must be
+//! correctable, deletable and subject to retention limits. A pseudonymous
+//! account id does not change that -- the Information Regulator's
+//! de-identification standard turns on whether data can be re-linked to a
+//! person "by a reasonably foreseeable method", and this project accepts that
+//! such correlation may happen. So the values are never written anywhere
+//! immutable.
 //!
 //! # What replaced it
 //!

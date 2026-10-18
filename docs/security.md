@@ -62,7 +62,6 @@ authorization decision.
 ### Medical Record Modifications
 - Only Doctor, Nurse, or Admin can modify records
 - All modifications include `last_modified_by` field
-- Block number timestamps track when changes occurred
 
 ---
 
@@ -104,14 +103,11 @@ authorization decision.
 Every sensitive operation is logged with:
 - **Who**: Account that performed the action
 - **What**: Type of operation
-- **When**: Block number / timestamp
 - **Target**: Affected patient or resource
 
 ### Tracked Fields
 - `registered_by`: Healthcare provider who registered patient
 - `last_modified_by`: Last person to modify record
-- `created_at`: Block number of creation
-- `updated_at`: Block number of last update
 
 ---
 

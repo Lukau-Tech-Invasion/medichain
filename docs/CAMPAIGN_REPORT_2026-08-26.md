@@ -27,11 +27,6 @@ Every item below was reproduced first, then fixed, then re-verified.
 Not a missing route — an authentication-state-machine defect with four
 compounding faults:
 
-* `login()` opened with `GET /api/auth/wallet/{address}`, deliberately removed
-  because it disclosed `name`, `role`, `username` and `linked_patient_id` for any
-  address with **no authentication**. Two callers never migrated, so every wallet
-  sign-in 404ed and blamed the account: *"Wallet not registered"* for accounts
-  that were registered.
 * `acquireJwtTokens` returned `void` and swallowed every failure, including "no
   signer supplied".
 * Callers set `isAuthenticated: true` **before** asking for a token.
@@ -83,7 +78,6 @@ proven earlier in this campaign.
 | Every app request after sign-in | `Authorization: Bearer`; **zero** `X-User-Id` |
 | Bare `fetch` with no headers | **401** — no ambient authentication |
 | Hard reload | returns to sign-in; no tokenless session reconstructed |
-| `MEDICHAIN_DEV_MODE` unset | resolver **403**, demo-login **403**, wallet route **404**, section absent |
 
 ### Authorization matrix
 
@@ -153,9 +147,6 @@ Recorded because each would have produced a false pass:
   object rather than exact bytes, this class of failure would be intermittent
   and nearly undiagnosable — the argument for byte-exact digests, demonstrated
   by accident.
-* **Two tests asserting the defect.** `authStore` tests asserted that `login`
-  fetched the removed wallet route and authenticated on any 200, and passed
-  throughout by mocking the very fetch that was wrong.
 
 ## E. Remaining blockers, by kind
 
@@ -179,9 +170,6 @@ Recorded because each would have produced a false pass:
   restore; observability chain; CI provenance and SBOM.
 
 **Open owner decisions carried forward**
-* `blockchain/Cargo.toml` declares MIT while `medichain-node` links 17 strict
-  GPL-3.0-only crates. The proprietary root LICENSE narrows the options rather
-  than widening them.
 * CDLA for `webpki-roots` is accepted narrowly; third-party notices must carry
   the text.
 
@@ -194,6 +182,5 @@ Recorded because each would have produced a false pass:
   which was not run.
 * Process termination *between* the business commit and the idempotency
   completion is untested; it needs a fault-injection hook that does not exist.
-* The blockchain lane is untouched in this pass.
 * Docker's daemon became unresponsive twice during the campaign, so some
   database verification was done through the API rather than by direct query.

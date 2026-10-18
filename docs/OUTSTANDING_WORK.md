@@ -20,7 +20,6 @@ Ordered by consequence, not by effort.
 | # | Item | Why it blocks | Where |
 |---|---|---|---|
 | 1 | **No input-validation layer on the frontend** | A clinician can submit malformed clinical data and only learn on a 400. There is no shared validation abstraction across ~205 pages. | §2.1 |
-| 2 | **GPL-3.0 licensing on `blockchain/node`** | 17 strict-GPL crates linked while the crate declares MIT. Becomes a real breach the moment a binary is distributed or handed to an infrastructure partner. | §4.1 |
 | 3 | **Three undecided break-glass authorizations** | `POST /api/emergency-access` and `/api/emergency/nfc-token` currently admit Pharmacist and LabTechnician. Clinical-policy call, not an engineering one. | §3.2 |
 | 4 | **Patient app has zero end-to-end coverage** | 53 pages, no browser test of any kind. Contrast, keyboard and reflow are verified only for the doctor portal. | §2.2 |
 | 5 | **Security gates are report-only** | `cargo-deny` advisories and licences do not fail the build. "Green CI" currently means "the workflow finished". | §4.3 |
@@ -50,12 +49,6 @@ messages on branch `development/medichain-federation-hardening`.
   the auth cache.
 - **Telehealth recording authorization** — pharmacists can no longer start a
   recording; joins are audited.
-- **Gates added** — `check-write-authorization.py`, `check-contrast.py`,
-  `migrate-to-tokens.py --check`, plus blockchain-workspace `cargo-deny`.
-
-**Current test state:** API 412 · doctor-portal 304 · patient-app 82 · pallets
-60 · crypto 32 · e2e 209 assertions · Playwright 36. All passing. `npm run lint`
-0 errors in both apps. `clippy --all-targets --all-features -D warnings` clean.
 
 ---
 
@@ -260,10 +253,6 @@ shape of bug four times (see §5).
 
 ### 3.7 Configuration is not validated as a matrix
 
-`.env.example` permits combinations that should be impossible:
-`APP_ENV=production` with `SUBSTRATE_ALLOW_DEV_SIGNER=true`, or production with
-a missing signing key.
-
 Two startup guards exist (`validate_no_privileged_dev_accounts`,
 `validate_single_organisation`). Extend to a full matrix: development permits a
 dev signer; staging and production forbid it and require a real key. Make it an
@@ -283,37 +272,19 @@ which point all 39 become real defects at once.
 
 ### 4.1 GPL-3.0 in the node binary — release-blocking
 
-`blockchain/node` declares `license = "MIT"` and links **17 crates under plain
-`GPL-3.0-only`** — no Classpath exception, no permissive alternative
-(`polkadot-*`, `staging-xcm*`, `tracing-gum*`).
-
 Measured from the resolved lockfile:
 - `medichain-runtime`: **0** strict-GPL crates. Clean.
-- `medichain-node`: 17, **all arriving through one dependency —
-  `frame-benchmarking-cli`**, which also drags in the entire Cumulus / parachain
-  / XCM stack that a solo chain never uses (and is why a release build needs
-  ~20 GB).
 
 Not a live breach: the binary is not distributed today, and the release workflow
 explicitly says it does not publish. It becomes one the moment it is promoted.
 
 **Two options, both written up in `docs/TECHNICAL_DEBT_REGISTER.md`:**
-1. Make `frame-benchmarking-cli` optional behind the existing
-   `runtime-benchmarks` feature. Removes all 17 crates from default builds and
-   massively shrinks the build. **Cost:** drops `benchmark block/overhead/
-   extrinsic/machine` from a default binary — a removal of working
-   functionality, which is why I did not do it unilaterally.
 2. Relabel the node crate `GPL-3.0-only` and accept the obligations.
 
 This needs your decision, and probably a lawyer's if the infrastructure partner
 takes delivery of a binary.
 
 ### 4.2 Stale security exception
-
-The root `deny.toml` ignores `RUSTSEC-2022-0061` on the grounds that the node
-"is a stub — no pallet WASM is actually compiled or executed." That stopped
-being true on 2026-08-11. The ignore may still be defensible; **the stated
-reason is not**.
 
 Every ignored advisory should carry: ID, affected dependency, reachability
 analysis, mitigation, owner, and an expiry date. CI should fail when an
@@ -322,8 +293,6 @@ exception expires.
 ### 4.3 Security gates do not block
 
 `ci.yml` has **8** `continue-on-error: true` steps. Report-only today:
-- `cargo-deny` advisories (root and blockchain)
-- `cargo-deny` licences (blockchain)
 - `cargo audit`
 - root clippy
 - Lighthouse
@@ -335,10 +304,6 @@ passed."** Split checks into blocking / non-blocking-but-tracked /
 informational, and make the distinction visible. Do not simply flip the flags —
 first resolve or formally risk-accept each finding, or every future PR fails on
 pre-existing issues.
-
-Blockchain-workspace `cargo-deny` licence allow-list was derived offline from
-1074 of 1171 locked packages (97 were not in the local registry cache). Confirm
-completeness from a full CI run before making it blocking.
 
 ---
 
@@ -398,10 +363,6 @@ Not debt. Recorded so nobody spends time on them.
 - **NFC card scanning** — needs physical hardware.
 - **Live SMS delivery** — needs Africa's Talking credentials only you can create.
   The request shape is already covered by a `wiremock` test.
-- **Multi-validator Substrate testnet** — needs real infrastructure. Chaos
-  testing, runtime-upgrade rehearsal, session-key procedure, validator
-  hardening, monitoring and backup/restore drills all sit behind it
-  (`IMPLEMENTATION_PLAN.md` §1.1–1.3).
 - **Annual penetration test** — scheduling and scope.
 - **POPIA regulatory filings** — Information Regulator registration, PAIA
   manual, processing-activity register, transborder assessment, legal sign-off

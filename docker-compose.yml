@@ -51,8 +51,7 @@ services:
     expose:
       - "8080"
     environment:
-      # Explicit: the API's own default is 8090 (8080 collides with the IPFS
-      # gateway on a dev host). Inside this container 8080 is free and nginx
+      # Explicit: the API's own default is 8090. Inside this container nginx
       # proxies to `api:8080`, so pin it here rather than changing nginx.
       PORT: 8080
       DATABASE_URL: postgres://${POSTGRES_USER:-medichain}:${POSTGRES_PASSWORD:-medichain_dev_2024}@postgres:5432/${POSTGRES_DB:-medichain}
@@ -251,8 +250,8 @@ services:
   # =============================================================================
   # Nginx Reverse Proxy
   # Routes http://localhost/ → API (and /api/events SSE). TLS is added in
-  # docker-compose.prod.yml. NOTE: IPFS already binds host :8080, so the API is
-  # reached through nginx on :80 rather than a direct host port.
+  # docker-compose.prod.yml. The API has no direct host port; it is reached
+  # through nginx on :80.
   # =============================================================================
   # Reverse proxy AND frontend host. Previously this ran the stock nginx image
   # with only a proxy config, so `/` was a bare 404 and the compose stack served
@@ -300,10 +299,6 @@ volumes:
   postgres_data:
     driver: local
   pgadmin_data:
-    driver: local
-  # Retain the old IPFS volume for recovery until its archived contents have
-  # been independently reviewed. No running service mounts it.
-  ipfs_data:
     driver: local
   audit_checkpoints:
     driver: local

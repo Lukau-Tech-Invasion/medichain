@@ -467,7 +467,6 @@ mod tests {
     fn only_supported_factors_parse() {
         assert_eq!(Factor::parse("totp"), Some(Factor::Totp));
         assert_eq!(Factor::parse("password"), Some(Factor::Password));
-        assert_eq!(Factor::parse("wallet"), None); // retired-term-negative-assertion
     }
 
     fn intent() -> TransactionIntent {

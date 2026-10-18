@@ -51,8 +51,7 @@ Organised by what you are trying to do.
 | Document | Purpose |
 |---|---|
 | [`AUDIT_LOG.md`](AUDIT_LOG.md) | The sealed audit stream: batches, signing, checkpoint export |
-| [`adr/0010-remove-blockchain-and-wallet-identity.md`](adr/0010-remove-blockchain-and-wallet-identity.md) | Decision to remove the ledger and the client-held key identity |
-| [`BLOCKCHAIN_REMOVAL_PLAN.md`](BLOCKCHAIN_REMOVAL_PLAN.md) | Work plan for that removal |
+| [`adr/0010-sealed-audit-stream-and-account-identity.md`](adr/0010-sealed-audit-stream-and-account-identity.md) | Decision: the sealed audit stream and account identity |
 | [`BACKUP_RESTORE_RUNBOOK.md`](BACKUP_RESTORE_RUNBOOK.md) | Backup and verified restore |
 | [`monitoring.md`](monitoring.md) | Prometheus and Grafana |
 | [`PERFORMANCE_BUDGETS.md`](PERFORMANCE_BUDGETS.md) | Latency budgets |

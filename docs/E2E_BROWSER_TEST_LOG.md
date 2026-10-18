@@ -7,7 +7,6 @@ patient-facing download. Nothing in this file was established by a unit test.
 
 Test patients (the three active records):
 
-| Patient | ID | Wallet |
 |---|---|---|
 | Lerato Modise | `PAT-cc913e70` | `5FLSigC9…S64D` |
 | Thandiwe Ncube | `PAT-3b765e2d` | `5FLSigC9…S62B` |
@@ -98,9 +97,6 @@ Three independent faults, each fatal on its own:
   `history_of_present_illness`, `exam_time: i64` vs an ISO `dateOfExam`,
   `performed_by` vs `provider`, and six `Vec<String>` sections the form sends as
   free text. Every submission was rejected with 400.
-* `history_physicals` had no `data` column (the entity carries one) and typed
-  `performed_by` as a `uuid` FK to `users.id` while the API writes wallet
-  addresses, so the insert failed twice over.
 * `list_all` was never implemented for PostgreSQL — only the trait default that
   returns an error, which the endpoint swallowed into an empty list. The memory
   backend *did* implement it, so this was invisible until PostgreSQL was used.
@@ -114,24 +110,6 @@ converting `performed_by`, a PostgreSQL `list_all`, every input bound, metric
 units, and an auto-calculated BMI. Verified end to end — history, social history,
 vitals, review of systems, physical exam and assessment all persist and read back.
 
-### 10. Wallet-vs-UUID actor columns broke 33 clinical tables
-
-`wound_assessments.assessed_by` rejected a save with
-`column "assessed_by" is of type uuid but expression is of type text`. Deriving
-the pattern from the schema rather than fixing it case by case found **57 actor
-columns across 33 clinical tables** with a UUID foreign key to `users.id`, while
-the API's canonical caller identity is an SS58 wallet address.
-
-Every one of those features could be exercised against the in-memory backend and
-looked correct, then silently refused to save on PostgreSQL. Migration
-`20260819000002` converts them all to `VARCHAR(66)`, and drops/recreates the 12
-dependent views against `users.wallet_address` — as `v_pending_radiology`
-already did. The views come back as LEFT JOINs, because an INNER JOIN silently
-hides a clinical record whose author is not a registered user row.
-
-`sessions.user_id` and `user_profiles.user_id` are deliberately excluded: those
-are genuine account-linkage keys that correctly use UUIDs.
-
 ### 11. Wound care was a mockup
 
 The assessment tab had no state, no handler, and a Save button with **no
@@ -143,10 +121,6 @@ while the table was empty.
 
 The server-side mapper also hardcoded `length_cm`/`width_cm`/`depth_cm` to
 `None`, discarding the measurements.
-
-Now wired end to end against the real roster, with measurements persisted, a
-proper API-to-view mapping, and clinician names resolved through a new shared
-`useProviderDirectory` hook instead of printing a 48-character wallet address.
 
 ### 12. Vite dev server died whenever the API restarted
 
@@ -215,7 +189,6 @@ were created about them. The download dispatch would need matching branches.
 | Wound assessment x3 | Doctor | `WND-…`, measurements + tissue types persisted |
 | Wound list renders with real names | Doctor | areas 5.0 cm² and 13.0 cm² computed correctly |
 
-
 ## Final verification (2026-08-19)
 
 **Every document a patient can see opens.** Driving the same endpoints the
@@ -274,7 +247,6 @@ visible to the patient. Before this, "Send Prescription" only created a Draft �
 the `/sign` and `/transmit` endpoints existed but were never called, so every
 prescription in the system sat unsigned and no pharmacy would ever have received
 one.
-
 
 ## Round two - the four decorative forms and the remaining dashboards
 

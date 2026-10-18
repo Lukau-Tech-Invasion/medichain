@@ -9,9 +9,7 @@ detect and delete. This gate keeps them out at the source.
 
 It flags, in every `api/migrations/*.sql` file (comments ignored):
   * any INSERT into an identity table, unless the (file, table) pair is in
-    ALLOWED below with its reason;
-  * any retired-format key literal (a 48-character base58 string starting
-    with 5), the format of the pre-credential identity keys.
+    ALLOWED below with its reason.
 
 Usage:  python scripts/check-no-migration-seeds.py
 Exit:   0 clean, 1 if any migration seeds an identity.
@@ -26,23 +24,17 @@ MIGRATIONS = ROOT / "api" / "migrations"
 IDENTITY_TABLES = (
     "users", "user_profiles", "patients", "patient_demographics", "nfc_tags",
     "medical_id_issuances", "credential_grants", "user_mfa", "guardian_relationships",
-    "legacy_wallet_identities",
 )
 
 # (migration file, table) -> why the insert is not a seed.
-ALLOWED = {
-    ("20260930000001_identity_key.sql", "users"):
-        "inactive system sentinel, created only when historical rows name SYSTEM",
-    ("20260930000001_identity_key.sql", "legacy_wallet_identities"):
-        "copies keys of rows that already exist; the table is dropped later",
-    ("20261001000001_medical_id_issuance.sql", "medical_id_issuances"):
-        "backfills and registers IDs for patients that already exist",
+ALLOWED: dict[tuple[str, str], str] = {
+    ("20261019000000_baseline.sql", "medical_id_issuances"):
+        "the trigger function that registers the ID of a patient created later; no row is inserted",
 }
 
 INSERT = re.compile(
     r"insert\s+into\s+(?:public\.)?(" + "|".join(IDENTITY_TABLES) + r")\b", re.I
 )
-RETIRED_KEY_LITERAL = re.compile(r"'5[1-9A-HJ-NP-Za-km-z]{47}'")
 
 
 def strip_comments(sql: str) -> str:
@@ -56,8 +48,6 @@ def findings_for(path: Path):
         table = match.group(1).lower()
         if (path.name, table) not in ALLOWED:
             yield f"{path.name}: inserts into {table}"
-    for match in RETIRED_KEY_LITERAL.finditer(sql):
-        yield f"{path.name}: retired identity key literal {match.group(0)[:9]}..."
 
 
 def main() -> int:

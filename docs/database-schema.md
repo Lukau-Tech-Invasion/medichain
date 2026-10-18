@@ -29,9 +29,7 @@ This document describes all data structures used across the system.
 ## 1. Audit Sealing Tables {#audit-sealing-tables}
 
 The tamper-evident audit stream (see [`AUDIT_LOG.md`](AUDIT_LOG.md)) is stored in
-PostgreSQL. The migration `20260929000001_remove_blockchain.sql` produced the
-shape below from the earlier anchoring tables; applied migrations before it are
-never edited.
+PostgreSQL.
 
 ### 1.1 `audit_seal_batches`
 
@@ -303,8 +301,7 @@ If you use `diesel` instead, maintain `diesel` migrations under `api/migrations`
 diesel migration run --database-url $DATABASE_URL
 ```
 
-After successful migrations, start the API server and the indexer worker (if separate). The indexer can be replayed from a given block by providing `START_BLOCK` env var to the worker.
-
+After successful migrations, start the API server.
 
 ## 3. Clinical Documentation Types {#clinical-documentation}
 

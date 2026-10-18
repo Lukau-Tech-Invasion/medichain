@@ -1,11 +1,5 @@
 # What is not fully implemented — a whole-codebase audit
 
-**Date:** 2026-09-17
-**Method:** static sweep of `api/src`, `client/*/src`, `blockchain/pallets`,
-`api/migrations` and the CI gates, cross-checked against a live
-PostgreSQL-backed server where a claim could be probed. Every count below was
-produced by running something, not by reading a previous audit.
-
 This is deliberately *not* a list of bugs. It is the list of things a reader
 would reasonably assume work and which are absent, partial, or reachable only
 under configuration nobody has set. Items already tracked elsewhere are
@@ -134,48 +128,6 @@ the feature. It is also the half that does not let a hospital migrate *in*.
 **Done means:** at minimum `POST /api/fhir/r4/Bundle` (transaction) for the
 resources already modelled, with the same request-type discipline Rule 11
 requires, plus documented conformance in the `metadata` statement.
-
----
-
-## 4. Eleven of fifteen on-chain calls have no application caller  · S2
-
-The three pallets expose 15 extrinsics. The API submits four:
-
-```
-PatientIdentity::register_patient
-MedicalRecords::upsert_ipfs_hash
-AccessControl::log_access
-AccessControl::log_delegated_access
-MedicalRecords::set_emergency_capsule_commitment
-```
-
-Nothing in the application ever calls:
-
-| Pallet | Extrinsic | What is therefore not on-chain |
-| --- | --- | --- |
-| access-control | `assign_role`, `revoke_role` | Role changes. The chain's role table can only be seeded at genesis |
-| access-control | `grant_emergency_access`, `revoke_access` | Break-glass grants — the whole consent model |
-| access-control | `cleanup_expired_access` | Expired grants are never reaped on-chain |
-| medical-records | `create_health_record` (`add_alert` removed in WP8: it published alert type and severity in plaintext) | Record creation |
-| patient-identity | `verify_identity` | Identity verification status |
-| patient-identity | `set_preferred_language`, `set_photo_id` | Patient identity attributes |
-
-The pallets are real and tested (60 tests). The gap is that the product's
-central claim — "patients control who accesses their records via
-blockchain-verified consent" — is implemented in PostgreSQL, and the chain
-carries an audit log and two commitments. That is a defensible architecture,
-but it is not the architecture the pitch describes, and the unused extrinsics
-are what makes the difference invisible.
-
-**Done means:** either wire consent and role changes to the chain, or state
-plainly in `CLAUDE.md` and the public material that the chain is an audit and
-commitment anchor and that consent is enforced off-chain. The second is far
-cheaper and probably right; what is not acceptable is leaving both readings
-available.
-
-See also `IMPLEMENTATION_PLAN.md` lines 130–138: no multi-validator testnet,
-no chaos test, no runtime-upgrade rehearsal, no session-key procedure, no
-validator monitoring, no backup/restore drill. All owner-gated.
 
 ---
 
@@ -334,9 +286,6 @@ data in an export. `FEATURE_END_TO_END_AUDIT.md` P1.1.
 
 Not defects; listed so the list is complete.
 
-* **Multi-validator Substrate testnet** and everything downstream of it
-  (`IMPLEMENTATION_PLAN.md` 130–138) — needs validator hosts and a consortium
-  governance decision.
 * **Live Africa's Talking credentials** — `AT_USERNAME` / `AT_API_KEY`. The
   request shape is covered by a wiremock test; only "does AT's production API
   accept it" is unverified.
@@ -349,10 +298,6 @@ Not defects; listed so the list is complete.
 
 ## 14. Verification coverage that is missing, not failing · S4
 
-* **The 60 pallet tests have not been re-run since 2026-09-15.**
-  `blockchain/target` was deleted to recover disk and this host cannot build
-  polkadot-sdk in the space available. `git diff` confirms that workspace is
-  unchanged, so the result is *expected* to hold — but expected is not run.
 * **The doctor-portal browser suite has not completed a clean pass.** The
   2026-09-17 run reached 56 of 78 before the host ran out of disk (173 MB free);
   three tests failed with 4-minute timeouts against a 90-second budget, which
@@ -411,5 +356,3 @@ repeat the lookup:
   incidental ML hits. Go to the AWS KMS and Google Cloud KMS envelope-encryption
   documentation, and to the NIST SP 800-57 key-management guidance.
 * **FHIR R4 itself** (§3). Not in the library; HL7's specification is the source.
-* **Substrate / polkadot-sdk validator operation** (§4). Not in the library;
-  the Polkadot wiki and `docs/BLOCKCHAIN_NODE.md` are the sources.

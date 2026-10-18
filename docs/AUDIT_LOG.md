@@ -4,7 +4,7 @@ This file covers two different things that share the word "audit":
 
 1. [The sealed runtime audit stream](#the-sealed-runtime-audit-stream) — how the
    running system makes its own access and audit records tamper-evident
-   ([ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md)).
+   ([ADR-0010](adr/0010-sealed-audit-stream-and-account-identity.md)).
 2. [The code audit log](#the-code-audit-log) — the rolling record of source-file
    reviews.
 
@@ -13,9 +13,9 @@ This file covers two different things that share the word "audit":
 ## The sealed runtime audit stream
 
 Tamper evidence in MediChain is a **sealed audit stream**: rows are batched,
-each batch is chained to the one before it, signed, and exported as a checkpoint
-to a sink outside the database. It replaces the earlier ledger anchoring, which
-never delivered a single confirmed entry in the running stack.
+each batch is chained to the one before it, signed with Ed25519, and exported as
+a checkpoint to a sink outside the database (on AWS, an S3 bucket under Object
+Lock, written once per batch).
 
 ### What is sealed
 

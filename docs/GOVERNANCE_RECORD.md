@@ -99,14 +99,6 @@ MediChain's design makes this a live question rather than a theoretical one:
 
 ### 6b. Transborder processing
 
-**Update 2026-09-29 — the cross-border chain-node question is closed by
-[ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md).** The concern was
-that a distributed ledger, even a permissioned one, replicates its contents to
-every node, including nodes outside South Africa. There is no ledger any more, so
-no node replicates anything anywhere. Each deployment keeps its own audit stream;
-the checkpoint sink receives only signed batch headers and digests (no PHI), and
-where that sink physically lives is now a deployment decision recorded here.
-
 Mitigations in place (recorded so the assessment starts from facts):
 
 - Emergency plaintext values are never put in the audit stream — only a

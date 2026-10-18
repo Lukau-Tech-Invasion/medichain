@@ -8,7 +8,7 @@
 
 The Phase 1-8 source contracts listed below have been added as additive work. GitHub Actions run `30264182656` passed Rust formatting, the complete Rust workspace test suite (with a disposable PostgreSQL service), and production builds for both client applications.
 
-It does **not** prove runtime behaviour beyond the automated suite. The local Windows machine still cannot link Rust (`link.exe` is unavailable), and no KMS/HSM, mobile runtime, Jitsi media bridge, or four-validator testnet has been exercised in this cycle.
+It does **not** prove runtime behaviour beyond the automated suite. The local Windows machine still cannot link Rust (`link.exe` is unavailable), and no KMS/HSM, mobile runtime or Jitsi media bridge has been exercised in this cycle.
 
 ## Requirement evidence matrix
 
@@ -16,14 +16,11 @@ It does **not** prove runtime behaviour beyond the automated suite. The local Wi
 |---|---|---|---|
 | Phase 0 inventory | `MEDICHAIN_FEDERATION_GAP_ANALYSIS.md`, manifest export script, GitHub Actions run `30264182656` | Verified | Re-run inventory after future feature merges. |
 | Identity contexts | `api/src/federation_identity.rs`, identity migration, JWT context claims | Source partial | Persisted repository, context middleware on all protected routes, integration tests. |
-| Organisation keys | `api/src/organization_keys.rs`, key migration, routes | Source partial | PostgreSQL repository/cache, blockchain events, real proof-of-possession verification. |
 | Record envelopes | `api/src/key_management.rs`, record-envelope migration | Source partial | KMS/HSM adapter, real wrapping/rewrapping and legacy-record integration tests. |
 | Device lifecycle | `api/src/device_lifecycle.rs`, device migration, routes | Source partial | Persistent scheduled rotation job, device attestation and client cache invalidation. |
 | Emergency grants | Strict route, client migration and server-expiry-driven portal-state clearing | Source partial | Retire the legacy `/api/emergency-access` route after compatibility verification, enforce grants on every protected emergency endpoint, add regional summaries, browser closure events and p99 measurements. |
 | Secure mobile records | `api/src/mobile_records.rs`, mobile-security migration, routes | Source partial | Android/iOS private storage, Keystore/Secure Enclave, biometrics, secure deletion, real offline and screenshot policy tests. |
 | Telehealth privacy | `api/src/telehealth_retention.rs`, retention migration | Source partial | Self-hosted Jitsi audio bridge, local STT/translation, consent gate, caption delivery, clinician summary approval and object-store deletion job. |
-| Audit/governance | `api/src/audit_outbox.rs`, audit/governance migration, selected lifecycle emissions | Source partial | Durable repository/outbox worker, blockchain anchoring/retry, authorised governance roles and operational drill evidence. |
-| Four-validator network | No local runtime evidence | Not started locally | Independent validator deployment, loss/partition/recovery/upgrade drills and monitoring evidence. |
 | Multi-hospital shadow pilot | No synthetic pilot evidence | Not started | Independent facilities, synthetic cross-hospital journey, outage, rotation, mobile and telehealth scenarios. |
 
 ## Exact deferred verification order

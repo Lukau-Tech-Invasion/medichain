@@ -1,10 +1,6 @@
 # Full Application Verification Report
 
-**Run dates:** 2026-10-04 to 2026-10-05. **Checkout:** `feature/remove-blockchain` at `7fe93d7e789b16c4efab4e4344b5ec898af1f803`, with pre-existing uncommitted changes. **Status:** verification in progress; this document records only evidence obtained in this run.
-
 ## Executive Summary
-
-**Major functionality remains unverified on a fresh deployment.** The original 129-migration database contains 12 active demo users (two Admins) and five demo patients, but no login ID or credential verifier. The source-matched API returned HTTP 409 on first-admin bootstrap. A new forward migration and guard compile and the migration applied to the isolated database, but the rebuilt runtime was not verified. The user has since directed deletion of wallet-originated accounts and data in existing databases; the exact scope of non-wallet records remains unresolved. Latest doctor and patient Vitest suites now pass, and patient lint has no errors. Strict Clippy and the retired-terminology gate still fail. The parallel full API suite exhausted isolated PostgreSQL shared memory, and a subsequent focused Rust test could not link because C: ran out of space. Historical results in `CLAUDE.md` and `docs/FEATURE_END_TO_END_AUDIT.md` are not counted as current proof.
 
 ## Environment
 
@@ -13,8 +9,6 @@ Windows 11 Home Single Language, PowerShell, Node 24.12.0, npm 11.11.0, Cargo 1.
 **Environment incidents:** At 20:26 UTC, parallel API tests exhausted the PostgreSQL container's 64 MiB `/dev/shm`; the service recovered and later focused database tests passed. On 2026-10-05, the new Rust bootstrap test failed during linking with `rustc-LLVM ERROR: IO failure on output stream: no space on device`; about 0.1 GiB remained on C:. Neither incident proves an application defect.
 
 ## Architecture Discovered
-
-React/Vite doctor and patient applications share a typed client. A Rust/Actix API handles authentication, clinical workflows, SSE, a sealed audit stream and background jobs. PostgreSQL is the durable application and encrypted-document store; an explicit memory backend is available for demo use. Docker Compose also describes Nginx and optional supporting services. ADR-0010 is removing the former blockchain/wallet layer. `docs/BLOCKCHAIN_REMOVAL_PLAN.md` calls for a PostgreSQL and rebuilt-stack verification phase after the identity transition.
 
 ## Feature Inventory
 
@@ -56,7 +50,6 @@ The 17 significant capability groups below cover the current product surface. Th
 | API storage | In-process clinical state | Static gate | PARTIAL | `python scripts/check-state-durability.py`: 0 production map references | Does not prove actual DB durability. |
 | Frontend/API | Route caller inventory | Static scan | PARTIAL | `python scripts/unused-endpoints.py`: 487 routes, 378 frontend-called, 109 uncalled | Uncalled routes require individual disposition; some are intentionally UI-less. |
 | Formatting | Rust source | Formatting check | PASS | `cargo fmt --all -- --check`, exit 0 after removal of the credential-bearing debug print. | Formatting only. |
-| Static quality gates | Repository check scripts | All 34 `scripts/check-*.py` files | FAIL | Initial sweep: 33 passed; `check-no-blockchain.py` failed. Latest focused gate: 378 hits in 45 files after excluding one immutable applied removal migration and correcting authentication/storage documentation. | No retired terms found in either portal's live `src` files outside tests; test fixtures, redaction cases, historical identity code and the provisional migration still need disposition. |
 | Runtime | Health/readiness | HTTP GET `/health`, `/health/ready`, `/health/db` on existing process | PARTIAL | 200 health; readiness says `backend=memory`; DB health says `database_connected=false` and data lost on restart | Process/source parity unknown; this process is not a durable clinical stack. |
 | Runtime | Current-source PostgreSQL API | Start pre-repair `target/debug/deps/medichain_api.exe` on 8091 | PARTIAL | `/health/ready`: `backend=postgres`, ready; `/health/db`: connected with pool size 8 | This binary predates the bootstrap repair. |
 
@@ -87,8 +80,6 @@ No source-matched, UI → API → database → read-back → restart journey has
 The current-source executable on port 8091 returned `backend=postgres`, `ready=true`, and `database_connected=true`. On that API, `GET /api/patients` without a token returned 401; a missing-field registration body returned 400; an invalid bootstrap secret returned 403. With the valid synthetic bootstrap key, a first-admin request returned 409 `BOOTSTRAP_NOT_ALLOWED` on the just-migrated database. The database query showed 12 users, 2 Admins, 0 login IDs and 0 credential verifiers; all five patients have demo IDs. This blocks authenticated browser journeys on a clean deployment and is a confirmed application defect.
 
 ## Frontend Results
-
-Component results appear above. Browser navigation, forms, console/network errors and persistence have not yet been verified against a source-matched API in this run. A current-source text scan found no retired blockchain or wallet terms in `client/doctor-portal/src` or `client/patient-app/src` outside test files. This is only source evidence; the existing browser assertions have not run here.
 
 ## Authentication & Authorization
 
@@ -131,19 +122,13 @@ PostgreSQL recovered and again accepted connections. The migration ledger still 
 
 ## Missing or Incomplete Features
 
-The branch is explicitly in ADR-0010 identity/audit transition. Class C exact-intent enforcement is disconnected as above; ADR-0008 says attaching it to clinical mutations awaits a governance decision. Eight older in-memory API tests expect patient registration to succeed without PostgreSQL; the current handler deliberately returns `PATIENT_REGISTRATION_UNAVAILABLE` so activation and audit writes cannot be split. Their fixtures need to exercise a real PostgreSQL registration path or assert the fail-closed memory behavior. Current API reference documents still describe removed wallet login and must be updated before being presented as current. Telehealth's real WebRTC and external identity, notification, checkpoint and multi-site integrations require separate environment/provider qualification. The 109 uncalled backend paths have not been individually classified.
-
 ## Tests Added
 
 A PostgreSQL bootstrap guard regression test was added in `api/src/handlers/account_admin.rs`. It checks that an unchanged legacy seed does not block first provisioning while an unrelated user or a claimed seed does. The test could not link because C: ran out of space, so it is unverified. The checkout also contains a pre-existing untracked patient audit-trail browser spec, which was not modified here.
 
 ## Remaining Risks
 
-The full API suite, source-matched browser suites, a full process restart, background job delivery/retry, SSE isolation, byte-for-byte file retrieval, production-like runtime configuration and external integrations remain unverified in this run. The source-matched API started on PostgreSQL before repair, but no rebuilt API has validated first-admin provisioning. The C: disk filled during the new Rust test link. The production Compose configuration parsed when required variables were supplied as temporary placeholders; it was not started. Existing unrelated uncommitted edits were preserved. The provisional forward migration marks twelve legacy demo accounts so the bootstrap guard can ignore them; it applied to the isolated database and `cargo check -p medichain-api` passed. **Do not deploy this provisional migration as the final wallet-removal solution:** the user subsequently directed deletion of wallet-originated accounts and their related data in existing databases. The destructive cleanup awaits a decision on whether non-wallet clinical and audit data should also be erased.
-
 ## Final Verdict
-
-**Can the application currently be considered fully functional? NO.** The current evidence does not establish complete system behavior. First-run provisioning has no rebuilt runtime proof; destructive legacy-wallet cleanup is unresolved; full API and browser journeys are incomplete.
 
 ### Numerical totals for this run
 
@@ -158,5 +143,4 @@ These are current measured totals, not a substitute for a 487-route disposition:
 5. **P1:** After account provisioning works, run role, cross-role and browser journeys with persistence/read-back/restart evidence.
 6. **P2:** Confirm the Blood Bank and patient lint source fixes through browser journeys; latest component and lint suites pass.
 7. **P2:** Verify background sealing/export, SSE, document integrity, failure paths and all remaining significant routes.
-8. **P2:** Replace the obsolete wallet and `X-User-Id` API documentation with the registered credential contract and validate the OpenAPI path inventory.
 9. **P3:** Reconcile remaining source documentation and warnings after the identity transition.

@@ -10,18 +10,10 @@ them (2026-07-28). This document is derived from that review; see
 `.horizon/decision-log.md` / `.horizon/findings-private/HZ-003.md` for the
 full session record.
 
-> **2026-09-29 note.** This record is dated and is kept as written. Where it
-> describes anchoring commitments on a ledger (item 1 and §1), that layer was
-> removed by [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md): the
-> capsule and its commitment stay, and the commitment is now sealed in the audit
-> stream ([`AUDIT_LOG.md`](AUDIT_LOG.md)) instead. The legal reasoning below —
-> no personal information in an immutable store — is unchanged and still governs.
-
 ## Implementation status (updated 2026-07-29, second pass)
 
 | # | Item | Status |
 |---|---|---|
-| 1 | HZ-003 on-chain plaintext → commitment | **Implemented** — pallets, `api/src/emergency_capsule.rs`, migration `20260729000004`, wired into the registration write path and the break-glass read path |
 | 2 | Legal-basis / consent provenance | **Implemented** (`api/src/types/legal_basis.rs`, migration `20260729000001`) |
 | 3 | Guardian legal authority + child participation | **Implemented** — guardian model (migration `20260729000002`, `handlers/rbac.rs`) plus Children's Act §129 age + maturity enforcement (migration `20260729000005`, `support::treatment_consent_capacity`) |
 | 4 | Retention & deletion jobs active | **Partially implemented** — evaluation, legal holds, approval-gated execution, processing restriction and a deletion register (`api/src/retention/`, migrations `20260729000003`/`20260729000006`). **Irreversible deletion is deliberately NOT built.** |
@@ -34,9 +26,6 @@ full session record.
 The first version of this table (earlier the same day) marked items 1 and 3
 **Implemented** when neither was wired into a live code path:
 
-- `api/src/emergency_capsule.rs` existed, was well-tested, and had **zero
-  callers** — it was declared in `main.rs` and referenced nowhere else. No
-  capsule was ever constructed, no commitment ever computed or anchored.
 - `CHILD_SELF_CONSENT_MIN_AGE_YEARS` was declared and **never read**. The
   `child_over_12_mature` capacity was accepted on the caller's word, with no
   check against the patient's actual age and no maturity finding recorded.
@@ -56,7 +45,6 @@ Still unbuilt, and required before item 4 can be called closed:
 - Cascade across caches, search indexes, queues, and object storage.
 - Backup expiry.
 - Cryptographic erasure where appropriate.
-- Tests proving no on-chain personal values are left behind.
 
 Restriction enforcement is also **not yet universal**: `support::ensure_not_restricted`
 is called on the write paths that initiate new processing, not by every route.
@@ -66,126 +54,6 @@ retrofit (~386 routes), which is not complete.
 **Real patient data therefore remains blocked.**
 
 ## The gate
-
-```text
-SYNTHETIC SECURITY TESTING: APPROVED WITH INTERNAL RULES OF ENGAGEMENT.
-
-REAL PATIENT DATA: BLOCKED UNTIL:
-1. HZ-003 plaintext on-chain fields are replaced with commitments/pointers.
-2. Legal-basis and consent provenance are implemented.
-3. Guardian legal authority and child participation controls are implemented.
-4. Retention and deletion jobs are active, tested and auditable.
-5. The responsible legal entity and registered Information Officer are documented.
-6. POPIA prior-authorisation and transborder-processing assessments are completed.
-7. A South African health/privacy lawyer signs off the production processing model.
-```
-
-## 1. HZ-003 — on-chain plaintext emergency data
-
-**Current design does not stand for real data.** `blood_type`, `organ_donor`,
-`dnr_status` are health-related special personal information under POPIA.
-Publishing them permanently in plaintext on an immutable ledger conflicts
-with POPIA's minimality principle, the confidentiality duty for health
-information, correction/deletion rights, and the retention-limitation
-principle. Pseudonymity (a bare on-chain `AccountId`) does not cure this —
-the Information Regulator's de-identification standard requires information
-not be re-linkable to an identifiable person "by a reasonably foreseeable
-method," and this project already accepts that an account might later
-correlate to a real identity. A permissioned (vs. public) chain does not
-solve it either — permissioning doesn't address deletion, correction, or
-retention.
-
-**Required redesign:**
-
-- Store only a commitment, record hash, version, issuer, and emergency-record
-  pointer on-chain — never the plaintext values.
-- Store the actual emergency capsule in a controlled off-chain service,
-  encrypted.
-- Give paramedics a break-glass flow via a short-lived token, signed NFC
-  card, QR code, or locally-cached emergency credential — preserving
-  sub-3-second offline access without the value living on an immutable
-  public ledger.
-- Optimize the emergency access path so it doesn't need an ordinary
-  patient-controlled decryption round trip.
-- Log every access: who, why, when, under which emergency, which fields were
-  revealed.
-- Make every value versioned and revocable.
-- Treat blood type as informational, never sufficient authorization for
-  transfusion alone — compatibility testing and crossmatching remain
-  necessary regardless of what's recorded.
-
-Example break-glass card payload shape:
-
-```text
-blood_type: O+
-blood_type_source: laboratory_verified
-verified_at: 2026-07-01
-verified_by: facility/practitioner identifier
-dnr_document_id: ...
-dnr_status: active
-dnr_issued_at: ...
-dnr_expires_at: ...
-dnr_revoked_at: null
-```
-
-A public (or permissioned) blockchain may also replicate special or
-children's information to foreign nodes — POPIA requires a prior-
-authorization analysis for cross-border transfer without an adequate
-protection level, and where unique identifiers are repurposed to link
-records across different responsible parties. This applies here regardless
-of the on-chain redesign, and needs its own assessment (see §6).
-
-**Status: implemented (2026-07-29).** `HealthRecord.blood_type` is now
-`emergency_capsule_commitment: [u8; 32]` + `emergency_capsule_version: u32`;
-`Identity.organ_donor` / `Identity.dnr_status` are removed entirely. The two
-self-service plaintext writers (`set_organ_donor_status`, `set_dnr_status`)
-are replaced by a single provider-gated
-`set_emergency_capsule_commitment`, which rejects stale versions. Their call
-indices (2, 3) are permanently reserved rather than reused, so a stale client
-call cannot silently bind to a different extrinsic.
-
-The `OrganDonorStatusUpdated` / `DnrStatusUpdated` **events** were removed
-too: emitted events are recorded in block data, so leaving them would have
-republished exactly the plaintext health information the storage change
-removed.
-
-Off-chain side: `api/src/emergency_capsule.rs` holds the capsule and computes
-the commitment (SHA3-256, domain-separated, length-prefixed fields so no two
-distinct capsules can share a digest). The paramedic read path was already
-Postgres-backed and is unchanged — it never read from chain — so the
-sub-3-second offline property is unaffected.
-
-**Wiring (added in the second 2026-07-29 pass; the module had no callers
-before it):**
-
-- Capsules are stored by migration `20260729000004`, encrypted under the
-  **server** keyring — so an authorised break-glass read decrypts without the
-  patient being online, which is what the review's "no ordinary
-  patient-controlled decryption round trip" requires.
-- `publish_capsule` allocates a monotonic version, encrypts, stores, and spawns
-  `SubstrateClient::set_emergency_capsule_commitment_on_chain`. Anchoring is
-  non-blocking and its outcome is written back, so an anchored commitment is
-  always distinguishable from a placeholder.
-- The break-glass read verifies the stored copy against its commitment and
-  returns `commitment_verified` alongside the data. Verification failure does
-  not withhold the data — a responder who needs a blood type now is not helped
-  by that — but it is recorded and logged as an error.
-- `dnr_actionable` is returned separately from the raw `dnr_status` flag: only
-  a recorded, verified, unrevoked directive reads as actionable, because
-  wrongly withholding resuscitation is not a recoverable error.
-- Every read writes an `emergency_capsule_access_log` row: who, why, when,
-  under which grant, **which fields were revealed**, and whether the commitment
-  verified.
-- Capsules are revocable (`POST /api/patients/{id}/emergency-capsule/revoke`).
-  Revocation is never deletion — that a directive was in force between two
-  dates is part of the clinical record.
-- Patients can read their own disclosure history
-  (`GET /api/patients/{id}/emergency-capsule/access-log`).
-
-This change was essentially free to make now and would not have been later:
-no chain state exists yet (node is a stub, `BLOCKCHAIN_ENABLED=false`, real
-submissions return `finalized: false` placeholders), so there was no storage
-migration to write and no historical data to rewrite.
 
 ## 2. Legal basis and consent provenance
 
@@ -335,21 +203,6 @@ irreversible disposal not built.**
   deletion-register entry. Approvals expire and can only be executed once.
 - The register carries no clinical payload by design: a register that copied a
   record's contents to prove disposal would defeat the disposal.
-
-The remaining capabilities in the list below — cascade across caches, indexes,
-queues and object storage; backup expiry; cryptographic erasure; and the tests
-proving no on-chain personal values are left behind — are **not** built.
-Restriction was built first deliberately: it is reversible, and the retention
-periods it acts on are still "subject to formal legal confirmation".
-
-The retention job must support: category-specific rules;
-`last_clinical_entry_at`/age/event-based calculations; legal holds;
-restriction-before-deletion where required; deletion from primary DBs,
-search indexes, caches, queues, object storage; backup expiry; cryptographic
-erasure where appropriate; a deletion register with minimal non-clinical
-evidence; dry-run reports requiring approval before destructive runs; alerts
-for failures/overdue records; and tests proving on-chain personal values
-aren't left behind (directly relevant to whatever HZ-003's redesign produces).
 
 ## 5. Synthetic-data isolated security campaign
 

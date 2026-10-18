@@ -258,16 +258,13 @@ flowchart LR
     CLIN -.->|"access events"| AUD
 ```
 
-This split is the direct consequence of a legal finding: an immutable record
-cannot satisfy POPIA's correction, deletion and retention-limitation duties, and
-pseudonymity does not cure it because an identifier may later correlate to a real
-person. Plaintext `blood_type` / `organ_donor` / `dnr_status` are therefore never
-put in the audit stream — only a commitment to the capsule is.
-See [ADR-0004](adr/0004-commitment-not-plaintext-on-chain.md) (its ledger half is
-superseded by [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md); the
-off-chain capsule and its commitment stay) and
-[`AUDIT_LOG.md`](AUDIT_LOG.md#the-sealed-runtime-audit-stream) for how the stream
-is sealed.
+The capsule exists because of a legal finding: health information must be
+correctable, deletable and subject to retention limits under POPIA, and
+pseudonymity does not change that because an identifier may later correlate to
+a real person. Plaintext `blood_type` / `organ_donor` / `dnr_status` are
+therefore never written anywhere immutable — the audit stream carries only a
+commitment to the capsule. See [`AUDIT_LOG.md`](AUDIT_LOG.md#the-sealed-runtime-audit-stream)
+for how the stream is sealed.
 
 ---
 
@@ -458,12 +455,11 @@ Rules that hold at every boundary:
 2. **No PHI crosses into an external system.** National-ID calls send a digest;
    SMS carries no clinical content; the checkpoint sink receives signed batch
    headers and digests.
-3. **Cross-organisation trust uses signed checkpoints, not a shared ledger.**
-   Each hospital deployment keeps its own audit stream and signing key
-   ([ADR-0006](adr/0006-federated-deployment.md), superseded in part by
-   [ADR-0010](adr/0010-remove-blockchain-and-wallet-identity.md)). Where trust
-   across organisations is needed it uses organisation signing keys and
-   exchanged signed checkpoints.
+3. **Cross-organisation trust uses signed checkpoints.** Each hospital
+   deployment keeps its own audit stream and signing key
+   ([ADR-0006](adr/0006-federated-deployment.md)). Where trust across
+   organisations is needed it uses organisation signing keys and exchanged
+   signed checkpoints.
 
 ---
 

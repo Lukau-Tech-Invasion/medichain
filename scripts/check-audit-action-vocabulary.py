@@ -236,15 +236,26 @@ def constraint_vocabulary() -> set[str]:
     defining = sorted(
         p
         for p in MIGRATIONS.glob("*.sql")
-        if "ADD CONSTRAINT access_logs_action_check"
+        if "CONSTRAINT access_logs_action_check"
         in p.read_text(encoding="utf-8", errors="replace")
     )
     if not defining:
-        print("No migration adds access_logs_action_check.")
+        print("No migration defines access_logs_action_check.")
         sys.exit(1)
     body = defining[-1].read_text(encoding="utf-8", errors="replace")
-    clause = body[body.index("ADD CONSTRAINT access_logs_action_check") :]
-    clause = clause[: clause.index(");") + 1]
+    # The last definition in the file: an ALTER ... ADD CONSTRAINT, or the
+    # constraint declared inside CREATE TABLE (as the schema baseline does).
+    start = body.rindex("CONSTRAINT access_logs_action_check")
+    open_at = body.index("(", start)
+    depth = 0
+    for end in range(open_at, len(body)):
+        if body[end] == "(":
+            depth += 1
+        elif body[end] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    clause = body[start : end + 1]
     # Strip SQL comments, so a value named only in prose is not counted as
     # permitted.
     clause = re.sub(r"--.*", "", clause)
@@ -253,13 +264,15 @@ def constraint_vocabulary() -> set[str]:
 
 ACTION_WIDTH_ALTER = re.compile(
     r"ALTER\s+TABLE\s+access_logs\s+ALTER\s+COLUMN\s+action\s+TYPE\s+"
-    r"VARCHAR\s*\(\s*(\d+)\s*\)",
+    r"(?:VARCHAR|character\s+varying)\s*\(\s*(\d+)\s*\)",
     re.IGNORECASE,
 )
 ACTION_WIDTH_CREATE = re.compile(
     r"CREATE\s+TABLE[^;]*?\baccess_logs\b(.*?);", re.IGNORECASE | re.DOTALL
 )
-ACTION_COLUMN = re.compile(r"\baction\s+VARCHAR\s*\(\s*(\d+)\s*\)", re.IGNORECASE)
+ACTION_COLUMN = re.compile(
+    r"\baction\s+(?:VARCHAR|character\s+varying)\s*\(\s*(\d+)\s*\)", re.IGNORECASE
+)
 
 
 def action_column_width() -> int | None:

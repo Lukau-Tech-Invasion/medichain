@@ -181,16 +181,15 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
         .map_err(sqlx::migrate::MigrateError::Execute)?
         .detach();
     let migrator = sqlx::migrate!("./migrations");
-    let result =
-        match migration_history::adopt_rewritten_seed_migrations(&mut conn, &migrator).await {
-            Ok(adopted) => {
-                if adopted > 0 {
-                    log::info!("adopted {adopted} rewritten seed-free migration checksum(s)");
-                }
-                migrator.run(&mut conn).await
+    let result = match migration_history::adopt_baseline(&mut conn, &migrator).await {
+        Ok(adopted) => {
+            if adopted {
+                log::info!("adopted the schema baseline in place of the applied migration history");
             }
-            Err(e) => Err(sqlx::migrate::MigrateError::Execute(e)),
-        };
+            migrator.run(&mut conn).await
+        }
+        Err(e) => Err(sqlx::migrate::MigrateError::Execute(e)),
+    };
     // Closing is what releases the lock. A close that itself fails must not
     // mask the migration outcome — and dropping the connection ends the session
     // regardless, which is the same release by a blunter route.

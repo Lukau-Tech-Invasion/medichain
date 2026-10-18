@@ -137,55 +137,6 @@ export const STORAGE_KEYS = {
   PROVIDER_AUTH: 'medichain_provider_auth',
 } as const;
 
-/**
- * Keys written by earlier builds. None of them holds anything a current build
- * reads, and a leftover identity key names an account by a key the server
- * no longer recognises, so they are removed rather than migrated. Any
- * `chain_*` key goes too (see `purgeLegacyIdentityStorage`).
- */
-const LEGACY_STORAGE_KEYS = ['medichain_wallet', 'medichain_accounts'] as const; // retired-term-negative-assertion
-
-/** Removes a persisted session whose identity is still an `address` field. */
-function dropLegacyShapedSession(storage: Storage, key: string): void {
-  const raw = storage.getItem(key);
-  if (!raw) return;
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
-    if (parsed && typeof parsed === 'object' && 'address' in parsed && !('userId' in parsed)) {
-      storage.removeItem(key);
-    }
-  } catch {
-    storage.removeItem(key);
-  }
-}
-
-/**
- * One-time cleanup of the browser state earlier builds left behind.
- *
- * Runs when this module loads. Removes the retired keys and any `chain_*` key,
- * and a stored session that still identifies the person by an `address` so
- * that a returning user is sent to the sign-in page, not to a half-restored
- * session. Idempotent, and silent when storage is unavailable.
- */
-export function purgeLegacyIdentityStorage(): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
-    const chainKeys: string[] = [];
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('chain_')) chainKeys.push(key);
-    }
-    chainKeys.forEach((key) => localStorage.removeItem(key));
-    dropLegacyShapedSession(localStorage, STORAGE_KEYS.PATIENT_AUTH);
-    dropLegacyShapedSession(localStorage, STORAGE_KEYS.PROVIDER_AUTH);
-  } catch {
-    // Storage can be blocked or absent (private windows, tests); nothing to clean.
-  }
-}
-
-purgeLegacyIdentityStorage();
-
 // ============================================================================
 // HELPERS
 // ============================================================================

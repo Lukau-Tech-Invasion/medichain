@@ -6,10 +6,6 @@ Candidate functional defect. Reproduced on 2026-08-19.
 
 ## Evidence
 
-On the patient login journey, the browser console reports `SSE connection
-failed: 401 Unauthorized`. The error occurs before/around authentication and
-remains in the captured console after successful wallet entry.
-
 ## Fix strategy
 
 Make the event-stream hook wait until a valid authenticated session is
