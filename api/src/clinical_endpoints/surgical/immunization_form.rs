@@ -37,48 +37,6 @@ pub struct CreateImmunizationRequest {
     pub notes: Option<String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Synthetic form submission exercising observations and absent metadata.
-    fn submission(date: &str) -> CreateImmunizationRequest {
-        serde_json::from_value(serde_json::json!({
-            "patient_id": "PAT-QA", "vaccine_name": "Fictional QA vaccine",
-            "administration_date": date, "lot_number": "QA-LOT",
-            "route": "Intramuscular", "site": "left-deltoid", "dose_number": 2,
-            "dose_amount": "0.5 mL", "total_doses": 3, "patient_consent": false,
-            "consent_by": "", "vfc_eligible": false, "next_dose_due": "2026-11-10",
-            "record_id": "SPOOF", "administered_by": "SPOOF"
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn vaccine_form_preserves_observations_without_inventing_clinical_metadata() {
-        let record = submission("2026-10-10").into_entity("NURSE-QA").unwrap();
-        assert_eq!(record.administered_by.as_deref(), Some("NURSE-QA"));
-        assert_ne!(record.id, "SPOOF");
-        assert_eq!(record.patient_consent, Some(false));
-        assert_eq!(record.dose_amount.as_deref(), Some("0.5 mL"));
-        assert_eq!(record.data["total_doses"], 3);
-        assert_eq!(record.data["next_dose_due"], "2026-11-10");
-        assert!(record.cvx_code.is_none());
-        assert!(record.vis_given.is_none());
-        assert!(record.vis_date.is_none());
-        assert!(record.funding_source.is_none());
-        assert!(record.reaction_observed.is_none());
-    }
-
-    #[test]
-    fn vaccine_form_rejects_invalid_dates_instead_of_substituting_today() {
-        assert!(submission("2026-02-30").into_entity("NURSE-QA").is_err());
-        assert!(submission("").into_entity("NURSE-QA").is_err());
-        let record = submission("2020-01-02").into_entity("NURSE-QA").unwrap();
-        assert_eq!(record.administration_date.to_string(), "2020-01-02");
-    }
-}
-
 impl CreateImmunizationRequest {
     /// Bound submitted text and reject unsupported administration routes.
     fn validate(&self) -> Result<(), &'static str> {
@@ -180,5 +138,47 @@ impl CreateImmunizationRequest {
             }),
             ..Default::default()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Synthetic form submission exercising observations and absent metadata.
+    fn submission(date: &str) -> CreateImmunizationRequest {
+        serde_json::from_value(serde_json::json!({
+            "patient_id": "PAT-QA", "vaccine_name": "Fictional QA vaccine",
+            "administration_date": date, "lot_number": "QA-LOT",
+            "route": "Intramuscular", "site": "left-deltoid", "dose_number": 2,
+            "dose_amount": "0.5 mL", "total_doses": 3, "patient_consent": false,
+            "consent_by": "", "vfc_eligible": false, "next_dose_due": "2026-11-10",
+            "record_id": "SPOOF", "administered_by": "SPOOF"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn vaccine_form_preserves_observations_without_inventing_clinical_metadata() {
+        let record = submission("2026-10-10").into_entity("NURSE-QA").unwrap();
+        assert_eq!(record.administered_by.as_deref(), Some("NURSE-QA"));
+        assert_ne!(record.id, "SPOOF");
+        assert_eq!(record.patient_consent, Some(false));
+        assert_eq!(record.dose_amount.as_deref(), Some("0.5 mL"));
+        assert_eq!(record.data["total_doses"], 3);
+        assert_eq!(record.data["next_dose_due"], "2026-11-10");
+        assert!(record.cvx_code.is_none());
+        assert!(record.vis_given.is_none());
+        assert!(record.vis_date.is_none());
+        assert!(record.funding_source.is_none());
+        assert!(record.reaction_observed.is_none());
+    }
+
+    #[test]
+    fn vaccine_form_rejects_invalid_dates_instead_of_substituting_today() {
+        assert!(submission("2026-02-30").into_entity("NURSE-QA").is_err());
+        assert!(submission("").into_entity("NURSE-QA").is_err());
+        let record = submission("2020-01-02").into_entity("NURSE-QA").unwrap();
+        assert_eq!(record.administration_date.to_string(), "2020-01-02");
     }
 }

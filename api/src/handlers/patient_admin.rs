@@ -33,8 +33,10 @@ mod allergy_name_edit_tests {
             reaction: Some("Recorded reaction".into()),
             verified_at: Some(Utc::now()),
         };
-        let edited =
-            reconcile_allergy_names(&["penicillin".into(), "Latex".into()], &[existing.clone()]);
+        let edited = reconcile_allergy_names(
+            &["penicillin".into(), "Latex".into()],
+            std::slice::from_ref(&existing),
+        );
         assert_eq!(edited[0].severity, AllergySeverity::Severe);
         assert_eq!(edited[0].reaction, existing.reaction);
         assert_eq!(edited[0].verified_at, existing.verified_at);

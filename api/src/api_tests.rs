@@ -184,7 +184,10 @@ mod tests {
         let rows = state
             .repositories
             .access_logs
-            .get_by_patient("PAT-USAGE", crate::repositories::Pagination::first_page(100))
+            .get_by_patient(
+                "PAT-USAGE",
+                crate::repositories::Pagination::first_page(100),
+            )
             .await
             .unwrap();
         let latest = rows
@@ -969,6 +972,67 @@ mod tests {
         assert_eq!(contact["name"]["text"], "Sipho Mokoena");
         assert_eq!(contact["telecom"][0]["value"], "+27829876543");
         assert_eq!(contact["relationship"][0]["text"], "Brother");
+    }
+
+    /// The triage queue names each waiting patient. The page used to look names
+    /// up in the first 50 patients and showed a bare id for everyone else.
+    #[actix_rt::test]
+    async fn triage_queue_names_each_waiting_patient() {
+        let app_state = setup_registration_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(register_patient)
+                .service(crate::handlers::create_triage_assessment)
+                .service(crate::handlers::get_triage_queue),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/register")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .set_json(full_patient_payload())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success(), "registration failed");
+        let created: serde_json::Value = test::read_body_json(resp).await;
+        let patient_id = created["patient_id"]
+            .as_str()
+            .expect("patient_id")
+            .to_string();
+
+        let req = test::TestRequest::post()
+            .uri("/api/clinical/triage")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .set_json(json!({
+                "patient_id": patient_id,
+                "esi_level": 3,
+                "chief_complaint": "Synthetic abdominal pain",
+                "vital_signs": {}
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status().is_success(),
+            "triage create failed: {}",
+            resp.status()
+        );
+
+        let req = test::TestRequest::get()
+            .uri("/api/clinical/triage/queue")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let entry = body["queue"]
+            .as_array()
+            .expect("queue")
+            .iter()
+            .find(|entry| entry["patient_id"] == patient_id.as_str())
+            .expect("the triaged patient is in the queue");
+        assert_eq!(entry["patient_name"], "Thandiwe Mokoena", "{entry}");
+        assert_eq!(entry["chief_complaint"], "Synthetic abdominal pain");
     }
 
     #[actix_rt::test]

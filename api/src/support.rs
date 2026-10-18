@@ -403,6 +403,39 @@ pub async fn patient_age_years(data: &web::Data<AppState>, patient_id: &str) -> 
     age_in_years(&profile.date_of_birth, Utc::now().date_naive())
 }
 
+/// Resolve patient ids to display names, decrypting through the keyring.
+///
+/// Lists do this rather than the client for one reason: the name is
+/// encrypted at rest and only the API holds the keyring, so a panel that reads
+/// `patient_name` off a raw entity gets `undefined` and announces a result
+/// without saying whose it is.
+///
+/// Ids are de-duplicated, so a patient with six unacknowledged criticals costs
+/// one read rather than six. Shared by the dashboards and the triage queue,
+/// whose client used to look names up in the first 50 patients and showed a
+/// bare id for everyone else. Ids that cannot be resolved are simply absent from
+/// the map, and the caller leaves the field off — an unnamed alert is better
+/// than one attributed to the wrong person.
+pub async fn resolve_patient_names(
+    data: &web::Data<AppState>,
+    patient_ids: &[String],
+) -> std::collections::HashMap<String, String> {
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for patient_id in patient_ids {
+        if patient_id.is_empty() || names.contains_key(patient_id) {
+            continue;
+        }
+        if let Ok(entity) = data.repositories.patients.get_by_id(patient_id).await {
+            if let Some(profile) =
+                crate::patient_entity_to_profile(&entity, &data.encryption_keyring)
+            {
+                names.insert(patient_id.clone(), profile.full_name);
+            }
+        }
+    }
+    names
+}
+
 /// Whole years between a `YYYY-MM-DD` date of birth and `today`.
 ///
 /// Split out from `patient_age_years` so the boundary arithmetic is testable

@@ -558,7 +558,7 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         .iter()
         .map(|r| r.patient_id.clone())
         .collect();
-    let rejection_names = resolve_patient_names(&data, &rejection_ids).await;
+    let rejection_names = crate::support::resolve_patient_names(&data, &rejection_ids).await;
 
     // Enrich the SERIALISED ENTITY, not `entity.data`.
     //
@@ -607,7 +607,7 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         .iter()
         .map(|c| c.patient_id.clone())
         .collect();
-    let critical_names = resolve_patient_names(&data, &critical_ids).await;
+    let critical_names = crate::support::resolve_patient_names(&data, &critical_ids).await;
     let critical_notifications: Vec<serde_json::Value> = critical_records
         .iter()
         .map(|record| {
@@ -650,37 +650,6 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         "open_recollections": open_recollections,
         "critical_notifications": critical_notifications,
     }))
-}
-
-/// Resolve patient ids to display names, decrypting through the keyring.
-///
-/// Dashboards do this rather than the client for one reason: the name is
-/// encrypted at rest and only the API holds the keyring, so a panel that reads
-/// `patient_name` off a raw entity gets `undefined` and announces a result
-/// without saying whose it is.
-///
-/// Ids are de-duplicated, so a patient with six unacknowledged criticals costs
-/// one read rather than six. Ids that cannot be resolved are simply absent from
-/// the map, and the caller leaves the field off — an unnamed alert is better
-/// than one attributed to the wrong person.
-async fn resolve_patient_names(
-    data: &web::Data<AppState>,
-    patient_ids: &[String],
-) -> std::collections::HashMap<String, String> {
-    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for patient_id in patient_ids {
-        if patient_id.is_empty() || names.contains_key(patient_id) {
-            continue;
-        }
-        if let Ok(entity) = data.repositories.patients.get_by_id(patient_id).await {
-            if let Some(profile) =
-                crate::patient_entity_to_profile(&entity, &data.encryption_keyring)
-            {
-                names.insert(patient_id.clone(), profile.full_name);
-            }
-        }
-    }
-    names
 }
 
 /// Administrator Dashboard

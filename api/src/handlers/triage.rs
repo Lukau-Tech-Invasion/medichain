@@ -418,11 +418,18 @@ pub async fn get_patient_triage_assessments(
                 "total": result.total
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "patient_id": patient_id,
-            "assessments": [],
-            "total": 0
-        })),
+        // A failed read is an outage, not "no triage history": an empty list
+        // asserts the patient was never triaged.
+        Err(error) => {
+            log::error!("triage history read failed: {error}");
+            HttpResponse::ServiceUnavailable().json(
+                crate::middleware::error_handling::error_envelope_json(
+                    "TRIAGE_UNAVAILABLE",
+                    "Triage history could not be loaded",
+                    None,
+                ),
+            )
+        }
     }
 }
 
@@ -504,16 +511,39 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
                 })
                 .collect();
 
+            // Each entry carries the patient's name: the client used to look it
+            // up in the first 50 patients and showed a bare id for the rest.
+            let ids: Vec<String> = assessments.iter().map(|a| a.patient_id.clone()).collect();
+            let names = crate::support::resolve_patient_names(&data, &ids).await;
+            let total = assessments.len();
+            let queue: Vec<serde_json::Value> = assessments
+                .into_iter()
+                .map(|assessment| {
+                    let name = names.get(&assessment.patient_id).cloned();
+                    let mut entry = serde_json::to_value(assessment).unwrap_or_default();
+                    if let (Some(name), Some(object)) = (name, entry.as_object_mut()) {
+                        object.insert("patient_name".to_string(), serde_json::Value::String(name));
+                    }
+                    entry
+                })
+                .collect();
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
-                "queue": assessments,
-                "total": assessments.len()
+                "queue": queue,
+                "total": total
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "queue": [],
-            "total": 0
-        })),
+        // A failed read is an outage, not an empty waiting room: answering
+        // `queue: []` told the nurse nobody was waiting.
+        Err(error) => {
+            log::error!("triage queue read failed: {error}");
+            HttpResponse::ServiceUnavailable().json(
+                crate::middleware::error_handling::error_envelope_json(
+                    "TRIAGE_UNAVAILABLE",
+                    "The triage queue could not be loaded",
+                    None,
+                ),
+            )
+        }
     }
 }

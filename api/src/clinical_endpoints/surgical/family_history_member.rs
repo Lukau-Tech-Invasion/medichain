@@ -46,9 +46,11 @@ async fn append_member(
             // Time belongs to the server; a retry by a different recorder is a conflict.
             let mut previous = previous.clone();
             let mut requested = value.clone();
-            for field in ["recorded_at"] {
-                previous.as_object_mut().map(|object| object.remove(field));
-                requested.as_object_mut().map(|object| object.remove(field));
+            if let Some(object) = previous.as_object_mut() {
+                object.remove("recorded_at");
+            }
+            if let Some(object) = requested.as_object_mut() {
+                object.remove("recorded_at");
             }
             return if previous == requested {
                 Ok(row.data)
