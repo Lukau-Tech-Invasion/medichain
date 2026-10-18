@@ -29,6 +29,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 type SpecimenType = 'blood' | 'urine' | 'other-fluid' | 'tissue' | 'swab' | 'evidence';
@@ -83,6 +84,8 @@ const ChainOfCustodyPage: React.FC = () => {
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [records, setRecords] = useState<ChainOfCustody[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'new-collection' | 'transfer' | 'history'>('active');
   const [selectedRecord, setSelectedRecord] = useState<ChainOfCustody | null>(null);
@@ -190,7 +193,7 @@ const ChainOfCustodyPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(chainOfCustodySchema);
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newCollection.patientId);
-  const handleCreateCustody = async () => {
+  const handleCreateCustody = guardSubmit(async () => {
     // The seal number is what makes the chain checkable -- it ties this record
     // to the physical container, so a later transfer can prove it handled the
     // same specimen. A toast naming three fields at once cannot say which of
@@ -272,7 +275,7 @@ const ChainOfCustodyPage: React.FC = () => {
     });
     setActiveTab('active');
     showSuccess(t('docChainOfCustody.successCreated', { id: formId }));
-  };
+  });
 
   const {
     errors: transferErrors,
@@ -281,7 +284,7 @@ const ChainOfCustodyPage: React.FC = () => {
     clearField: clearTransferField,
   } = useValidatedForm(custodyHandoverSchema);
 
-  const handleTransfer = async () => {
+  const handleTransfer = guardSubmit(async () => {
     // Who took it and where are what make the chain traceable; a transfer
     // missing either leaves the gap a later challenge points at.
     if (!selectedRecord) {
@@ -316,7 +319,7 @@ const ChainOfCustodyPage: React.FC = () => {
       notes: '',
     });
     showSuccess(t('docChainOfCustody.successTransferDocumented'));
-  };
+  });
 
   const filteredRecords = records.filter((r) => {
     const matchesSearch =
@@ -784,7 +787,8 @@ const ChainOfCustodyPage: React.FC = () => {
 
           <button
             onClick={() => void handleCreateCustody()}
-            className="w-full bg-gray-700 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+            disabled={submitPending}
+            className="w-full disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 bg-gray-700 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
           >
             {t('docChainOfCustody.createRecordBtn')}
           </button>
@@ -926,7 +930,8 @@ const ChainOfCustodyPage: React.FC = () => {
               <div className="flex gap-3 pt-4">
                 <button
                   onClick={() => void handleTransfer()}
-                  className="flex-1 bg-gray-700 text-white px-4 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+                  disabled={submitPending}
+                  className="flex-1 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 bg-gray-700 text-white px-4 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
                 >
                   {t('docChainOfCustody.completeTransferBtn')}
                 </button>

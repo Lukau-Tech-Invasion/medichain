@@ -4,6 +4,7 @@ import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect'
 import { useAuthStore } from '../store/authStore';
 import { createOb, useTranslation, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 type FetalHeartCategory = 'I' | 'II' | 'III';
 type LaborStage = 'latent' | 'active' | 'second' | 'third' | 'postpartum';
@@ -67,6 +68,8 @@ const ObstetricsPage: React.FC = () => {
   const fhrDesc = (cat: FetalHeartCategory): string => ({
     I: t('docObstetrics.fhrDescI'), II: t('docObstetrics.fhrDescII'), III: t('docObstetrics.fhrDescIII'),
   }[cat]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [assessments, setAssessments] = useState<ObAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -116,7 +119,7 @@ const ObstetricsPage: React.FC = () => {
   }, [fhr.baseline, fhr.variability, fhr.accelerations, fhr.decelerations]);
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
-  const handleSubmit = async () => {
+  const handleSubmit = guardSubmit(async () => {
     if (!selectedPatient) {
       showError(t('docObstetrics.errorSelectPatient'));
       return;
@@ -147,7 +150,7 @@ const ObstetricsPage: React.FC = () => {
     }
     setAssessments([newAssessment, ...assessments]);
     showSuccess(t('docObstetrics.saved'));
-  };
+  });
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -544,7 +547,7 @@ const ObstetricsPage: React.FC = () => {
 
             {/* Submit */}
             <button
-              onClick={handleSubmit}
+              onClick={handleSubmit} disabled={submitPending}
               className="w-full py-3 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700"
             >
               {t('docObstetrics.save')}

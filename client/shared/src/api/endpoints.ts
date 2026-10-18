@@ -170,6 +170,35 @@ export async function getPatients(options: PatientListOptions = {}): Promise<Pat
   return (response.data || []).filter((patient) => patient.content_available !== false);
 }
 
+/** A child in the directory, with the age in months the server computed. */
+export interface PaediatricCaseloadEntry extends PatientDirectoryEntry {
+  age_months: number;
+}
+
+/**
+ * Every child the directory holds. The paediatrics page used to filter the
+ * first 50 patients by date of birth in the browser; dates of birth are
+ * encrypted, so the server filters and computes each age. `truncated` is true
+ * when the scan stopped at its cap, so a partial caseload is never presented
+ * as the whole.
+ */
+export async function getPaediatricCaseload(): Promise<{
+  children: PaediatricCaseloadEntry[];
+  truncated: boolean;
+  unreadableCount: number;
+}> {
+  const response = await getApiClient().get<{
+    data?: PaediatricCaseloadEntry[];
+    truncated?: boolean;
+    unreadable_count?: number;
+  }>('/api/patients/paediatric-caseload', { keepEnvelope: true });
+  return {
+    children: (response.data ?? []).filter((child) => child.content_available !== false),
+    truncated: Boolean(response.truncated),
+    unreadableCount: response.unreadable_count ?? 0,
+  };
+}
+
 export async function getPatient(patientId: string): Promise<PatientProfile> {
   return getApiClient().get(`/api/patients/${patientId}`);
 }

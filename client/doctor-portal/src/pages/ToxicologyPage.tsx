@@ -4,6 +4,7 @@ import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect'
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
 type ExposureRoute = 'oral' | 'inhalation' | 'dermal' | 'injection' | 'ocular' | 'unknown';
@@ -93,6 +94,8 @@ const ToxicologyPage: React.FC = () => {
   const { catalog } = useScoringCatalog();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [cases, setCases] = useState<ToxCase[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -140,7 +143,7 @@ const ToxicologyPage: React.FC = () => {
   };
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
-  const handleSubmit = async () => {
+  const handleSubmit = guardSubmit(async () => {
     if (!selectedPatient || !substance) {
       showError(t('docToxicology.errorSelect'));
       return;
@@ -178,7 +181,7 @@ const ToxicologyPage: React.FC = () => {
       return;
     }
     showSuccess(t('docToxicology.saved'));
-  };
+  });
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -493,7 +496,7 @@ const ToxicologyPage: React.FC = () => {
 
             {/* Submit */}
             <button
-              onClick={handleSubmit}
+              onClick={handleSubmit} disabled={submitPending}
               className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
             >
               {t('docToxicology.save')}

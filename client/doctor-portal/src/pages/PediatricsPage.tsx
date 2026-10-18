@@ -18,7 +18,7 @@ import PediatricGrowthChart from '../components/PediatricGrowthChart';
 import {
   createPeds,
   listPedsForPatient,
-  getPatients,
+  getPaediatricCaseload,
   useTranslation,
   clickable,
   Input,
@@ -130,6 +130,7 @@ const PediatricsPage: React.FC = () => {
   const [summaryError, setSummaryError] = useState<{ patientId: string; message: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'patients' | 'assessment' | 'growth'>('patients');
   const [patients, setPatients] = useState<PediatricPatient[]>([]);
+  const [caseloadNotice, setCaseloadNotice] = useState<'unavailable' | 'truncated' | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<PediatricPatient | null>(null);
   const selectedPatientId = selectedPatient?.id;
   const [historyPage, setHistoryPage] = useState(1);
@@ -190,23 +191,17 @@ const PediatricsPage: React.FC = () => {
       return 'adolescent';
     };
 
-    const monthsBetween = (dob: Date, now: Date) =>
-      Math.max(0, (now.getFullYear() - dob.getFullYear()) * 12 + (now.getMonth() - dob.getMonth()));
-
+    // The caseload is every child the directory holds, filtered and aged on the
+    // server: this used to filter the first 50 patients by date of birth here.
     const loadPatients = async () => {
       try {
-        const register = await getPatients();
-        const now = new Date();
-        const children = (register || [])
+        const caseload = await getPaediatricCaseload();
+        setCaseloadNotice(caseload.truncated ? 'truncated' : null);
+        const children = caseload.children
           .map((entry) => {
             const raw = entry as unknown as Record<string, unknown>;
-            const dobRaw = (raw.date_of_birth ?? raw.dob ?? raw.dateOfBirth) as string | undefined;
-            if (!dobRaw) return null;
-            const dob = new Date(dobRaw);
-            if (Number.isNaN(dob.getTime())) return null;
-            const ageMonths = monthsBetween(dob, now);
-            // Paediatrics covers birth to the 18th birthday.
-            if (ageMonths >= 216) return null;
+            const dob = new Date(entry.date_of_birth);
+            const ageMonths = entry.age_months;
             return {
               id: String(raw.patient_id ?? ''),
               name: String(raw.full_name ?? ''),
@@ -226,8 +221,10 @@ const PediatricsPage: React.FC = () => {
           .filter((entry): entry is PediatricPatient => entry !== null);
         setPatients(children);
       } catch (err) {
+        // "Could not load" is not "no children": an empty caseload asserts the second.
         console.error('Failed to load pediatric patients:', err);
         setPatients([]);
+        setCaseloadNotice('unavailable');
       }
     };
     loadPatients();
@@ -504,6 +501,13 @@ const PediatricsPage: React.FC = () => {
       {/* Patients Tab */}
       {activeTab === 'patients' && (
         <div className="p-4">
+          {caseloadNotice && (
+            <p role="alert" className="mb-4 p-3 rounded-lg bg-caution-subtle text-caution-subtle-fg text-sm">
+              {caseloadNotice === 'unavailable'
+                ? t('docPediatrics.caseloadUnavailable')
+                : t('docPediatrics.caseloadTruncated')}
+            </p>
+          )}
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
             <input

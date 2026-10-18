@@ -32,6 +32,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 /**
@@ -102,6 +103,8 @@ const CriticalValuePage: React.FC = () => {
       })),
     [catalog]
   );
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [notifications, setNotifications] = useState<CriticalValueNotification[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'report-new' | 'history' | 'thresholds'>('pending');
   const [selectedNotification, setSelectedNotification] = useState<CriticalValueNotification | null>(null);
@@ -211,7 +214,7 @@ const CriticalValuePage: React.FC = () => {
   } = useValidatedForm(criticalValueReportSchema);
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newCritical.patientId);
-  const handleReportCriticalValue = async () => {
+  const handleReportCriticalValue = guardSubmit(async () => {
     // The ordering provider is who gets called. Without it the notification has
     // no addressee and the value sits in a queue -- which is the one outcome a
     // critical-value workflow exists to prevent.
@@ -275,7 +278,7 @@ const CriticalValuePage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const handleStartNotification = (notification: CriticalValueNotification) => {
     setSelectedNotification(notification);
@@ -294,7 +297,7 @@ const CriticalValuePage: React.FC = () => {
     clearField,
   } = useValidatedForm(criticalValueAckSchema);
 
-  const handleAcknowledge = async () => {
+  const handleAcknowledge = guardSubmit(async () => {
     if (!selectedNotification) return;
 
     // Read-back is the safety procedure, so the message belongs on the box the
@@ -336,9 +339,9 @@ const CriticalValuePage: React.FC = () => {
       acknowledgmentNotes: '',
     });
     showSuccess(t('docCriticalValue.successAcknowledged'));
-  };
+  });
 
-  const handleCancelNotification = async (notificationId: string, reason: string) => {
+  const handleCancelNotification = guardSubmit(async (notificationId: string, reason: string) => {
     try {
       await cancelCriticalValue(notificationId, reason);
     } catch (err) {
@@ -347,7 +350,7 @@ const CriticalValuePage: React.FC = () => {
     }
     await fetchData();
     showSuccess(t('docCriticalValue.successCancelled'));
-  };
+  });
 
   const filteredNotifications = notifications.filter((n) => {
     const matchesSearch =
@@ -962,7 +965,7 @@ const CriticalValuePage: React.FC = () => {
           </div>
 
           <button
-            onClick={handleReportCriticalValue}
+            onClick={handleReportCriticalValue} disabled={submitPending}
             className="w-full bg-brand text-brand-fg px-6 py-3 rounded-lg hover:bg-brand-hover transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Bell className="w-5 h-5" />

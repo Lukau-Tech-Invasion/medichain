@@ -26,6 +26,7 @@ import {
   createDischargeInstructions,
   createDischargeSummary,
   exportDocumentToPdf,
+  formatDateOnly,
   getApiErrorMessage,
   getPatients,
   listDischarges,
@@ -193,9 +194,12 @@ function DischargePage() {
     primary_diagnosis: '',
     secondary_diagnoses: '',
     procedures_performed: '',
-    discharge_disposition: 'home',
-    discharge_condition: 'stable',
-    diet_instructions: 'Resume regular diet as tolerated',
+    // Nothing pre-chosen: a disposition, a condition or a diet nobody entered
+    // was stored as if the clinician had stated it.
+    discharge_disposition: '',
+    discharge_condition: '',
+    admission_date: '',
+    diet_instructions: '',
     activity_restrictions: '',
     warning_signs: '',
     emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: getEmergencyNumber() }),
@@ -284,6 +288,10 @@ function DischargePage() {
       setError(t('docDischarge.errorSelectPatient'));
       return;
     }
+    if (!formData.discharge_condition) {
+      setError(t('docDischarge.errorConditionRequired'));
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -298,6 +306,10 @@ function DischargePage() {
         patient_name: patient?.full_name || '',
         discharge_date: new Date().toISOString().split('T')[0],
         discharge_disposition: formData.discharge_disposition,
+        // Local midnight of the chosen day as an instant; absent when not entered.
+        admission_datetime: formData.admission_date
+          ? new Date(`${formData.admission_date}T00:00`).toISOString()
+          : undefined,
         primary_diagnosis: formData.primary_diagnosis,
         secondary_diagnoses: formData.secondary_diagnoses.split('\n').filter(Boolean),
         procedures_performed: formData.procedures_performed.split('\n').filter(Boolean),
@@ -375,9 +387,10 @@ function DischargePage() {
       primary_diagnosis: '',
       secondary_diagnoses: '',
       procedures_performed: '',
-      discharge_disposition: 'home',
-      discharge_condition: 'stable',
-      diet_instructions: 'Resume regular diet as tolerated',
+      discharge_disposition: '',
+      discharge_condition: '',
+      admission_date: '',
+      diet_instructions: '',
       activity_restrictions: '',
       warning_signs: '',
       emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: getEmergencyNumber() }),
@@ -589,7 +602,7 @@ function DischargePage() {
                     </div>
                     <div>
                       <h3 className="font-bold text-content">{discharge.patient_name}</h3>
-                      <p className="text-sm text-content-muted">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date })}</p>
+                      <p className="text-sm text-content-muted">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date ? formatDateOnly(discharge.admission_date) : t('docDischarge.admissionNotRecorded') })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -755,7 +768,9 @@ function DischargePage() {
                     value={formData.discharge_disposition}
                     onChange={(e) => setFormData({ ...formData, discharge_disposition: e.target.value })}
                     className="w-full p-3 border border-border-interactive rounded-lg"
+                    required
                   >
+                    <option value="">{t('docDischarge.selectDisposition')}</option>
                     <option value="home">{t('docDischarge.disposition_home')}</option>
                     <option value="home_health">{t('docDischarge.disposition_homeHealth')}</option>
                     <option value="snf">{t('docDischarge.disposition_snf')}</option>
@@ -765,6 +780,19 @@ function DischargePage() {
                     <option value="ama">{t('docDischarge.disposition_ama')}</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="dc-admission-date" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.admissionDateLabel')}</label>
+                <input
+                  id="dc-admission-date"
+                  type="date"
+                  value={formData.admission_date}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setFormData({ ...formData, admission_date: e.target.value })}
+                  className="w-full p-3 border border-border-interactive rounded-lg"
+                />
+                <p className="text-xs text-content-muted mt-1">{t('docDischarge.admissionDateHint')}</p>
               </div>
 
               <div>
@@ -783,14 +811,16 @@ function DischargePage() {
               <div>
                 <label id="dc-discharge-condition-label" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.dischargeConditionLabel')}</label>
                 <div className="grid grid-cols-4 gap-2" role="group" aria-labelledby="dc-discharge-condition-label">
-                  {['improved', 'stable', 'unchanged', 'declined'].map((condition) => (
+                  {/* `deteriorated` is the stored value; the button reads "declined". */}
+                  {(['improved', 'stable', 'unchanged', 'deteriorated'] as const).map((condition) => (
                     <button
                       key={condition}
                       type="button"
                       onClick={() => setFormData({ ...formData, discharge_condition: condition })}
+                      aria-pressed={formData.discharge_condition === condition}
                       className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-brand bg-brand-subtle text-brand-subtle-fg' : 'border-border hover:bg-surface-sunken'}`}
                     >
-                      {t(`docDischarge.condition_${condition}`)}
+                      {t(`docDischarge.condition_${condition === 'deteriorated' ? 'declined' : condition}`)}
                     </button>
                   ))}
                 </div>

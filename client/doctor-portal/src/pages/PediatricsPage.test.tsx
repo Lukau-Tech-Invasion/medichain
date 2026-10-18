@@ -11,6 +11,7 @@ vi.mock('../store/authStore', async importOriginal => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  getPaediatricCaseload: vi.fn(),
   createPeds: vi.fn(),
   listPedsForPatient: vi.fn(),
   openAccessContext: vi.fn(),
@@ -31,14 +32,22 @@ beforeEach(() => {
     expires_at: new Date(Date.now() + 3600000).toISOString() } as never);
   vi.mocked(shared.createPeds).mockResolvedValue({ success: true } as never);
   vi.mocked(shared.listPedsForPatient).mockResolvedValue([]);
-  // The page filters the patient register to under-18s by date of birth. It
-  // used to ship two invented children instead of reading the register at all.
-  vi.mocked(shared.getPatients).mockResolvedValue([
-    patientProfile({ patient_id: 'PED-001', full_name: 'Yusuf Al-Rashid', date_of_birth: isoMonthsAgo(8), gender: 'male' }),
-    patientProfile({ patient_id: 'PED-002', full_name: 'Sara Hassan', date_of_birth: isoMonthsAgo(54), gender: 'female' }),
-    patientProfile({ patient_id: 'ADT-001', full_name: 'Adult Patient', date_of_birth: isoMonthsAgo(420), gender: 'male' }),
-  ]);
+  // The caseload comes from the server, filtered to under-18s and aged there.
+  // The page used to ship two invented children, then to filter the first page
+  // of the register in the browser.
+  const yusuf = patientProfile({ patient_id: 'PED-001', full_name: 'Yusuf Al-Rashid', date_of_birth: isoMonthsAgo(8), gender: 'male' });
+  const sara = patientProfile({ patient_id: 'PED-002', full_name: 'Sara Hassan', date_of_birth: isoMonthsAgo(54), gender: 'female' });
+  vi.mocked(shared.getPaediatricCaseload).mockResolvedValue(caseload([
+    { ...yusuf, age_months: 8 },
+    { ...sara, age_months: 54 },
+  ]));
+  // The assessment form's picker searches the directory on the server.
+  vi.mocked(shared.getPatients).mockResolvedValue([yusuf, sara]);
 });
+
+function caseload(children: unknown[], truncated = false) {
+  return { children, truncated, unreadableCount: 0 } as unknown as Awaited<ReturnType<typeof shared.getPaediatricCaseload>>;
+}
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PediatricsPage from './PediatricsPage';
 
@@ -229,10 +238,22 @@ describe('PediatricsPage', () => {
     expect(screen.getByText('Vaccines: Up to date')).toBeInTheDocument();
   });
 
+  it('says the caseload could not be loaded instead of showing an empty one', async () => {
+    vi.mocked(shared.getPaediatricCaseload).mockRejectedValue(new Error('Synthetic outage'));
+    render(<PediatricsPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/caseload could not be loaded/i);
+  });
+
+  it('warns when the caseload scan stopped at its limit', async () => {
+    vi.mocked(shared.getPaediatricCaseload).mockResolvedValue(caseload([], true));
+    render(<PediatricsPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/may be incomplete/i);
+  });
+
   it('does not infer gender, overdue vaccines or on-track development from missing data', async () => {
-    vi.mocked(shared.getPatients).mockResolvedValue([patientProfile({
+    vi.mocked(shared.getPaediatricCaseload).mockResolvedValue(caseload([{ ...patientProfile({
       patient_id: 'PED-UNKNOWN', full_name: 'Fictional unknown child', date_of_birth: isoMonthsAgo(54), gender: '',
-    })]);
+    }), age_months: 54 }]));
     render(<PediatricsPage />);
     fireEvent.click(await screen.findByText('Fictional unknown child'));
     expect(screen.queryByText('on track')).not.toBeInTheDocument();

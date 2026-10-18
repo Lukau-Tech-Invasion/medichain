@@ -64,6 +64,9 @@ export interface RequestOptions {
   };
 }
 
+/** Directory reads: each carries the clinician's stated purpose and is audited server-side. */
+const DIRECTORY_READ_PATHS = new Set(['/api/patients', '/api/patients/paediatric-caseload']);
+
 /**
  * Pull the `{ message, code }` out of any error response body the backend can
  * emit, returning `undefined` for fields it can't recognize. Tolerates:
@@ -534,7 +537,7 @@ export class ApiClient {
    */
   private accessReasonHeaders(method: string, path: string, patientId?: string): Record<string, string> {
     if (method.toUpperCase() !== 'GET') return {};
-    if (path.split('?')[0] === '/api/patients' && this.directoryPurpose) {
+    if (DIRECTORY_READ_PATHS.has(path.split('?')[0]) && this.directoryPurpose) {
       return { 'X-Access-Reason': this.directoryPurpose };
     }
     const context = this.patientAccessContext;

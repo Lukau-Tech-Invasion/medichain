@@ -29,6 +29,7 @@ import {
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 import StaffName from '../components/StaffName';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 type VaccineType =
   | 'covid-19'
   | 'influenza'
@@ -164,6 +165,8 @@ const ImmunizationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess } = useToastActions();
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [administrations, setAdministrations] = useState<VaccineAdministration[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -282,7 +285,7 @@ const ImmunizationPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(immunizationSchema);
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newVaccine.patientId);
-  const handleAdminister = async () => {
+  const handleAdminister = guardSubmit(async () => {
     if (!newVaccine.administrationDate) {
       setError(t('docImmunization.actualDateRequired'));
       return;
@@ -393,7 +396,7 @@ const ImmunizationPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const filteredAdministrations = administrations.filter((a) => {
     // Defensive: a search box must never be able to crash a clinical screen,
@@ -936,7 +939,7 @@ const ImmunizationPage: React.FC = () => {
           </div>
 
           <button
-            onClick={handleAdminister}
+            onClick={handleAdminister} disabled={submitPending}
             className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Syringe className="w-5 h-5" />

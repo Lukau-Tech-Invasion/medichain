@@ -31,6 +31,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 type ConsultSpecialty =
@@ -157,6 +158,8 @@ const ConsultPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [consults, setConsults] = useState<Consult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,7 +213,7 @@ const ConsultPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(consultRequestSchema);
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newConsult.patientId);
-  const handleRequestConsult = async () => {
+  const handleRequestConsult = guardSubmit(async () => {
     // The clinical question is the consultation. A referral saying only
     // "please review" makes the consultant guess what was asked, and the answer
     // comes back addressing something else -- so the message belongs on that
@@ -277,7 +280,7 @@ const ConsultPage: React.FC = () => {
     showSuccess(t('docConsult.successRequested', { id: consultId }));
     // Read the list back: the row shown is then the stored one.
     void fetchConsults();
-  };
+  });
 
   const {
     errors: responseErrors,
@@ -965,7 +968,7 @@ const ConsultPage: React.FC = () => {
           </div>
 
           <button
-            onClick={handleRequestConsult}
+            onClick={handleRequestConsult} disabled={submitPending}
             className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold mt-6 flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />

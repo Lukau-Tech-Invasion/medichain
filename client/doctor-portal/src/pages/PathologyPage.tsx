@@ -17,6 +17,7 @@ import {
 } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 /**
  * PathologyPage
@@ -150,6 +151,8 @@ const PathologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [specimens, setSpecimens] = useState<PathologySpecimen[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,7 +220,7 @@ const PathologyPage: React.FC = () => {
   const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician });
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
-  const handleSubmitOrder = async (e: React.FormEvent) => {
+  const handleSubmitOrder = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
     // The anatomical site is what makes the specimen interpretable: a report on
     // "a biopsy" cannot say whether the margin it describes is the one that
@@ -278,7 +281,7 @@ const PathologyPage: React.FC = () => {
     setContainer('');
     setFixative('10% formalin');
     setActiveTab('worklist');
-  };
+  });
 
   /**
    * Load the slide images attached to a specimen.
@@ -365,7 +368,7 @@ const PathologyPage: React.FC = () => {
     setActiveTab('report');
   };
 
-  const handleSaveReport = async (finalizeReport: boolean) => {
+  const handleSaveReport = guardSubmit(async (finalizeReport: boolean) => {
     if (!selectedSpecimen) return;
     if (selectedSpecimen.status === 'final') {
       showError(t('docPathology.finalReadOnly'));
@@ -398,7 +401,7 @@ const PathologyPage: React.FC = () => {
     showSuccess(finalizeReport ? t('docPathology.reportFinalizedSuccess') : t('docPathology.reportSavedPrelimSuccess'));
     setActiveTab('worklist');
     setSelectedSpecimen(null);
-  };
+  });
 
   const addBlock = () => {
     if (newBlock.trim()) {
@@ -1242,7 +1245,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(false)}
-              disabled={selectedSpecimen.status === 'final'}
+              disabled={submitPending || (selectedSpecimen.status === 'final')}
               className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
@@ -1251,7 +1254,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(true)}
-              disabled={selectedSpecimen.status === 'final'}
+              disabled={submitPending || (selectedSpecimen.status === 'final')}
               className="px-4 py-2 bg-ok text-ok-fg rounded-md hover:bg-ok flex items-center"
             >
               <CheckCircle className="h-4 w-4 mr-2" />

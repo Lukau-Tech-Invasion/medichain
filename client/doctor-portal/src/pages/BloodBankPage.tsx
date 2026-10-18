@@ -17,6 +17,7 @@ import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity,
 import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
 import { BloodInventoryPanel } from '../components/BloodInventoryPanel';
 import { useToastActions } from '../components/Toast';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 /**
  * BloodBankPage
@@ -154,6 +155,8 @@ const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [loadedOrders, setOrders] = useState<BloodOrder[]>([]);
   // Records saved without a name are labelled from the server's directory; the
   // first page of `getPatients()` labelled anyone past the fiftieth with an id.
@@ -230,7 +233,7 @@ const BloodBankPage: React.FC = () => {
   }, [fetchBloodBankOrders]);
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
-  const handleSubmitOrder = async (e: React.FormEvent) => {
+  const handleSubmitOrder = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !indication) {
       showError(t('docBloodBank.errorRequiredFields'));
@@ -297,7 +300,7 @@ const BloodBankPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const handleOpenTransfusion = (order: BloodOrder) => {
     setSelectedOrder(order);
@@ -335,7 +338,7 @@ const BloodBankPage: React.FC = () => {
     witnessedBy,
   });
 
-  const handleSubmitTransfusion = async (e: React.FormEvent) => {
+  const handleSubmitTransfusion = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
     // Transfusion is a two-person check: the administering nurse and the
     // witness verify the unit against the patient independently. A record with
@@ -402,7 +405,7 @@ const BloodBankPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const toggleReaction = (reaction: string) => {
     if (reactions.includes(reaction)) {
@@ -779,7 +782,8 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
+                disabled={submitPending}
+                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docBloodBank.submitOrderBtn')}
@@ -1087,7 +1091,8 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
+                disabled={submitPending}
+                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {endTime ? t('docBloodBank.completeTransfusionBtn') : t('docBloodBank.startTransfusionBtn')}
