@@ -11,7 +11,8 @@ vi.mock('../store/authStore', async original => ({ ...(await original<Record<str
 vi.mock('@medichain/shared', async original => ({ ...(await original<Record<string, unknown>>()),
   getPatients: vi.fn(), getFamilyHistory: vi.fn(), appendFamilyHistoryMember: vi.fn(), assessFamilyHistory: vi.fn(),
 }));
-vi.mock('../components/PatientSelect', () => ({ default: (props: {
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), default: (props: {
   onChange: (id: string, patient: { patient_id: string; full_name: string }) => void;
 }) => <button onClick={() => props.onChange('PAT-QA', { patient_id: 'PAT-QA', full_name: 'Synthetic Patient' })}>Choose synthetic patient</button> }));
 

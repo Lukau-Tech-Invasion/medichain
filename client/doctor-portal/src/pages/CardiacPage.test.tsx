@@ -5,6 +5,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CardiacPage from './CardiacPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -19,6 +20,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
   createCardiac: vi.fn(),
   getPatientCardiacEvents: vi.fn(),
@@ -49,10 +51,7 @@ describe('CardiacPage', () => {
       id: 'CAR-SAVED', success: true, event_type: 'Arrhythmia', timi_score: 0, timi_band: 'low',
     });
     render(<MemoryRouter><CardiacPage /></MemoryRouter>);
-    await screen.findByRole('option', { name: /John Doe/ });
-    fireEvent.change(screen.getAllByRole('combobox')[0], {
-      target: { value: mockPatients[0].patient_id },
-    });
+    await selectPatient('', 'John Doe', 'cardiac-patient');
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Troponin (ng/mL)' }), {
       target: { value: '0' },
     });
@@ -85,11 +84,10 @@ describe('CardiacPage', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      const select = screen.getByPlaceholderText(/Search patients/i);
-      fireEvent.change(select, { target: { value: 'PAT-001' } });
-      expect(select).toHaveValue('PAT-001');
-    });
+    await selectPatient('', 'John Doe', 'cardiac-patient');
+    expect(screen.getByRole('button', { name: 'Clear selected patient John Doe' })).toBeInTheDocument();
+    // Searched on the server rather than filtered from the first page of patients.
+    expect(vi.mocked(shared.getPatients)).toHaveBeenCalledWith(expect.objectContaining({ query: 'John' }));
   });
 
   it('allows entering event details', async () => {

@@ -1,12 +1,19 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import * as shared from '@medichain/shared';
 import TriagePage, { triageLevel } from './TriagePage';
 import { useAuthStore } from '../store';
+import { selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
+}));
+
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn(),
 }));
 
 // Mock fetch
@@ -21,6 +28,10 @@ describe('TriagePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-TRIAGE',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
@@ -90,7 +101,7 @@ describe('TriagePage', () => {
     });
   });
 
-  it('renders triage page and offers patients once the search is opened', async () => {
+  it('searches the server for the patient being triaged, not the first page of patients', async () => {
     render(
       <MemoryRouter>
         <TriagePage />
@@ -101,15 +112,39 @@ describe('TriagePage', () => {
       expect(screen.getByText(/ESI Triage Assessment/i)).toBeInTheDocument();
     });
 
-    // Patients are a search dropdown, not a list on load: the component only
-    // opens it on focus. Asserting the names without this was asserting a
-    // behaviour the page correctly does not have.
-    fireEvent.focus(screen.getByPlaceholderText(/Search patient/i));
+    // The page used to filter the first 50 rows of `GET /api/patients`
+    // locally, so the fifty-first patient could never be found.
+    fireEvent.change(screen.getByLabelText(/Search patient/i), { target: { value: 'Alic' } });
+    expect(await screen.findByRole('button', { name: /Alice Smith/i })).toBeInTheDocument();
+    expect(
+      mockFetch.mock.calls.some(([url]) => /\/api\/patients\?.*q=Alic/.test(String(url)))
+    ).toBe(true);
+  });
 
-    await waitFor(() => {
-      expect(screen.getByText(/Alice Smith/i)).toBeInTheDocument();
-      expect(screen.getByText(/Bob Jones/i)).toBeInTheDocument();
+  it('says the queue could not be loaded rather than that nobody is waiting, and retries', { timeout: 60000 }, async () => {
+    let queueDown = true;
+    const listPatients = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes('/api/clinical/triage/queue')) {
+        if (queueDown) {
+          return Promise.resolve({
+            ok: false, status: 503, statusText: 'Service Unavailable',
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: async () => ({ error: { code: 'TRIAGE_UNAVAILABLE', message: 'The triage queue could not be loaded' } }),
+          });
+        }
+      }
+      return listPatients(url, init);
     });
+    render(<MemoryRouter><TriagePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /^Triage Queue$/ }));
+
+    expect(await screen.findByText(/triage queue could not be loaded/i, {}, { timeout: 30000 })).toBeInTheDocument();
+    expect(screen.queryByText('No patients in triage queue')).not.toBeInTheDocument();
+
+    queueDown = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByText('Chest Pain', {}, { timeout: 10000 })).toBeInTheDocument();
   });
 
   it('displays acuity levels', async () => {
@@ -136,12 +171,7 @@ describe('TriagePage', () => {
       </MemoryRouter>
     );
 
-    fireEvent.focus(screen.getByPlaceholderText(/Search patient/i));
-
-    await waitFor(() => {
-      const patient = screen.getByText(/Alice Smith/i);
-      fireEvent.click(patient);
-    });
+    await selectPatient(/Search patient/i, 'Alice Smith');
 
     await waitFor(() => {
       expect(screen.getAllByText(/Triage Assessment/i).length).toBeGreaterThan(0);
@@ -151,8 +181,7 @@ describe('TriagePage', () => {
 
   it('keeps the entered form and hides raw server errors after a rejected submission', async () => {
     render(<MemoryRouter><TriagePage /></MemoryRouter>);
-    fireEvent.focus(screen.getByPlaceholderText(/Search patient/i));
-    fireEvent.click(await screen.findByText('Alice Smith'));
+    await selectPatient(/Search patient/i, 'Alice Smith');
     fireEvent.click(screen.getByRole('button', { name: /5 Non-Urgent/ }));
     fireEvent.change(screen.getByLabelText('Chief Complaint'), { target: { value: 'Synthetic rehearsal' } });
     mockFetch.mockResolvedValueOnce({

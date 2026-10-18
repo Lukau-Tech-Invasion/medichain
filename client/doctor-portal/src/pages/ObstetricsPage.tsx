@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createOb, useTranslation, formatTimestamp } from '@medichain/shared';
+import { createOb, useTranslation, formatTimestamp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type FetalHeartCategory = 'I' | 'II' | 'III';
 type LaborStage = 'latent' | 'active' | 'second' | 'third' | 'postpartum';
@@ -68,7 +67,6 @@ const ObstetricsPage: React.FC = () => {
   const fhrDesc = (cat: FetalHeartCategory): string => ({
     I: t('docObstetrics.fhrDescI'), II: t('docObstetrics.fhrDescII'), III: t('docObstetrics.fhrDescIII'),
   }[cat]);
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [assessments, setAssessments] = useState<ObAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -98,17 +96,6 @@ const ObstetricsPage: React.FC = () => {
     category: 'I'
   });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   // Auto-calculate FHR category
   useEffect(() => {
@@ -128,12 +115,16 @@ const ObstetricsPage: React.FC = () => {
     setFhr(prev => ({ ...prev, category: cat }));
   }, [fhr.baseline, fhr.variability, fhr.accelerations, fhr.decelerations]);
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (!selectedPatient) {
       showError(t('docObstetrics.errorSelectPatient'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     const newAssessment: ObAssessment = {
       id: `OB-${Date.now()}`,
       patientId: selectedPatient,

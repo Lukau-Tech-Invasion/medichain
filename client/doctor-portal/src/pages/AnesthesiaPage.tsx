@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { StoredValue } from '../components/StoredSoapDetails';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   createAnesthesia,
   fromStoredRecord,
   getApiClient,
@@ -15,7 +14,6 @@ import {
   anesthesiaRecordSchema,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'combined';
@@ -87,7 +85,6 @@ const AnesthesiaPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<AnesthesiaRecord[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionPending = useRef(false);
@@ -165,17 +162,6 @@ const AnesthesiaPage: React.FC = () => {
   // New vital entry
   const [newVital, setNewVital] = useState<VitalReading>({ time: '' });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   const addVital = () => {
     if (!newVital.time) {
@@ -200,6 +186,7 @@ const AnesthesiaPage: React.FC = () => {
     anesthesiaRecordSchema
   );
 
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (submissionPending.current) return;
     // Selecting a patient is a precondition for the record, so it keeps its
@@ -217,7 +204,10 @@ const AnesthesiaPage: React.FC = () => {
       showError(t('docAnesthesia.invalidObservation'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const record: AnesthesiaRecord = {
       id: '', // assigned by the server
       patientId: selectedPatient,

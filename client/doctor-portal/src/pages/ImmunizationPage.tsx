@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getPatients,
   listImmunizations,
   createImmunization,
   useTranslation,
@@ -13,7 +12,6 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   Syringe,
@@ -28,7 +26,7 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 import StaffName from '../components/StaffName';
 type VaccineType =
@@ -166,7 +164,6 @@ const ImmunizationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [administrations, setAdministrations] = useState<VaccineAdministration[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -211,14 +208,6 @@ const ImmunizationPage: React.FC = () => {
       setIsLoading(false);
     }
   }, [t]);
-
-  useEffect(() => {
-    const loadData = async () => {
-      const patientData = await getPatients();
-      setPatients(patientData);
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     fetchImmunizations();
@@ -292,6 +281,7 @@ const ImmunizationPage: React.FC = () => {
 
 
   const { errors, validate, validateField, clearField } = useValidatedForm(immunizationSchema);
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newVaccine.patientId);
   const handleAdminister = async () => {
     if (!newVaccine.administrationDate) {
       setError(t('docImmunization.actualDateRequired'));
@@ -304,7 +294,10 @@ const ImmunizationPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find((p) => p.patient_id === newVaccine.patientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
     const newAdmin: VaccineAdministration = {

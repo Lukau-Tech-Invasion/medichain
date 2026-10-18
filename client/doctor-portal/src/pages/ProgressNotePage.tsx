@@ -12,7 +12,6 @@ import { useStaffDirectory } from '../components/StaffName';
 import StaffName from '../components/StaffName';
 import {
   createProgressNote,
-  getPatients,
   listProgressNotes,
   useTranslation,
   clickable,
@@ -23,7 +22,7 @@ import {
 } from '@medichain/shared';
 import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
-import PatientSelect, { type Patient } from '../components/PatientSelect';
+import PatientSelect, { type Patient, useDirectoryNames } from '../components/PatientSelect';
 
 /**
  * ProgressNotePage
@@ -61,7 +60,11 @@ const ProgressNotePage: React.FC = () => {
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'notes' | 'new' | 'timeline'>('notes');
-  const [notes, setNotes] = useState<ProgressNote[]>([]);
+  const [storedNotes, setNotes] = useState<ProgressNote[]>([]);
+  // Names resolved on the server per patient; the first page of the directory
+  // labelled anyone past the fiftieth "Unknown patient".
+  const noteNames = useDirectoryNames(storedNotes.map((n) => n.patientId));
+  const notes = storedNotes.map((n) => ({ ...n, patientName: noteNames.get(n.patientId) ?? n.patientName }));
   const [selectedNote, setSelectedNote] = useState<ProgressNote | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<NoteType | 'all'>('all');
@@ -81,10 +84,7 @@ const ProgressNotePage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const [data, patients] = await Promise.all([listProgressNotes(), getPatients()]);
-          const patientNames = new Map(
-            patients.map((patient) => [patient.patient_id, patient.full_name])
-          );
+        const data = await listProgressNotes();
           // The list endpoint returns a bare array of record entities of the
           // shape { id, patient_id, data: {...the note...}, created_at }. Flatten
           // the inner `data` up so the note's own fields (note_type, status, …)
@@ -99,7 +99,7 @@ const ProgressNotePage: React.FC = () => {
             return ({
             id: note?.note_id || item.id,
             patientId: item.patient_id,
-            patientName: patientNames.get(item.patient_id) || t('docProgressNote.unknownPatient'),
+            patientName: t('docProgressNote.unknownPatient'),
             mrn: item.patient_id,
             noteType: (note?.note_type || item.note_type || 'daily') as NoteType,
             status: (item.status === 'final' ? 'signed' : item.status || 'draft') as NoteStatus,

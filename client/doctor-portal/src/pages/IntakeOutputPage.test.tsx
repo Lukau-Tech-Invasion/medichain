@@ -22,7 +22,8 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   createIntakeOutput: vi.fn(),
 }));
 
-vi.mock('../components/PatientSelect', () => ({
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()),
   default: ({ label, onChange }: { label: string; onChange: (id: string) => void }) => (
     <select aria-label={label} onChange={event => onChange(event.target.value)}>
       <option value="">Select a patient</option><option value="PAT-001">Test Patient</option>

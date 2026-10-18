@@ -9,7 +9,8 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(), createSplint: vi.fn(), getApiClient: () => ({ get: apiMock.get }),
 }));
 // Isolate save lifetime here; the real audited patient selector is verified in the browser.
-vi.mock('../components/PatientSelect', () => ({ default: ({ value, onChange }: {
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), default: ({ value, onChange }: {
   value: string; onChange: (value: string) => void;
 }) => <div><output aria-label="Selected patient">{value}</output>
   <button onClick={() => onChange('PAT-QA')}>Select synthetic patient</button></div> }));

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   listMar,
   listMarAdministrations,
   administerMedication,
@@ -16,7 +15,7 @@ import {
   medicationAdministrationSchema,
 } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 
 import StaffName from '../components/StaffName';
@@ -120,7 +119,14 @@ const MedicationAdminPage: React.FC = () => {
   // `PatientSelect` queries the server as the clinician types, so the
   // whole roster is no longer fetched into this screen.
   const [medications, setMedications] = useState<ScheduledMedication[]>([]);
-  const [administrations, setAdministrations] = useState<MedicationAdmin[]>([]);
+  const [storedAdministrations, setAdministrations] = useState<MedicationAdmin[]>([]);
+  // Names resolved on the server per patient. They came from the first page of
+  // the directory, which also gated the whole load: a failed directory read left
+  // the MAR empty.
+  const administrationNames = useDirectoryNames(storedAdministrations.map((a) => a.patientId));
+  const administrations = storedAdministrations.map((a) => ({
+    ...a, patientName: administrationNames.get(a.patientId) ?? a.patientName,
+  }));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'mar' | 'administerMed' | 'history'>('mar');
@@ -145,9 +151,6 @@ const MedicationAdminPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch patients
-      const loadedPatients = await getPatients();
-
       // Fetch MAR (Medication Administration Records)
       const [marData, storedAdministrations] = await Promise.all([listMar(), listMarAdministrations()]);
       // Map API response to ScheduledMedication interface
@@ -170,12 +173,11 @@ const MedicationAdminPage: React.FC = () => {
       }));
       setMedications(mappedMeds);
 
-      const patientNames = new Map(loadedPatients.map(patient => [patient.patient_id, patient.full_name]));
       setAdministrations(storedAdministrations.map((raw): MedicationAdmin => {
         const event = raw as RawAdministration;
         return {
           adminId: event.administration_id || '', medId: event.medication_id || '',
-          patientId: event.patient_id || '', patientName: patientNames.get(event.patient_id || '') || event.patient_id || '',
+          patientId: event.patient_id || '', patientName: event.patient_id || '',
           medicationName: event.medication_name || '', dose: event.dose || '', route: event.route || '',
           scheduledTime: event.scheduled_time || 'PRN', actualTime: event.administered_at || event.actual_time || '',
           administeredBy: event.administered_by || '', status: (event.status || 'given') as MedicationAdmin['status'],

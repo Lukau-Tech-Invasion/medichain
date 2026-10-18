@@ -4,7 +4,8 @@ import * as shared from '@medichain/shared';
 import PostOpPage from './PostOpPage';
 
 const mocks = vi.hoisted(() => ({ user: { userId: 'doctor', role: 'Doctor' }, get: vi.fn() }));
-vi.mock('../components/PatientSelect', () => ({ default: ({ value, onChange }: {
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), default: ({ value, onChange }: {
   value: string; onChange: (id: string) => void;
 }) => <select aria-label="Patient" value={value} onChange={event => onChange(event.target.value)}>
   <option value="">Choose patient</option><option value="PAT-QA">Synthetic Patient</option>

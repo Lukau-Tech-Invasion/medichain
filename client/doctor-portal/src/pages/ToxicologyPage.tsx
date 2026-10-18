@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
+import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
 type ExposureRoute = 'oral' | 'inhalation' | 'dermal' | 'injection' | 'ocular' | 'unknown';
@@ -94,7 +93,6 @@ const ToxicologyPage: React.FC = () => {
   const { catalog } = useScoringCatalog();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [cases, setCases] = useState<ToxCase[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -136,28 +134,21 @@ const ToxicologyPage: React.FC = () => {
     salicylate: null, lithium: null, digoxin: null
   });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   const addAntidote = (name: string, dose: string) => {
     setGivenAntidotes([...givenAntidotes, { name, dose, time: new Date().toLocaleTimeString() }]);
   };
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (!selectedPatient || !substance) {
       showError(t('docToxicology.errorSelect'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     const newCase: ToxCase = {
       id: `TOX-${Date.now()}`,
       patientId: selectedPatient,

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  getPatients,
   listCriticalValues,
   createCriticalValue,
   acknowledgeCriticalValue,
@@ -18,7 +17,6 @@ import {
   promptDialog,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   AlertTriangle,
@@ -34,7 +32,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 /**
  * CriticalValuePage
@@ -91,7 +89,6 @@ const CriticalValuePage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const { catalog } = useScoringCatalog();
   const thresholds: CriticalValueThreshold[] = useMemo(
     () =>
@@ -134,11 +131,7 @@ const CriticalValuePage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [patientData, criticalData] = await Promise.all([
-        getPatients(),
-        listCriticalValues()
-      ]);
-      setPatients(Array.isArray(patientData) ? patientData : []);
+      const criticalData = await listCriticalValues();
       
       // `listCriticalValues` returns `{ success, total, items }` — the client
       // wraps the server's bare array back into that envelope. This read
@@ -217,6 +210,7 @@ const CriticalValuePage: React.FC = () => {
     clearField: clearReportField,
   } = useValidatedForm(criticalValueReportSchema);
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newCritical.patientId);
   const handleReportCriticalValue = async () => {
     // The ordering provider is who gets called. Without it the notification has
     // no addressee and the value sits in a queue -- which is the one outcome a
@@ -229,7 +223,10 @@ const CriticalValuePage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find((p) => p.patient_id === newCritical.patientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
     const value = parseFloat(newCritical.value);

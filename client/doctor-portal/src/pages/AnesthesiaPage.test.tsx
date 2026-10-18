@@ -4,7 +4,8 @@ import AnesthesiaPage from './AnesthesiaPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
-vi.mock('../components/PatientSelect', () => ({ default: ({ value, onChange }: { value: string; onChange: (id: string) => void }) =>
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), default: ({ value, onChange }: { value: string; onChange: (id: string) => void }) =>
   <select aria-label="Patient" value={value} onChange={e => onChange(e.target.value)}><option value="">Select</option><option value="PAT-QA">Fictional patient</option></select> }));
 
 // Mock the auth store

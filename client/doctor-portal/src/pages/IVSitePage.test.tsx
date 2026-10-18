@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import IVSitePage, { toIVSite, calculateDaysActive } from './IVSitePage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { selectPatient as pickPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -18,16 +19,14 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
 /** Choose the seeded patient — everything past the picker depends on it. */
 const selectPatient = async () => {
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /Test Patient/i })).toBeInTheDocument()
-  );
-  fireEvent.click(screen.getByRole('button', { name: /Test Patient/i }));
+  await pickPatient('', 'Test Patient', 'ivsite-patient-search');
 };
 
 describe('IVSitePage', () => {

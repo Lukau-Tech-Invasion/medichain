@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatients, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp } from '@medichain/shared';
+import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   Thermometer,
   Clock,
@@ -21,7 +20,7 @@ import {
   Wind,
   History
 } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 interface BundleItem {
   id: string;
@@ -56,7 +55,6 @@ export default function SepsisPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -128,10 +126,6 @@ export default function SepsisPage() {
   const [narrative, setNarrative] = useState('');
 
   useEffect(() => {
-    loadPatients();
-  }, []);
-
-  useEffect(() => {
     // Calculate qSOFA
     let score = 0;
     if (respiratoryRate !== null && respiratoryRate >= 22) score++;
@@ -152,15 +146,6 @@ export default function SepsisPage() {
     }
   }, [sepsisStartTime]);
 
-  const loadPatients = async () => {
-    try {
-      const data = await getPatients();
-      setPatients(data);
-    } catch (err) {
-      console.error('Failed to load patients', err);
-    }
-  };
-
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;
     setHistoryLoading(true);
@@ -176,7 +161,8 @@ export default function SepsisPage() {
   // The hand-rolled name/id filter went with the dropdown it fed:
   // `PatientSelect` searches the server rather than a page-held roster.
 
-  const selectedPatientData = patients.find(p => p.patient_id === selectedPatient);
+  // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+  const { entry: selectedPatientData } = useDirectoryPatient(selectedPatient);
 
   const startSepsisProtocol = () => {
     setSepsisStartTime(new Date());

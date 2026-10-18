@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
+import { createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 
 /** `null` until the clinician scores that component. */
 type AldreteValue = 0 | 1 | 2 | null;
@@ -104,7 +103,6 @@ const PostOpPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [notes, setNotes] = useState<PostOpNote[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
@@ -143,17 +141,6 @@ const PostOpPage: React.FC = () => {
   const [complications, setComplications] = useState('');
   const [notes2, setNotes2] = useState('');
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
@@ -198,6 +185,7 @@ const PostOpPage: React.FC = () => {
   };
 
   /** Submit one draft at a time, retaining all entries if the server refuses the write. */
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (submissionPending.current) return;
     if (!selectedPatient) {
@@ -206,7 +194,10 @@ const PostOpPage: React.FC = () => {
     }
     submissionPending.current = true;
     setIsSubmitting(true);
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const note: PostOpNote = {
       id: '',
       patientId: selectedPatient,

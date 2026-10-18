@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   getApiClient,
   listBloodBank,
   createBloodTypeScreen,
@@ -13,9 +12,9 @@ import {
   useValidatedForm,
   transfusionStartSchema,
 } from '@medichain/shared';
-import type { PatientDirectoryEntry, PatientProfile } from '@medichain/shared';
+import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
 import { BloodInventoryPanel } from '../components/BloodInventoryPanel';
 import { useToastActions } from '../components/Toast';
 
@@ -103,10 +102,7 @@ function readString(record: BloodBankRecord, field: string): string | undefined 
 }
 
 /** Convert persisted snake-case blood-bank records into this screen's view model. */
-function toBloodOrder(
-  value: unknown,
-  patientNames: Map<string, string>,
-): BloodOrder | null {
+function toBloodOrder(value: unknown): BloodOrder | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as BloodBankRecord;
   const patientId = readString(record, 'patient_id') ?? readString(record, 'patientId');
@@ -140,7 +136,8 @@ function toBloodOrder(
     // A transfusion event does not duplicate the patient name. Resolve it from
     // the already-authorized roster; falling back to the identifier is honest
     // and searchable, unlike manufacturing a name.
-    patientName: readString(record, 'patient_name') ?? patientNames.get(patientId) ?? patientId,
+    // The name saved with the record; a bare id is resolved from the directory when shown.
+    patientName: readString(record, 'patient_name') ?? patientId,
     bloodType: readString(record, 'blood_type') ?? 'Unknown',
     orderDate: readString(record, 'order_date') ?? '',
     orderTime: readString(record, 'order_time') ?? '',
@@ -157,8 +154,15 @@ const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
-  const [orders, setOrders] = useState<BloodOrder[]>([]);
+  const [loadedOrders, setOrders] = useState<BloodOrder[]>([]);
+  // Records saved without a name are labelled from the server's directory; the
+  // first page of `getPatients()` labelled anyone past the fiftieth with an id.
+  const orderNames = useDirectoryNames(
+    loadedOrders.filter((o) => o.patientName === o.patientId).map((o) => o.patientId),
+  );
+  const orders = loadedOrders.map((o) =>
+    o.patientName === o.patientId ? { ...o, patientName: orderNames.get(o.patientId) ?? o.patientId } : o,
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const latestOrderRequest = useRef(0);
@@ -198,7 +202,6 @@ const BloodBankPage: React.FC = () => {
       if (requestId !== latestOrderRequest.current) return;
       if (response.success && response.type_screens && response.transfusions) {
         setError(null);
-        const patientNames = new Map(patients.map((patient) => [patient.patient_id, patient.full_name]));
         // The register uses persisted snake-case data while this screen uses
         // camel-case view fields. Mapping at the boundary keeps a recorded
         // transfusion visible instead of silently producing undefined table
@@ -206,7 +209,7 @@ const BloodBankPage: React.FC = () => {
         const typeScreenItems = response.type_screens?.items || [];
         const transfusionItems = response.transfusions?.items || [];
         const allOrders = [...typeScreenItems, ...transfusionItems]
-          .map((item) => toBloodOrder(item, patientNames))
+          .map((item) => toBloodOrder(item))
           .filter((item): item is BloodOrder => item !== null);
         setOrders(allOrders);
       } else {
@@ -220,34 +223,13 @@ const BloodBankPage: React.FC = () => {
     } finally {
       if (requestId === latestOrderRequest.current) setIsLoading(false);
     }
-  }, [patients, t]);
+  }, [t]);
 
-  // Patients load once per signed-in user, in their own effect. They used to
-  // load in the same effect as the orders, which depended on a callback that
-  // depended on `patients`: every load made a new array, a new callback and
-  // another run of the effect -- about six requests a second for as long as
-  // the page stayed open. That spent the user's whole rate-limit allowance
-  // within a minute, and every other screen then failed to load.
-  useEffect(() => {
-    let active = true;
-    getPatients()
-      .then((loadedPatients) => {
-        if (active) setPatients(loadedPatients);
-      })
-      .catch((err) => {
-        console.error('Error loading patients:', err);
-        if (active) setError(t('docBloodBank.errorPatientsLoadFailed'));
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, t]);
-
-  // Reloads once more when the patient list arrives, so names resolve.
   useEffect(() => {
     fetchBloodBankOrders();
   }, [fetchBloodBankOrders]);
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !indication) {
@@ -255,7 +237,10 @@ const BloodBankPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find(p => p.patient_id === selectedPatientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
     try {

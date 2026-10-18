@@ -45,7 +45,7 @@ describe('BloodBankPage', () => {
     );
   });
 
-  it('loads the patient list once, not in a loop', async () => {
+  it('does not load the patient directory in a loop', async () => {
     // Each response is a new array, as it is from the real client. The page
     // used to re-run its load effect on every new array -- six requests a
     // second, until the rate limiter refused this user everywhere.
@@ -66,7 +66,9 @@ describe('BloodBankPage', () => {
 
     const urls = mockFetch.mock.calls.map(([input]) =>
       String(typeof input === 'object' && 'url' in input ? input.url : input));
-    expect(urls.filter((u) => u.includes('/api/patients'))).toHaveLength(1);
+    // The page no longer downloads the directory at all: the picker searches on
+    // demand. Whatever it does, it must not loop.
+    expect(urls.filter((u) => u.includes('/api/patients')).length).toBeLessThanOrEqual(1);
     expect(urls.filter((u) => u.includes('blood-bank')).length).toBeLessThanOrEqual(2);
   });
 

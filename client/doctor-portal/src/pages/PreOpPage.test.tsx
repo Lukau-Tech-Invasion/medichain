@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PreOpPage from './PreOpPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -17,6 +18,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
   getApiClient: vi.fn(),
   createPreOp: vi.fn(),
@@ -35,7 +37,7 @@ describe('PreOpPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
-    vi.mocked(shared.getApiClient).mockReturnValue({ get: vi.fn().mockResolvedValue([]) } as unknown as ReturnType<typeof shared.getApiClient>);
+    vi.mocked(shared.getApiClient).mockReturnValue({ setPatientAccessContext: vi.fn(), getUserId: vi.fn().mockReturnValue('5GrwvaEF...mock'), getSessionRevision: vi.fn().mockReturnValue(0), get: vi.fn().mockResolvedValue([]) } as unknown as ReturnType<typeof shared.getApiClient>);
   });
 
   it('renders pre-op page', () => {
@@ -93,9 +95,9 @@ describe('PreOpPage', () => {
 
   it('reports a failed history read instead of claiming no assessments exist', async () => {
     vi.mocked(shared.getPatients).mockResolvedValue([{ patient_id: 'PAT-history', full_name: 'Synthetic History Patient' }] as never);
-    vi.mocked(shared.getApiClient).mockReturnValue({ get: vi.fn().mockRejectedValue(new Error('storage unavailable')) } as unknown as ReturnType<typeof shared.getApiClient>);
+    vi.mocked(shared.getApiClient).mockReturnValue({ setPatientAccessContext: vi.fn(), getUserId: vi.fn().mockReturnValue('5GrwvaEF...mock'), getSessionRevision: vi.fn().mockReturnValue(0), get: vi.fn().mockRejectedValue(new Error('storage unavailable')) } as unknown as ReturnType<typeof shared.getApiClient>);
     render(<PreOpPage />);
-    fireEvent.click(await screen.findByText('Synthetic History Patient'));
+    await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
     fireEvent.click(screen.getByRole('button', { name: 'History' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Assessment history could not be loaded');
     expect(screen.queryByText('No assessment history available.')).not.toBeInTheDocument();
@@ -104,9 +106,9 @@ describe('PreOpPage', () => {
   it('renders the persisted form document returned by the history endpoint', async () => {
     vi.mocked(shared.getPatients).mockResolvedValue([{ patient_id: 'PAT-history', full_name: 'Synthetic History Patient' }] as never);
     const get = vi.fn().mockResolvedValue([{ id: 'PREOP-server', scheduled_surgery: 'Synthetic procedure', asa_class: 'II', assessment_date: '2026-10-11' }]);
-    vi.mocked(shared.getApiClient).mockReturnValue({ get } as unknown as ReturnType<typeof shared.getApiClient>);
+    vi.mocked(shared.getApiClient).mockReturnValue({ setPatientAccessContext: vi.fn(), getUserId: vi.fn().mockReturnValue('5GrwvaEF...mock'), getSessionRevision: vi.fn().mockReturnValue(0), get } as unknown as ReturnType<typeof shared.getApiClient>);
     render(<PreOpPage />);
-    fireEvent.click(await screen.findByText('Synthetic History Patient'));
+    await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
     fireEvent.click(screen.getByRole('button', { name: 'History' }));
     expect((await screen.findAllByText('PREOP-server')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Synthetic procedure').length).toBeGreaterThan(0);
@@ -115,7 +117,7 @@ describe('PreOpPage', () => {
 
   /** Select a synthetic patient and enter a draft through the form controls. */
   async function enterDraft() {
-    fireEvent.click(await screen.findByText('Synthetic History Patient'));
+    await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
     fireEvent.change(screen.getByLabelText('Scheduled Procedure'), { target: { value: 'Fictional QA procedure' } });
     fireEvent.change(screen.getByLabelText('Additional Notes'), { target: { value: 'No assessment or clinical care occurred' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'NPO compliance' }), { target: { value: 'false' } });
@@ -154,11 +156,11 @@ describe('PreOpPage', () => {
 
   it('exposes the full stored pre-op document without replacing unknown values', async () => {
     vi.mocked(shared.getPatients).mockResolvedValue([{ patient_id: 'PAT-history', full_name: 'Synthetic History Patient' }] as never);
-    vi.mocked(shared.getApiClient).mockReturnValue({ get: vi.fn().mockResolvedValue([{
+    vi.mocked(shared.getApiClient).mockReturnValue({ setPatientAccessContext: vi.fn(), getUserId: vi.fn().mockReturnValue('5GrwvaEF...mock'), getSessionRevision: vi.fn().mockReturnValue(0), get: vi.fn().mockResolvedValue([{
       id: 'PREOP-details', patient_id: 'PAT-history', notes: 'Stored complete narrative',
       npo_status: { compliant: false, lastSolid: '' }, airway_assessment: { mallampati: null },
     }]) } as unknown as ReturnType<typeof shared.getApiClient>);
-    render(<PreOpPage />); fireEvent.click(await screen.findByText('Synthetic History Patient'));
+    render(<PreOpPage />); await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
     fireEvent.click(screen.getByRole('button', { name: 'History' }));
     await screen.findByText('Read saved pre-operative details');
     fireEvent.click(screen.getByText('Read saved pre-operative details'));

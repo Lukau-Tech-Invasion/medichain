@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import {
   createRadiologyOrder,
   getApiErrorMessage,
-  getPatients,
   listRadiologyOrders,
   useTranslation,
   Textarea,
@@ -14,7 +13,6 @@ import {
   imagingRequestSchema,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
 type ImagingStatus = 'ordered' | 'scheduled' | 'in-progress' | 'completed' | 'prelim' | 'final';
@@ -126,8 +124,11 @@ const ImagingPage: React.FC = () => {
       case 'final': return t('docImaging.statusFinal');
     }
   };
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
-  const [orders, setOrders] = useState<ImagingOrder[]>([]);
+  const [loadedOrders, setOrders] = useState<ImagingOrder[]>([]);
+  // Names resolved on the server per patient; the first page of the directory
+  // labelled anyone past the fiftieth with a bare id.
+  const orderNames = useDirectoryNames(loadedOrders.map((o) => o.patientId));
+  const orders = loadedOrders.map((o) => ({ ...o, patientName: orderNames.get(o.patientId) ?? o.patientName }));
   const [activeTab, setActiveTab] = useState<'orders' | 'new' | 'results'>('orders');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -148,18 +149,6 @@ const ImagingPage: React.FC = () => {
   const [pregnant, setPregnant] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
-
   const loadOrders = useCallback(async (): Promise<boolean> => {
     try {
       setOrdersError(null);
@@ -171,11 +160,10 @@ const ImagingPage: React.FC = () => {
         const record = entity as RawImagingOrder;
         const raw = (record.data && typeof record.data === 'object' ? record.data : record) as RawImagingOrder;
         const patientId = raw.patient_id || record.patient_id || '';
-        const patient = patients.find(p => p.patient_id === patientId);
         return {
           id: raw.order_id || record.id || '',
           patientId,
-          patientName: patient?.full_name || patientId,
+          patientName: patientId,
           modality: ({ XRay: 'xray', CT: 'ct', CTWithContrast: 'ct', MRI: 'mri', MRIWithContrast: 'mri', Ultrasound: 'ultrasound', Nuclear: 'nuclear', PET: 'pet', Fluoroscopy: 'fluoro', Mammography: 'mammo', Angiography: 'ct' } as Record<string, ImagingModality>)[raw.study_type ?? ''] || 'xray',
           study: raw.special_instructions || raw.study_type || '',
           bodyPart: raw.body_part || '',
@@ -197,7 +185,7 @@ const ImagingPage: React.FC = () => {
       setOrdersError(getApiErrorMessage(err, t('docImaging.loadFailed')));
       return false;
     }
-  }, [patients, t]);
+  }, [t]);
 
   useEffect(() => {
     if (user) void loadOrders();

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getPatients,
   listChainOfCustody,
   createChainOfCustody,
   useTranslation,
@@ -13,7 +12,6 @@ import {
   transferChainOfCustody,
   getApiErrorMessage,
 } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -31,7 +29,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 type SpecimenType = 'blood' | 'urine' | 'other-fluid' | 'tissue' | 'swab' | 'evidence';
 type SpecimenStatus = 'collected' | 'in-transit' | 'received' | 'analyzed' | 'stored' | 'released' | 'destroyed';
@@ -85,7 +83,6 @@ const ChainOfCustodyPage: React.FC = () => {
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<ChainOfCustody[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'new-collection' | 'transfer' | 'history'>('active');
   const [selectedRecord, setSelectedRecord] = useState<ChainOfCustody | null>(null);
@@ -131,11 +128,7 @@ const ChainOfCustodyPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [patientData, custodyData] = await Promise.all([
-        getPatients(),
-        listChainOfCustody()
-      ]);
-      setPatients(patientData);
+      const custodyData = await listChainOfCustody();
       
       // Map API response to interface
       const custodyItems = (custodyData.items || []) as Record<string, unknown>[];
@@ -196,6 +189,7 @@ const ChainOfCustodyPage: React.FC = () => {
   // tab is worse than no record, because the collector believes it was kept.
   const { errors, validate, validateField, clearField } = useValidatedForm(chainOfCustodySchema);
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newCollection.patientId);
   const handleCreateCustody = async () => {
     // The seal number is what makes the chain checkable -- it ties this record
     // to the physical container, so a later transfer can prove it handled the
@@ -205,7 +199,10 @@ const ChainOfCustodyPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find((p) => p.patient_id === newCollection.patientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
     const newRecord: ChainOfCustody = {

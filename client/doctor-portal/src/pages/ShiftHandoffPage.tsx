@@ -4,7 +4,6 @@ import { useAuthStore } from '../store/authStore';
 import {
   createShiftHandoff,
   getApiClient,
-  getPatients,
   useTranslation,
   clickable,
   useValidatedForm,
@@ -15,6 +14,7 @@ import {
 import StaffName from '../components/StaffName';
 import StaffSelect from '../components/StaffSelect';
 import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
 import {
   ArrowRightLeft,
   FileText,
@@ -22,7 +22,6 @@ import {
   CheckCircle2,
   Clock,
   Plus,
-  Search,
   RefreshCw,
   MessageSquare,
   Pill,
@@ -154,8 +153,6 @@ export default function ShiftHandoffPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -175,6 +172,8 @@ export default function ShiftHandoffPage() {
 
   const [patientHandoffs, setPatientHandoffs] = useState<PatientHandoff[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  // The directory entry the server's search returned for the chosen patient.
+  const [selectedPatientEntry, setSelectedPatientEntry] = useState<PatientDirectoryEntry | null>(null);
   const [showAddPatient, setShowAddPatient] = useState(false);
   const [handoffHistory, setHandoffHistory] = useState<SavedHandoff[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -246,18 +245,6 @@ export default function ShiftHandoffPage() {
 
   const codeStatuses = ['Not recorded', 'Full Code', 'DNR', 'DNR/DNI', 'Comfort Measures Only', 'Limited Code'];
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
-  }, []);
-
   useEffect(() => { setHandoffHistory([]); }, [user?.userId]);
 
   useEffect(() => {
@@ -288,11 +275,6 @@ export default function ShiftHandoffPage() {
     }
     return () => { active = false; };
   }, [activeTab, user?.userId, historyAttempt, t]);
-
-  const filteredPatients = patients.filter(p => 
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
@@ -341,6 +323,8 @@ export default function ShiftHandoffPage() {
     setPatientHandoffs(prev => [...prev, newHandoff]);
     setShowAddPatient(false);
     resetNewPatientForm();
+    setSelectedPatientId(null);
+    setSelectedPatientEntry(null);
     setExpandedPatient(patient.patient_id);
   };
 
@@ -654,34 +638,19 @@ export default function ShiftHandoffPage() {
                       ×
                     </button>
                   </div>
-                  <div className="relative mb-4">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                    <input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder={t('docShiftHandoff.searchPatientsPlaceholder')}
-                      className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
+                  {/* Searched on the server: the list this replaced held only
+                      the first 50 patients. Adding one twice is refused by
+                      `addPatientToHandoff`. */}
+                  <div className="mb-4">
+                    <PatientSelect
+                      id="handoff-add-patient"
+                      label={t('docShiftHandoff.searchPatientsPlaceholder')}
+                      value={selectedPatientId ?? ''}
+                      onChange={(patientId, patient) => {
+                        setSelectedPatientId(patientId || null);
+                        setSelectedPatientEntry(patient ?? null);
+                      }}
                     />
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-2 mb-4">
-                    {filteredPatients
-                      .filter(p => !patientHandoffs.find(ph => ph.patientId === p.patient_id))
-                      .map(patient => (
-                        <button
-                          key={patient.patient_id}
-                          onClick={() => { setSelectedPatientId(patient.patient_id); }}
-                          className={`w-full text-left p-3 rounded-lg transition-colors ${
-                            selectedPatientId === patient.patient_id
-                              ? 'bg-surface-sunken border-2 border-purple-500'
-                              : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                          }`}
-                        >
-                          <p className="font-medium text-content">{patient.full_name}</p>
-                          <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                        </button>
-                      ))
-                    }
                   </div>
 
                   {selectedPatientId && (
@@ -725,8 +694,7 @@ export default function ShiftHandoffPage() {
                       </div>
                       <button
                         onClick={() => {
-                          const patient = patients.find(p => p.patient_id === selectedPatientId);
-                          if (patient) addPatientToHandoff(patient);
+                          if (selectedPatientEntry) addPatientToHandoff(selectedPatientEntry);
                         }}
                         className="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700"
                       >
@@ -1097,7 +1065,7 @@ export default function ShiftHandoffPage() {
                         {t(`docShiftHandoff.status_${h.acknowledged_by_incoming ? 'acknowledged' : 'pending'}`)}
                       </span>
                     </div>
-                    <p className="text-sm text-content-muted mt-2">{patients.find(patient => patient.patient_id === h.patient_id)?.full_name || h.data?.patient?.patientName || h.data?.patient?.patient_name || h.patient_id} · {h.code_status || 'Not recorded'}</p>
+                    <p className="text-sm text-content-muted mt-2">{h.data?.patient?.patientName || h.data?.patient?.patient_name || h.patient_id} · {h.code_status || 'Not recorded'}</p>
                     {h.acknowledged_at && <p className="mt-2 text-sm">{t('docShiftHandoff.receiptAcknowledged', { time: formatTimestamp(h.acknowledged_at) })}</p>}
                     {h.incoming_provider_id === user?.userId && !h.acknowledged_by_incoming && <div className="mt-3">
                       <p className="text-sm text-content-muted">{t('docShiftHandoff.receiptExplanation')}</p>

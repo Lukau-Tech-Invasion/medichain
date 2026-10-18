@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
+import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError } from '@medichain/shared';
 
 type RiskLevel = 'unknown' | 'none' | 'low' | 'moderate' | 'high' | 'imminent';
 type LegalStatus = '' | 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
@@ -126,7 +125,7 @@ function ObservationSelect({ label, value, onChange }: {
  * The stored `risk_level` is also capitalised on the way out ("Low"), so it is
  * normalised here rather than being used as a key directly.
  */
-function toStoredAssessment(patients: Array<{ patient_id: string; full_name: string }>) {
+function toStoredAssessment() {
   return (raw: unknown): PsychAssessment => {
     // The stored assessment nests several sub-objects; each is read with `??`
     // fallbacks below, so the shape is optional all the way down.
@@ -201,10 +200,8 @@ function toStoredAssessment(patients: Array<{ patient_id: string; full_name: str
       assessedBy: item.assessed_by ?? '',
       assessedAt: new Date((item.assessed_at ?? 0) * 1000).toISOString(),
       disposition: item.disposition ?? '',
-      patientName:
-        patients.find((patient) => patient.patient_id === item.patient_id)?.full_name ??
-        item.patient_id ??
-        '',
+      // Labelled from the server's directory when shown; see `assessmentNames`.
+      patientName: item.patient_id ?? '',
       suicideRisk: {
         ideation: toObservation(suicide.ideation),
         plan: toObservation(suicide.plan),
@@ -288,8 +285,11 @@ const PsychPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<Array<Pick<PatientDirectoryEntry, 'patient_id' | 'full_name'>>>([]);
-  const [assessments, setAssessments] = useState<PsychAssessment[]>([]);
+  const [storedAssessments, setAssessments] = useState<PsychAssessment[]>([]);
+  // Names resolved on the server; the first page of the directory labelled
+  // anyone past the fiftieth with a bare id.
+  const assessmentNames = useDirectoryNames(storedAssessments.map((a) => a.patientId));
+  const assessments = storedAssessments.map((a) => ({ ...a, patientName: assessmentNames.get(a.patientId) ?? a.patientName }));
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
   const [historyError, setHistoryError] = useState('');
@@ -333,23 +333,11 @@ const PsychPage: React.FC = () => {
 
   const [safetyPlan, setSafetyPlan] = useState<string[]>([]);
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
-
   const refreshAssessments = useCallback(async () => {
     if (!selectedPatient) return false;
     try {
       const { assessments: saved } = await getPsychForPatient(selectedPatient);
-      setAssessments(saved.map(toStoredAssessment(patients)));
+      setAssessments(saved.map(toStoredAssessment()));
       setHistoryError('');
       return true;
     } catch (err) {
@@ -361,7 +349,7 @@ const PsychPage: React.FC = () => {
       setHistoryError(t('docPsych.historyLoadFailed'));
       return false;
     }
-  }, [selectedPatient, patients, t]);
+  }, [selectedPatient, t]);
 
   useEffect(() => {
     void refreshAssessments();
@@ -423,7 +411,7 @@ const PsychPage: React.FC = () => {
         return record.client_operation_id === operationKey && record.assessed_by === user?.userId;
       });
       if (!matched) return false;
-      setAssessments(records.map(toStoredAssessment(patients)));
+      setAssessments(records.map(toStoredAssessment()));
       setHistoryError(''); setSaveError('');
       saveCommitted.current = true; setSaved(true);
       showSuccess(t('docPsych.saved'));
@@ -435,6 +423,7 @@ const PsychPage: React.FC = () => {
     }
   };
 
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (savePending.current || saveCommitted.current) return;
     if (!selectedPatient) {
@@ -460,7 +449,10 @@ const PsychPage: React.FC = () => {
       'crisis-stabilization': 'CrisisStabilization',
       outpatient: 'OutpatientFollowUp',
     };
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const newAssessment: PsychAssessment = {
       id: `PSYCH-${Date.now()}`,
       patientId: selectedPatient,
@@ -639,12 +631,7 @@ const PsychPage: React.FC = () => {
               <PatientSelect
                 id="psych-patient"
                 value={selectedPatient}
-                onChange={(selectedPatientId, patient) => {
-                  if (patient) setPatients(previous => [...previous.filter(entry => entry.patient_id !== patient.patient_id), {
-                    patient_id: patient.patient_id, full_name: patient.full_name,
-                  }]);
-                  setSelectedPatient(selectedPatientId);
-                }}
+                onChange={(selectedPatientId) => setSelectedPatient(selectedPatientId)}
               />
             </div>
 
@@ -959,12 +946,7 @@ const PsychPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             <PatientSelect id="psych-history-patient" label="Patient for history" value={selectedPatient}
-              onChange={(patientId, patient) => {
-                if (patient) setPatients(previous => [...previous.filter(entry => entry.patient_id !== patient.patient_id), {
-                  patient_id: patient.patient_id, full_name: patient.full_name,
-                }]);
-                setSelectedPatient(patientId);
-              }} />
+              onChange={(patientId) => setSelectedPatient(patientId)} />
             {historyError && (
               <div className="bg-critical-subtle border border-critical text-critical-subtle-fg rounded-lg p-3 text-sm">
                 {historyError}

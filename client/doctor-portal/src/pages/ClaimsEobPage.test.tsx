@@ -5,7 +5,8 @@ import ClaimsEobPage from './ClaimsEobPage';
 
 // The patient picker has its own tests; here it is a plain input so the page's
 // own states can be driven directly.
-vi.mock('../components/PatientSelect', () => ({
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()),
   default: ({ value, onChange, label }: { value: string; onChange: (id: string) => void; label?: string }) => (
     <label>
       {label}

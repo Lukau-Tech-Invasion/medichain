@@ -9,6 +9,7 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { Link } from 'react-router-dom';
+import PatientSelect from '../components/PatientSelect';
 import {
   AlertTriangle,
   Activity,
@@ -18,7 +19,6 @@ import {
   Droplet,
   Clock,
   User,
-  Search,
   ChevronRight,
   CheckCircle,
   AlertCircle,
@@ -42,6 +42,8 @@ interface VitalSigns {
 interface TriageAssessment {
   assessment_id: string;
   patient_id: string;
+  /** Resolved by the API; absent when the name cannot be decrypted. */
+  patient_name?: string;
   esi_level: string | number | { level: number };
   chief_complaint: string;
   vital_signs: VitalSigns;
@@ -136,9 +138,7 @@ function TriagePage() {
 
   const [activeTab, setActiveTab] = useState<'new' | 'queue'>('new');
   const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [patientSearch, setPatientSearch] = useState('');
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [showPatientDropdown, setShowPatientDropdown] = useState(false);
   
   // Triage form state
   const [selectedESI, setSelectedESI] = useState<number | null>(null);
@@ -159,6 +159,10 @@ function TriagePage() {
   
   // Triage queue state
   const [triageQueue, setTriageQueue] = useState<TriageAssessment[]>([]);
+  // "Could not load" and "nobody waiting" are opposite answers; an empty
+  // array asserts the second.
+  const [queueUnavailable, setQueueUnavailable] = useState(false);
+  const [queueAttempt, setQueueAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -194,6 +198,7 @@ function TriagePage() {
     
     const fetchTriageQueue = async () => {
       setLoading(true);
+      setQueueUnavailable(false);
       try {
         // The API returns `{ queue, total, success }`. This read
         // `data.assessments`, a key the server never sends, so the triage queue
@@ -202,19 +207,14 @@ function TriagePage() {
         setTriageQueue((await getTriageQueue()) as typeof triageQueue);
       } catch (err) {
         console.error('Failed to fetch triage queue:', err);
+        setTriageQueue([]);
+        setQueueUnavailable(true);
       } finally {
         setLoading(false);
       }
     };
     fetchTriageQueue();
-  }, [activeTab, user?.userId, user]);
-
-  // Filter patients based on search
-  const filteredPatients = patients.filter(p =>
-    (p.full_name?.toLowerCase() || '').includes(patientSearch.toLowerCase()) ||
-    (p.patient_id?.toLowerCase() || '').includes(patientSearch.toLowerCase()) ||
-    (p.health_id?.toLowerCase() || '').includes(patientSearch.toLowerCase())
-  );
+  }, [activeTab, user?.userId, user, queueAttempt]);
 
   // Check for critical vital signs
   const hasCriticalVitals = (): boolean => {
@@ -263,7 +263,6 @@ function TriagePage() {
       setSuccess(t('docTriage.successMessage', { id: data.assessment_id, level: data.esi_level, wait: data.expected_wait }));
       // Reset form
       setSelectedPatientId('');
-      setPatientSearch('');
       setSelectedESI(null);
       setChiefComplaint('');
       setNotes('');
@@ -364,44 +363,16 @@ function TriagePage() {
               <User size={20} />
               {t('docTriage.patientSelectionTitle')}
             </h2>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
-              <input
-                type="text"
-                value={patientSearch}
-                onChange={(e) => {
-                  setPatientSearch(e.target.value);
-                  setShowPatientDropdown(true);
-                }}
-                onFocus={() => setShowPatientDropdown(true)}
-                placeholder={t('docTriage.searchPatientPlaceholder')}
-                className="w-full pl-10 pr-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
-              />
-              {showPatientDropdown && filteredPatients.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
-                  {filteredPatients.slice(0, 10).map((patient) => (
-                    <button
-                      key={patient.patient_id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedPatientId(patient.patient_id);
-                        setPatientSearch(patient.full_name);
-                        setShowPatientDropdown(false);
-                      }}
-                      className={`w-full text-left px-4 py-3 hover:bg-surface-sunken border-b border-border last:border-0 ${
-                        selectedPatientId === patient.patient_id ? 'bg-brand-subtle' : ''
-                      }`}
-                    >
-                      <p className="font-medium text-content">{patient.full_name}</p>
-                      <p className="text-sm text-content-muted">
-                        {patient.patient_id}
-                        {patient.health_id && <> • {t('docTriage.healthIdPrefix', { id: patient.health_id })}</>}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Searched on the server. Filtering the first page of
+                `GET /api/patients` (50 rows) locally meant a nurse could not
+                find any patient past the fiftieth. */}
+            <PatientSelect
+              id="triage-patient"
+              label={t('docTriage.searchPatientPlaceholder')}
+              value={selectedPatientId}
+              onChange={(patientId) => setSelectedPatientId(patientId)}
+              required
+            />
             {selectedPatientId && (
               <p className="mt-2 text-sm text-ok-subtle-fg flex items-center gap-1 min-h-[24px] py-1">
                 <CheckCircle size={16} />
@@ -725,6 +696,18 @@ function TriagePage() {
               <Loader2 className="mx-auto mb-3 text-brand animate-spin" size={48} />
               <p className="text-content-muted">{t('docTriage.loadingQueue')}</p>
             </div>
+          ) : queueUnavailable ? (
+            <div role="alert" className="p-12 text-center">
+              <AlertCircle className="mx-auto mb-3 text-critical-subtle-fg" size={48} />
+              <p className="text-content">{t('docTriage.queueUnavailable')}</p>
+              <button
+                type="button"
+                onClick={() => setQueueAttempt((n) => n + 1)}
+                className="mt-4 px-4 py-2 rounded-lg border border-border-interactive text-content hover:bg-surface-sunken"
+              >
+                {t('common.retry')}
+              </button>
+            </div>
           ) : triageQueue.length > 0 ? (
             <div className="divide-y divide-border">
               {triageQueue
@@ -750,7 +733,7 @@ function TriagePage() {
                         </span>
                         <div>
                           <p className="font-medium text-content">
-                            {patient?.full_name || assessment.patient_id}
+                            {assessment.patient_name || patient?.full_name || assessment.patient_id}
                           </p>
                           <p className="text-sm text-content-muted">{assessment.chief_complaint}</p>
                           <p className="text-xs text-content-muted mt-1">

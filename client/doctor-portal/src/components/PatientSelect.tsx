@@ -1,14 +1,98 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '../store';
 import { getPatients, clickable, getApiClient, useTranslation } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import { ChartAccessPrompt, applyAccess, declaredAccessFor } from './ChartAccess';
 import { Search, User, ChevronDown, Loader2, X } from 'lucide-react';
 
-export interface Patient {
-  patient_id: string;
-  full_name: string;
-  health_id?: string;
-  date_of_birth?: string;
+/** A directory row, exactly as `getPatients` returns it; pages receive the whole entry. */
+export type Patient = PatientDirectoryEntry & { health_id?: string };
+
+/**
+ * One patient's directory entry by id, searched on the server.
+ *
+ * For a page opened with `?patient=<id>`: looking the id up in the first page
+ * of `getPatients()` found nobody past the fiftieth patient. Resolves the
+ * directory identity only; it does not open or grant chart access. `null`
+ * when no readable entry matches.
+ */
+export async function findDirectoryPatient(patientId: string): Promise<Patient | null> {
+  const rows = await getPatients({ query: patientId, limit: 50 });
+  return rows.find((row) => row.patient_id === patientId && row.content_available !== false) ?? null;
+}
+
+// One lookup per patient per session: a list of fifty records about three
+// patients costs three requests, and revisiting the list costs none.
+const directoryNameCache = new Map<string, Promise<string | null>>();
+
+/**
+ * Display names for the patients a list of records refers to.
+ *
+ * Lists used to label each record from the first page of `getPatients()`, so a
+ * record about anyone past the fiftieth patient showed a bare id. An id that
+ * cannot be resolved is absent from the map; the caller shows the id rather
+ * than guessing a name.
+ */
+export function useDirectoryNames(patientIds: readonly string[]): Map<string, string> {
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const key = Array.from(new Set(patientIds.filter(Boolean))).sort().join('|');
+
+  useEffect(() => {
+    const ids = key ? key.split('|') : [];
+    if (ids.length === 0) return;
+    let active = true;
+    void Promise.all(ids.map((id) => {
+      let lookup = directoryNameCache.get(id);
+      if (!lookup) {
+        lookup = findDirectoryPatient(id).then((entry) => entry?.full_name ?? null, () => null);
+        directoryNameCache.set(id, lookup);
+      }
+      return lookup.then((name) => [id, name] as const);
+    })).then((resolved) => {
+      if (!active) return;
+      setNames(new Map(resolved.filter((pair): pair is readonly [string, string] => pair[1] !== null)));
+    });
+    return () => { active = false; };
+  }, [key]);
+
+  return names;
+}
+
+/**
+ * The directory entry for the patient a page has chosen.
+ *
+ * Pages used to find the chosen patient in the first page of `getPatients()`
+ * when saving; past the fiftieth patient that found nobody, and the save either
+ * stored a blank name or returned without a word. `resolve()` is for the save
+ * path: it waits for the lookup instead of racing it.
+ */
+export function useDirectoryPatient(patientId: string | null | undefined): {
+  entry: Patient | null;
+  resolve: () => Promise<Patient | null>;
+} {
+  const [entry, setEntry] = useState<Patient | null>(null);
+  const pending = useRef<{ id: string; lookup: Promise<Patient | null> } | null>(null);
+
+  const lookup = useCallback((id: string) => {
+    if (pending.current?.id !== id) {
+      pending.current = { id, lookup: findDirectoryPatient(id).catch(() => null) };
+    }
+    return pending.current.lookup;
+  }, []);
+
+  useEffect(() => {
+    setEntry(null);
+    if (!patientId) return;
+    let active = true;
+    void lookup(patientId).then((found) => { if (active) setEntry(found); });
+    return () => { active = false; };
+  }, [patientId, lookup]);
+
+  const resolve = useCallback(
+    async () => (patientId ? lookup(patientId) : null),
+    [patientId, lookup],
+  );
+  return { entry: entry?.patient_id === patientId ? entry : null, resolve };
 }
 
 interface PatientSelectProps {
@@ -114,7 +198,7 @@ export default function PatientSelect({
   }, [onBlur]);
 
   // Get selected patient details for display
-  const selectedPatient = selectedDirectoryPatient?.patient_id === value
+  const selectedPatient: Pick<Patient, 'patient_id' | 'full_name' | 'health_id'> | undefined = selectedDirectoryPatient?.patient_id === value
     ? selectedDirectoryPatient : patients.find(p => p.patient_id === value)
       ?? (value ? { patient_id: value, full_name: 'Selected patient', health_id: undefined } : undefined);
 
@@ -124,8 +208,8 @@ export default function PatientSelect({
     let active = true;
     setSelectedDirectoryPatient(null);
     if (!user || !value) return;
-    getPatients({ query: value, limit: 50 }).then(rows => {
-      if (active) setSelectedDirectoryPatient(rows.find(row => row.patient_id === value && row.content_available !== false) ?? null);
+    findDirectoryPatient(value).then(found => {
+      if (active) setSelectedDirectoryPatient(found);
     }).catch(() => { if (active) setLoadError('The selected patient could not be loaded'); });
     return () => { active = false; };
   }, [value, user]);

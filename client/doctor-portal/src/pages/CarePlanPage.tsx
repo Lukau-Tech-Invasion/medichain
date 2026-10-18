@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCarePlan, getApiClient, getPatients, useTranslation } from '@medichain/shared';
+import { createCarePlan, getApiClient, useTranslation } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
   ClipboardList,
   Target,
@@ -12,7 +13,6 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
-  Search,
   User,
   Activity,
   RefreshCw,
@@ -74,9 +74,7 @@ export default function CarePlanPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -135,24 +133,16 @@ export default function CarePlanPage() {
     'Every shift', 'Q2H', 'Q4H', 'BID', 'TID', 'QID', 'Daily', 'Weekly', 'PRN', 'Continuous'
   ];
 
+  // A `?patientId=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patientId');
-        if (patientId) {
-          const patient = patientData?.find((p: PatientDirectoryEntry) => p.patient_id === patientId);
-          if (patient) {
-            setSelectedPatient(patient);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patientId');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
 
   // Fetch care plans list
@@ -261,11 +251,6 @@ export default function CarePlanPage() {
   const removeIntervention = (id: string) => {
     setInterventions(prev => prev.filter(i => i.id !== id));
   };
-
-  const filteredPatients = patients.filter(p => 
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const handleSave = async () => {
     if (!selectedPatient) {
@@ -391,32 +376,12 @@ export default function CarePlanPage() {
                 <User className="h-5 w-5 mr-2 text-brand" />
                 {t('docCarePlan.selectPatientTitle')}
               </h2>
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={t('docCarePlan.searchPatientsPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {filteredPatients.map(patient => (
-                  <button
-                    key={patient.patient_id}
-                    onClick={() => setSelectedPatient(patient)}
-                    className={`w-full text-left p-3 rounded-lg transition-colors ${
-                      selectedPatient?.patient_id === patient.patient_id
-                        ? 'bg-surface-sunken border-2 border-teal-500'
-                        : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                    }`}
-                  >
-                    <p className="font-medium text-content">{patient.full_name}</p>
-                    <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                  </button>
-                ))}
-              </div>
+              <PatientSelect
+                id="careplan-patient-search"
+                label={t('docCarePlan.searchPatientsPh')}
+                value={selectedPatient?.patient_id ?? ''}
+                onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+              />
             </div>
 
             {/* Care Plan Summary */}

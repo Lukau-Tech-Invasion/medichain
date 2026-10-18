@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   createIntubation,
   fromStoredRecord,
   getApiClient,
@@ -12,7 +11,6 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
 type IntubationMethod = 'oral' | 'nasal' | 'surgical' | 'video';
@@ -124,7 +122,6 @@ const IntubationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<IntubationRecord[]>([]);
 
   /**
@@ -170,17 +167,6 @@ const IntubationPage: React.FC = () => {
     etco2: false, chestRise: false, breathSounds: false, xray: false
   });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   // Calculate LEMON score
   useEffect(() => {
@@ -213,6 +199,7 @@ const IntubationPage: React.FC = () => {
     setActiveTab('history');
   };
 
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (submissionPending.current) return;
     if (!selectedPatient || !formData.indication) {
@@ -221,7 +208,10 @@ const IntubationPage: React.FC = () => {
     }
     submissionPending.current = true;
     setIsSubmitting(true);
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const newRecord: IntubationRecord = {
       id: `INT-${Date.now()}`,
       patientId: selectedPatient,

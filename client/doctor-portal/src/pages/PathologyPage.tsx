@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
-  getPatients,
   listPathology,
   createPathology,
   updatePathologyReport,
@@ -16,9 +15,8 @@ import {
   useValidatedForm,
   pathologyRequestSchema,
 } from '@medichain/shared';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 /**
  * PathologyPage
@@ -152,7 +150,6 @@ const PathologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [specimens, setSpecimens] = useState<PathologySpecimen[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,11 +207,6 @@ const PathologyPage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
-    const loadPatients = async () => {
-      const loadedPatients = await getPatients();
-      setPatients(loadedPatients);
-    };
-    loadPatients();
     fetchSpecimens();
   }, [user, fetchSpecimens]);
 
@@ -224,6 +216,7 @@ const PathologyPage: React.FC = () => {
 
   const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician });
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     // The anatomical site is what makes the specimen interpretable: a report on
@@ -233,7 +226,10 @@ const PathologyPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find(p => p.patient_id === selectedPatientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
     const newSpecimen: PathologySpecimen = {

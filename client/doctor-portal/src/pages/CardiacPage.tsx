@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, getPatients, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
+import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
 import type { TimiCriteriaInput } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
@@ -57,9 +58,9 @@ export default function CardiacPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [searchTerm, setSearchTerm] = useState('');
+  // The chosen directory entry, as the server's search returned it.
+  const [selectedPatientData, setSelectedPatientData] = useState<PatientDirectoryEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -126,19 +127,6 @@ export default function CardiacPage() {
   // Event Timeline
   const [events, setEvents] = useState<CardiacEvent[]>([]);
 
-  useEffect(() => {
-    loadPatients();
-  }, []);
-
-  const loadPatients = async () => {
-    try {
-      const data = await getPatients();
-      setPatients(data);
-    } catch (err) {
-      console.error('Failed to load patients', err);
-    }
-  };
-
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;
     setHistoryLoading(true);
@@ -150,13 +138,6 @@ export default function CardiacPage() {
       setHistoryLoading(false);
     }
   };
-
-  const filteredPatients = patients.filter(p =>
-    (p.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (p.patient_id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  );
-
-  const selectedPatientData = patients.find(p => p.patient_id === selectedPatient);
 
   const addEvent = (type: string, details: string) => {
     setEvents(prev => [
@@ -302,29 +283,19 @@ export default function CardiacPage() {
                   <Search className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.patientSelectionTitle')}
                 </h2>
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    type="text"
-                    placeholder={t('docCardiac.searchPatientsPh')}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-                <select
+                {/* Searched on the server; a select built from the first page
+                    of patients could not reach anyone past the fiftieth. */}
+                <PatientSelect
+                  id="cardiac-patient"
+                  label={t('docCardiac.searchPatientsPh')}
                   value={selectedPatient}
-                  onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
-                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
+                  onChange={(patientId, patient) => {
+                    setSelectedPatient(patientId);
+                    setSelectedPatientData(patient ?? null);
+                    fetchEmergencyHistory(patientId);
+                  }}
                   required
-                >
-                  <option value="">{t('docCardiac.selectPatientOption')}</option>
-                  {filteredPatients.map(p => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} - {p.patient_id}
-                    </option>
-                  ))}
-                </select>
+                />
                 {selectedPatientData && (
                   <div className="mt-4 p-3 bg-surface-sunken rounded-lg">
                     <p className="font-medium">{selectedPatientData.full_name}</p>

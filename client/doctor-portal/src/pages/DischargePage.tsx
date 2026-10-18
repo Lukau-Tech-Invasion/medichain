@@ -19,7 +19,7 @@ import {
   Clipboard,
   Download,
 } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
   approveDischarge as postDischargeApproval,
@@ -168,20 +168,12 @@ function toDischargeSummary(raw: Record<string, unknown>): DischargeSummary {
   };
 }
 
-interface Patient {
-  patient_id: string;
-  full_name: string;
-  date_of_birth: string;
-  admission_date?: string;
-}
-
 /**
  * DischargePage - Manage patient discharge documentation
  */
 function DischargePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [discharges, setDischarges] = useState<DischargeSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +219,9 @@ function DischargePage() {
   const fetchPatients = useCallback(async () => {
     if (!user) return;
     try {
-      setPatients(await getPatients());
+      // Only the connection badge reads this; patients are chosen through the
+      // server-searched picker, so one row is enough.
+      await getPatients({ limit: 1 });
       setApiConnected(true);
     } catch {
       setApiConnected(false);
@@ -282,6 +276,7 @@ function DischargePage() {
     }]);
   };
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -294,11 +289,13 @@ function DischargePage() {
     setError(null);
 
     try {
-      const patient = patients.find(p => p.patient_id === selectedPatient);
+      // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+      // Usually already resolved when the patient was chosen; awaiting only when it
+      // is not keeps a double press from slipping past the pending-save guard.
+      const patient = selectedPatientEntry ?? await resolveSelectedPatient();
       const payload = {
         patient_id: selectedPatient,
         patient_name: patient?.full_name || '',
-        admission_date: patient?.admission_date || new Date().toISOString().split('T')[0],
         discharge_date: new Date().toISOString().split('T')[0],
         discharge_disposition: formData.discharge_disposition,
         primary_diagnosis: formData.primary_diagnosis,

@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createFallRisk,
   listPatientFallRisk,
-  getPatients,
   useTranslation,
   useScoringCatalog,
   morseTotal,
@@ -11,12 +10,12 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
   AlertTriangle,
   Shield,
   CheckCircle2,
   Save,
-  Search,
   User,
   Activity,
   TrendingUp,
@@ -65,9 +64,7 @@ export default function FallRiskPage() {
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
   // the body claimed.
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -185,22 +182,16 @@ export default function FallRiskPage() {
     'Equipment in Way'
   ];
 
+  // A `?patient=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patient');
-        if (patientId && patientData) {
-          const patient = patientData.find((p: PatientDirectoryEntry) => p.patient_id === patientId);
-          if (patient) setSelectedPatient(patient);
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patient');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
 
 
@@ -234,10 +225,6 @@ export default function FallRiskPage() {
       active = false;
     };
   }, [selectedPatient]);
-  const filteredPatients = patients.filter(p =>
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   // Live preview only. The stored score and band are computed by the server
   // from the same six items and returned by `createFallRisk` — see
@@ -471,34 +458,12 @@ export default function FallRiskPage() {
                   <User className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.selectPatientTitle')}
                 </h2>
-                <div className="relative mb-4">
-                  <label htmlFor="fallrisk-patient-search" className="sr-only">{t('docFallRisk.searchPatientsSr')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    id="fallrisk-patient-search"
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('docFallRisk.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
-                  />
-                </div>
-                <div className="max-h-64 overflow-y-auto space-y-2">
-                  {filteredPatients.map(patient => (
-                    <button
-                      key={patient.patient_id}
-                      onClick={() => setSelectedPatient(patient)}
-                      className={`w-full text-left p-3 rounded-lg transition-colors ${
-                        selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-surface-sunken border-2 border-orange-500'
-                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                      }`}
-                    >
-                      <p className="font-medium text-content">{patient.full_name}</p>
-                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                    </button>
-                  ))}
-                </div>
+                <PatientSelect
+                  id="fallrisk-patient-search"
+                  label={t('docFallRisk.searchPatientsSr')}
+                  value={selectedPatient?.patient_id ?? ''}
+                  onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+                />
               </div>
 
               {/* Risk Factor Medications */}

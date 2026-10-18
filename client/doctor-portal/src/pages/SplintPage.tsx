@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Bone, AlertTriangle, User, CheckCircle } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   createSplint,
   fromStoredRecord,
   getApiClient,
@@ -12,7 +11,6 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type ImmobilizationType = 'splint' | 'cast' | 'sling' | 'brace' | 'boot';
 type Material = 'fiberglass' | 'plaster' | 'prefab' | 'aluminum' | 'soft';
@@ -107,7 +105,6 @@ const SplintPage: React.FC = () => {
   const sideLabel = (v: string): string => ({
     left: t('docSplint.sideLeft'), right: t('docSplint.sideRight'), bilateral: t('docSplint.sideBilateral'),
   }[v] ?? v);
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [records, setRecords] = useState<SplintRecord[]>([]);
 
   /**
@@ -163,17 +160,6 @@ const SplintPage: React.FC = () => {
   const [followUp, setFollowUp] = useState('');
   const [notes, setNotes] = useState('');
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   // NV check warning
   const nvWarning = !preNV.intact || !postNV.intact;
@@ -189,6 +175,7 @@ const SplintPage: React.FC = () => {
     setSelectedPrecautions([]); setFollowUp(''); setNotes(''); setActiveTab('history');
   };
 
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (submissionPending.current) return;
     if (!selectedPatient || !bodyPart) {
@@ -197,7 +184,10 @@ const SplintPage: React.FC = () => {
     }
     submissionPending.current = true;
     setIsSubmitting(true);
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const record: SplintRecord = {
       id: `SPL-${Date.now()}`,
       patientId: selectedPatient,

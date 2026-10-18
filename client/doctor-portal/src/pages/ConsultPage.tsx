@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getPatients,
   listConsults,
   createConsult,
   respondToConsult,
@@ -16,7 +15,6 @@ import {
   formatTimestamp,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   MessageSquare,
@@ -33,7 +31,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 type ConsultSpecialty =
   | 'cardiology'
@@ -159,7 +157,6 @@ const ConsultPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [consults, setConsults] = useState<Consult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,19 +204,12 @@ const ConsultPage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
-    const loadData = async () => {
-      const patientData = await getPatients();
-      setPatients(patientData);
-    };
-    loadData();
-  }, []);
-
-  useEffect(() => {
     fetchConsults();
   }, [fetchConsults]);
 
 
   const { errors, validate, validateField, clearField } = useValidatedForm(consultRequestSchema);
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newConsult.patientId);
   const handleRequestConsult = async () => {
     // The clinical question is the consultation. A referral saying only
     // "please review" makes the consultant guess what was asked, and the answer
@@ -229,7 +219,10 @@ const ConsultPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find((p) => p.patient_id === newConsult.patientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) {
       // A bare `return` here meant that if the selected patient was not in the
       // loaded roster the form did nothing at all - no request, no error, no

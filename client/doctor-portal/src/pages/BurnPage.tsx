@@ -4,7 +4,6 @@ import {
   createBurn,
   getBurnForPatient,
   formatTimestamp,
-  getPatients,
   useTranslation,
   useScoringCatalog,
   yearsSince,
@@ -16,13 +15,13 @@ import {
 } from '@medichain/shared';
 import type { BurnCreateResult, ParklandPreview } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
   Flame,
   AlertTriangle,
   CheckCircle2,
   Clock,
   Save,
-  Search,
   User,
   Activity,
   Droplets,
@@ -54,9 +53,7 @@ export default function BurnPage() {
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
   // the body claimed.
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -137,22 +134,16 @@ export default function BurnPage() {
     'Chest', 'Abdomen', 'Neck', 'Digits'
   ];
 
+  // A `?patient=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patient');
-        if (patientId && patientData) {
-          const patient = patientData.find((p: PatientDirectoryEntry) => p.patient_id === patientId);
-          if (patient) setSelectedPatient(patient);
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patient');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
 
   // Clear the previous chart immediately and ignore responses after switching patients.
@@ -171,11 +162,6 @@ export default function BurnPage() {
       .finally(() => { if (!cancelled) setHistoryLoading(false); });
     return () => { cancelled = true; };
   }, [selectedPatient]);
-
-  const filteredPatients = patients.filter(p =>
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   // Previews. The stored TBSA, Parkland volumes and severity band are computed
   // by the server from the weight and the charted regions, and come back from
@@ -451,34 +437,12 @@ export default function BurnPage() {
                   <User className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.selectPatientTitle')}
                 </h2>
-                <div className="relative mb-4">
-                  <label htmlFor="burn-patient-search" className="sr-only">{t('docBurn.searchPatientsSr')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    id="burn-patient-search"
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('docBurn.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
-                  />
-                </div>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {filteredPatients.map(patient => (
-                    <button
-                      key={patient.patient_id}
-                      onClick={() => setSelectedPatient(patient)}
-                      className={`w-full text-left p-3 rounded-lg transition-colors ${
-                        selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-critical-subtle border-2 border-red-500'
-                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                      }`}
-                    >
-                      <p className="font-medium text-content">{patient.full_name}</p>
-                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                    </button>
-                  ))}
-                </div>
+                <PatientSelect
+                  id="burn-patient-search"
+                  label={t('docBurn.searchPatientsSr')}
+                  value={selectedPatient?.patient_id ?? ''}
+                  onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+                />
               </div>
 
               {/* Injury Details */}

@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import BurnPage from './BurnPage';
 import { patientProfile } from '../test/fixtures';
 import * as shared from '@medichain/shared';
+import { selectPatient as pickPatient } from '../test/selectPatient';
 
 // The chart is served by `GET /api/clinical/scoring/catalog`, so these tests
 // have to supply it. That is the point of the change they cover: the region set
@@ -47,8 +48,16 @@ const CATALOG = {
   },
 };
 
+// The patient picker searches as the signed-in clinician.
+// One stable object: a fresh `user` each render re-runs the picker's search forever.
+vi.mock('../store/authStore', async (importOriginal) => {
+  const session = { user: { userId: 'clinician-test', role: 'Doctor' }, isAuthenticated: true };
+  return { ...(await importOriginal<Record<string, unknown>>()), useAuthStore: () => session };
+});
+
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
   createBurn: vi.fn(),
   getBurnForPatient: vi.fn(),
@@ -75,10 +84,9 @@ function renderPage() {
   );
 }
 
-/** Pick a patient from the roster by name. */
+/** Pick a patient through the server-searched picker, by name. */
 async function selectPatient(name: string) {
-  const row = await screen.findByText(name);
-  fireEvent.click(row);
+  await pickPatient('', name, 'burn-patient-search');
 }
 
 describe('BurnPage', () => {

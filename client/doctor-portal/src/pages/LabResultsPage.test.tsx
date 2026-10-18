@@ -7,7 +7,8 @@ import { useAuthStore } from '../store';
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
 }));
-vi.mock('../components/PatientSelect', () => ({
+// Keep the module's hooks; replace only the picker component.
+vi.mock('../components/PatientSelect', async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()),
   default: ({ onChange }: { onChange: (id: string) => void }) =>
     <button onClick={() => onChange('PAT-001')}>Choose synthetic patient</button>,
 }));

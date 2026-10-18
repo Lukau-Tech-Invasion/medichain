@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   createOperativeNote,
   getApiClient,
   useScoringCatalog,
@@ -16,7 +15,6 @@ import {
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
-import type { PatientDirectoryEntry } from '@medichain/shared';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'none';
 type WoundClass = 'clean' | 'clean-contaminated' | 'contaminated' | 'dirty';
@@ -120,7 +118,6 @@ const OperativeNotePage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
   const [notes, setNotes] = useState<OperativeNote[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -164,17 +161,6 @@ const OperativeNotePage: React.FC = () => {
 
   const [newSpecimen, setNewSpecimen] = useState({ description: '', disposition: 'pathology' as Specimen['disposition'] });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
@@ -228,6 +214,7 @@ const OperativeNotePage: React.FC = () => {
   };
 
   /** Submit one draft at a time; failed writes keep the entered documentation. */
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
     if (submissionPending.current) return;
     // Was a toast naming two fields. Both diagnoses are required now as well:
@@ -237,7 +224,10 @@ const OperativeNotePage: React.FC = () => {
     if (!validate(opNote())) {
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const note: OperativeNote = {
       // Assigned by the server.
       id: '',

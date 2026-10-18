@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ShiftHandoffPage from './ShiftHandoffPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -18,6 +19,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
   getProviders: vi.fn(),
   createShiftHandoff: vi.fn(),
@@ -106,7 +108,8 @@ describe('ShiftHandoffPage', () => {
     try {
       render(<ShiftHandoffPage />);
       fireEvent.click(screen.getByRole('button', { name: 'Handoff History' }));
-      await waitFor(() => expect(screen.getByText(/Test Patient/)).toBeInTheDocument());
+      // The name saved with the handoff, not whatever the directory says today.
+      await waitFor(() => expect(screen.getByText(/Synthetic Patient/)).toBeInTheDocument());
       expect(screen.queryByRole('button', { name: 'Acknowledge receipt' })).not.toBeInTheDocument();
       expect(screen.getAllByText('Day → Evening')).toHaveLength(1);
       expect(screen.getByText('Synthetic saved situation')).toBeInTheDocument();
@@ -130,8 +133,8 @@ describe('ShiftHandoffPage', () => {
       expect(screen.getByRole('button', { name: /Add Patient/i })).toBeInTheDocument()
     );
     fireEvent.click(screen.getByRole('button', { name: /Add Patient/i }));
-    // The picker is a list of clickable patients, not a <select>.
-    fireEvent.click(screen.getByText(/Test Patient/i));
+    // The picker searches the server; the first-page roster it replaced held only 50.
+    await selectPatient('', 'Test Patient', 'handoff-add-patient');
     fireEvent.click(screen.getByRole('button', { name: /Add to Handoff/i }));
     expect(screen.getByRole('combobox', { name: 'Code Status' })).toHaveValue('Not recorded');
 
@@ -154,8 +157,8 @@ describe('ShiftHandoffPage', () => {
       expect(screen.getByRole('button', { name: /Add Patient/i })).toBeInTheDocument()
     );
     fireEvent.click(screen.getByRole('button', { name: /Add Patient/i }));
-    // The picker is a list of clickable patients, not a <select>.
-    fireEvent.click(screen.getByText(/Test Patient/i));
+    // The picker searches the server; the first-page roster it replaced held only 50.
+    await selectPatient('', 'Test Patient', 'handoff-add-patient');
     fireEvent.click(screen.getByRole('button', { name: /Add to Handoff/i }));
 
 
@@ -170,7 +173,7 @@ describe('ShiftHandoffPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /Incoming Nurse/ }), { target: { value: 'QA Recipient' } });
     fireEvent.click(await screen.findByRole('button', { name: /Nurse QA Recipient/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add First Patient' }));
-    fireEvent.click(await screen.findByText('Test Patient'));
+    await selectPatient('', 'Test Patient', 'handoff-add-patient');
     fireEvent.click(screen.getByRole('button', { name: 'Add to Handoff' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Handoff' }));
     await waitFor(() => expect(shared.createShiftHandoff).toHaveBeenCalledOnce());
@@ -203,7 +206,7 @@ describe('ShiftHandoffPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Clear selected staff' }));
     fireEvent.change(screen.getByRole('textbox', { name: /Incoming Nurse/ }), { target: { value: 'Unresolved QA recipient' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add First Patient' }));
-    fireEvent.click(await screen.findByText('Test Patient'));
+    await selectPatient('', 'Test Patient', 'handoff-add-patient');
     fireEvent.click(screen.getByRole('button', { name: 'Add to Handoff' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Handoff' }));
     expect(await screen.findByRole('alert')).toBeVisible();

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useToastActions } from '../components/Toast';
+import PatientSelect from '../components/PatientSelect';
 import {
-  getPatients,
   listAutopsy,
   createAutopsyReport,
   useTranslation,
@@ -138,7 +138,8 @@ const AutopsyPage: React.FC = () => {
   // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientDirectoryEntry[]>([]);
+  // The directory entry the server's search returned for the chosen patient.
+  const [selectedPatientEntry, setSelectedPatientEntry] = useState<PatientDirectoryEntry | null>(null);
   const [autopsies, setAutopsies] = useState<AutopsyReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,14 +202,6 @@ const AutopsyPage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
-    const loadData = async () => {
-      const patientData = await getPatients();
-      setPatients(patientData);
-    };
-    loadData();
-  }, []);
-
-  useEffect(() => {
     fetchAutopsies();
   }, [fetchAutopsies]);
 
@@ -220,7 +213,7 @@ const AutopsyPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find((p) => p.patient_id === newAutopsy.patientId);
+    const patient = selectedPatientEntry?.patient_id === newAutopsy.patientId ? selectedPatientEntry : null;
     if (!patient) return;
 
     const autopsy: AutopsyReport = {
@@ -636,22 +629,18 @@ const AutopsyPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docAutopsy.patientLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                {/* Searched on the server; the select this replaced listed only
+                    the first 50 patients. */}
+                <PatientSelect
+                  id="autopsy-patient"
+                  label={t('docAutopsy.patientLabel')}
                   value={newAutopsy.patientId}
-                  onChange={(e) => setNewAutopsy({ ...newAutopsy, patientId: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  onChange={(patientId, patient) => {
+                    setNewAutopsy({ ...newAutopsy, patientId });
+                    setSelectedPatientEntry(patient ?? null);
+                  }}
                   required
-                >
-                  <option value="">{t('docAutopsy.selectPatient')}</option>
-                  {patients.map((p) => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} ({p.patient_id})
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-content-secondary mb-2">{t('docAutopsy.autopsyTypeLabel')}</label>
