@@ -29,11 +29,13 @@ pub(crate) enum RecordSection {
     PharmacyDecisions,
     EmsHandoffs,
     Immunizations,
+    MedicationAdministrations,
+    EmergencyCare,
 }
 
 impl RecordSection {
     /// Every section, for the combined summary.
-    pub(crate) const ALL: [RecordSection; 16] = [
+    pub(crate) const ALL: [RecordSection; 18] = [
         Self::HistoryPhysicals,
         Self::ProgressNotes,
         Self::Wounds,
@@ -50,6 +52,8 @@ impl RecordSection {
         Self::PharmacyDecisions,
         Self::EmsHandoffs,
         Self::Immunizations,
+        Self::MedicationAdministrations,
+        Self::EmergencyCare,
     ];
 
     /// The section's key: the last path segment of its own endpoint.
@@ -71,6 +75,8 @@ impl RecordSection {
             Self::PharmacyDecisions => "pharmacy-decisions",
             Self::EmsHandoffs => "ems-handoffs",
             Self::Immunizations => "immunizations",
+            Self::MedicationAdministrations => "medication-administrations",
+            Self::EmergencyCare => "emergency-care",
         }
     }
 }
@@ -117,7 +123,75 @@ pub(crate) async fn read_section(
         S::PharmacyDecisions => pharmacy_decisions(data, patient_id, page).await,
         S::EmsHandoffs => ems_handoffs(data, patient_id, page).await,
         S::Immunizations => immunizations(data, patient_id, page).await,
+        S::MedicationAdministrations => medication_administrations(data, patient_id, page).await,
+        S::EmergencyCare => emergency_care(data, patient_id, page).await,
     }
+}
+
+/// What the emergency team recorded: resuscitations, trauma and stroke
+/// assessments, cardiac events and sepsis screens.
+///
+/// Each was readable only through a clinician-facing list; the code-blue list
+/// refused the patient outright. A patient who was resuscitated could not see
+/// that it happened.
+async fn emergency_care(data: &AppState, id: &str, page: Pagination) -> RepositoryResult<Value> {
+    let r = &data.repositories;
+    let code_blues = r.code_blue.get_by_patient(id, page).await?.items;
+    let traumas = r
+        .trauma_assessments_repo
+        .get_by_patient(id, page)
+        .await?
+        .items;
+    let strokes = r
+        .stroke_assessments_repo
+        .get_by_patient(id, page)
+        .await?
+        .items;
+    let cardiac = r.cardiac_events_repo.get_by_patient(id, page).await?.items;
+    let sepsis = r
+        .sepsis_assessments_repo
+        .get_by_patient(id, page)
+        .await?
+        .items;
+    let count = code_blues.len() + traumas.len() + strokes.len() + cardiac.len() + sepsis.len();
+    Ok(json!({
+        "success": true, "patient_id": id, "code_blues": code_blues, "traumas": traumas,
+        "strokes": strokes, "cardiac_events": cardiac, "sepsis_assessments": sepsis, "count": count,
+    }))
+}
+
+/// The doses a nurse recorded on this patient's MAR, newest day first.
+///
+/// Each daily MAR record holds that day's administrations; they are flattened
+/// to one row per dose, carrying the day it was recorded under.
+async fn medication_administrations(
+    data: &AppState,
+    id: &str,
+    page: Pagination,
+) -> RepositoryResult<Value> {
+    let records = data
+        .repositories
+        .medication_records
+        .get_by_patient(id, None, page)
+        .await?
+        .items;
+    let mut doses: Vec<Value> = Vec::new();
+    for record in records {
+        let events = record
+            .data
+            .get("administrations")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for mut event in events {
+            if let Some(object) = event.as_object_mut() {
+                object.insert("record_date".into(), json!(record.record_date));
+            }
+            doses.push(event);
+        }
+    }
+    let count = doses.len();
+    Ok(json!({ "success": true, "patient_id": id, "administrations": doses, "count": count }))
 }
 
 /// Return the patient's stored vaccine administrations, with bounded summary paging.

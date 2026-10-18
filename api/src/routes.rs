@@ -37,6 +37,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_patient_procedures)
         .service(list_patient_ama_discharges)
         .service(list_patient_intake_output)
+        .service(list_patient_medication_administrations)
+        .service(list_patient_emergency_care)
         .service(simulate_nfc_tap)
         .service(get_all_access_logs)
         .service(get_access_logs)

@@ -82,6 +82,7 @@ pub async fn bootstrap_account(
             error: "An administrator already exists".to_string(),
             code: "BOOTSTRAP_NOT_ALLOWED".to_string(),
         }),
+        Err(CreateError::LoginIdTaken) => login_id_taken(),
         Err(CreateError::Failed(error)) => {
             log::error!("Bootstrap account write failed: {error}");
             provisioning_error()
@@ -150,6 +151,7 @@ pub async fn register_staff_account(
             "credential_code": grant.code,
             "credential_expires_at": grant.expires_at,
         })),
+        Err(CreateError::LoginIdTaken) => login_id_taken(),
         Err(error) => {
             log::error!("Staff account write failed: {error:?}");
             provisioning_error()
@@ -219,7 +221,29 @@ fn new_staff_user(body: &RegisterStaffRequest, role: Role, admin_id: &str) -> Us
 #[derive(Debug)]
 enum CreateError {
     AlreadyBootstrapped,
+    /// Another account already holds this login ID (case-insensitive).
+    LoginIdTaken,
     Failed(String),
+}
+
+/// A unique-key violation on the login ID: a conflict to report, not an outage.
+fn insert_user_error(error: sqlx::Error) -> CreateError {
+    let taken = error
+        .as_database_error()
+        .and_then(|db| db.constraint())
+        .is_some_and(|name| name.starts_with("users_login_id"));
+    if taken {
+        CreateError::LoginIdTaken
+    } else {
+        CreateError::Failed(error.to_string())
+    }
+}
+
+fn login_id_taken() -> HttpResponse {
+    HttpResponse::Conflict().json(ErrorResponse {
+        error: "That employee ID or username is already in use".to_string(),
+        code: "LOGIN_ID_TAKEN".to_string(),
+    })
 }
 
 /// A bootstrap is allowed only before any non-system account exists.
@@ -299,7 +323,7 @@ async fn create_account_with_grant(
     .bind(login_id)
     .execute(&mut *tx)
     .await
-    .map_err(|e| CreateError::Failed(e.to_string()))?;
+    .map_err(insert_user_error)?;
     data.persist_user_profile_in(&mut tx, user_id, user)
         .await
         .map_err(CreateError::Failed)?;
@@ -401,6 +425,45 @@ mod bootstrap_tests {
             .await
             .unwrap();
         assert!(has_bootstrap_blocker(&mut tx).await.unwrap());
+        tx.rollback().await.unwrap();
+    }
+
+    /// A login ID already in use is a conflict, not "temporarily unavailable":
+    /// retrying it can never succeed.
+    #[actix_web::test]
+    async fn a_taken_login_id_is_reported_as_taken() {
+        let url = crate::repositories::postgres::tests::test_database_url();
+        let pool = sqlx::PgPool::connect(&url)
+            .await
+            .expect("PostgreSQL test pool");
+        let mut tx = pool.begin().await.expect("test transaction");
+        sqlx::query("SET LOCAL search_path = pg_temp, public")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TEMP TABLE users (login_id TEXT) ON COMMIT DROP")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("CREATE UNIQUE INDEX users_login_id_lower_key ON users (lower(login_id))")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let insert = "INSERT INTO users (login_id) VALUES ($1)";
+        sqlx::query(insert)
+            .bind("bt.doctor")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let error = sqlx::query(insert)
+            .bind("BT.Doctor")
+            .execute(&mut *tx)
+            .await
+            .expect_err("a second account with the same login ID");
+        assert!(matches!(
+            insert_user_error(error),
+            CreateError::LoginIdTaken
+        ));
         tx.rollback().await.unwrap();
     }
 }

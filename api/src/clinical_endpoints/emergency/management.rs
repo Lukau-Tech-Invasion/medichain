@@ -40,76 +40,120 @@ pub async fn get_mar(
 /// e-prescription carries free-text directions, not a dosing schedule, and
 /// fabricating administration times on a medication record would be worse than
 /// showing none. Administering without one is recorded as PRN.
+/// Prescription statuses whose medication a nurse may be giving.
+///
+/// Everything from signing to dispensing. This used to be `Transmitted`,
+/// `Signed` and `Filled` -- and `Filled` is not a status this API has, so the
+/// moment a pharmacy received, started filling or dispensed a prescription it
+/// vanished from the MAR: the point at which the drug is on the ward is the
+/// point at which the nurse stopped seeing it.
+const MAR_ACTIVE_STATUSES: [&str; 6] = [
+    "Signed",
+    "Transmitted",
+    "Received",
+    "InProgress",
+    "PartialFill",
+    "Dispensed",
+];
+
+/// Most rows one MAR read returns; a ward-wide list past this is logged.
+const MAR_MAX_ROWS: usize = 1000;
+
+/// One MAR row for an active prescription.
+fn mar_row(
+    record: &crate::repositories::JsonRecordEntity,
+    patient_id: &str,
+    name: &str,
+) -> serde_json::Value {
+    let v = &record.data;
+    let med = v
+        .get("medication")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let text = |object: &serde_json::Value, key: &str| {
+        object
+            .get(key)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    serde_json::json!({
+        "med_id": record.id,
+        "patient_id": patient_id,
+        "patient_name": name,
+        "medication_name": text(&med, "name"),
+        "dose": text(&med, "strength"),
+        // A prescription records a form, not a route of administration.
+        // This mapped "injection" to IV and everything else to PO -- so
+        // a cream, an inhaler and an IM injection all arrived at the
+        // bedside with a route nobody prescribed, and the five-rights
+        // check showed it pre-ticked. The nurse records the route used.
+        "route": serde_json::Value::Null,
+        "form": text(&med, "form"),
+        "frequency": text(&med, "directions"),
+        "scheduled_times": [],
+        "start_date": text(v, "created_at"),
+        "indication": text(v, "patient_instructions"),
+        "prescriber": text(v, "prescriber_name"),
+        "status": text(v, "status"),
+    })
+}
+
 #[get("/api/emergency/mar/list")]
 pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
         return resp;
     }
 
-    let patients = data
-        .repositories
-        .patients
-        .list(Pagination::new(0, 50))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-
-    // Read once. It was read inside the loop below -- every prescription in
-    // the deployment, once per patient on the page.
-    let prescriptions = data
-        .repositories
-        .e_prescriptions_v2
-        .list_all()
-        .await
-        .unwrap_or_default();
-
-    let mut rows: Vec<serde_json::Value> = Vec::new();
-    for entity in &patients {
-        let name = patient_entity_to_profile(entity, &data.encryption_keyring)
-            .map(|p| p.full_name)
-            .unwrap_or_else(|| entity.id.clone());
-
-        for record in &prescriptions {
-            let v = &record.data;
-            if v.get("patient_id").and_then(|x| x.as_str()) != Some(entity.id.as_str()) {
-                continue;
-            }
-            // Only medication a pharmacy would actually be dispensing.
-            let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
-            if !matches!(status, "Transmitted" | "Signed" | "Filled") {
-                continue;
-            }
-            let med = v
-                .get("medication")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            let text = |object: &serde_json::Value, key: &str| {
-                object
-                    .get(key)
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            };
-            rows.push(serde_json::json!({
-                "med_id": record.id,
-                "patient_id": entity.id,
-                "patient_name": name,
-                "medication_name": text(&med, "name"),
-                "dose": text(&med, "strength"),
-                // A prescription records a form, not a route of administration.
-                // This mapped "injection" to IV and everything else to PO -- so
-                // a cream, an inhaler and an IM injection all arrived at the
-                // bedside with a route nobody prescribed, and the five-rights
-                // check showed it pre-ticked. The nurse records the route used.
-                "route": serde_json::Value::Null,
-                "form": text(&med, "form"),
-                "frequency": text(&med, "directions"),
-                "scheduled_times": [],
-                "start_date": text(v, "created_at"),
-                "indication": text(v, "patient_instructions"),
-                "prescriber": text(v, "prescriber_name"),
-            }));
+    // Driven by the prescriptions, not by a page of the patient roster: the
+    // roster was the first 50 patients, so on a ward with more than 50 every
+    // later patient's medication was simply absent from the MAR. A failed read
+    // is an error, never an empty list -- an empty MAR reads as "nothing due".
+    let prescriptions = match data.repositories.e_prescriptions_v2.list_all().await {
+        Ok(records) => records,
+        Err(error) => {
+            log::error!("MAR prescription read failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "The medication administration record could not be loaded".to_string(),
+                code: "MAR_READ_FAILED".to_string(),
+            });
         }
+    };
+
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for record in &prescriptions {
+        let status = record
+            .data
+            .get("status")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let Some(patient_id) = record.data.get("patient_id").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        if !MAR_ACTIVE_STATUSES.contains(&status) {
+            continue;
+        }
+        if rows.len() >= MAR_MAX_ROWS {
+            log::warn!("MAR list truncated at {MAR_MAX_ROWS} active prescriptions");
+            break;
+        }
+        if !names.contains_key(patient_id) {
+            let name = match data.repositories.patients.get_by_id(patient_id).await {
+                Ok(entity) => patient_entity_to_profile(&entity, &data.encryption_keyring)
+                    .map(|p| p.full_name)
+                    .unwrap_or_else(|| patient_id.to_string()),
+                // A prescription for a record that no longer resolves is not
+                // medication anyone can give.
+                Err(_) => continue,
+            };
+            names.insert(patient_id.to_string(), name);
+        }
+        let name = names
+            .get(patient_id)
+            .map(String::as_str)
+            .unwrap_or(patient_id);
+        rows.push(mar_row(record, patient_id, name));
     }
 
     HttpResponse::Ok().json(rows)
@@ -131,12 +175,24 @@ pub async fn list_mar_administrations(
         return resp;
     }
     let patient_filter = query.get("patient_id").map(String::as_str);
-    let records = match data
-        .repositories
-        .medication_records
-        .list_all(Pagination::new(0, 100))
-        .await
-    {
+    // One patient's history comes from that patient's records. Filtering the
+    // latest 100 records across the deployment dropped every dose older than
+    // the hundredth record anyone wrote.
+    let read = match patient_filter {
+        Some(patient_id) => {
+            data.repositories
+                .medication_records
+                .get_by_patient(patient_id, None, Pagination::new(0, 100))
+                .await
+        }
+        None => {
+            data.repositories
+                .medication_records
+                .list_all(Pagination::new(0, 100))
+                .await
+        }
+    };
+    let records = match read {
         Ok(result) => result.items,
         Err(error) => {
             log::error!("MAR administration history read failed: {error}");
@@ -2028,5 +2084,74 @@ pub async fn get_fall_risk(
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+#[cfg(test)]
+mod mar_list_tests {
+    use super::*;
+
+    async fn prescribe(state: &AppState, id: &str, patient: &str, status: &str) {
+        let now = chrono::Utc::now();
+        state
+            .repositories
+            .e_prescriptions_v2
+            .create(crate::repositories::JsonRecordEntity {
+                id: id.to_string(),
+                owner_id: patient.to_string(),
+                data: serde_json::json!({
+                    "patient_id": patient,
+                    "status": status,
+                    "medication": { "name": format!("Drug {id}"), "strength": "5 mg" },
+                }),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .expect("seed prescription");
+    }
+
+    /// The MAR shows medication the pharmacy is filling or has dispensed, for a
+    /// patient however far down the roster, and never cancelled medication.
+    #[actix_web::test]
+    async fn mar_lists_every_active_prescription_for_every_patient() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-MAR", Role::Nurse);
+        // More patients than the roster page the MAR used to walk.
+        for index in 0..55 {
+            crate::test_fixtures::seed_patient(&state, &format!("PAT-MAR-{index:02}")).await;
+        }
+        let late = "PAT-MAR-54";
+        for (id, status) in [
+            ("RX-SIGNED", "Signed"),
+            ("RX-RECEIVED", "Received"),
+            ("RX-INPROGRESS", "InProgress"),
+            ("RX-PARTIAL", "PartialFill"),
+            ("RX-DISPENSED", "Dispensed"),
+            ("RX-CANCELLED", "Cancelled"),
+            ("RX-DRAFT", "Draft"),
+        ] {
+            prescribe(&state, id, late, status).await;
+        }
+        let app = test::init_service(App::new().app_data(state.clone()).service(list_mar)).await;
+        let request = test::TestRequest::get()
+            .uri("/api/emergency/mar/list")
+            .insert_header(crate::test_fixtures::as_user("NURSE-MAR"))
+            .to_request();
+        let rows: Vec<serde_json::Value> = test::call_and_read_body_json(&app, request).await;
+        let mut ids: Vec<&str> = rows.iter().filter_map(|r| r["med_id"].as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            [
+                "RX-DISPENSED",
+                "RX-INPROGRESS",
+                "RX-PARTIAL",
+                "RX-RECEIVED",
+                "RX-SIGNED"
+            ]
+        );
+        assert!(rows.iter().all(|r| r["patient_id"] == late));
     }
 }

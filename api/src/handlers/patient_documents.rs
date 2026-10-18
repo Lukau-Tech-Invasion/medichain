@@ -415,6 +415,39 @@ pub async fn list_patient_intake_output(
     section_response(&data, &patient_id, RecordSection::IntakeOutput).await
 }
 
+/// The doses given to a patient, as their nurse recorded them on the MAR.
+///
+/// Reachable only ward-wide, through `GET /api/emergency/mar/administrations`,
+/// behind a clinical-staff gate: a patient could be given a medication and
+/// have no way to see that it was given, by whom, or why a dose was held.
+#[get("/api/clinical/patient/{patient_id}/medication-administrations")]
+pub async fn list_patient_medication_administrations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    section_response(&data, &patient_id, RecordSection::MedicationAdministrations).await
+}
+
+/// The patient's emergency care: resuscitations, trauma, stroke, cardiac and
+/// sepsis records, which were reachable only through clinician-facing lists.
+#[get("/api/clinical/patient/{patient_id}/emergency-care")]
+pub async fn list_patient_emergency_care(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    section_response(&data, &patient_id, RecordSection::EmergencyCare).await
+}
+
 /// The authorisation boundary for every patient-scoped document listing.
 ///
 /// These routes share one `authorize`, so they are tested as one table rather
@@ -488,6 +521,8 @@ mod patient_document_access_tests {
         "intake-output",
         "pharmacy-decisions",
         "ems-handoffs",
+        "medication-administrations",
+        "emergency-care",
     ];
 
     fn state_with(role: Role, user_id: &str, linked: Option<&str>) -> web::Data<AppState> {
@@ -538,7 +573,9 @@ mod patient_document_access_tests {
                 .service(super::list_patient_ama_discharges)
                 .service(super::list_patient_intake_output)
                 .service(super::list_patient_pharmacy_decisions)
-                .service(super::list_patient_ems_handoffs),
+                .service(super::list_patient_ems_handoffs)
+                .service(super::list_patient_medication_administrations)
+                .service(super::list_patient_emergency_care),
         )
         .await;
         let req = test::TestRequest::get()
@@ -691,6 +728,73 @@ mod records_summary_tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["id"], "IMM-OWN");
         assert_eq!(summary(&data, OTHER, "").await.0, 403);
+    }
+
+    /// A resuscitation reaches the patient it happened to, and only them; the
+    /// code-blue list used to refuse the patient outright.
+    #[actix_web::test]
+    async fn emergency_care_reaches_only_the_owning_patient() {
+        let data = state().await;
+        for (id, patient_id) in [("CB-OWN", PATIENT_ID), ("CB-OTHER", "PAT-ELSEWHERE")] {
+            let now = chrono::Utc::now();
+            data.repositories
+                .code_blue
+                .create(crate::repositories::traits::CodeBlueEntity {
+                    id: id.into(),
+                    patient_id: patient_id.into(),
+                    location: None,
+                    code_called_at: now.timestamp(),
+                    team_arrived_at: None,
+                    initial_rhythm: None,
+                    witnessed: None,
+                    outcome: "ROSC".into(),
+                    code_leader: None,
+                    documented_by: "DOC".into(),
+                    documented_at: now.timestamp(),
+                    data: serde_json::json!({}),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .unwrap();
+        }
+        let (status, body) = summary(&data, PATIENT, "").await;
+        assert_eq!(status, 200);
+        let events = body["sections"]["emergency-care"]["code_blues"]
+            .as_array()
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["id"], "CB-OWN");
+    }
+
+    /// A dose a nurse recorded reaches the patient it was given to, and only them.
+    #[actix_web::test]
+    async fn medication_administrations_reach_only_the_owning_patient() {
+        let data = state().await;
+        for (id, patient_id) in [("MAR-OWN", PATIENT_ID), ("MAR-OTHER", "PAT-ELSEWHERE")] {
+            data.repositories
+                .medication_records
+                .create(crate::repositories::traits::MedicationRecordEntity {
+                    id: id.into(),
+                    patient_id: patient_id.into(),
+                    record_date: chrono::NaiveDate::from_ymd_opt(2026, 10, 18).unwrap(),
+                    is_active: true,
+                    data: serde_json::json!({ "administrations": [
+                        { "administration_id": format!("ADM-{id}"), "medication_name": "QA amlodipine", "status": "given" }
+                    ] }),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        let (status, body) = summary(&data, PATIENT, "").await;
+        assert_eq!(status, 200);
+        let doses = body["sections"]["medication-administrations"]["administrations"]
+            .as_array()
+            .unwrap();
+        assert_eq!(doses.len(), 1);
+        assert_eq!(doses[0]["administration_id"], "ADM-MAR-OWN");
+        assert_eq!(doses[0]["record_date"], "2026-10-18");
     }
 
     #[actix_web::test]

@@ -89,15 +89,10 @@ async fn patient_grant(
     clinician: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<String>, AuthorityUnavailable> {
-    let grants = data
-        .patient_access
-        .list_grants_by_patient(patient_id, now)
+    data.patient_access
+        .active_grant_id(patient_id, clinician, now)
         .await
-        .map_err(|error| AuthorityUnavailable(error.to_string()))?;
-    Ok(grants
-        .into_iter()
-        .find(|grant| grant.provider_id == clinician && grant.is_effective(now))
-        .map(|grant| grant.id))
+        .map_err(|error| AuthorityUnavailable(error.to_string()))
 }
 
 /// The clinician-side authorities, in order: grant, relationship, break-glass.

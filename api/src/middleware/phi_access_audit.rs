@@ -172,6 +172,14 @@ pub const PHI_READ_ROUTES: &[PhiReadRoute] = &[
         "Fluid intake and output",
     ),
     route(
+        "/api/clinical/patient/{patient_id}/medication-administrations",
+        "Medication administrations",
+    ),
+    route(
+        "/api/clinical/patient/{patient_id}/emergency-care",
+        "Emergency care records",
+    ),
+    route(
         "/api/clinical/patient/{patient_id}/pathology",
         "Pathology reports",
     ),

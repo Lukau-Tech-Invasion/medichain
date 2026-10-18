@@ -40,6 +40,7 @@ mod attachment_scan;
 mod audit_batching;
 mod audit_merkle;
 mod audit_outbox;
+mod audit_s3_sink;
 mod audit_seal;
 mod auth_sessions;
 mod blood_inventory;

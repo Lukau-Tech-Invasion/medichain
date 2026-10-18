@@ -193,10 +193,27 @@ impl PatientAccessService {
         provider_id: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, &'static str> {
+        Ok(self
+            .active_grant_id(patient_id, provider_id, now)
+            .await?
+            .is_some())
+    }
+
+    /// The id of the provider's effective grant on this patient, if any.
+    ///
+    /// A read made under it is recorded against this id, which is what the
+    /// patient's per-grant disclosure count is derived from.
+    pub async fn active_grant_id(
+        &self,
+        patient_id: &str,
+        provider_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<String>, &'static str> {
         let grants = self.list_grants_by_patient(patient_id, now).await?;
         Ok(grants
-            .iter()
-            .any(|grant| grant.provider_id == provider_id && grant.is_effective(now)))
+            .into_iter()
+            .find(|grant| grant.provider_id == provider_id && grant.is_effective(now))
+            .map(|grant| grant.id))
     }
 
     pub async fn get_request(

@@ -258,6 +258,8 @@ pub fn checkpoint_bytes(batch: &StoredBatch) -> Option<Vec<u8>> {
 pub enum SinkKind {
     None,
     Filesystem,
+    /// An S3 bucket under Object Lock (`crate::audit_s3_sink`).
+    S3,
 }
 
 /// Why a checkpoint could not be exported.
@@ -468,16 +470,17 @@ impl SealRuntime {
                 sink.ensure_dir()?;
                 Arc::new(sink)
             }
+            Some("s3") => Arc::new(crate::audit_s3_sink::S3Sink::from_lookup(&lookup)?),
             Some("none") | None if is_demo => Arc::new(NoSink),
             Some("none") | None => {
                 return Err(format!(
-                    "{SINK_VAR}=filesystem is required outside demo mode; \
+                    "{SINK_VAR}=filesystem or s3 is required outside demo mode; \
                      the audit checkpoint sink cannot be none in production"
                 ))
             }
             Some(other) => {
                 return Err(format!(
-                    "{SINK_VAR} must be none or filesystem, not {other:?}"
+                    "{SINK_VAR} must be none, filesystem or s3, not {other:?}"
                 ))
             }
         };

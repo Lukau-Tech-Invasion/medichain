@@ -1,12 +1,15 @@
 use super::*;
 
 /// Preserve the declared access purpose when converting a document audit to storage.
-/// Returns the same audit event with its normalised reason and document resource type.
+/// Returns the same audit event with its normalised reason, document resource type
+/// and the authority the read was made under.
 fn document_audit(
     entry: AccessLogEntry,
     request: &HttpRequest,
+    authority: &DocumentAuthority,
 ) -> crate::repositories::traits::AccessLogEntity {
     let mut audit: crate::repositories::traits::AccessLogEntity = entry.into();
+    authority.stamp(&mut audit);
     let reason = request
         .headers()
         .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
@@ -36,9 +39,32 @@ mod document_reason_tests {
             timestamp: Utc::now(),
             emergency: false,
         };
-        let audit = document_audit(entry, &request);
+        let audit = document_audit(entry, &request, &DocumentAuthority::Own);
         assert_eq!(audit.access_reason.as_deref(), Some("Treatment"));
         assert_eq!(audit.resource_type, "medical_document");
+        assert_eq!(audit.authority_type.as_deref(), Some("self"));
+        assert_eq!(audit.authority_id, None);
+    }
+
+    /// A read under a grant names the grant, which is what the patient's
+    /// per-grant disclosure count is derived from.
+    #[test]
+    fn document_audit_names_the_grant_it_was_read_under() {
+        let request = actix_web::test::TestRequest::default().to_http_request();
+        let entry = AccessLogEntry {
+            access_id: "audit-test".into(),
+            patient_id: "PAT-TEST".into(),
+            accessor_id: "doctor-test".into(),
+            accessor_role: "Doctor".into(),
+            access_type: "list_records".into(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: false,
+        };
+        let grant = DocumentAuthority::Grant("GRANT-1".into());
+        let audit = document_audit(entry, &request, &grant);
+        assert_eq!(audit.authority_type.as_deref(), Some("patient_grant"));
+        assert_eq!(audit.authority_id.as_deref(), Some("GRANT-1"));
     }
 }
 
@@ -308,11 +334,13 @@ pub async fn download_medical_record(
             return access_check_unavailable();
         }
     };
-    if let Some(response) =
-        patient_read_denial(&data, &current_user, &current_user_id, &record.patient_id).await
-    {
-        return response;
-    }
+    let authority =
+        match document_read_authority(&data, &current_user, &current_user_id, &record.patient_id)
+            .await
+        {
+            Ok(authority) => authority,
+            Err(response) => return response,
+        };
 
     // Download and decrypt from IPFS
     let download_result = match data
@@ -351,7 +379,8 @@ pub async fn download_medical_record(
         emergency: false,
     };
     if let Err(response) =
-        crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req, &authority))
+            .await
     {
         return response;
     }
@@ -383,21 +412,51 @@ pub async fn download_medical_record(
 ///
 /// The IPFS path gets this from the `medical_records` row; these kinds have no
 /// such row, so they check the owning patient themselves.
-async fn may_read_patient(
+/// What lets the caller read a patient's documents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DocumentAuthority {
+    /// The caller's own record.
+    Own,
+    /// An effective grant the patient approved; holds the grant id.
+    Grant(String),
+}
+
+impl DocumentAuthority {
+    /// Record the authority on the audit row, so a read under a grant is
+    /// counted on that grant.
+    fn stamp(&self, audit: &mut crate::repositories::traits::AccessLogEntity) {
+        let (kind, id) = match self {
+            Self::Own => ("self", None),
+            Self::Grant(id) => ("patient_grant", Some(id.clone())),
+        };
+        audit.authority_type = Some(kind.to_string());
+        audit.authority_id = id;
+    }
+}
+
+/// The caller's authority over `patient_id`'s documents, or the response that
+/// refuses them (403 without one, 503 when the grant store cannot be read).
+async fn document_read_authority(
     data: &web::Data<AppState>,
     caller: &crate::types::User,
     caller_id: &str,
     patient_id: &str,
-) -> Result<bool, &'static str> {
+) -> Result<DocumentAuthority, HttpResponse> {
     if crate::support::caller_owns_patient_record(data, caller_id, patient_id) {
-        return Ok(true);
+        return Ok(DocumentAuthority::Own);
     }
     if !caller.role.is_healthcare_provider() {
-        return Ok(false);
+        return Err(access_denied());
     }
-    data.patient_access
-        .provider_has_active_grant(patient_id, caller_id, Utc::now())
+    match data
+        .patient_access
+        .active_grant_id(patient_id, caller_id, Utc::now())
         .await
+    {
+        Ok(Some(grant_id)) => Ok(DocumentAuthority::Grant(grant_id)),
+        Ok(None) => Err(access_denied()),
+        Err(_) => Err(access_check_unavailable()),
+    }
 }
 
 async fn patient_read_denial(
@@ -406,11 +465,9 @@ async fn patient_read_denial(
     caller_id: &str,
     patient_id: &str,
 ) -> Option<HttpResponse> {
-    match may_read_patient(data, caller, caller_id, patient_id).await {
-        Ok(true) => None,
-        Ok(false) => Some(access_denied()),
-        Err(_) => Some(access_check_unavailable()),
-    }
+    document_read_authority(data, caller, caller_id, patient_id)
+        .await
+        .err()
 }
 
 fn access_denied() -> HttpResponse {
@@ -2004,11 +2061,13 @@ pub async fn download_medical_record_by_hash(
             });
         }
     };
-    if let Some(response) =
-        patient_read_denial(&data, &current_user, &current_user_id, &entity.patient_id).await
-    {
-        return response;
-    }
+    let authority =
+        match document_read_authority(&data, &current_user, &current_user_id, &entity.patient_id)
+            .await
+        {
+            Ok(authority) => authority,
+            Err(response) => return response,
+        };
     // A record reference is a pointer, and not every pointer is an IPFS CID.
     // Approving a lab result files it in the patient's records with a synthetic
     // `lab-<submission id>` hash (see `handlers/lab.rs`), because the result
@@ -2031,8 +2090,11 @@ pub async fn download_medical_record_by_hash(
             timestamp: Utc::now(),
             emergency: false,
         };
-        if let Err(response) =
-            crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+        if let Err(response) = crate::support::require_durable_audit(
+            &data,
+            document_audit(audit, &http_req, &authority),
+        )
+        .await
         {
             return response;
         }
@@ -2081,7 +2143,8 @@ pub async fn download_medical_record_by_hash(
         emergency: false,
     };
     if let Err(response) =
-        crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req, &authority))
+            .await
     {
         return response;
     }
@@ -2678,11 +2741,11 @@ pub async fn list_patient_records(
         }
     };
 
-    if let Some(response) =
-        patient_read_denial(&data, &current_user, &current_user_id, &patient_id).await
-    {
-        return response;
-    }
+    let authority =
+        match document_read_authority(&data, &current_user, &current_user_id, &patient_id).await {
+            Ok(authority) => authority,
+            Err(response) => return response,
+        };
 
     // Get patient records via repository (paginated)
     // `Pagination::new(page, per_page)` takes a 0-indexed PAGE, not an offset.
@@ -2742,7 +2805,8 @@ pub async fn list_patient_records(
         emergency: false,
     };
     if let Err(response) =
-        crate::support::require_durable_audit(&data, document_audit(audit, &http_req)).await
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req, &authority))
+            .await
     {
         return response;
     }

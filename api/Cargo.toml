@@ -57,6 +57,8 @@ sha3 = "0.10"
 # transmitted bytes; sha3 above is SHA3-256, a different function. Already in
 # the graph via medichain-crypto, so this adds no crates.
 sha2 = "0.10"
+# HMAC-SHA256 for AWS Signature Version 4 (the S3 audit checkpoint sink).
+hmac = "0.12"
 hex = "0.4"
 
 # JWT authentication (Phase 9.4) and TOTP multi-factor auth (Phase 11.3)
