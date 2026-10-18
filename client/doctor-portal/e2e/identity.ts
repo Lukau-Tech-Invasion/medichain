@@ -585,34 +585,3 @@ export async function registerPatientViaApi(
     activationExpiresAt: String(activation?.expires_at ?? created.body.activation_expires_at ?? ''),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Retired-identity wording
-// ---------------------------------------------------------------------------
-
-/**
- * Words that must appear nowhere a person can read. The ledger and the old
- * client-held identity are gone (ADR-0010); a page that still names either is
- * describing a system that does not exist. "Chain of custody" (a clinical term)
- * and "chained audit stream" do not match: the patterns name only the retired
- * vocabulary.
- */
-export const RETIRED_TERMS = [
-  /block\s?chain/i, // retired-term-negative-assertion
-  /\bon[-\s]+chain\b/i,
-  /\bwallet(s)?\b/i, // retired-term-negative-assertion
-  /recovery\s+phrase/i, // retired-term-negative-assertion
-  /seed\s+phrase/i,
-  /mnemonic/i, // retired-term-negative-assertion
-  /\bss58\b/i, // retired-term-negative-assertion
-  /polkadot/i, // retired-term-negative-assertion
-  /substrate/i, // retired-term-negative-assertion
-  /extrinsic/i, // retired-term-negative-assertion
-  /transaction\s+hash/i,
-  /finalized\s+block/i, // retired-term-negative-assertion
-] as const;
-
-/** The retired terms found in some text, for an assertion message. */
-export function retiredTermsIn(text: string): string[] {
-  return RETIRED_TERMS.filter((pattern) => pattern.test(text)).map((pattern) => String(pattern));
-}

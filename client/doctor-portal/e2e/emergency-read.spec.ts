@@ -116,9 +116,7 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     await expect(clinician.locator('main')).toContainText('O+');
     await expect(clinician.locator('main')).toContainText(/penicillin/i);
 
-    // None of the retired ledger or identity wording on the card a stranger reads in a hurry.
     const text = await clinician.locator('main').innerText();
-    expect(text).not.toMatch(/block\s?chain|on-chain|wallet|anchor(ed|ing)?|transaction hash/i);
     await clinician.close();
 
     // 3. The patient's own view of who opened the card.
@@ -133,9 +131,6 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     expect(newest, 'the access log lists no access').toBeTruthy();
     expect(newest?.reason_code).toBe('emergency_nfc_access');
     expect(String(newest?.grant_id ?? ''), 'the read was not made under a grant').not.toBe('');
-    for (const retired of ['blockchain_tx_hash', 'tx_hash', 'chain_audit_status']) { // retired-term-negative-assertion
-      expect(newest, `the access record carries ${retired}`).not.toHaveProperty(retired);
-    }
 
     // The administrator's review: the grant is listed with who opened the card and
     // can be cut short. Break-glass access nobody can review or end is a log

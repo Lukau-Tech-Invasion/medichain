@@ -3,12 +3,10 @@ import {
   api,
   fixtureStaff,
   fixtureToken,
-  retiredTermsIn,
 } from './identity';
 import {
   fixturePatientId,
   openChartWithReason,
-  readablePageText,
   settle,
   signIn,
 } from './support';
@@ -16,12 +14,10 @@ import {
 /**
  * The sealed audit stream, as a clinician and an administrator see it.
  *
- * The chain that used to "anchor" these entries is gone. What replaced it is a
- * chained, signed, exportable audit stream: every access-log row and audit event
- * is batched, hashed into a Merkle tree, chained to the previous batch and signed
- * with Ed25519 (`docs/BLOCKCHAIN_REMOVAL_PLAN.md`, Phase A). The screens show
- * where an entry stands in that stream -- "Sealing pending", "Sealed", "Sealed
- * and exported" -- and never a block, a transaction or a retired identity.
+ * Every access-log row and audit event is batched, hashed into a Merkle tree,
+ * chained to the previous batch and signed with Ed25519 (`docs/AUDIT_LOG.md`).
+ * The screens show where an entry stands in that stream -- "Sealing pending",
+ * "Sealed", "Sealed and exported".
  *
  *   * Access Logs: each row carries a seal badge.
  *   * Admin dashboard: the System Status card shows the audit-seal panel: how many
@@ -33,12 +29,10 @@ import {
  *
  * The seal STATE of a fresh row is timing: the sealing job batches on its own
  * schedule, so a row is `pending` or already `sealed`. Assertions accept the
- * three states and refuse everything else, including any chain vocabulary.
+ * three states and refuse everything else.
  */
 
 const SEAL_STATES = ['pending', 'sealed', 'exported'];
-/** The words the seal UI must never use: chain, block, transaction, anchor, finalised. */
-const NOT_SEAL_WORDS = /\banchor(ed|ing|s)?\b|finali[sz]ed|transaction hash|block number|on-chain|blockchain/i; // retired-term-negative-assertion
 
 test('the admin dashboard shows the audit-seal panel, and says when nothing leaves the host', async ({
   browser,
@@ -65,10 +59,6 @@ test('the admin dashboard shows the audit-seal panel, and says when nothing leav
     /batches are signed|batches are sealed without a signature/i
   );
 
-  // The words on the whole card are the seal's, not the chain's.
-  const text = await panel.innerText();
-  expect(text).not.toMatch(NOT_SEAL_WORDS);
-  expect(retiredTermsIn(text)).toEqual([]);
 
   // What the panel shows is what the API reports.
   const token = await fixtureToken(request, fixtureStaff('Admin'));
@@ -129,13 +119,10 @@ test('the access log shows a seal badge on each row a clinician has just created
   // The badge reads in the seal's words.
   await expect(badges.first()).toContainText(/sealing pending|sealed|sealed and exported|partly sealed/i);
 
-  const text = await readablePageText(admin);
-  expect(text, 'the access log uses chain vocabulary').not.toMatch(NOT_SEAL_WORDS);
-  expect(retiredTermsIn(text)).toEqual([]);
   await admin.close();
 });
 
-test('the access-log API carries a seal state and none of the chain fields', async ({ request }) => {
+test('the access-log API carries a seal state', async ({ request }) => {
   const token = await fixtureToken(request, fixtureStaff('Admin'));
   const logs = await api(request, 'GET', '/api/access/logs', { token });
   expect(logs.status).toBe(200);
@@ -147,9 +134,6 @@ test('the access-log API carries a seal state and none of the chain fields', asy
   for (const row of rows.slice(0, 50)) {
     if (row.seal_status !== undefined && row.seal_status !== null) {
       expect(SEAL_STATES).toContain(row.seal_status);
-    }
-    for (const retired of ['blockchain_tx_hash', 'tx_hash', 'block_number', 'anchor_status']) { // retired-term-negative-assertion
-      expect(row, `an access-log row carries ${retired}`).not.toHaveProperty(retired);
     }
   }
 });

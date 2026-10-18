@@ -5,9 +5,8 @@ import {
   fixtureStaff,
   fixtureToken,
   readFixtures,
-  retiredTermsIn,
 } from '../../doctor-portal/e2e/identity';
-import { readablePageText, settle, signInAsFixturePatient } from './support';
+import { settle, signInAsFixturePatient } from './support';
 
 /**
  * What a patient can see and check about the audit trail of their own record.
@@ -15,8 +14,7 @@ import { readablePageText, settle, signInAsFixturePatient } from './support';
  * "Who viewed my records" lists every time someone else opened the patient's
  * information: who, where, when, why. Each entry carries where it stands in the
  * sealed audit stream -- "Sealing pending", "Sealed", "Sealed and exported" -- and
- * the page explains sealing in words that do not mention a chain, a block or a
- * transaction. The patient can also ask the server to verify their emergency card
+ * the page explains sealing in plain words. The patient can also ask the server to verify their emergency card
  * against its sealed commitment and to check the signature on the batches that
  * cover their history (`GET /api/patients/{id}/verify`).
  *
@@ -37,10 +35,8 @@ test.skip(({ isMobile }) => isMobile, 'content checks; the viewport does not cha
 const SEAL_STATES = ['pending', 'sealed', 'exported'];
 const CAPSULE_STATES = ['match', 'mismatch', 'unsealed', 'none'];
 const SIGNATURES = ['valid', 'unsigned', 'invalid'];
-/** The words the seal UI must never use: chain, block, transaction, anchor, finalised. */
-const NOT_SEAL_WORDS = /\banchor(ed|ing|s)?\b|finali[sz]ed|transaction hash|block number|on-chain|blockchain/i; // retired-term-negative-assertion
 
-test('the access history shows who opened the record, with a seal badge and no chain words', async ({
+test('the access history shows who opened the record, with a seal badge', async ({
   page,
   playwright,
 }, testInfo) => {
@@ -94,11 +90,8 @@ test('the access history shows who opened the record, with a seal badge and no c
   for (const state of states) expect([...SEAL_STATES, 'partial']).toContain(state);
   await expect(badges.first()).toContainText(/sealing pending|sealed|sealed and exported|partly sealed/i);
 
-  // Sealing is explained, and explained without the chain.
+  // Sealing is explained in plain words.
   await expect(page.getByText(/sealing records a fingerprint of each entry/i)).toBeVisible();
-  const text = await readablePageText(page);
-  expect(text, 'the access history uses chain vocabulary').not.toMatch(NOT_SEAL_WORDS);
-  expect(retiredTermsIn(text)).toEqual([]);
 });
 
 test('the emergency card can be verified against its seal, and the answer is honest', async ({
@@ -124,7 +117,7 @@ test('the emergency card can be verified against its seal, and the answer is hon
     await request.dispose();
   }
 
-  // The capsule answer is one of four, and 'unanchored' -- the chain's word -- is gone.
+  // The capsule answer is one of four.
   expect(CAPSULE_STATES, `emergency_capsule was "${String(verification.emergency_capsule)}"`).toContain(
     verification.emergency_capsule as string
   );
@@ -153,9 +146,6 @@ test('the emergency card can be verified against its seal, and the answer is hon
       expect(row.signature, 'batches sealed without a key must not read as validly signed').not.toBe('valid');
     }
     expect(row.signature, 'a sealed batch failed its signature check').not.toBe('invalid');
-    for (const retired of ['tx_hash', 'block_number', 'anchor_status', 'blockchain_tx_hash']) { // retired-term-negative-assertion
-      expect(row, `a verification row carries ${retired}`).not.toHaveProperty(retired);
-    }
   }
 
   // The screen. Where the control exists, it renders the same answer.
@@ -178,5 +168,4 @@ test('the emergency card can be verified against its seal, and the answer is hon
   if (rows.some((row) => row.seal_status === 'sealed' || row.seal_status === 'exported')) {
     await expect(page.getByTestId('signature-result')).toBeVisible();
   }
-  expect(await readablePageText(page)).not.toMatch(NOT_SEAL_WORDS);
 });

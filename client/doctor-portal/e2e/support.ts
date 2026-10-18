@@ -1,7 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fixtureManifestPath as findFixtureFile } from './fixture-manifest';
-import { retiredTermsIn } from './identity';
 import { portalPath } from './portal-path';
 
 /** Where the shared signed-in session is stored between projects. */
@@ -40,7 +39,7 @@ interface StaffFixture {
 const fixtureCursor = new Map<RoleName, number>();
 
 /** Read the exact synthetic account produced by the current seed run. */
-function getStaffFixture(role: RoleName, index?: number): StaffFixture {
+export function getStaffFixture(role: RoleName, index?: number): StaffFixture {
   const fixturePath = findFixtureFile();
   const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8')) as { staff?: StaffFixture[] };
   const candidates = fixtures.staff?.filter((staff) => staff.role === role) ?? [];
@@ -522,7 +521,7 @@ export function requestPacer(page: Page, perMinute = 90) {
 /**
  * Everything on the page a person could read: the visible text plus the text
  * that lives in attributes (placeholder, aria-label, title, alt, value of a
- * button). A retired term hidden in a tooltip is still a retired term.
+ * button).
  */
 export async function readablePageText(page: Page): Promise<string> {
   return page.evaluate(() => {
@@ -535,9 +534,4 @@ export async function readablePageText(page: Page): Promise<string> {
     });
     return parts.join('\n');
   });
-}
-
-/** The retired terms visible on the current page, or an empty list. */
-export async function retiredTermsOnPage(page: Page): Promise<string[]> {
-  return retiredTermsIn(await readablePageText(page));
 }

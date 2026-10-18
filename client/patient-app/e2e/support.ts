@@ -4,7 +4,7 @@ import { deriveAuthProof } from '../../shared/src/auth/proof';
 // The API-level identity helpers live once, beside the doctor portal's specs,
 // and are imported by both suites: a second copy of the TOTP and provisioning
 // code would drift from the first.
-import { readFixtures, retiredTermsIn } from '../../doctor-portal/e2e/identity';
+import { readFixtures } from '../../doctor-portal/e2e/identity';
 
 /**
  * Shared harness for the patient-app browser suites.
@@ -182,11 +182,6 @@ export async function readablePageText(page: Page): Promise<string> {
     });
     return parts.join('\n');
   });
-}
-
-/** The retired ledger and identity terms visible on the current page. */
-export async function retiredTermsOnPage(page: Page): Promise<string[]> {
-  return retiredTermsIn(await readablePageText(page));
 }
 
 /** Keep a page under the API's per-minute budget, counted from its own requests. */

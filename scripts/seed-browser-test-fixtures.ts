@@ -57,7 +57,9 @@
 
 import { deriveAuthProof, type LoginBody } from './lib/auth';
 import { confirmTransaction, isTransactionDemand, type Confirmer } from './lib/transaction-authorization';
-import { isAbsolute } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://localhost/api';
 const BOOTSTRAP_KEY = process.env.MEDICHAIN_BOOTSTRAP_KEY;
@@ -466,6 +468,11 @@ async function obtainAdmin(): Promise<Account> {
   return admin;
 }
 
+/** How the administrator confirms a Class C demand: with their own password. */
+function adminConfirmer(admin: Account): Confirmer {
+  return { loginId: admin.loginId, password: ADMIN_LOGIN_ID ? ADMIN_PASSWORD : PASSWORD };
+}
+
 /** Register a staff fixture, activate it, and redeem its credential code. */
 async function provisionStaff(admin: Account, fixture: StaffFixture): Promise<Account> {
   const reg = await call(
@@ -482,7 +489,8 @@ async function provisionStaff(admin: Account, fixture: StaffFixture): Promise<Ac
   // Accounts created by an admin start `pending`, and only an active account
   // may sign in: an unactivated fixture is refused at every later step, which
   // reads like an authentication bug.
-  const act = await call('PUT', `/users/${userId}`, { status: 'active' }, admin.token);
+  // Activation is an account-status change, confirmed as the administrator (ADR-0008 Class C).
+  const act = await call('PUT', `/users/${userId}`, { status: 'active' }, admin.token, adminConfirmer(admin));
   if (!ok(act.status)) fail(`activate ${fixture.key}`, act.status, act.json);
 
   return redeem(fixture.key, fixture.loginId, code, fixture.loginId);
@@ -492,6 +500,27 @@ async function provisionStaff(admin: Account, fixture: StaffFixture): Promise<Ac
  * Register a patient through a doctor and redeem the activation code the way
  * the patient does: choosing a username and a password.
  */
+/** Where the manifest is written; read back to recover what an earlier run recorded. */
+function manifestPath(): string {
+  const here = dirname(dirname(fileURLToPath(import.meta.url)));
+  return FIXTURE_MANIFEST ?? join(here, '.browser-test', 'fixtures.json');
+}
+
+/** The NFC tag an earlier run recorded for this patient, if the manifest names one. */
+function previousNfcTag(patientId: string): string | undefined {
+  if (!existsSync(manifestPath())) return undefined;
+  try {
+    const previous = JSON.parse(readFileSync(manifestPath(), 'utf8')) as Record<string, Json | undefined>;
+    for (const key of ['patient', 'patient_b']) {
+      const entry = previous[key];
+      if (entry?.linked_patient_id === patientId && entry.nfc_tag_id) return String(entry.nfc_tag_id);
+    }
+  } catch {
+    // An unreadable manifest is regenerated below; fall back to the dashboard.
+  }
+  return undefined;
+}
+
 async function provisionPatient(
   admin: Account,
   doctor: Account,
@@ -502,6 +531,10 @@ async function provisionPatient(
   if (existing) {
     const patientId = existing.linkedPatientId;
     if (!patientId) fail(`existing patient ${username} has no linked record`, 0, {});
+    // The tag this seeder recorded last time. The admin dashboard only scans the
+    // first 100 patients, so on a long-lived stack it stops listing this one.
+    const recorded = previousNfcTag(patientId);
+    if (recorded) return { account: existing, patientId, nfcTagId: recorded };
     const dashboard = await call('GET', '/dashboard/admin', undefined, admin.token);
     if (!ok(dashboard.status)) fail(`read NFC tags for ${username}`, dashboard.status, dashboard.json);
     const tags = ((dashboard.json.nfc_cards as Json | undefined)?.cards ?? []) as Json[];
@@ -718,24 +751,19 @@ async function main(): Promise<void> {
     },
   };
 
-  const { writeFileSync, mkdirSync } = await import('node:fs');
-  const { dirname, join } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
   // Anchored to this file's location, not to the process's working directory.
   // The runner has to start in `client/` (see the header), so a relative path
   // silently wrote the manifest to `client/.browser-test/` while every reader
   // looked for it at the repository root.
-  const outDir = join(dirname(dirname(fileURLToPath(import.meta.url))), '.browser-test');
-  const manifestPath = FIXTURE_MANIFEST ?? join(outDir, 'fixtures.json');
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  mkdirSync(dirname(manifestPath()), { recursive: true });
+  writeFileSync(manifestPath(), JSON.stringify(manifest, null, 2));
 
   const rows = manifest.staff
     .map((s) => `  ${s.role.padEnd(13)}  ${s.login_id.padEnd(14)} / ${'password' in s ? s.password : '(MEDICHAIN_ADMIN_PASSWORD)'}`)
     .join('\n');
 
   console.log(`
-Fixtures written to ${manifestPath}
+Fixtures written to ${manifestPath()}
 
 ${rows}
   Patient        ${a.account.loginId.padEnd(14)} / ${PASSWORD}
