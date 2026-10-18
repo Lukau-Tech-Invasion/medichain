@@ -456,6 +456,23 @@ pub fn age_in_years(date_of_birth: &str, today: chrono::NaiveDate) -> Option<u32
     u32::try_from(years).ok()
 }
 
+/// Whole months between a `YYYY-MM-DD` date of birth and `today`; `None` for a
+/// date that does not parse or lies in the future. A month counts only once the
+/// day of birth has come round in it, matching `age_in_years` at every birthday.
+pub fn age_in_months(date_of_birth: &str, today: chrono::NaiveDate) -> Option<u32> {
+    use chrono::Datelike;
+
+    let dob = chrono::NaiveDate::parse_from_str(date_of_birth, "%Y-%m-%d").ok()?;
+    if dob > today {
+        return None;
+    }
+    let mut months = (today.year() - dob.year()) * 12 + today.month() as i32 - dob.month() as i32;
+    if today.day() < dob.day() {
+        months -= 1;
+    }
+    u32::try_from(months).ok()
+}
+
 /// POPIA §34–35 treat a "child" as under 18.
 pub const MAJORITY_AGE_YEARS: u32 = 18;
 
@@ -1055,6 +1072,20 @@ mod tests {
     /// The day before an 18th birthday the data subject is still a child, and
     /// child-information protections still apply. An off-by-one here silently
     /// drops a POPIA s35 ground.
+    /// Months agree with years at every birthday, and a month is not complete
+    /// until its day of birth: the paediatric caseload's eighteenth-birthday
+    /// cut-off must fall on the same day as `age_in_years`.
+    #[test]
+    fn age_in_months_counts_whole_months_and_matches_years_at_birthdays() {
+        assert_eq!(age_in_months("2008-06-15", d(2026, 6, 14)), Some(215));
+        assert_eq!(age_in_months("2008-06-15", d(2026, 6, 15)), Some(216));
+        assert_eq!(age_in_months("2008-02-29", d(2026, 2, 28)), Some(215));
+        assert_eq!(age_in_months("2008-02-29", d(2026, 3, 1)), Some(216));
+        assert_eq!(age_in_months("2026-10-01", d(2026, 10, 18)), Some(0));
+        assert_eq!(age_in_months("2030-01-01", d(2026, 1, 1)), None);
+        assert_eq!(age_in_months("not-a-date", d(2026, 1, 1)), None);
+    }
+
     #[test]
     fn age_is_still_seventeen_the_day_before_the_eighteenth_birthday() {
         assert_eq!(age_in_years("2008-06-15", d(2026, 6, 14)), Some(17));

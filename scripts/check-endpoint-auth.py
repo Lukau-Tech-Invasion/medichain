@@ -30,6 +30,9 @@ FN_SIG = re.compile(r'\bpub\s+(?:async\s+)?fn\s+(\w+)')
 AUTH_MARKERS = [
     # Authentication helpers / extractors
     'get_current_user_id', 'get_user(',
+    # Directory reads: resolves the registered caller, requires a provider role
+    # and a stated purpose (`handlers/patient_admin.rs`).
+    'require_directory_caller',
     'require_auth', 'require_known_user', 'AuthorizedUser',
     # Authorization helpers / role + ownership checks
     'require_admin', 'require_provider', 'require_demo_mode',
@@ -153,6 +156,7 @@ TIER_NAMES = {
 PRESENCE_MARKERS = ['get_current_user_id', 'require_auth(']
 # Resolves the caller against the user store — proves they are registered.
 KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser',
+                 'require_directory_caller',
                  'require_registered_caller',
                  # Verified-JWT extractors (ADR-0008). `get_current_claims`
                  # checks the token signature and expiry and returns None
@@ -169,7 +173,7 @@ ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
                 'require_demo_mode', 'is_demo_mode',
                 # Resolves the caller, requires a clinical role, audits the read.
                 'require_registry_reader', 'require_clinical_staff',
-                'require_ems_staff']
+                'require_ems_staff', 'require_directory_caller']
 # Ties the decision to the specific patient/resource being touched.
 RESOURCE_MARKERS = ['resolve_patient_access', 'caller_may_access_patient',
                     'require_emergency_list_access', 'require_card_access',

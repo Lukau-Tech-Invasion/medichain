@@ -499,7 +499,8 @@ export async function doctorJourney(
     body: {
       patient_id: patient,
       patient_name: fullName,
-      admission_date: today(),
+      // The page sends the admission day as local midnight, and only when entered.
+      admission_datetime: new Date(`${today()}T00:00`).toISOString(),
       discharge_date: today(),
       discharge_disposition: 'home',
       primary_diagnosis: primaryDiagnosis,

@@ -628,8 +628,10 @@ export async function runDischargeVisibilitySteps(
     token: clinician.token,
     body: {
       patient_id: id,
-      admission_date: new Date(Date.now() - 3 * 86400000).toISOString(),
+      admission_datetime: new Date(Date.now() - 3 * 86400000).toISOString(),
       discharge_date: new Date().toISOString(),
+      // A condition the clinician states; the API refuses a summary without one.
+      discharge_condition: 'improved',
       discharge_diagnosis: diagnosis,
       hospital_course: 'Responded to intravenous antibiotics; afebrile for 48 hours.',
       discharge_medications: [homeMedicine],

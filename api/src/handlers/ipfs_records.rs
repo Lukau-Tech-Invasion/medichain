@@ -1107,7 +1107,10 @@ async fn download_discharge_summary(
     ));
     body.push_str(&format!(
         "Admitted:     {}\nDischarged:  {}\n\n",
-        summary.admission_datetime.format("%Y-%m-%d %H:%M UTC"),
+        summary
+            .admission_datetime
+            .map(|admitted| admitted.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| "Not recorded".to_string()),
         summary.discharge_datetime.format("%Y-%m-%d %H:%M UTC")
     ));
     body.push_str(&format!(

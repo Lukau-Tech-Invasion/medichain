@@ -3058,7 +3058,8 @@ pub struct DischargeSummaryEntity {
     pub patient_id: String,
     pub encounter_id: String,
     pub attending_physician_id: String,
-    pub admission_datetime: DateTime<Utc>,
+    /// Absent when nobody recorded it; never the time of discharge.
+    pub admission_datetime: Option<DateTime<Utc>>,
     pub discharge_datetime: DateTime<Utc>,
     pub admission_diagnosis: serde_json::Value,
     pub discharge_diagnosis: serde_json::Value,

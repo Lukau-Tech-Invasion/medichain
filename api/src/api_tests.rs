@@ -1035,6 +1035,175 @@ mod tests {
         assert_eq!(entry["chief_complaint"], "Synthetic abdominal pain");
     }
 
+    /// The paediatric caseload is every child the directory holds, not the
+    /// children among its first page; adults are excluded and a purpose is
+    /// required, as for any directory read.
+    #[actix_rt::test]
+    async fn paediatric_caseload_lists_children_with_server_computed_age() {
+        let app_state = setup_registration_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(register_patient)
+                .service(crate::handlers::paediatric_caseload),
+        )
+        .await;
+        let register = |payload: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/register")
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .set_json(payload)
+                .to_request()
+        };
+        let mut child = full_patient_payload();
+        child["full_name"] = json!("Lwazi Synthetic");
+        child["date_of_birth"] = json!(chrono::Utc::now()
+            .date_naive()
+            .checked_sub_months(chrono::Months::new(30))
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string());
+        child["national_id"] = json!("hash-paediatric-child");
+        let child_id = test::read_body_json::<serde_json::Value, _>(
+            test::call_service(&app, register(child)).await,
+        )
+        .await["patient_id"]
+            .as_str()
+            .expect("child patient_id")
+            .to_string();
+        let adult_id = test::read_body_json::<serde_json::Value, _>(
+            test::call_service(&app, register(full_patient_payload())).await,
+        )
+        .await["patient_id"]
+            .as_str()
+            .expect("adult patient_id")
+            .to_string();
+
+        let req = test::TestRequest::get()
+            .uri("/api/patients/paediatric-caseload")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .insert_header((
+                crate::middleware::phi_access_audit::ACCESS_REASON_HEADER,
+                "treatment",
+            ))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let rows = body["data"].as_array().expect("data");
+        let child_row = rows
+            .iter()
+            .find(|row| row["patient_id"] == child_id.as_str())
+            .expect("the child is in the caseload");
+        assert_eq!(child_row["age_months"], 30, "{child_row}");
+        assert!(
+            rows.iter()
+                .all(|row| row["patient_id"] != adult_id.as_str()),
+            "an adult was listed"
+        );
+        assert_eq!(body["truncated"], false);
+
+        let req = test::TestRequest::get()
+            .uri("/api/patients/paediatric-caseload")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status().as_u16(), 400);
+    }
+
+    /// The discharge page's own payload is stored as the clinician wrote it: the
+    /// principal diagnosis and condition reach their columns, an admission time
+    /// nobody entered stays unknown, and the author is the signed-in clinician.
+    #[actix_rt::test]
+    async fn discharge_summary_stores_what_the_page_sent_and_invents_nothing() {
+        let app_state = setup_registration_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(register_patient)
+                .service(crate::clinical_endpoints::create_discharge_summary)
+                .service(crate::clinical_endpoints::get_discharge_summary),
+        )
+        .await;
+        let req = test::TestRequest::post()
+            .uri("/api/register")
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .set_json(full_patient_payload())
+            .to_request();
+        let created: serde_json::Value =
+            test::read_body_json(test::call_service(&app, req).await).await;
+        let patient_id = created["patient_id"]
+            .as_str()
+            .expect("patient_id")
+            .to_string();
+
+        let post = |body: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/clinical/discharge-summary")
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .set_json(body)
+                .to_request()
+        };
+        let page_payload = json!({
+            "patient_id": patient_id,
+            "discharge_disposition": "rehab",
+            "primary_diagnosis": "Synthetic community-acquired pneumonia",
+            "discharge_condition": "improved",
+            "attending_physician_id": "someone-else",
+        });
+        let resp = test::call_service(&app, post(page_payload.clone())).await;
+        assert_eq!(resp.status().as_u16(), 201);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let summary_id = body["summary_id"].as_str().expect("summary_id").to_string();
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/clinical/discharge-summary/{summary_id}"))
+            .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+            .to_request();
+        let stored: serde_json::Value =
+            test::read_body_json(test::call_service(&app, req).await).await;
+        assert_eq!(
+            stored["principal_diagnosis"],
+            "Synthetic community-acquired pneumonia"
+        );
+        assert_eq!(
+            stored["condition_at_discharge"], "improved",
+            "condition was invented"
+        );
+        assert_eq!(stored["discharge_disposition"], "rehab");
+        assert!(
+            stored["admission_datetime"].is_null(),
+            "admission was invented: {stored}"
+        );
+        assert_eq!(
+            stored["attending_physician_id"], DOCTOR_ID,
+            "author came from the request"
+        );
+
+        // A condition nobody chose, or an admission after discharge, is refused.
+        let mut unchosen = page_payload.clone();
+        unchosen
+            .as_object_mut()
+            .unwrap()
+            .remove("discharge_condition");
+        assert_eq!(
+            test::call_service(&app, post(unchosen))
+                .await
+                .status()
+                .as_u16(),
+            400
+        );
+        let mut backwards = page_payload;
+        backwards["admission_datetime"] = json!("2026-10-20T08:00:00Z");
+        backwards["discharge_datetime"] = json!("2026-10-18T08:00:00Z");
+        assert_eq!(
+            test::call_service(&app, post(backwards))
+                .await
+                .status()
+                .as_u16(),
+            400
+        );
+    }
+
     #[actix_rt::test]
     async fn fhir_condition_and_medication_bundles_are_not_silently_empty() {
         let app_state = setup_registration_state().await;

@@ -170,41 +170,31 @@ async fn audit_directory_search(
 /// `q` is evaluated server-side. Names use keyed whole-token blind indexes;
 /// identifiers retain their existing lookup behavior. No plaintext name is
 /// stored or returned solely to make search work.
-#[get("/api/patients")]
-pub async fn list_patients(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-    query: web::Query<CursorQuery>,
-) -> impl Responder {
-    // RBAC: Require authentication
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Authentication required to list patients".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
+/// The caller of a directory read: a signed-in healthcare provider who has
+/// stated why. Shared by the paginated directory and the paediatric caseload so
+/// the two cannot drift apart on who may read names, or on the stated purpose.
+fn require_directory_caller(
+    data: &web::Data<AppState>,
+    http_req: &HttpRequest,
+) -> Result<(User, String), HttpResponse> {
+    let Some(current_user_id) = get_current_user_id(http_req) else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required to list patients".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        }));
     };
-
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
+    let Some(current_user) = get_user(data, &current_user_id) else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        }));
     };
-
-    // Only healthcare providers can list all patients
     if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
+        return Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "Only healthcare providers can list patients".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
-        });
+        }));
     }
-
     let purpose = http_req
         .headers()
         .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
@@ -214,10 +204,23 @@ pub async fn list_patients(
         .map(|value| crate::middleware::phi_access_audit::normalise_access_reason(Some(value)))
         .filter(|value| value != crate::middleware::phi_access_audit::REASON_NOT_STATED);
     let Some(purpose) = purpose else {
-        return HttpResponse::BadRequest().json(ErrorResponse {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
             error: "A directory search purpose is required".to_string(),
             code: "DIRECTORY_PURPOSE_REQUIRED".to_string(),
-        });
+        }));
+    };
+    Ok((current_user, purpose))
+}
+
+#[get("/api/patients")]
+pub async fn list_patients(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<CursorQuery>,
+) -> impl Responder {
+    let (current_user, purpose) = match require_directory_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
     };
 
     let requested_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
@@ -312,6 +315,128 @@ pub async fn list_patients(
         // Loud on purpose: a non-zero count here means PHI this deployment
         // stores cannot be decrypted with the keys it currently holds.
         "unreadable_count": unreadable
+    }))
+}
+
+/// The longest directory scan one caseload read performs.
+const PAEDIATRIC_SCAN_CAP: usize = 20_000;
+/// Paediatrics covers birth to the eighteenth birthday.
+const PAEDIATRIC_AGE_LIMIT_MONTHS: u32 = 216;
+
+/// What one caseload scan found.
+struct PaediatricScan {
+    children: Vec<serde_json::Value>,
+    scanned: usize,
+    unreadable: usize,
+    truncated: bool,
+}
+
+/// One child's directory row with the age the server computed, or `None` for
+/// an adult or an unknown date of birth.
+fn paediatric_row(
+    data: &web::Data<AppState>,
+    entity: &crate::repositories::traits::PatientEntity,
+    profile: &PatientProfile,
+    today: chrono::NaiveDate,
+) -> Option<serde_json::Value> {
+    let months = crate::support::age_in_months(&profile.date_of_birth, today)?;
+    if months >= PAEDIATRIC_AGE_LIMIT_MONTHS {
+        return None;
+    }
+    let facility = entity
+        .registered_by
+        .as_deref()
+        .and_then(|registrar| data.identity_contexts.facility_for_user(registrar));
+    let mut row = directory_patient_json(profile, facility);
+    row["age_months"] = serde_json::json!(months);
+    Some(row)
+}
+
+/// Walk the directory in keyset batches, decrypting each date of birth, and
+/// keep the under-18s. Bounded by `PAEDIATRIC_SCAN_CAP`; a scan that reaches it
+/// says so rather than presenting a partial caseload as the whole.
+async fn scan_paediatric_caseload(
+    data: &web::Data<AppState>,
+    today: chrono::NaiveDate,
+) -> Result<PaediatricScan, crate::repositories::traits::RepositoryError> {
+    let batch = MAX_LIMIT as u32;
+    let mut scan = PaediatricScan {
+        children: Vec::new(),
+        scanned: 0,
+        unreadable: 0,
+        truncated: false,
+    };
+    let mut cursor = None;
+    for _ in 0..=(PAEDIATRIC_SCAN_CAP / MAX_LIMIT) {
+        let page = data
+            .repositories
+            .patients
+            .list_keyset(cursor.clone(), batch)
+            .await?;
+        for entity in &page.items {
+            scan.scanned += 1;
+            match patient_entity_to_profile(entity, &data.encryption_keyring) {
+                Some(profile) => scan
+                    .children
+                    .extend(paediatric_row(data, entity, &profile, today)),
+                None => scan.unreadable += 1,
+            }
+        }
+        if page.items.len() < batch as usize {
+            return Ok(scan);
+        }
+        cursor = page
+            .items
+            .last()
+            .map(|entity| (entity.updated_at, entity.id.clone()));
+        if scan.scanned >= PAEDIATRIC_SCAN_CAP {
+            break;
+        }
+    }
+    scan.truncated = true;
+    Ok(scan)
+}
+
+/// Every child in the directory, with an age in months computed here.
+///
+/// The paediatrics page used to take the first page of `/api/patients` (50
+/// rows) and filter it by date of birth in the browser, so its caseload was the
+/// children among the first fifty patients registered. Dates of birth are
+/// encrypted, so the filter has to run where the keys are.
+#[get("/api/patients/paediatric-caseload")]
+pub async fn paediatric_caseload(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let (current_user, purpose) = match require_directory_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    let scan = match scan_paediatric_caseload(&data, Utc::now().date_naive()).await {
+        Ok(scan) => scan,
+        Err(error) => {
+            log::error!("Paediatric caseload scan failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The paediatric caseload could not be loaded".to_string(),
+                code: "CASELOAD_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let total = scan.children.len() as u64;
+    if let Err(error) = audit_directory_search(&data, &current_user, &purpose, total).await {
+        log::error!("Patient directory audit failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Patient directory is temporarily unavailable".to_string(),
+            code: "DIRECTORY_AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "data": scan.children,
+        "total": total,
+        "scanned": scan.scanned,
+        "unreadable_count": scan.unreadable,
+        "truncated": scan.truncated,
     }))
 }
 

@@ -41,6 +41,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_all_access_logs)
         .service(get_access_logs)
         .service(list_patients)
+        // Before `{patient_id}`, which would otherwise match "paediatric-caseload".
+        .service(paediatric_caseload)
         .service(get_patient_by_id)
         .service(demo_info)
         .service(seed_demo_facilities)
