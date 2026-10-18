@@ -1,0 +1,19 @@
+# MediChain on AWS: Caddy terminates HTTPS in front of the nginx container.
+#
+# Caddy obtains and renews the Let's Encrypt certificate for {$DOMAIN} itself
+# (ports 80 and 443 must reach the instance; the security group allows only
+# those two). nginx serves both portals and proxies /api to the API on the
+# internal network, exactly as it does locally, so the portal paths
+# (/doctor, /patient) and the API path are unchanged.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy nginx:80 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}

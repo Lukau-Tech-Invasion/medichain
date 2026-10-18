@@ -1,0 +1,73 @@
+# =============================================================================
+# MediChain on AWS (EC2, af-south-1) — layered last:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.backup.yml \
+#     -f docker-compose.prod.yml -f docker-compose.aws.yml up -d
+#
+# What changes from docker-compose.prod.yml:
+#   * Caddy terminates TLS (Let's Encrypt) and is the only published service.
+#     nginx keeps its plain HTTP config on the internal network.
+#   * Sealed audit checkpoints go to the S3 Object Lock bucket the stack
+#     creates (AUDIT_CHECKPOINT_SINK=s3), not to a volume on the same host.
+#   * pgBackRest's second repository is the stack's S3 backup bucket, encrypted
+#     by pgBackRest before upload; credentials come from the instance role.
+#   * Images come from the stack's ECR repositories (MEDICHAIN_API_IMAGE,
+#     MEDICHAIN_WEB_IMAGE), so the instance never builds anything.
+#
+# Every value below is written to /opt/medichain/.env by infra/aws/deploy.sh
+# from the stack's outputs and its Secrets Manager secret.
+# =============================================================================
+
+services:
+  api:
+    image: ${MEDICHAIN_API_IMAGE:?MEDICHAIN_API_IMAGE (ECR URI) is required}
+    environment:
+      AUDIT_CHECKPOINT_SINK: s3
+      AUDIT_CHECKPOINT_S3_BUCKET: ${AUDIT_CHECKPOINT_S3_BUCKET:?AUDIT_CHECKPOINT_S3_BUCKET is required}
+      AUDIT_CHECKPOINT_S3_REGION: ${AWS_REGION:?AWS_REGION is required}
+      AUDIT_CHECKPOINT_S3_PREFIX: checkpoints/
+      AUDIT_CHECKPOINT_DIR: ""
+
+  nginx:
+    image: ${MEDICHAIN_WEB_IMAGE:?MEDICHAIN_WEB_IMAGE (ECR URI) is required}
+    # Internal only: Caddy is the front door.
+    ports: !override []
+    volumes: !override []
+
+  caddy:
+    image: caddy:2.8.4
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    volumes:
+      - ./Caddyfile.aws:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nginx
+    networks:
+      - medichain_network
+
+  postgres:
+    image: ${MEDICHAIN_POSTGRES_IMAGE:?MEDICHAIN_POSTGRES_IMAGE (ECR URI) is required}
+    environment:
+      PGBACKREST_REPO2_TYPE: s3
+      PGBACKREST_REPO2_PATH: /medichain
+      PGBACKREST_REPO2_S3_BUCKET: ${PGBACKREST_REPO2_S3_BUCKET:?PGBACKREST_REPO2_S3_BUCKET is required}
+      PGBACKREST_REPO2_S3_REGION: ${AWS_REGION:?AWS_REGION is required}
+      PGBACKREST_REPO2_S3_ENDPOINT: s3.${AWS_REGION}.amazonaws.com
+      # Temporary credentials from the instance role. If this pgBackRest build
+      # cannot reach IMDSv2 from the container, see infra/aws/RUNBOOK.md
+      # ("Backups") for the shared-key fallback.
+      PGBACKREST_REPO2_S3_KEY_TYPE: auto
+      PGBACKREST_REPO2_CIPHER_TYPE: aes-256-cbc
+      PGBACKREST_REPO2_CIPHER_PASS: ${PGBACKREST_REPO2_CIPHER_PASS:?set PGBACKREST_REPO2_CIPHER_PASS (not the repo1 passphrase)}
+      PGBACKREST_REPO2_RETENTION_FULL: "8"
+
+volumes:
+  caddy_data:
+  caddy_config:

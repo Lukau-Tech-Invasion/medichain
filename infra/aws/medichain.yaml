@@ -1,0 +1,613 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  MediChain on one EC2 instance in af-south-1 (POPIA: data stays in South Africa).
+  Docker Compose stack behind Caddy TLS; S3 Object Lock bucket for sealed audit
+  checkpoints; encrypted S3 bucket for pgBackRest backups; ECR for images;
+  Secrets Manager for application secrets; SSM Session Manager instead of SSH.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    why: >-
+      Single-instance deployment chosen by the owner (2026-10-18): one t3.small
+      running the existing Compose stack. Audit checkpoints must live outside the
+      database host and be impossible to rewrite, hence Object Lock in COMPLIANCE
+      mode. Backups are encrypted by pgBackRest before upload.
+    must:
+      - Deploy only in af-south-1 (the account must have opted in to the region).
+      - Never open SSH; administer through SSM Session Manager.
+      - The audit bucket's retention cannot be shortened or removed once objects exist.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Site }
+        Parameters: [DomainName, AcmeEmail]
+      - Label: { default: Instance }
+        Parameters: [InstanceType, RootVolumeGiB, AmiId]
+      - Label: { default: Retention }
+        Parameters: [AuditRetentionMode, AuditRetentionDays, BackupNoncurrentDays, LogRetentionDays]
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: Public host name served over HTTPS (point its A record at the ElasticIp output).
+    AllowedPattern: "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+  AcmeEmail:
+    Type: String
+    Description: Contact address for Let's Encrypt certificate notices.
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium, t3.large]
+  RootVolumeGiB:
+    Type: Number
+    Default: 40
+    MinValue: 30
+    MaxValue: 500
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Amazon Linux 2023, resolved from the public SSM parameter at deploy time.
+  AuditRetentionMode:
+    Type: String
+    Default: COMPLIANCE
+    AllowedValues: [COMPLIANCE, GOVERNANCE]
+    Description: >-
+      COMPLIANCE: nobody, including the root user, can delete or shorten a checkpoint's
+      retention. GOVERNANCE: privileged users can. Use COMPLIANCE for real records.
+  AuditRetentionDays:
+    Type: Number
+    Default: 2190
+    MinValue: 1
+    MaxValue: 36500
+    Description: Days each audit checkpoint is locked (2190 = 6 years).
+  BackupNoncurrentDays:
+    Type: Number
+    Default: 90
+    MinValue: 7
+    Description: Days a replaced or deleted backup object is kept before it expires.
+  LogRetentionDays:
+    Type: Number
+    Default: 90
+    AllowedValues: [30, 60, 90, 120, 180, 365, 731]
+
+Rules:
+  CapeTownOnly:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", af-south-1]
+        AssertDescription: MediChain stores health records; deploy it in af-south-1 only.
+
+Resources:
+  # ---------------------------------------------------------------- network
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.40.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-vpc" }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-igw" }]
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.40.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-public" }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-public" }]
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # S3 traffic stays on the AWS network instead of the internet gateway.
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PublicRouteTable]
+
+  FlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/medichain/${AWS::StackName}/vpc-flow"
+      RetentionInDays: !Ref LogRetentionDays
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: vpc-flow-logs.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: write-flow-logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !Sub "${FlowLogGroup.Arn}:*"
+
+  FlowLog:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref Vpc
+      ResourceType: VPC
+      TrafficType: REJECT
+      LogDestinationType: cloud-watch-logs
+      LogGroupName: !Ref FlowLogGroup
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          A public website: patients and clinicians reach it from anywhere, so 80
+          (ACME HTTP-01 challenge and redirect to HTTPS) and 443 are open to all.
+          Nothing else is: no SSH, no database, no admin ports.
+      cfn_nag:
+        rules_to_suppress:
+          - id: W2
+            reason: Public HTTPS site; only 80 and 443 are open.
+          - id: W9
+            reason: Public HTTPS site; only 80 and 443 are open.
+      guard:
+        SuppressedRules: [INCOMING_SSH_DISABLED]
+    Properties:
+      GroupDescription: MediChain public web (HTTP for ACME and redirect, HTTPS)
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: ACME challenge and HTTPS redirect }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0", Description: HTTPS IPv6 }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIpv6: "::/0", Description: ACME challenge IPv6 }
+      SecurityGroupEgress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS to AWS APIs, ECR, Let's Encrypt and providers" }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: OS package mirrors }
+        - { IpProtocol: udp, FromPort: 123, ToPort: 123, CidrIp: 0.0.0.0/0, Description: NTP }
+        - { IpProtocol: tcp, FromPort: 587, ToPort: 587, CidrIp: 0.0.0.0/0, Description: SMTP submission for regulator breach notices }
+
+  # ---------------------------------------------------------------- storage
+  AccessLogBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-access-logs
+            Status: Enabled
+            ExpirationInDays: 365
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+
+  AccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt AccessLogBucket.Arn, !Sub "${AccessLogBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+          - Sid: AllowServerAccessLogs
+            Effect: Allow
+            Principal: { Service: logging.s3.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub "${AccessLogBucket.Arn}/*"
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Sealed audit checkpoints (ADR-0010). The API writes each batch once with
+          If-None-Match and never overwrites; Object Lock makes the write-once
+          property hold against the account itself.
+        must:
+          - Object Lock stays enabled; the default retention may only be lengthened.
+    Properties:
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule:
+          DefaultRetention:
+            Mode: !Ref AuditRetentionMode
+            Days: !Ref AuditRetentionDays
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogBucket
+        LogFilePrefix: audit/
+
+  AuditBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AuditBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt AuditBucket.Arn, !Sub "${AuditBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+          - Sid: DenyUnconditionalCheckpointWrites
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource: !Sub "${AuditBucket.Arn}/checkpoints/*"
+            Condition:
+              "Null": { "s3:if-none-match": "true" }
+
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: pgBackRest repository 2 (off-host). pgBackRest encrypts every file before upload.
+    Properties:
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-replaced-backups
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: !Ref BackupNoncurrentDays }
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogBucket
+        LogFilePrefix: backup/
+
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt BackupBucket.Arn, !Sub "${BackupBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Deployment bundles (compose files, Caddyfile) that deploy.sh uploads for the instance to fetch.
+    Properties:
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-bundles
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogBucket
+        LogFilePrefix: artifacts/
+
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt ArtifactBucket.Arn, !Sub "${ArtifactBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  # ---------------------------------------------------------------- images and secrets
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep 20 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+
+  WebRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep 20 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":20},"action":{"type":"expire"}}]}'
+
+  PostgresRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      LifecyclePolicy:
+        LifecyclePolicyText: '{"rules":[{"rulePriority":1,"description":"keep 10 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}'
+
+  AppSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: >-
+          Every API and database secret, as one JSON document. The template only
+          generates POSTGRES_PASSWORD; deploy.sh adds each missing key once, with
+          values from openssl rand, and never rotates an existing one silently.
+    Properties:
+      Description: !Sub "MediChain application secrets (${AWS::StackName})"
+      GenerateSecretString:
+        SecretStringTemplate: "{}"
+        GenerateStringKey: POSTGRES_PASSWORD
+        PasswordLength: 40
+        ExcludePunctuation: true
+
+  # ---------------------------------------------------------------- logs
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/medichain/${AWS::StackName}/containers"
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ---------------------------------------------------------------- instance
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      Policies:
+        - PolicyName: medichain-runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WriteAndReadCheckpoints
+                Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub "${AuditBucket.Arn}/checkpoints/*"
+              - Sid: BackupRepository
+                Effect: Allow
+                Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                Resource: !Sub "${BackupBucket.Arn}/medichain/*"
+              - Sid: BackupRepositoryList
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt BackupBucket.Arn
+                Condition:
+                  StringLike: { "s3:prefix": ["medichain", "medichain/*"] }
+              - Sid: ReadDeploymentBundles
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ArtifactBucket.Arn}/bundles/*"
+              - Sid: PullImages
+                Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+                Resource: [!GetAtt ApiRepository.Arn, !GetAtt WebRepository.Arn, !GetAtt PostgresRepository.Arn]
+              - Sid: EcrLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: ReadAppSecret
+                Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref AppSecret
+              - Sid: ShipContainerLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !Sub "${AppLogGroup.Arn}:*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      com.aws.cloudformation.Context:
+        must:
+          - IMDSv2 only; hop limit 2 so the API and pgBackRest containers can reach instance-role credentials.
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: { Arn: !GetAtt InstanceProfile.Arn }
+        MetadataOptions:
+          HttpTokens: required
+          HttpEndpoint: enabled
+          HttpPutResponseHopLimit: 2
+        EbsOptimized: true
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeType: gp3
+              VolumeSize: !Ref RootVolumeGiB
+              Encrypted: true
+              DeleteOnTermination: false
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            SubnetId: !Ref PublicSubnet
+            Groups: [!Ref WebSecurityGroup]
+            AssociatePublicIpAddress: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-app" }]
+          - ResourceType: volume
+            Tags: [{ Key: Name, Value: !Sub "${AWS::StackName}-root" }]
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            # Prepares the host only. infra/aws/deploy.sh delivers the stack
+            # through SSM Run Command once images are in ECR.
+            set -euo pipefail
+            dnf -y update
+            dnf -y install docker amazon-cloudwatch-agent
+            systemctl enable --now docker
+            mkdir -p /usr/local/lib/docker/cli-plugins
+            curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+              https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64
+            chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+            mkdir -p /opt/medichain
+            cat > /etc/docker/daemon.json <<'JSON'
+            { "log-driver": "awslogs",
+              "log-opts": { "awslogs-region": "${AWS::Region}",
+                            "awslogs-group": "${AppLogGroup}",
+                            "tag": "{{.Name}}" } }
+            JSON
+            systemctl restart docker
+            echo "${AWS::StackName}" > /opt/medichain/STACK
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      Monitoring: true
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref AppInstance
+
+  # Recover onto new hardware when the host fails its system status check.
+  RecoveryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Recover the MediChain instance when the underlying host fails.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref AppInstance }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover"]
+
+Outputs:
+  ElasticIp:
+    Description: Point the DomainName A record here before the first deploy (Caddy needs it for the certificate).
+    Value: !Ref ElasticIp
+  InstanceId:
+    Value: !Ref AppInstance
+  AuditBucketName:
+    Value: !Ref AuditBucket
+  BackupBucketName:
+    Value: !Ref BackupBucket
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+  ApiRepositoryUri:
+    Value: !GetAtt ApiRepository.RepositoryUri
+  WebRepositoryUri:
+    Value: !GetAtt WebRepository.RepositoryUri
+  PostgresRepositoryUri:
+    Value: !GetAtt PostgresRepository.RepositoryUri
+  AppSecretArn:
+    Value: !Ref AppSecret
+  DomainName:
+    Value: !Ref DomainName
+  AcmeEmail:
+    Value: !Ref AcmeEmail
