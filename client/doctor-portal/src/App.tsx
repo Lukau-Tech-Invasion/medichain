@@ -5,7 +5,7 @@ import { useThemeStore } from './store/themeStore';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AccessReasonGate, DirectoryReasonGate } from './components/AccessReasonGate';
-import { I18nProvider, DialogHost } from '@medichain/shared';
+import { I18nProvider, DialogHost, TransactionAuthorizationHost } from '@medichain/shared';
 
 // Loading fallback for lazy-loaded components
 function PageLoader() {
@@ -397,6 +397,8 @@ function AppWithErrorBoundary() {
       <I18nProvider>
         <App />
         <DialogHost />
+        {/* Class C confirmations for gated actions (ADR-0008). */}
+        <TransactionAuthorizationHost />
       </I18nProvider>
     </ErrorBoundary>
   );

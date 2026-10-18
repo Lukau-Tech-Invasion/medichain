@@ -2,7 +2,7 @@ import { useTextSize } from './hooks/useTextSize';
 import { usePatientAuthStore } from './store/authStore';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
-import { Layout, I18nProvider, DialogHost } from '@medichain/shared';
+import { Layout, I18nProvider, DialogHost, TransactionAuthorizationHost } from '@medichain/shared';
 import { ToastProvider } from './components/Toast';
 
 // Critical-path pages stay eager so the first paint needs no extra round-trip.
@@ -162,6 +162,8 @@ function App() {
     </Routes>
     </ToastProvider>
     <DialogHost />
+    {/* Class C confirmations for gated actions (ADR-0008). */}
+    <TransactionAuthorizationHost />
     </I18nProvider>
   );
 }

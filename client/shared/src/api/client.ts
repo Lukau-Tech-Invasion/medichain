@@ -64,6 +64,23 @@ export interface RequestOptions {
   };
 }
 
+/** Asked for a verified Class C authorization id; `undefined` when cancelled. */
+export type TransactionAuthorizer = (intent: {
+  action: string;
+  method: string;
+  path: string;
+  body_digest?: string;
+  resource_id?: string;
+  expected_state?: string;
+  idempotency_key?: string;
+}) => Promise<string | undefined>;
+
+/** SHA-256 of a UTF-8 string, as lowercase hex -- what the server's `body_digest` is. */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 /** Directory reads: each carries the clinician's stated purpose and is audited server-side. */
 const DIRECTORY_READ_PATHS = new Set(['/api/patients', '/api/patients/paediatric-caseload']);
 
@@ -550,6 +567,50 @@ export class ApiClient {
       : { 'X-Access-Reason': context.reason };
   }
 
+  private transactionAuthorizer: TransactionAuthorizer | null = null;
+
+  /**
+   * Where a Class C confirmation is asked for. `TransactionAuthorizationHost`
+   * registers itself; with nothing registered a gated mutation fails with the
+   * server's 428, as before.
+   */
+  setTransactionAuthorizer(authorizer: TransactionAuthorizer | null): void {
+    this.transactionAuthorizer = authorizer;
+  }
+
+  /**
+   * Turn a 428 TRANSACTION_AUTHORIZATION_REQUIRED into a verified authorization
+   * for this exact request: the server's intent, the SHA-256 of the bytes this
+   * client sends, and this request's idempotency key. `undefined` when the
+   * person cancels or nothing can confirm.
+   */
+  private async obtainTransactionAuthorization(
+    error: unknown,
+    body: unknown,
+    idempotencyKey: string | undefined,
+  ): Promise<string | undefined> {
+    if (!(error instanceof ApiClientError) || error.status !== 428) return undefined;
+    if (error.code !== 'TRANSACTION_AUTHORIZATION_REQUIRED' || !this.transactionAuthorizer) return undefined;
+    if (body instanceof ArrayBuffer) return undefined;
+    const details = error.details ?? {};
+    const text = (key: string) => (typeof details[key] === 'string' ? (details[key] as string) : undefined);
+    const action = text('action');
+    const method = text('method');
+    const path = text('path');
+    if (!action || !method || !path) return undefined;
+    // Exactly the bytes `executeRequest` transmits.
+    const payload = body ? JSON.stringify(body) : '';
+    return this.transactionAuthorizer({
+      action,
+      method,
+      path,
+      body_digest: await sha256Hex(payload),
+      resource_id: text('resource_id'),
+      expected_state: text('expected_state'),
+      idempotency_key: idempotencyKey,
+    });
+  }
+
   /**
    * Main request method with retry logic and timeout handling
    */
@@ -574,10 +635,11 @@ export class ApiClient {
       ? (callerKey ?? createOperationKey())
       : undefined;
     const reasonHeaders = this.accessReasonHeaders(method, path, options?.patientId);
-    const requestHeaders = idempotencyKey
+    let requestHeaders: Record<string, string> = idempotencyKey
       ? { ...reasonHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey }
       : { ...reasonHeaders, ...options?.headers };
     let lastError: Error | null = null;
+    let confirmed = false;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -592,7 +654,19 @@ export class ApiClient {
         
       } catch (error) {
         lastError = error as Error;
-        
+
+        // A Class C demand: confirm once, then resend under the same key. The
+        // confirmation is the person's answer, not a retry, so it costs no attempt.
+        if (!confirmed && isMutationMethod(method)) {
+          const authorization = await this.obtainTransactionAuthorization(error, body, idempotencyKey);
+          if (authorization) {
+            confirmed = true;
+            requestHeaders = { ...requestHeaders, 'X-Transaction-Authorization': authorization };
+            attempt -= 1;
+            continue;
+          }
+        }
+
         // Determine if we should retry
         const shouldRetry = this.isRetryableError(error, method) && attempt < maxAttempts - 1;
         
@@ -735,7 +809,13 @@ export class ApiClient {
       if (!response.ok) {
         const { message, code } = extractApiError(data, response.status);
         this.onError?.({ success: false, error: message, code });
-        throw new ApiClientError(message, code, response.status);
+        const details = (data as { error?: { details?: unknown } } | null)?.error?.details;
+        throw new ApiClientError(
+          message,
+          code,
+          response.status,
+          details && typeof details === 'object' ? (details as Record<string, unknown>) : undefined,
+        );
       }
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
@@ -961,12 +1041,15 @@ async function queueOfflineMutation(
 export class ApiClientError extends Error {
   public readonly code: string;
   public readonly status: number;
+  /** The server's `error.details`, when it sent any. */
+  public readonly details?: Record<string, unknown>;
 
-  constructor(message: string, code: string, status: number) {
+  constructor(message: string, code: string, status: number, details?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiClientError';
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 
   /**

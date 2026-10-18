@@ -14,6 +14,7 @@ export type { EmptyStateProps } from './EmptyState';
 export { copyTextToClipboard } from '../utils/clipboard';
 export * from './Toast';
 export { StepUpDialog } from './StepUpDialog';
+export { TransactionAuthorizationHost } from './TransactionAuthorizationHost';
 export { ActivationForm } from './ActivationForm';
 export type { ActivationValues } from './ActivationForm';
 export { DialogHost, confirmDialog, promptDialog } from './Dialog';
