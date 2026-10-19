@@ -200,7 +200,7 @@ Resources:
         - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0", Description: HTTPS IPv6 }
         - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIpv6: "::/0", Description: ACME challenge IPv6 }
       SecurityGroupEgress:
-        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS to AWS APIs, ECR, Let's Encrypt and providers" }
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: "HTTPS to AWS APIs, ECR, Lets Encrypt and providers" }
         - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: OS package mirrors }
         - { IpProtocol: udp, FromPort: 123, ToPort: 123, CidrIp: 0.0.0.0/0, Description: NTP }
         - { IpProtocol: tcp, FromPort: 587, ToPort: 587, CidrIp: 0.0.0.0/0, Description: SMTP submission for regulator breach notices }

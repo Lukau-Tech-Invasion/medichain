@@ -53,3 +53,10 @@ rule repositories_scanned_and_immutable when %repositories !empty {
     %repositories.Properties.ImageTagMutability == 'IMMUTABLE'
     %repositories.Properties.ImageScanningConfiguration.ScanOnPush == true
 }
+
+# EC2 accepts only a-zA-Z0-9 and . _-:/()#,@[]+=&;{}!$* in a rule description;
+# anything else (an apostrophe, a typographic quote) fails the stack mid-create.
+rule security_group_descriptions_valid when %groups !empty {
+    %groups.Properties.SecurityGroupIngress[*].Description == /^[a-zA-Z0-9. _:\/()#,@+=&;{}!$*\[\]-]*$/
+    %groups.Properties.SecurityGroupEgress[*].Description == /^[a-zA-Z0-9. _:\/()#,@+=&;{}!$*\[\]-]*$/
+}
