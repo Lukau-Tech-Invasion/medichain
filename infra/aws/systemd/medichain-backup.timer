@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the MediChain backup nightly at 01:45 UTC
+
+[Timer]
+OnCalendar=*-*-* 01:45:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

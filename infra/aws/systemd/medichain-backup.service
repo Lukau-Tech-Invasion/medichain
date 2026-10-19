@@ -1,0 +1,16 @@
+# Nightly pgBackRest backup on the MediChain instance (installed by deploy.sh).
+# Full on Sundays or when a repository has none, differential otherwise, to
+# repository 1 (instance volume) and repository 2 (S3), after a WAL `check`.
+# Amazon Linux 2023 has no cron, so this is a systemd timer, not a crontab.
+[Unit]
+Description=MediChain nightly pgBackRest backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/medichain
+Environment=PGBR_EXEC=docker exec -i -u postgres medichain_postgres
+Environment=PGBR_REPOS=1 2
+Environment=PGBR_CANARY_FILE=/opt/medichain/backups/last-canary
+ExecStart=/bin/sh /opt/medichain/scripts/backup/pgbackrest-nightly.sh

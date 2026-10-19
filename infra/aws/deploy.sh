@@ -143,7 +143,8 @@ done
 echo "4/5 bundle"
 BUNDLE="${TMPDIR:-/tmp}/medichain-$TAG.tgz"
 tar -czf "$BUNDLE" docker-compose.yml docker-compose.backup.yml docker-compose.prod.yml \
-  docker-compose.aws.yml Caddyfile.aws nginx api/migrations/init docs/observability
+  docker-compose.aws.yml Caddyfile.aws nginx api/migrations/init docs/observability \
+  scripts/backup infra/aws/systemd
 aws_ s3 cp "$BUNDLE" "s3://$ARTIFACTS/bundles/$TAG.tgz" --only-show-errors
 rm -f "$BUNDLE"
 
@@ -181,6 +182,11 @@ COMPOSE="docker compose -f docker-compose.yml -f docker-compose.backup.yml -f do
 for i in \$(seq 1 30); do docker exec medichain_postgres pg_isready -q && break; sleep 2; done
 docker exec -u postgres medichain_postgres pgbackrest --stanza=medichain stanza-create
 docker exec -u postgres medichain_postgres pgbackrest --stanza=medichain check
+# Nightly backups: a systemd timer (Amazon Linux 2023 has no cron).
+install -m 0644 infra/aws/systemd/medichain-backup.service infra/aws/systemd/medichain-backup.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now medichain-backup.timer
+systemctl list-timers medichain-backup.timer --no-pager
 \$COMPOSE ps
 EOF
 )
