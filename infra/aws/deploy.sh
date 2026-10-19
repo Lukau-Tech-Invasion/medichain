@@ -186,10 +186,10 @@ for i in \$(seq 1 30); do docker exec medichain_postgres pg_isready -q && break;
 docker exec -u postgres medichain_postgres pgbackrest --stanza=medichain stanza-create
 docker exec -u postgres medichain_postgres pgbackrest --stanza=medichain check
 # Nightly backups: a systemd timer (Amazon Linux 2023 has no cron).
-install -m 0644 infra/aws/systemd/medichain-backup.service infra/aws/systemd/medichain-backup.timer /etc/systemd/system/
+install -m 0644 infra/aws/systemd/medichain-*.service infra/aws/systemd/medichain-*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now medichain-backup.timer
-systemctl list-timers medichain-backup.timer --no-pager
+systemctl enable --now medichain-backup.timer medichain-restore-test.timer
+systemctl list-timers "medichain-*" --no-pager
 \$COMPOSE ps
 EOF
 )
