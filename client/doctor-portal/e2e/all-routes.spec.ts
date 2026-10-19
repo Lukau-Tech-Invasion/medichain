@@ -311,6 +311,13 @@ for (const role of ROLES) {
       if (owned.has('/lab-results')) owned.add('/lab-result/:resultId');
 
       const findings: Finding[] = [];
+      // Anything the Content-Security-Policy blocks is a finding: a refused
+      // script, style, font or frame is a page that silently works less.
+      page.on('console', (message) => {
+        if (/Content Security Policy/i.test(message.text())) {
+          findings.push({ route: routeOf(page.url()), check: 'csp', detail: message.text().slice(0, 300) });
+        }
+      });
       let previous = '';
       for (const route of [...owned].slice(0, 120)) {
         await pace();

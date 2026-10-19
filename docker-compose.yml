@@ -274,6 +274,10 @@ services:
     image: medichain-web:local
     container_name: medichain_nginx
     restart: unless-stopped
+    environment:
+      # Named in the Content-Security-Policy so the video visit can load and
+      # frame Jitsi (nginx/40-csp-telehealth.sh). Unset: no outside origin.
+      JITSI_DOMAIN: ${JITSI_DOMAIN:-}
     ports:
       - "80:80"
     depends_on:

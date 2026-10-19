@@ -119,6 +119,12 @@ test('every patient route passes the page checks; an ended session returns to it
 
   const findings: Finding[] = [];
   const add = (route: string, check: string, detail: string) => findings.push({ route, check, detail });
+  // Anything the Content-Security-Policy blocks is a finding (see the staff spec).
+  page.on('console', (message) => {
+    if (/Content Security Policy/i.test(message.text())) {
+      add(new URL(page.url()).pathname, 'csp', message.text().slice(0, 300));
+    }
+  });
   let previous = '';
   for (const route of PROTECTED_ROUTES) {
     await pace();
