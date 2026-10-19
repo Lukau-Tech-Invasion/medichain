@@ -10,7 +10,7 @@ Requires=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/medichain
-Environment=PGBR_EXEC=docker exec -i -u postgres medichain_postgres
-Environment=PGBR_REPOS=1 2
+Environment="PGBR_EXEC=docker exec -i -u postgres medichain_postgres"
+Environment="PGBR_REPOS=1 2"
 Environment=PGBR_CANARY_FILE=/opt/medichain/backups/last-canary
 ExecStart=/bin/sh /opt/medichain/scripts/backup/pgbackrest-nightly.sh

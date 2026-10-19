@@ -151,6 +151,9 @@ rm -f "$BUNDLE"
 echo "5/5 start on $INSTANCE_ID"
 REMOTE=$(cat <<EOF
 set -euo pipefail
+# ASCII output: systemd prints arrows in a UTF-8 locale, and the AWS CLI on
+# Windows cannot print the command's output back with them.
+export LC_ALL=C
 cd /opt/medichain
 aws s3 cp s3://$ARTIFACTS/bundles/$TAG.tgz bundle.tgz --region $REGION --only-show-errors
 tar -xzf bundle.tgz && rm bundle.tgz
