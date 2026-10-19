@@ -152,15 +152,15 @@ function earlierPasswords(): Map<string, string> {
 async function main(): Promise<void> {
   if (!OUT || !isAbsolute(OUT)) {
     console.error('Set SHOWCASE_CREDENTIALS_FILE to an absolute path outside the repository.');
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
   if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(API) && !FORCE) {
     console.error(`Refusing to write accounts to ${API} without --i-understand-this-writes-accounts.`);
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
   if (!process.env.MEDICHAIN_ADMIN_LOGIN_ID) {
     console.error('Set MEDICHAIN_ADMIN_LOGIN_ID and MEDICHAIN_ADMIN_PASSWORD to the deployment administrator.');
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
   console.log(`\nShowcase accounts against ${API}\n`);
   const admin = await obtainAdmin();

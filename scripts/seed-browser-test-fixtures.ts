@@ -319,7 +319,13 @@ export async function tryLogin(
   const authProof = await deriveAuthProof(password, loginId);
   const body = { identifier: loginId, auth_proof: authProof };
   let res = await call('POST', '/auth/login', body);
-  if (totpCode && res.json.mfa_required === true && !res.json.access_token) {
+  // The server asks for the code either way: `mfa_required` in a 200, or a 401
+  // whose error code is MFA_REQUIRED (the portals accept both, as here).
+  const errorCode = String((res.json.error as Json | undefined)?.code ?? res.json.code ?? '');
+  const codeNeeded =
+    (res.json.mfa_required === true && !res.json.access_token) ||
+    ['MFA_REQUIRED', 'TOTP_REQUIRED', 'MFA_CODE_REQUIRED'].includes(errorCode);
+  if (totpCode && codeNeeded) {
     res = await call('POST', '/auth/login', { ...body, totp_code: await totpCode() });
   }
   if (res.status === 200 && res.json.access_token) return accountFrom(loginId, res.json);
@@ -337,7 +343,7 @@ async function askAuthenticatorCode(): Promise<string> {
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await rl.question(`  Authenticator code for ${ADMIN_LOGIN_ID}: `)).trim();
+    return (await rl.question(`  Authenticator code for ${ADMIN_LOGIN_ID} (wait for a fresh code each time): `)).trim();
   } finally {
     rl.close();
   }
@@ -402,13 +408,13 @@ async function assertLocalDemoDeployment(): Promise<void> {
         `  This creates real accounts. Point MEDICHAIN_API_URL at a local test\n` +
         `  deployment, or pass --i-understand-this-writes-accounts.\n`
     );
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
 
   const health = await call('GET', '/../health');
   if (!ok(health.status)) {
     console.error(`\n  API is not reachable at ${API} (health -> ${health.status}).\n`);
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
 }
 
@@ -458,12 +464,12 @@ export async function obtainAdmin(): Promise<Account> {
   if (ADMIN_LOGIN_ID) {
     if (!ADMIN_PASSWORD) {
       console.error('\n  MEDICHAIN_ADMIN_LOGIN_ID is set without MEDICHAIN_ADMIN_PASSWORD.\n');
-      process.exit(1);
+      throw new SeedFailure('stopped');
     }
     const existing = await tryLogin(ADMIN_LOGIN_ID, ADMIN_PASSWORD, askAuthenticatorCode);
     if (!existing) {
       console.error(`\n  Could not sign in as the named administrator '${ADMIN_LOGIN_ID}'.\n`);
-      process.exit(1);
+      throw new SeedFailure('stopped');
     }
     console.log(`  · using existing administrator ${ADMIN_LOGIN_ID}`);
     return existing;
@@ -478,7 +484,7 @@ export async function obtainAdmin(): Promise<Account> {
 
   if (!BOOTSTRAP_KEY) {
     console.error('\n  Set MEDICHAIN_BOOTSTRAP_KEY to the API bootstrap key for a fresh database.\n');
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
   const bootstrap = await call('POST', '/auth/bootstrap', {
     login_id: fixtureLogin,
@@ -492,7 +498,7 @@ export async function obtainAdmin(): Promise<Account> {
         `  against a fresh database, or set MEDICHAIN_ADMIN_LOGIN_ID and\n` +
         `  MEDICHAIN_ADMIN_PASSWORD to an existing administrator.\n`
     );
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
   const code = credentialCodeOf(bootstrap.json);
   if (!code) fail(`bootstrap ${fixtureLogin} returned no credential code`, bootstrap.status, bootstrap.json);
@@ -618,7 +624,7 @@ export async function issuedMedicalId(patientId: string, token: string): Promise
 async function main(): Promise<void> {
   if (FIXTURE_MANIFEST && !isAbsolute(FIXTURE_MANIFEST)) {
     console.error('MEDICHAIN_FIXTURE_MANIFEST must be an absolute path.');
-    process.exit(1);
+    throw new SeedFailure('stopped');
   }
   await assertLocalDemoDeployment();
   console.log(`\nProvisioning browser-test fixtures against ${API}\n`);
