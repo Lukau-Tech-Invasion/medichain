@@ -124,7 +124,9 @@ echo "3/5 images tagged $TAG"
 DOCKER_CONFIG="$(mktemp -d)"
 export DOCKER_CONFIG
 trap 'rm -rf "$DOCKER_CONFIG"' EXIT
-echo '{}' > "$DOCKER_CONFIG/config.json"
+# A config with an auths entry is used as-is; an empty one makes the Docker CLI
+# fall back to the OS credential store, the very thing being avoided.
+echo '{"auths":{"placeholder.invalid":{}}}' > "$DOCKER_CONFIG/config.json"
 REGISTRY="${API_REPO%%/*}"
 aws_ ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
 docker build -f api/Dockerfile -t "$API_REPO:$TAG" .
