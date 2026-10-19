@@ -102,8 +102,8 @@ pub struct SignConsentRequest {
     #[serde(alias = "consent_type")]
     pub type_id: Option<String>,
     pub patient_id: Option<String>,
-    /// Whether consent was actually given. Absent means granted, matching the
-    /// previous hardcoded behaviour of this endpoint.
+    /// Whether consent was actually given. Required: a decision nobody stated
+    /// is refused (400), never recorded as granted.
     pub consent_given: Option<bool>,
     pub popia_section_11_basis: Option<PopiaSection11Basis>,
     pub special_information_basis: Option<SpecialInformationBasis>,
@@ -278,6 +278,14 @@ pub async fn sign_consent(
         Ok(u) => u.id,
         Err(resp) => return resp,
     };
+    // Absent used to mean granted: a client that left the field out recorded a
+    // consent the person never gave. Fail closed instead (OWASP A10).
+    let Some(granted) = body.consent_given else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "State whether consent was given or refused".to_string(),
+            code: "CONSENT_DECISION_REQUIRED".to_string(),
+        });
+    };
 
     let current_user = match get_user(&data, &current_user_id) {
         Some(u) => u,
@@ -400,7 +408,6 @@ pub async fn sign_consent(
         },
     };
 
-    let granted = body.consent_given.unwrap_or(true);
     let consent_status = if granted {
         ConsentStatus::Granted
     } else {
@@ -1743,5 +1750,30 @@ mod consent_endpoint_regression_tests {
             assert_eq!(response["total"].as_u64(), Some(expected as u64));
             assert_eq!(response["consents"].as_array().unwrap().len(), expected);
         }
+    }
+    /// A consent decision nobody stated is refused, never recorded as granted.
+    #[actix_web::test]
+    async fn a_consent_without_a_stated_decision_is_refused() {
+        let state = AppState::new();
+        let (user_id, patient_id) = ("user-consent-undecided", "PAT-CONSENT-UNDECIDED");
+        state.users.write().unwrap().insert(
+            user_id.to_string(),
+            active_patient_user(user_id, patient_id),
+        );
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(state))
+                .service(sign_consent),
+        )
+        .await;
+        let request = test::TestRequest::post()
+            .uri("/api/consent/sign")
+            .insert_header(crate::test_fixtures::as_user(user_id))
+            .set_json(serde_json::json!({ "type_id": "treatment", "patient_id": patient_id }))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(body["error"]["code"], "CONSENT_DECISION_REQUIRED");
     }
 }

@@ -4,6 +4,26 @@ Last updated: 2026-09-29.
 
 ---
 
+## 2026-10-19 — Security pass: what remains after the fixes
+
+See `docs/SECURITY_HARDENING_2026-10-19.md` for everything that was fixed.
+Accepted for now, each with its reason:
+
+- **React Router 6 advisories (moderate).** A backslash open redirect in
+  `<Link>`/`useNavigate` and an SSR-hydration issue are fixed only in v7. The
+  portals do not server-render, and the one redirect built from user data
+  (`client/shared/src/utils/returnPath.ts`) rejects `//` and `\`. Upgrade to
+  React Router 7 as its own change.
+- **`lopdf` via `printpdf` (RUSTSEC-2026-0187).** A stack overflow parsing
+  deeply nested PDFs; the API only generates PDFs. Upgrade `printpdf` when its
+  API change can be absorbed.
+- **`rkyv`, `rsa` in `Cargo.lock`.** Optional dependencies that are never
+  compiled into this binary (`cargo tree -i` finds no path).
+- **Rehearsal AWS stack.** The audit bucket is in GOVERNANCE mode for the
+  judging period; a COMPLIANCE-mode stack is required before real patients.
+- **No WAF.** Single instance with per-account lockout and alarms; add AWS WAF
+  managed rules if traffic grows.
+
 ## 2026-09-25 — SI units, and a blood group that can be Unknown
 
 Both decided by the owner the same day, from the decisions list.
