@@ -8,6 +8,8 @@
 # DOMAIN=auto serves the stack at <elastic-ip-with-dashes>.sslip.io, a public
 # wildcard DNS name that resolves to that address, so HTTPS works before a
 # domain of your own exists. Redeploy with DOMAIN=<your host> to switch.
+# ALERT_EMAIL (default: ACME_EMAIL) receives the security and error alarms;
+# confirm the one-time SNS subscription e-mail AWS sends it.
 # AUDIT_RETENTION_MODE=GOVERNANCE makes a rehearsal stack whose audit
 # checkpoints can still be removed (the template default is COMPLIANCE).
 #
@@ -55,7 +57,8 @@ deploy_stack() {
     --stack-name "$STACK" \
     --capabilities CAPABILITY_IAM \
     --no-fail-on-empty-changeset \
-    --parameter-overrides "DomainName=$1" "AcmeEmail=$ACME_EMAIL" ${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}
+    --parameter-overrides "DomainName=$1" "AcmeEmail=$ACME_EMAIL" "AlertEmail=${ALERT_EMAIL:-$ACME_EMAIL}" \
+      ${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}
 }
 
 echo "1/5 stack $STACK in $REGION"

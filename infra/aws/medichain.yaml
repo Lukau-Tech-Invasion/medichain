@@ -36,6 +36,13 @@ Parameters:
     Type: String
     Description: Contact address for Let's Encrypt certificate notices.
     AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: >-
+      Where security and error alarms are e-mailed (sign-in failure spikes, account
+      lockouts, API errors). Empty: alarms still record state but notify no one.
+      The address must confirm the SNS subscription e-mail once.
   InstanceType:
     Type: String
     Default: t3.small
@@ -77,6 +84,9 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref "AWS::Region", af-south-1]
         AssertDescription: MediChain stores health records; deploy it in af-south-1 only.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
 
 Resources:
   # ---------------------------------------------------------------- network
@@ -589,6 +599,93 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       AlarmActions: [!Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover"]
+
+  # ------------------------------------------------------------- alerting
+  # OWASP A09: a control nobody watches. The API writes fixed event names
+  # (api/src/credentials.rs record_failure) and these filters count them.
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Security and error alarms reach a person by e-mail.
+    Properties:
+      KmsMasterKeyId: alias/aws/sns
+
+  AlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  SignInFailureFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '"auth.sign_in_failed"'
+      MetricTransformations:
+        - { MetricNamespace: MediChain, MetricName: SignInFailures, MetricValue: "1", DefaultValue: 0 }
+
+  AccountLockFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '"auth.account_locked"'
+      MetricTransformations:
+        - { MetricNamespace: MediChain, MetricName: AccountLocks, MetricValue: "1", DefaultValue: 0 }
+
+  ApiErrorFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '"ERROR medichain_api"'
+      MetricTransformations:
+        - { MetricNamespace: MediChain, MetricName: ApiErrors, MetricValue: "1", DefaultValue: 0 }
+
+  # Credential stuffing spreads failures across many accounts and IPs, so no
+  # single account locks: the total is the signal.
+  SignInFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Unusually many failed sign-ins (possible credential stuffing or password spraying).
+      Namespace: MediChain
+      MetricName: SignInFailures
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 30
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  AccountLockAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Several accounts locked after repeated failed sign-ins.
+      Namespace: MediChain
+      MetricName: AccountLocks
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
+
+  ApiErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The API is logging errors at an unusual rate.
+      Namespace: MediChain
+      MetricName: ApiErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 25
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertTopic]
 
 Outputs:
   ElasticIp:

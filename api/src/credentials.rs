@@ -609,6 +609,14 @@ pub fn record_failure(key: &str) {
         entry.first_seen = Instant::now();
     }
     entry.count += 1;
+    // Fixed event names for the CloudWatch metric filters (infra/aws): a spread
+    // of failures across many accounts is how credential stuffing looks. No
+    // login ID or other personal data is written.
+    if entry.count == MAX_FAILED_SIGN_INS {
+        log::warn!("auth.account_locked");
+    } else {
+        log::info!("auth.sign_in_failed");
+    }
 }
 
 /// Free one slot: drop every expired entry, and if the table is still full, the
