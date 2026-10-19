@@ -72,12 +72,28 @@ try {
   Record 'CSP forbids inline scripts' ($scriptSrc -and -not $scriptSrc.Contains("'unsafe-inline'")) ''
 } catch { Record 'Security headers' $false $_.Exception.Message }
 
+# The status a request answers, without following redirects. Invoke-WebRequest
+# cannot do this in Windows PowerShell 5: it refuses a body on GET and reports
+# an unfollowed redirect as an error with no response, so both read as -1.
 function StatusOf([string]$Method, [string]$Url) {
-  try { (Invoke-WebRequest $Url -Method $Method -UseBasicParsing -TimeoutSec 20 -ContentType 'application/json' -Body '{}' -MaximumRedirection 0).StatusCode }
-  catch { if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 } }
+  try {
+    $req = [System.Net.HttpWebRequest]::Create($Url)
+    $req.Method = $Method; $req.AllowAutoRedirect = $false; $req.Timeout = 20000
+    if ($Method -eq 'POST') {
+      $bytes = [Text.Encoding]::UTF8.GetBytes('{}')
+      $req.ContentType = 'application/json'; $req.ContentLength = $bytes.Length
+      $stream = $req.GetRequestStream(); $stream.Write($bytes, 0, $bytes.Length); $stream.Close()
+    }
+    $resp = $req.GetResponse(); $code = [int]$resp.StatusCode; $resp.Close(); $code
+  } catch {
+    $e = $_.Exception; if ($e.InnerException) { $e = $e.InnerException }
+    if ($e.Response) { $code = [int]$e.Response.StatusCode; $e.Response.Close(); $code } else { -1 }
+  }
 }
-Record 'Demo sign-in refused' ((StatusOf 'POST' "$BaseUrl/api/auth/demo-login") -eq 403) ''
-Record 'Metrics not public' ((StatusOf 'GET' "$BaseUrl/metrics") -in 401, 403, 404) ''
+$demo = StatusOf 'GET' "$BaseUrl/api/auth/demo-credentials"
+Record 'Demo sign-in refused' ($demo -eq 403) "status=$demo"
+$metrics = @((StatusOf 'GET' "$BaseUrl/metrics"), (StatusOf 'GET' "$BaseUrl/api/metrics"))
+Record 'Metrics not public' (@($metrics | Where-Object { $_ -notin 401, 403, 404 }).Count -eq 0) "status=$($metrics -join ',')"
 $plain = StatusOf 'GET' ($BaseUrl -replace '^https:', 'http:')
 Record 'HTTP redirects to HTTPS' ($plain -in 301, 302, 307, 308) "status=$plain"
 Record 'Bad sign-in refused' ((StatusOf 'POST' "$BaseUrl/api/auth/login") -in 400, 401, 422) ''
