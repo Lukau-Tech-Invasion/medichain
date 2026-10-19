@@ -5,13 +5,20 @@
 #
 #   DOMAIN=records.example.org ACME_EMAIL=ops@example.org infra/aws/deploy.sh
 #
+# DOMAIN=auto serves the stack at <elastic-ip-with-dashes>.sslip.io, a public
+# wildcard DNS name that resolves to that address, so HTTPS works before a
+# domain of your own exists. Redeploy with DOMAIN=<your host> to switch.
+# AUDIT_RETENTION_MODE=GOVERNANCE makes a rehearsal stack whose audit
+# checkpoints can still be removed (the template default is COMPLIANCE).
+#
 # Steps, each safe to repeat:
 #   1. create or update the CloudFormation stack
-#   2. add any missing application secret to Secrets Manager (never rotate one)
+#   2. (on the instance) add any missing application secret, never rotate one;
+#      no secret value is read on this workstation
 #   3. build the three images and push them to ECR, tagged with the commit
 #   4. upload the compose bundle to the artifact bucket
-#   5. on the instance, through SSM Run Command: fetch the bundle, write .env
-#      from the secret and the stack outputs, pull and start the stack
+#   5. on the instance, through SSM Run Command: complete the secret, fetch the
+#      bundle, write .env from the secret and the stack outputs, pull and start
 set -euo pipefail
 
 STACK="${STACK:-medichain}"
@@ -38,13 +45,31 @@ output() {
     --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text
 }
 
+EXTRA_PARAMS=()
+[ -n "${AUDIT_RETENTION_MODE:-}" ] && EXTRA_PARAMS+=("AuditRetentionMode=$AUDIT_RETENTION_MODE")
+[ -n "${AUDIT_RETENTION_DAYS:-}" ] && EXTRA_PARAMS+=("AuditRetentionDays=$AUDIT_RETENTION_DAYS")
+
+deploy_stack() {
+  aws_ cloudformation deploy \
+    --template-file infra/aws/medichain.yaml \
+    --stack-name "$STACK" \
+    --capabilities CAPABILITY_IAM \
+    --no-fail-on-empty-changeset \
+    --parameter-overrides "DomainName=$1" "AcmeEmail=$ACME_EMAIL" ${EXTRA_PARAMS[@]+"${EXTRA_PARAMS[@]}"}
+}
+
 echo "1/5 stack $STACK in $REGION"
-aws_ cloudformation deploy \
-  --template-file infra/aws/medichain.yaml \
-  --stack-name "$STACK" \
-  --capabilities CAPABILITY_IAM \
-  --no-fail-on-empty-changeset \
-  --parameter-overrides "DomainName=$DOMAIN" "AcmeEmail=$ACME_EMAIL"
+if [ "$DOMAIN" = "auto" ]; then
+  # The Elastic IP exists only once the stack does: create it under a
+  # placeholder name, then name it after its own address. DomainName feeds only
+  # outputs, so the second update replaces nothing.
+  if ! aws_ cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1; then
+    deploy_stack "pending.invalid"
+  fi
+  DOMAIN="$(output ElasticIp | tr '.' '-').sslip.io"
+  echo "   DOMAIN=auto -> $DOMAIN"
+fi
+deploy_stack "$DOMAIN"
 
 SECRET_ARN="$(output AppSecretArn)"
 INSTANCE_ID="$(output InstanceId)"
@@ -54,11 +79,17 @@ WEB_REPO="$(output WebRepositoryUri)"
 PG_REPO="$(output PostgresRepositoryUri)"
 EIP="$(output ElasticIp)"
 
-echo "2/5 application secrets"
-CURRENT="$(aws_ secretsmanager get-secret-value --secret-id "$SECRET_ARN" --query SecretString --output text)"
-UPDATED="$(CURRENT="$CURRENT" python - <<'PY'
-import base64, json, os, secrets
-current = json.loads(os.environ["CURRENT"] or "{}")
+echo "2/5 application secrets: completed on the instance in step 5"
+# Runs on the instance (python3, instance role): reads the secret, adds each
+# missing key once, writes it back only if something was added. The workstation
+# running this script never sees a secret value.
+COMPLETE_SECRET=$(cat <<'PY'
+import base64, json, secrets, subprocess, sys
+arn, region = sys.argv[1], sys.argv[2]
+def aws(*args, stdin=None):
+    return subprocess.run(["aws", "--region", region, "secretsmanager", *args],
+                          input=stdin, check=True, capture_output=True, text=True).stdout
+current = json.loads(aws("get-secret-value", "--secret-id", arn, "--query", "SecretString", "--output", "text") or "{}")
 generators = {
     "JWT_SECRET": lambda: secrets.token_hex(48),
     "SESSION_SECRET": lambda: secrets.token_hex(48),
@@ -77,20 +108,13 @@ generators = {
 added = [name for name in generators if not current.get(name)]
 for name in added:
     current[name] = generators[name]()
-print(json.dumps({"added": added, "secret": current}))
+if added:
+    # The value travels on stdin, never on a command line or to disk.
+    aws("put-secret-value", "--secret-id", arn, "--secret-string", "file:///dev/stdin",
+        stdin=json.dumps(current))
+print("secret keys added: " + (", ".join(added) if added else "none"))
 PY
-)"
-ADDED="$(UPDATED="$UPDATED" python -c 'import json,os; print(",".join(json.loads(os.environ["UPDATED"])["added"]))')"
-if [ -n "$ADDED" ]; then
-  UPDATED="$UPDATED" python -c 'import json,os; print(json.dumps(json.loads(os.environ["UPDATED"])["secret"]))' \
-    > "${TMPDIR:-/tmp}/medichain-secret.json"
-  aws_ secretsmanager put-secret-value --secret-id "$SECRET_ARN" \
-    --secret-string "file://${TMPDIR:-/tmp}/medichain-secret.json" >/dev/null
-  rm -f "${TMPDIR:-/tmp}/medichain-secret.json"
-  echo "   added: $ADDED"
-else
-  echo "   all present"
-fi
+)
 
 echo "3/5 images tagged $TAG"
 REGISTRY="${API_REPO%%/*}"
@@ -117,6 +141,9 @@ cd /opt/medichain
 aws s3 cp s3://$ARTIFACTS/bundles/$TAG.tgz bundle.tgz --region $REGION --only-show-errors
 tar -xzf bundle.tgz && rm bundle.tgz
 umask 077
+python3 - $SECRET_ARN $REGION <<'PYEOF'
+$COMPLETE_SECRET
+PYEOF
 aws secretsmanager get-secret-value --secret-id $SECRET_ARN --region $REGION --query SecretString --output text \
   | python3 -c 'import json,sys; [print(f"{k}={v}") for k,v in json.load(sys.stdin).items()]' > .env
 cat >> .env <<ENV

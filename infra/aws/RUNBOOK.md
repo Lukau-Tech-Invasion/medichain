@@ -11,7 +11,7 @@ behind Caddy (Let's Encrypt TLS). Data stays in South Africa (POPIA).
 | Compose overlay | `docker-compose.aws.yml` + `Caddyfile.aws` |
 | Audit checkpoints | S3 bucket with Object Lock (COMPLIANCE, 6 years by default); written once by `AUDIT_CHECKPOINT_SINK=s3` (`api/src/audit_s3_sink.rs`) |
 | Backups | pgBackRest repo 1 on the instance's encrypted volume; repo 2 in the backup bucket, encrypted by pgBackRest before upload |
-| Secrets | One Secrets Manager secret (JSON); `deploy.sh` adds missing keys once and never rotates one silently |
+| Secrets | One Secrets Manager secret (JSON); the instance adds missing keys once during a deploy and never rotates one silently. No secret value is read on the deploying workstation |
 | Shell access | SSM Session Manager only; no SSH port, no key pair |
 
 ## Before the first deploy (owner decisions and permissions)
@@ -37,6 +37,16 @@ behind Caddy (Let's Encrypt TLS). Data stays in South Africa (POPIA).
 
 ```bash
 DOMAIN=records.example.org ACME_EMAIL=ops@example.org infra/aws/deploy.sh
+```
+
+No domain yet? `DOMAIN=auto` serves the stack at `<elastic-ip-with-dashes>.sslip.io`,
+a public wildcard DNS name that resolves to the instance, so HTTPS (and the secure
+sign-in cookie) works from the first deploy. Redeploy with your own `DOMAIN` later.
+
+A rehearsal stack whose audit checkpoints can still be removed:
+
+```bash
+DOMAIN=auto AUDIT_RETENTION_MODE=GOVERNANCE ACME_EMAIL=ops@example.org infra/aws/deploy.sh
 ```
 
 The script refuses a dirty working tree (images are tagged with the commit) and

@@ -58,8 +58,9 @@
 import { deriveAuthProof, type LoginBody } from './lib/auth';
 import { confirmTransaction, isTransactionDemand, type Confirmer } from './lib/transaction-authorization';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://localhost/api';
 const BOOTSTRAP_KEY = process.env.MEDICHAIN_BOOTSTRAP_KEY;
@@ -73,7 +74,7 @@ const FIXTURE_MANIFEST = process.env.MEDICHAIN_FIXTURE_MANIFEST;
 /** Fixture password supplied for a remotely accessible synthetic demo. */
 const PASSWORD = process.env.MEDICHAIN_FIXTURE_PASSWORD ?? 'BrowserTest!2026';
 
-interface StaffFixture {
+export interface StaffFixture {
   key:
     | 'doctor'
     | 'doctor2'
@@ -186,9 +187,9 @@ const PATIENT_B = {
   languages: ['en'],
 };
 
-type Json = Record<string, unknown>;
+export type Json = Record<string, unknown>;
 
-async function call(
+export async function call(
   method: string,
   path: string,
   body?: unknown,
@@ -237,14 +238,14 @@ async function call(
   return { status: res.status, json };
 }
 
-function ok(status: number): boolean {
+export function ok(status: number): boolean {
   return status >= 200 && status < 300;
 }
 
 /** Thrown by `fail` once its diagnostic is already on the console. */
-class SeedFailure extends Error {}
+export class SeedFailure extends Error {}
 
-function fail(what: string, status: number, json: Json): never {
+export function fail(what: string, status: number, json: Json): never {
   console.error(`\n  FAILED: ${what}\n    HTTP ${status}\n    ${JSON.stringify(json)}\n`);
   // Deliberately a throw, not `process.exit(1)`. Exiting from inside an async
   // call with sockets still open aborted Node mid-teardown on Windows:
@@ -258,7 +259,7 @@ function fail(what: string, status: number, json: Json): never {
 }
 
 /** An account this run holds a session for. */
-interface Account {
+export interface Account {
   loginId: string;
   userId: string;
   token: string;
@@ -266,8 +267,14 @@ interface Account {
   linkedPatientId: string;
 }
 
-/** Have the primary patient approve the staff who must open their chart in browser tests. */
-async function ensurePatientAccess(patientId: string, patient: Account, provider: Account): Promise<void> {
+/** Have a patient approve a clinician who must open their chart (seven days). */
+export async function ensurePatientAccess(
+  patientId: string,
+  patient: Account,
+  provider: Account,
+  patientPassword: string = PASSWORD,
+  reason = 'Synthetic browser verification of clinical care'
+): Promise<void> {
   const existing = await call('GET', `/access/patient/${patientId}/grants`, undefined, patient.token);
   if (!ok(existing.status)) fail('read patient grants', existing.status, existing.json);
   const grants = Array.isArray(existing.json.grants) ? existing.json.grants as Json[] : [];
@@ -278,13 +285,13 @@ async function ensurePatientAccess(patientId: string, patient: Account, provider
   if (active) return;
 
   const request = await call('POST', `/access/patient/${patientId}/requests`,
-    { reason: 'Synthetic browser verification of clinical care' }, provider.token);
+    { reason }, provider.token);
   const requestId = String((request.json.request as Json | undefined)?.id ?? '');
   if (request.status !== 201 || !requestId) fail('request patient access', request.status, request.json);
   const approval = await call('POST', `/access/requests/${requestId}/approve`,
     { expires_at: new Date(Date.now() + 7 * 86400000).toISOString() }, patient.token,
     // The patient confirms their own decision, as in the portal.
-    { loginId: patient.loginId, password: PASSWORD });
+    { loginId: patient.loginId, password: patientPassword });
   if (!ok(approval.status)) fail('patient approves access', approval.status, approval.json);
 }
 
@@ -304,11 +311,36 @@ function accountFrom(loginId: string, body: Json): Account {
  * Sign in exactly as a portal does. Returns `undefined` for a refusal so a
  * caller can tell "no such account yet" from a transport problem.
  */
-async function tryLogin(loginId: string, password: string): Promise<Account | undefined> {
+export async function tryLogin(
+  loginId: string,
+  password: string,
+  totpCode?: () => Promise<string>
+): Promise<Account | undefined> {
   const authProof = await deriveAuthProof(password, loginId);
-  const res = await call('POST', '/auth/login', { identifier: loginId, auth_proof: authProof });
+  const body = { identifier: loginId, auth_proof: authProof };
+  let res = await call('POST', '/auth/login', body);
+  if (totpCode && res.json.mfa_required === true && !res.json.access_token) {
+    res = await call('POST', '/auth/login', { ...body, totp_code: await totpCode() });
+  }
   if (res.status === 200 && res.json.access_token) return accountFrom(loginId, res.json);
   return undefined;
+}
+
+/**
+ * Ask the person running this for a current authenticator code. Only an
+ * administrator named through the environment is asked: a deployment's real
+ * administrator has two-factor enrolled, and its codes are never stored.
+ */
+async function askAuthenticatorCode(): Promise<string> {
+  if (!process.stdin.isTTY) {
+    fail('this administrator needs an authenticator code, and there is no terminal to ask for one', 0, {});
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(`  Authenticator code for ${ADMIN_LOGIN_ID}: `)).trim();
+  } finally {
+    rl.close();
+  }
 }
 
 /** Create real server state used by the lab and pharmacy browser journeys. */
@@ -393,13 +425,14 @@ async function redeem(
   identifier: string,
   code: string,
   loginId: string,
-  username?: string
+  username?: string,
+  password: string = PASSWORD
 ): Promise<Account> {
-  const authProof = await deriveAuthProof(PASSWORD, loginId);
+  // Setting a password sends it once, for the server's strength check.
   const res = await call('POST', '/auth/credentials/redeem', {
     identifier,
     code,
-    auth_proof: authProof,
+    password,
     ...(username ? { username } : {}),
   });
   if (!ok(res.status) || !res.json.access_token) fail(`redeem the code for ${what}`, res.status, res.json);
@@ -421,13 +454,13 @@ function activationCodeOf(json: Json): string {
  * The administrator: an existing one named by the environment, one left by an
  * earlier run, or a freshly bootstrapped first admin.
  */
-async function obtainAdmin(): Promise<Account> {
+export async function obtainAdmin(): Promise<Account> {
   if (ADMIN_LOGIN_ID) {
     if (!ADMIN_PASSWORD) {
       console.error('\n  MEDICHAIN_ADMIN_LOGIN_ID is set without MEDICHAIN_ADMIN_PASSWORD.\n');
       process.exit(1);
     }
-    const existing = await tryLogin(ADMIN_LOGIN_ID, ADMIN_PASSWORD);
+    const existing = await tryLogin(ADMIN_LOGIN_ID, ADMIN_PASSWORD, askAuthenticatorCode);
     if (!existing) {
       console.error(`\n  Could not sign in as the named administrator '${ADMIN_LOGIN_ID}'.\n`);
       process.exit(1);
@@ -470,11 +503,19 @@ async function obtainAdmin(): Promise<Account> {
 
 /** How the administrator confirms a Class C demand: with their own password. */
 function adminConfirmer(admin: Account): Confirmer {
-  return { loginId: admin.loginId, password: ADMIN_LOGIN_ID ? ADMIN_PASSWORD : PASSWORD };
+  return {
+    loginId: admin.loginId,
+    password: ADMIN_LOGIN_ID ? ADMIN_PASSWORD : PASSWORD,
+    ...(ADMIN_LOGIN_ID ? { totp: askAuthenticatorCode } : {}),
+  };
 }
 
 /** Register a staff fixture, activate it, and redeem its credential code. */
-async function provisionStaff(admin: Account, fixture: StaffFixture): Promise<Account> {
+export async function provisionStaff(
+  admin: Account,
+  fixture: StaffFixture,
+  password: string = PASSWORD
+): Promise<Account> {
   const reg = await call(
     'POST',
     '/auth/register',
@@ -493,7 +534,7 @@ async function provisionStaff(admin: Account, fixture: StaffFixture): Promise<Ac
   const act = await call('PUT', `/users/${userId}`, { status: 'active' }, admin.token, adminConfirmer(admin));
   if (!ok(act.status)) fail(`activate ${fixture.key}`, act.status, act.json);
 
-  return redeem(fixture.key, fixture.loginId, code, fixture.loginId);
+  return redeem(fixture.key, fixture.loginId, code, fixture.loginId, undefined, password);
 }
 
 /**
@@ -521,13 +562,14 @@ function previousNfcTag(patientId: string): string | undefined {
   return undefined;
 }
 
-async function provisionPatient(
+export async function provisionPatient(
   admin: Account,
   doctor: Account,
   record: Json,
-  username: string
+  username: string,
+  password: string = PASSWORD
 ): Promise<{ account: Account; patientId: string; nfcTagId: string }> {
-  const existing = await tryLogin(username, PASSWORD);
+  const existing = await tryLogin(username, password);
   if (existing) {
     const patientId = existing.linkedPatientId;
     if (!patientId) fail(`existing patient ${username} has no linked record`, 0, {});
@@ -551,7 +593,7 @@ async function provisionPatient(
   if (!patientId || !code) fail(`register ${username} returned no patient_id / activation code`, created.status, created.json);
 
   // The username is the login id, and the proof is derived under it.
-  const account = await redeem(`patient ${username}`, patientId, code, username, username);
+  const account = await redeem(`patient ${username}`, patientId, code, username, username, password);
   return { account, patientId, nfcTagId };
 }
 
@@ -563,7 +605,7 @@ const MEDICAL_ID_SHAPE = /^MCHI-[0-9A-Z]{10,}$/;
  * reads their own card. A patient fixture without one is refused: a patient is
  * identified by an issued medical ID, never by an account key.
  */
-async function issuedMedicalId(patientId: string, token: string): Promise<string> {
+export async function issuedMedicalId(patientId: string, token: string): Promise<string> {
   const card = await call('GET', `/medical-id/${patientId}`, undefined, token);
   if (!ok(card.status)) fail(`read the medical ID for ${patientId}`, card.status, card.json);
   const medicalId = String(card.json.national_health_id ?? '');
@@ -774,7 +816,9 @@ them into any image that serves real patients.
 `);
 }
 
-main().catch((err) => {
+// Run only when executed directly: seed-showcase-accounts.ts imports the helpers.
+const invokedDirectly = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+if (invokedDirectly) main().catch((err) => {
   // A `SeedFailure` has already printed the only useful thing about itself, and
   // a stack trace through the fetch helpers adds nothing. Anything else is
   // unexpected and gets printed in full.

@@ -425,8 +425,9 @@ Resources:
       com.aws.cloudformation.Context:
         why: >-
           Every API and database secret, as one JSON document. The template only
-          generates POSTGRES_PASSWORD; deploy.sh adds each missing key once, with
-          values from openssl rand, and never rotates an existing one silently.
+          generates POSTGRES_PASSWORD; the instance adds each missing key once
+          during a deploy (deploy.sh, through SSM) and never rotates an existing
+          one silently, so no secret value is ever read outside AWS.
     Properties:
       Description: !Sub "MediChain application secrets (${AWS::StackName})"
       GenerateSecretString:
@@ -487,9 +488,11 @@ Resources:
                 Effect: Allow
                 Action: ecr:GetAuthorizationToken
                 Resource: "*"
-              - Sid: ReadAppSecret
+              - Sid: ReadAndCompleteAppSecret
                 Effect: Allow
-                Action: secretsmanager:GetSecretValue
+                # Put: the deploy adds missing keys on the instance itself, so no
+                # secret value is ever read on the deploying workstation.
+                Action: [secretsmanager:GetSecretValue, secretsmanager:PutSecretValue]
                 Resource: !Ref AppSecret
               - Sid: ShipContainerLogs
                 Effect: Allow
