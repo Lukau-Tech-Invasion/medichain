@@ -79,17 +79,18 @@ print(json.dumps({"identifier": sys.argv[1], "auth_proof": sys.argv[2]}))' "$lid
 }
 
 # redeem_as KEY IDENTIFIER CODE LOGIN_ID [USERNAME] — POST
-# /api/auth/credentials/redeem. The proof is derived under LOGIN_ID, which is the
+# /api/auth/credentials/redeem with the password (setting one is the only time
+# it travels; the server checks it and derives the proof). LOGIN_ID is the
 # login the account will carry: the employee id for staff, the chosen username
 # for a patient. Echoes the HTTP status.
 redeem_as() {
   local key="$1" ident="$2" cd_="$3" lid="$4" uname="${5:-}" c
   c=$(code POST /api/auth/credentials/redeem "$(python -c '
 import json, sys
-b = {"identifier": sys.argv[1], "code": sys.argv[2], "auth_proof": sys.argv[3]}
+b = {"identifier": sys.argv[1], "code": sys.argv[2], "password": sys.argv[3]}
 if sys.argv[4]:
     b["username"] = sys.argv[4]
-print(json.dumps(b))' "$ident" "$cd_" "$(proof "$lid" "$SYN_PASSWORD")" "$uname")")
+print(json.dumps(b))' "$ident" "$cd_" "$SYN_PASSWORD" "$uname")")
   [ "$c" = "200" ] && store_actor "$key" && remember_credentials "$key" "$lid" "$SYN_PASSWORD"
   printf '%s' "$c"
 }

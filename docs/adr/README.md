@@ -26,6 +26,7 @@ point.
 | [0007](0007-single-organisation-per-instance.md) | One organisation per instance, and what that means for bulk reads | Accepted |
 | [0008](0008-step-up-and-transaction-authorization.md) | Step-up and exact transaction authorization | Accepted |
 | [0010](0010-sealed-audit-stream-and-account-identity.md) | Sealed audit stream and account identity | Accepted |
+| [0011](0011-passwords-are-checked-when-set.md) | Passwords are checked by the server when they are set | Accepted |
 
 ## Template
 

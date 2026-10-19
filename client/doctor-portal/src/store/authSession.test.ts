@@ -89,9 +89,8 @@ describe('sign-in session', () => {
     expect(getApiClient().getAccessToken()).toBeUndefined();
   }, 30_000);
 
-  it('derives the activation proof for the chosen username, not the patient id', async () => {
+  it('sends the chosen password once for its strength check, and signs in as the chosen username', async () => {
     respond(200, { success: true, access_token: 'tok3', mfa: false, mfa_required: false, user: USER });
-    const { deriveAuthProof } = await import('@medichain/shared');
 
     await activateWithCode({
       identifier: 'PAT-42',
@@ -105,7 +104,10 @@ describe('sign-in session', () => {
     expect(body.identifier).toBe('PAT-42');
     expect(body.username).toBe('Thandi.N');
     expect(body.code).toBe('ABCD-EFGH-JKMN');
-    expect(body.auth_proof).toBe(await deriveAuthProof('a long enough password', 'Thandi.N'));
+    // Setting a password is the one time it travels (the server checks and
+    // derives); no proof is sent that would let a client skip the check.
+    expect(body.password).toBe('a long enough password');
+    expect(body.auth_proof).toBeUndefined();
     expect(getRememberedLoginId()).toBe('Thandi.N');
   }, 30_000);
 });

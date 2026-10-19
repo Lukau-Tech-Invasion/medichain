@@ -327,13 +327,12 @@ export async function apiRedeem(
   request: APIRequestContext,
   input: { identifier: string; code: string; password: string; username?: string }
 ): Promise<ApiResult> {
-  const loginId = input.username ?? input.identifier;
-  const authProof = await deriveAuthProof(input.password, loginId);
+  // Setting a password sends it once, for the server's strength check.
   return api(request, 'POST', '/api/auth/credentials/redeem', {
     data: {
       identifier: input.identifier,
       code: input.code,
-      auth_proof: authProof,
+      password: input.password,
       ...(input.username ? { username: input.username } : {}),
     },
   });

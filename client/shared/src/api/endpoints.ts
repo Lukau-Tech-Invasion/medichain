@@ -495,22 +495,27 @@ export async function login(body: {
  * Turn a one-time activation or reset code into a password (and, for a
  * patient, a username). Answers like `login`, so the caller is signed in.
  *
- * `auth_proof` is derived for the login id the account will sign in with: the
- * chosen `username` when there is one, otherwise `identifier`.
+ * Setting a password is the one time it travels: the server checks its
+ * strength (422 with a `PASSWORD_*` code and a sentence to show) and derives
+ * the sign-in proof itself. Signing in still sends only the proof.
  */
 export async function redeemCredential(body: {
   identifier: string;
   code: string;
-  auth_proof: string;
+  password: string;
   username?: string;
 }): Promise<LoginResponse> {
   return getApiClient().post('/api/auth/credentials/redeem', body);
 }
 
-/** Change the signed-in person's password. Other sessions are ended. */
+/**
+ * Change the signed-in person's password. Other sessions are ended. The
+ * current password is proved, never sent; the new one is sent for its
+ * strength check (see `redeemCredential`).
+ */
 export async function changePassword(body: {
   current_auth_proof: string;
-  new_auth_proof: string;
+  new_password: string;
 }): Promise<{ success: boolean; message?: string }> {
   return getApiClient().post('/api/auth/credentials/change', body);
 }

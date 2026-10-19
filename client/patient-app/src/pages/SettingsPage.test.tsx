@@ -80,11 +80,13 @@ describe('SettingsPage (Patient)', () => {
     expect(saveUserSettings).not.toHaveBeenCalled();
   });
 
-  it('describes password authentication and names the language selector', async () => {
+  it('opens the change-password dialog and names the language selector', async () => {
     render(<MemoryRouter><SettingsPage /></MemoryRouter>);
     await waitFor(() => expect(screen.getByRole('button', { name: /^save$/i })).toBeEnabled());
-    expect(screen.getByText('Sign in with your password. You can add an authenticator app for two-factor authentication.')).toBeVisible();
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeVisible();
+    // The row used to do nothing: a patient could not change their password.
+    fireEvent.click(screen.getByText('Change password'));
+    expect(await screen.findByRole('dialog', { name: /change password/i })).toBeVisible();
   });
 
   it('offers an accessible sign-out dialog and preserves the session when cancelled', async () => {

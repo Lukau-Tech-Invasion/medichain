@@ -27,6 +27,9 @@ services:
       AUDIT_CHECKPOINT_S3_REGION: ${AWS_REGION:?AWS_REGION is required}
       AUDIT_CHECKPOINT_S3_PREFIX: checkpoints/
       AUDIT_CHECKPOINT_DIR: ""
+      # Refuse passwords found in Pwned Passwords when one is set (k-anonymity:
+      # only five hex characters of a SHA-1 leave the host). src/password_policy.rs
+      PASSWORD_BREACH_CHECK: pwned
 
   nginx:
     image: ${MEDICHAIN_WEB_IMAGE:?MEDICHAIN_WEB_IMAGE (ECR URI) is required}

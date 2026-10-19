@@ -34,6 +34,21 @@ enum ClaimResult {
     DigestMismatch,
 }
 
+/// Routes whose body carries a password. Their stored digest leaves the body
+/// out: an unsalted hash of a body holding a password is a fast, offline-
+/// guessable hash of that password, sitting beside the slow Argon2id verifier
+/// it would undercut. Key, subject, method and route still bind the claim.
+const SECRET_BODY_ROUTES: &[&str] = &["/api/auth/credentials/change"];
+
+/// The body as the stored digest sees it (see `SECRET_BODY_ROUTES`).
+fn digestible_body<'a>(route: &str, body: &'a [u8]) -> &'a [u8] {
+    if SECRET_BODY_ROUTES.contains(&route) {
+        &[]
+    } else {
+        body
+    }
+}
+
 fn digest_request(subject: &str, method: &str, route: &str, key: &str, body: &[u8]) -> String {
     let mut hasher = Sha3_256::new();
     for part in [
@@ -404,7 +419,13 @@ where
                 body.extend_from_slice(&chunk?);
             }
             let body: Bytes = body.freeze();
-            let digest = digest_request(&subject, &method, &route, &key, &body);
+            let digest = digest_request(
+                &subject,
+                &method,
+                &route,
+                &key,
+                digestible_body(&route, &body),
+            );
             // A Class C gate binds its authorization to these exact bytes and
             // this key (ADR-0008): hashing the transmitted bytes, not a
             // re-serialisation, removes the field-order problem entirely.
@@ -481,6 +502,30 @@ where
 
 #[cfg(test)]
 mod tests {
+    /// A body holding a password never reaches the stored digest.
+    #[test]
+    fn a_password_body_is_not_digested() {
+        let with = digest_request(
+            "u",
+            "POST",
+            "/api/auth/credentials/change",
+            "k",
+            digestible_body("/api/auth/credentials/change", b"{\"new_password\":\"a\"}"),
+        );
+        let other = digest_request(
+            "u",
+            "POST",
+            "/api/auth/credentials/change",
+            "k",
+            digestible_body("/api/auth/credentials/change", b"{\"new_password\":\"b\"}"),
+        );
+        assert_eq!(with, other);
+        assert_ne!(
+            digest_request("u", "POST", "/api/x", "k", digestible_body("/api/x", b"1")),
+            digest_request("u", "POST", "/api/x", "k", digestible_body("/api/x", b"2"))
+        );
+    }
+
     use super::*;
 
     // The memory store exists because the durable guard 503'd every

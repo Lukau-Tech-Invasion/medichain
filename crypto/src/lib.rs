@@ -30,6 +30,7 @@ use chacha20poly1305::{
 use rand::rngs::OsRng;
 use zeroize::Zeroize;
 
+pub mod auth_proof;
 pub mod seal;
 
 // =============================================================================

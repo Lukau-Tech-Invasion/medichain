@@ -57,6 +57,9 @@ sha3 = "0.10"
 # transmitted bytes; sha3 above is SHA3-256, a different function. Already in
 # the graph via medichain-crypto, so this adds no crates.
 sha2 = "0.10"
+# Pwned Passwords k-anonymity range check (src/password_policy.rs).
+sha1 = "0.10"
+zeroize = "1.6"
 # HMAC-SHA256 for AWS Signature Version 4 (the S3 audit checkpoint sink).
 hmac = "0.12"
 hex = "0.4"

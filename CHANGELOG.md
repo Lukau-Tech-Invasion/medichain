@@ -33,6 +33,13 @@ pre-1.0 and does not yet make compatibility guarantees.
 - CSV exports quote every cell and neutralise spreadsheet formulas.
 - The offline medical ID cache is cleared when a session ends.
 
+### Security (2026-10-19)
+- Passwords are checked by the server when set (ADR-0011): 15-128 characters,
+  not common or decorated-common, not a keyboard run, not the person's name or
+  login ID, and not in Pwned Passwords (k-anonymity). Activation, recovery and
+  change send the password once; sign-in still sends only a proof.
+- A body holding a password is left out of the stored idempotency digest.
+
 ### Fixed (2026-10-18/19)
 - A clinician's record list or document download under a patient's grant is
   recorded against that grant, so the grant's disclosure count is no longer 0.
@@ -43,6 +50,9 @@ pre-1.0 and does not yet make compatibility guarantees.
 - Completing a specimen recollection keeps its confirmation on screen after the
   row leaves the open list.
 - The operative-note history names the surgeon instead of showing a user id.
+- Patients can change their password (the Settings row did nothing).
+- Registering a login ID already in use answers 409 instead of 503.
+- Appointment actions and the dashboard code-blue panel meet contrast in dark mode.
 
 ### Added (2026-09-29, ADR-0010)
 - The sealed audit stream: `access_logs` and `audit_events` rows are

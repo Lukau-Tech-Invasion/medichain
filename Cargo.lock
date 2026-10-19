@@ -2347,6 +2347,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "sha3",
  "sqlx",
@@ -2357,6 +2358,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]
@@ -2367,6 +2369,8 @@ dependencies = [
  "chacha20poly1305",
  "criterion",
  "ed25519-dalek",
+ "hkdf",
+ "pbkdf2",
  "rand 0.8.7",
  "serde",
  "sha2 0.10.9",
@@ -2647,6 +2651,16 @@ dependencies = [
  "base64ct",
  "rand_core 0.6.4",
  "subtle",
+]
+
+[[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest 0.10.7",
+ "hmac 0.12.1",
 ]
 
 [[package]]

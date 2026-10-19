@@ -19,10 +19,11 @@ import { rememberLoginId, forgetLoginId } from './loginId';
 /**
  * The shortest password the clients accept when a person chooses one.
  *
- * The server only ever sees a proof derived from the password, so it cannot
- * check length: this is the one place the rule can be enforced.
+ * The server is the authority (`api/src/password_policy.rs`: length, common and
+ * breached passwords, the person's own name); this is the same floor checked
+ * early so the form can say so before sending.
  */
-export const MIN_PASSWORD_LENGTH = 12;
+export const MIN_PASSWORD_LENGTH = 15;
 
 /**
  * Format an activation code as the person typed or pasted it: upper case,
@@ -95,8 +96,9 @@ export async function signInWithPassword(
 
 /**
  * Redeem a one-time activation or reset code, choosing the password (and, for a
- * patient, the username). The account signs in with `username` when there is
- * one, else with `identifier`, and the proof is derived for that login id.
+ * patient, the username). The password is sent this once so the server can
+ * refuse a weak one; it derives the sign-in proof for the account's login id
+ * (`username` when there is one, else `identifier`) itself.
  */
 export async function activateWithCode(input: {
   identifier: string;
@@ -107,11 +109,10 @@ export async function activateWithCode(input: {
   const identifier = input.identifier.trim();
   const username = input.username?.trim() || undefined;
   const loginId = username ?? identifier;
-  const authProof = await deriveAuthProof(input.password, loginId);
   const response = await redeemCredential({
     identifier,
     code: normalizeActivationCode(input.code),
-    auth_proof: authProof,
+    password: input.password,
     ...(username ? { username } : {}),
   });
   return adopt(response, loginId);

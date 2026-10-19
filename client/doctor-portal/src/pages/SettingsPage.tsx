@@ -14,8 +14,8 @@ import {
   getUserAvatar,
   getRememberedLoginId,
   useTranslation,
+  ChangePasswordDialog,
 } from '@medichain/shared';
-import ChangePasswordDialog from '../components/ChangePasswordDialog';
 import { ClinicianContactDetails } from '../components/ClinicianContactDetails';
 import { 
   Settings, 

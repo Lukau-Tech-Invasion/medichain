@@ -915,11 +915,14 @@ async function createDisposable(admin: Session, purpose: string): Promise<Dispos
   return { userId, loginId, code };
 }
 
-/** `POST /api/auth/credentials/redeem` with the fixture password's proof. */
-async function redeemCode(identifier: string, code: string, loginId: string, username?: string) {
-  const authProof = await deriveAuthProof(PASSWORD, loginId);
+/**
+ * `POST /api/auth/credentials/redeem` with the fixture password. Setting a
+ * password is the one time it travels: the server checks it and derives the
+ * proof, so `loginId` only documents which login the account will carry.
+ */
+async function redeemCode(identifier: string, code: string, _loginId: string, username?: string) {
   return http('POST', '/auth/credentials/redeem', {
-    body: { identifier, code, auth_proof: authProof, ...(username ? { username } : {}) },
+    body: { identifier, code, password: PASSWORD, ...(username ? { username } : {}) },
   });
 }
 
@@ -1010,13 +1013,18 @@ async function qualifyCredentialCodes(admin: Session): Promise<void> {
   expectStatus('a code that was never issued is refused', bogus.status, 401, bogus.json);
   record('and the refusal says INVALID_GRANT', codeOf(bogus.json) === 'INVALID_GRANT', `code ${codeOf(bogus.json)}`);
 
-  // A malformed proof is refused with the same answer as a wrong code, so the
-  // response does not say which half was wrong, and it does not burn the code.
-  const badProof = await http('POST', '/auth/credentials/redeem', {
-    body: { identifier: first.loginId, code: first.code, auth_proof: 'zz-not-a-proof' },
+  // A client that sends only a proof cannot skip the strength check, and a
+  // weak password is refused with its reason. Neither burns the code.
+  const proofOnly = await http('POST', '/auth/credentials/redeem', {
+    body: { identifier: first.loginId, code: first.code, auth_proof: await deriveAuthProof(PASSWORD, first.loginId) },
   });
-  expectStatus('a malformed proof is refused at redemption', badProof.status, 401, badProof.json);
-  record('and the refusal says INVALID_GRANT', codeOf(badProof.json) === 'INVALID_GRANT', `code ${codeOf(badProof.json)}`);
+  expectStatus('a redemption without the password is refused', proofOnly.status, 400, proofOnly.json);
+  record('and the refusal says PASSWORD_REQUIRED', codeOf(proofOnly.json) === 'PASSWORD_REQUIRED', `code ${codeOf(proofOnly.json)}`);
+  const weak = await http('POST', '/auth/credentials/redeem', {
+    body: { identifier: first.loginId, code: first.code, password: 'Password2026!!!!' },
+  });
+  expectStatus('a common password is refused at redemption', weak.status, 422, weak.json);
+  record('and the refusal says PASSWORD_TOO_COMMON', codeOf(weak.json) === 'PASSWORD_TOO_COMMON', `code ${codeOf(weak.json)}`);
 
   const redeemed = await redeemCode(first.loginId, first.code, first.loginId);
   expectStatus('the real code still redeems afterwards', redeemed.status, 200, redeemed.json);

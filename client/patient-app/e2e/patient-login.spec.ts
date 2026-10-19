@@ -200,7 +200,7 @@ test('a patient changes their password over the API: other sessions end, the old
     token: patient.token,
     data: {
       current_auth_proof: await deriveAuthProof(`${patient.password}-wrong`, patient.username),
-      new_auth_proof: await deriveAuthProof(changed, patient.username),
+      new_password: changed,
     },
   });
   expect(wrongCurrent.status).toBeGreaterThanOrEqual(400);
@@ -209,7 +209,7 @@ test('a patient changes their password over the API: other sessions end, the old
     token: patient.token,
     data: {
       current_auth_proof: await deriveAuthProof(patient.password, patient.username),
-      new_auth_proof: await deriveAuthProof(changed, patient.username),
+      new_password: changed,
     },
   });
   expect(change.status).toBe(200);

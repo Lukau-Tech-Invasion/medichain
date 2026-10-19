@@ -16,6 +16,9 @@ argon2 = "0.5"
 zeroize = { version = "1.6", features = ["derive"] }
 rand = "0.8"
 sha2 = "0.10"
+# Server-side derivation of the browser's sign-in proof (src/auth_proof.rs).
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+hkdf = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 
 # Ed25519 for the sealed audit stream (ADR-0010): batch hashes are signed with

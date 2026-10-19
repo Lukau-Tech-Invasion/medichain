@@ -18,6 +18,8 @@ import {
   setThemePreference,
   readThemePreference,
   formatDateOnly,
+  ChangePasswordDialog,
+  getRememberedLoginId,
 } from '@medichain/shared';
 import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -110,6 +112,7 @@ export function SettingsPage() {
   const logout = usePatientAuthStore(state => state.logout);
   const loadErrorMessage = t('settings.loadError');
   const [isSaving, setIsSaving] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -423,7 +426,16 @@ export function SettingsPage() {
             icon={Lock}
             label={t('settings.changePassword')}
             description={t('settings.changePasswordDesc')}
+            onClick={() => setChangingPassword(true)}
           />
+          {changingPassword && (
+            <ChangePasswordDialog
+              loginId={getRememberedLoginId() ?? ''}
+              identifierLabel={t('auth.usernameLabel')}
+              forgottenHint={t('settings.passwordForgotten')}
+              onClose={() => setChangingPassword(false)}
+            />
+          )}
 
           <div className="py-4">
             <div className="flex items-start justify-between gap-3">

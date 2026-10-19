@@ -1,37 +1,43 @@
 import { useState } from 'react';
-import {
-  changePassword,
-  deriveAuthProof,
-  getApiErrorMessage,
-  MIN_PASSWORD_LENGTH,
-  rememberLoginId,
-  useTranslation, ModalPanel } from '@medichain/shared';
+import { changePassword } from '../api/endpoints';
+import { getApiErrorMessage } from '../api/client';
+import { deriveAuthProof } from '../auth/proof';
+import { MIN_PASSWORD_LENGTH } from '../auth/session';
+import { rememberLoginId } from '../auth/loginId';
+import { useTranslation } from '../i18n/react';
+import { ModalPanel } from './ModalPanel';
 import { X, Loader2 } from 'lucide-react';
 
 /**
- * Change the password behind an employee identifier.
+ * Change the password behind a login id (Employee ID for staff, username for
+ * patients). Used by both portals.
  *
  * # What travels
  *
- * The password never leaves the browser. Both the current and the new password
- * are stretched locally into proofs (`deriveAuthProof`) and only the proofs are
- * sent to `POST /api/auth/credentials/change`. The server checks the current
- * proof against its Argon2id verifier, stores a verifier for the new one, and
- * ends every other session.
+ * The current password is stretched locally into a proof (`deriveAuthProof`)
+ * and only the proof is sent. The new password is sent once, to
+ * `POST /api/auth/credentials/change`, so the server can refuse a weak one; it
+ * derives the new proof itself, stores Argon2id over it, and ends every other
+ * session.
  *
  * # Forgotten passwords
  *
- * This needs the CURRENT password. Someone who has forgotten theirs asks an
- * administrator for a credential reset: a one-time code they redeem at
- * /activate to choose a new password.
+ * This needs the CURRENT password. Someone who has forgotten theirs asks for a
+ * credential reset: a one-time code they redeem at /activate.
  */
-export default function ChangePasswordDialog({
+export function ChangePasswordDialog({
   loginId,
   onClose,
+  identifierLabel,
+  forgottenHint,
 }: {
-  /** The clinician's employee identifier; it is part of the proof derivation. */
+  /** The login id; it is part of the proof derivation. */
   loginId: string;
   onClose: () => void;
+  /** Label for the login-id field; defaults to the staff wording. */
+  identifierLabel?: string;
+  /** What to do after forgetting the password; defaults to the staff wording. */
+  forgottenHint?: string;
 }) {
   const { t } = useTranslation();
   const [identifier, setIdentifier] = useState(loginId);
@@ -68,11 +74,10 @@ export default function ChangePasswordDialog({
     setBusy(true);
     try {
       const id = identifier.trim();
-      const [currentProof, newProof] = await Promise.all([
-        deriveAuthProof(current, id),
-        deriveAuthProof(next, id),
-      ]);
-      await changePassword({ current_auth_proof: currentProof, new_auth_proof: newProof });
+      // The current password is proved; the new one is sent for the server's
+      // strength check, whose refusal reason getApiErrorMessage shows.
+      const currentProof = await deriveAuthProof(current, id);
+      await changePassword({ current_auth_proof: currentProof, new_password: next });
       rememberLoginId(id);
       setDone(true);
     } catch (err) {
@@ -128,7 +133,7 @@ export default function ChangePasswordDialog({
                 htmlFor="pw-identifier"
                 className="block text-sm font-medium text-content-secondary mb-1"
               >
-                {t('docSettings.pwIdentifier')}
+                {identifierLabel ?? t('docSettings.pwIdentifier')}
               </label>
               <input
                 id="pw-identifier"
@@ -195,7 +200,7 @@ export default function ChangePasswordDialog({
             </div>
 
             <p className="text-xs text-content-muted">
-              {t('docSettings.pwNoReset')}
+              {forgottenHint ?? t('docSettings.pwNoReset')}
             </p>
 
             <div className="flex gap-2 pt-2">

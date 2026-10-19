@@ -32,6 +32,7 @@ mod db;
 mod encryption_keyring;
 mod federation_identity;
 mod models;
+mod password_policy;
 mod repositories;
 mod services;
 

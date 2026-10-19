@@ -63,8 +63,8 @@ test('the form checks the password and the code before anything is sent', async 
   await page.locator('#activate-code').fill('ABCDOIL01234');
   await expect(page.locator('#activate-code')).toHaveValue('ABCD-0110-1234');
 
-  // A short password is refused here: the server only ever sees a proof, so
-  // this is the one place its length can be checked.
+  // A short password is refused here, before sending; the server applies the
+  // same floor and its other rules (see the next describe).
   await fillActivation(page, {
     patientId: 'PAT-DOES-NOT-MATTER',
     username: 'e2e.validate',
@@ -72,7 +72,7 @@ test('the form checks the password and the code before anything is sent', async 
     confirm: 'short',
   });
   await submit(page).click();
-  await expect(page.getByRole('alert')).toContainText(/at least 12 characters/i);
+  await expect(page.getByRole('alert')).toContainText(/at least 15 characters/i);
 
   await fillActivation(page, { password: PASSWORD, confirm: `${PASSWORD}-different` });
   await submit(page).click();
@@ -114,6 +114,34 @@ test.describe('activation and first sign-in', () => {
     // Then the ordinary way in: the username and password they chose.
     await signInWithCredentials(page, username, PASSWORD);
     await expect(page.locator('main').first()).toBeVisible();
+  });
+
+  test('a common password is refused by the server with its reason, and the code still works', async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(240_000);
+    const doctorToken = await fixtureToken(request, fixtureStaff('Doctor'));
+    const registered = await registerPatientViaApi(request, doctorToken, 'Activation Common Choice');
+    const username = `e2e.weak.${stamp()}`;
+
+    await page.goto(portalPath('/activate'));
+    // Long enough for the form's own check, but a decorated common word.
+    await fillActivation(page, {
+      patientId: registered.patientId,
+      code: registered.activationCode,
+      username,
+      password: 'Password2026!!!!',
+      confirm: 'Password2026!!!!',
+    });
+    await submit(page).click();
+    await expect(page.getByRole('alert')).toContainText(/too common or too predictable/i, { timeout: 30000 });
+    await expect(page).toHaveURL(/\/activate/);
+
+    // The refusal did not spend the code.
+    await fillActivation(page, { password: PASSWORD, confirm: PASSWORD });
+    await submit(page).click();
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 45000 });
   });
 
   test('a spent code, a wrong code and an unknown patient are refused with one message', async ({

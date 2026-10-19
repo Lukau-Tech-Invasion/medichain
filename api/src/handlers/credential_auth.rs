@@ -14,18 +14,71 @@ pub struct PasswordLoginRequest {
     pub totp_code: Option<String>,
 }
 
+/// Setting a password sends it, once, so the server can refuse a weak one
+/// (`password_policy`); the server then derives the sign-in proof itself.
+/// A client that still sends only a proof is told so: accepting a proof here
+/// would let any client skip the strength rules.
 #[derive(Debug, Deserialize)]
 pub struct RedeemCredentialRequest {
     pub identifier: String,
     pub code: String,
-    pub auth_proof: String,
+    #[serde(default)]
+    pub password: Option<String>,
     pub username: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
     pub current_auth_proof: String,
-    pub new_auth_proof: String,
+    #[serde(default)]
+    pub new_password: Option<String>,
+}
+
+fn password_required() -> HttpResponse {
+    HttpResponse::BadRequest().json(ErrorResponse {
+        error: "Send the new password so its strength can be checked".to_string(),
+        code: "PASSWORD_REQUIRED".to_string(),
+    })
+}
+
+fn weak_password(rejection: crate::password_policy::Rejection) -> HttpResponse {
+    HttpResponse::UnprocessableEntity().json(ErrorResponse {
+        error: rejection.message.to_string(),
+        code: rejection.code.to_string(),
+    })
+}
+
+/// Check a new password and return the verifier to store for it, or the
+/// response that refuses it. The password is dropped (and zeroed) here.
+async fn verifier_for_new_password(
+    password: String,
+    login_id: &str,
+    name: &str,
+) -> Result<String, HttpResponse> {
+    let password = zeroize::Zeroizing::new(password);
+    crate::password_policy::check(&password, login_id, name)
+        .await
+        .map_err(weak_password)?;
+    let login_id = login_id.to_string();
+    // PBKDF2 (210,000 rounds) and Argon2id are deliberately slow: off the executor.
+    let derived = web::block(move || {
+        let proof = zeroize::Zeroizing::new(medichain_crypto::auth_proof::derive_auth_proof(
+            &password, &login_id,
+        ));
+        medichain_crypto::password::hash_secret(&proof)
+    })
+    .await;
+    match derived {
+        Ok(Ok(verifier)) => Ok(verifier),
+        Ok(Err(error)) => {
+            log::error!("Credential hashing failed: {error}");
+            Err(storage_error())
+        }
+        Err(error) => {
+            log::error!("Credential hashing task failed: {error}");
+            Err(storage_error())
+        }
+    }
 }
 
 fn credential_error() -> HttpResponse {
@@ -123,9 +176,10 @@ pub async fn redeem_credential(
     req: HttpRequest,
     body: web::Json<RedeemCredentialRequest>,
 ) -> HttpResponse {
-    if !credentials::is_valid_auth_proof(&body.auth_proof) {
-        return invalid_grant();
-    }
+    let body = body.into_inner();
+    let Some(password) = body.password else {
+        return password_required();
+    };
     let Some(code) = credentials::normalize_code(&body.code) else {
         return invalid_grant();
     };
@@ -165,12 +219,10 @@ pub async fn redeem_credential(
             code: "INVALID_LOGIN_ID".to_string(),
         });
     }
-    let verifier = match medichain_crypto::password::hash_secret(&body.auth_proof) {
+    let name = account.name.clone().unwrap_or_default();
+    let verifier = match verifier_for_new_password(password, &login_id, &name).await {
         Ok(value) => value,
-        Err(error) => {
-            log::error!("Credential hashing failed: {error}");
-            return storage_error();
-        }
+        Err(response) => return response,
     };
     match credentials::apply_redemption(pool, grant, account.id, &login_id, &verifier).await {
         Ok(()) => {}
@@ -222,11 +274,13 @@ pub async fn change_password(
     req: HttpRequest,
     body: web::Json<ChangePasswordRequest>,
 ) -> HttpResponse {
-    if !credentials::is_valid_auth_proof(&body.current_auth_proof)
-        || !credentials::is_valid_auth_proof(&body.new_auth_proof)
-    {
+    let body = body.into_inner();
+    if !credentials::is_valid_auth_proof(&body.current_auth_proof) {
         return credential_error();
     }
+    let Some(new_password) = body.new_password else {
+        return password_required();
+    };
     let Some(claims) = get_current_claims(&req) else {
         return credential_error();
     };
@@ -239,30 +293,32 @@ pub async fn change_password(
     let Some(pool) = data.db_pool.as_ref() else {
         return storage_error();
     };
-    let verifier: Option<String> = match sqlx::query_scalar(
-        "SELECT credential_verifier FROM users WHERE id = $1 AND status = 'active'",
+    let row: Option<(Option<String>, Option<String>, Option<String>)> = match sqlx::query_as(
+        "SELECT credential_verifier, login_id, name FROM users WHERE id = $1 AND status = 'active'",
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await
     {
-        Ok(value) => value.flatten(),
+        Ok(value) => value,
         Err(error) => {
             log::error!("Current credential lookup failed: {error}");
             return storage_error();
         }
     };
-    let verifier = verifier.unwrap_or_else(|| credentials::timing_equaliser().to_string());
+    let (stored, login_id, name) = row.unwrap_or_default();
+    let verifier = stored.unwrap_or_else(|| credentials::timing_equaliser().to_string());
     if !medichain_crypto::password::verify_secret(&body.current_auth_proof, &verifier) {
         return credential_error();
     }
-    let new_verifier = match medichain_crypto::password::hash_secret(&body.new_auth_proof) {
-        Ok(value) => value,
-        Err(error) => {
-            log::error!("Credential hashing failed: {error}");
-            return storage_error();
-        }
+    let Some(login_id) = login_id else {
+        return credential_error();
     };
+    let new_verifier =
+        match verifier_for_new_password(new_password, &login_id, &name.unwrap_or_default()).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     match credentials::replace_verifier(pool, user_id, &verifier, &new_verifier, Some(session_id))
         .await
     {
@@ -272,5 +328,43 @@ pub async fn change_password(
             log::error!("Credential replacement failed: {error}");
             storage_error()
         }
+    }
+}
+
+#[cfg(test)]
+mod password_setting_tests {
+    use super::*;
+
+    /// A weak password is refused with its reason, before any network call.
+    #[actix_web::test]
+    async fn a_weak_password_is_refused_with_its_reason() {
+        let response =
+            verifier_for_new_password("Password2026!!!!".into(), "bt.nurse", "Lerato Mokoena")
+                .await
+                .expect_err("a common password");
+        assert_eq!(
+            response.status(),
+            actix_web::http::StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+
+    /// What the server stores for a password set on it accepts the proof the
+    /// browser derives at sign-in, so the account can actually sign in.
+    #[test]
+    fn a_server_set_password_signs_in_with_the_browser_proof() {
+        let password = "violet kettle moves north";
+        let proof = medichain_crypto::auth_proof::derive_auth_proof(password, "Bt.Nurse ");
+        let verifier = medichain_crypto::password::hash_secret(&proof).unwrap();
+        let browser = medichain_crypto::auth_proof::derive_auth_proof(password, "bt.nurse");
+        assert!(medichain_crypto::password::verify_secret(
+            &browser, &verifier
+        ));
+        let wrong = medichain_crypto::auth_proof::derive_auth_proof(
+            "violet kettle moves south",
+            "bt.nurse",
+        );
+        assert!(!medichain_crypto::password::verify_secret(
+            &wrong, &verifier
+        ));
     }
 }

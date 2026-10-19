@@ -109,6 +109,7 @@ function signInErrorMessage(error: unknown): string {
     case 'GRANT_LOCKED':
       return 'That activation code was entered wrongly too many times. Ask your clinic for a new one.';
     case 'USERNAME_TAKEN':
+    case 'LOGIN_ID_TAKEN':
       return 'That username is already taken. Choose another.';
     case 'INVALID_USERNAME':
       return 'That username is not allowed. Use letters, numbers and dots, at least three characters.';

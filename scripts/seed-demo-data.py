@@ -206,7 +206,7 @@ def ensure_account(index: int, login_id: str, role: str, name: str) -> None:
     if status not in (200, 204):
         raise RuntimeError(f"Activating the demo {role} account failed with HTTP {status}: {response.get('error', response)}")
     status, redeemed = request_json("/api/auth/credentials/redeem", {
-        "identifier": login_id, "code": code, "auth_proof": derive_auth_proof(DEMO_PASSWORD or "", login_id),
+        "identifier": login_id, "code": code, "password": DEMO_PASSWORD or "",
     }, actor=ANONYMOUS)
     if status != 200 or not sign_in(index, login_id, DEMO_PASSWORD or ""):
         raise RuntimeError(f"Redeeming the demo {role} credential failed with HTTP {status}: {redeemed.get('error', redeemed)}")

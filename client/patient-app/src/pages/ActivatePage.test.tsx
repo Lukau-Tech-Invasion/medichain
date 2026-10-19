@@ -83,7 +83,7 @@ describe('ActivatePage (Patient)', () => {
     fill({ id: 'PAT-1', code: 'ABCDEFGHJKMN', username: 'thandi.n', password: 'short', confirm: 'short' });
     fireEvent.click(screen.getByRole('button', { name: /Activate and sign in/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/at least 12 characters/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/at least 15 characters/i);
     expect(mockActivate).not.toHaveBeenCalled();
   });
 

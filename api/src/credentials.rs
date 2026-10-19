@@ -328,9 +328,11 @@ pub struct AccountRow {
     pub status: String,
     pub login_id: Option<String>,
     pub credential_verifier: Option<String>,
+    /// For the password rule that refuses a person's own name.
+    pub name: Option<String>,
 }
 
-const ACCOUNT_COLUMNS: &str = "id, role, status, login_id, credential_verifier";
+const ACCOUNT_COLUMNS: &str = "id, role, status, login_id, credential_verifier, name";
 
 /// The account a person signs in as: `identifier` is an employee ID or username,
 /// compared case-insensitively. E-mail is deliberately not an alias: the

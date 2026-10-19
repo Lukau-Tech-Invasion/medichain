@@ -61,7 +61,7 @@ test('the dialog refuses a wrong current password, a short or mismatched new one
   await page.locator('#pw-new').fill('short');
   await page.locator('#pw-confirm').fill('short');
   await submit.click();
-  await expect(alert).toContainText(/at least 12 characters/i);
+  await expect(alert).toContainText(/at least 15 characters/i);
 
   await page.locator('#pw-new').fill(CHANGED_PASSWORD);
   await page.locator('#pw-confirm').fill(`${CHANGED_PASSWORD}-typo`);
