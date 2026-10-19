@@ -92,5 +92,6 @@ export * from './utils/localDateTime';
 export { returnPathFrom } from './utils/returnPath';
 export { csvCell, csvRow } from './utils/csv';
 export { reloadOnStaleChunks } from './utils/staleChunks';
+export { followSessionAcrossTabs, signedInIdentity } from './utils/sessionAcrossTabs';
 
 export { getEmergencyNumber } from './utils/emergencyNumber';

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
+import { rolesOwningRoute } from '../config/navigation';
 import {
   Shield,
   KeyRound,
@@ -56,6 +57,17 @@ function LoginPage() {
   const navigate = useNavigate();
   // The page a protected route was asked for before sign-in, or the dashboard.
   const destination = returnPathFrom(useLocation().state);
+  /**
+   * Where the account that just signed in goes: the page it was sent here
+   * from, if that account may open it, else its dashboard. The recorded page
+   * can belong to whoever used this tab before (an administrator's User
+   * Management, then a doctor signs in) and must not become a refusal screen.
+   */
+  const landingFor = () => {
+    const role = useAuthStore.getState().user?.role;
+    const pathname = destination.split(/[?#]/)[0];
+    return role && rolesOwningRoute(role, pathname).length === 0 ? destination : '/dashboard';
+  };
   const { loginWithCredentials, isLoading, error, mfaRequired, clearError } = useAuthStore();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -81,7 +93,7 @@ function LoginPage() {
     // failure the user retypes it rather than leaving it sitting behind an error.
     if (result !== 'mfa_required') setPassword('');
     if (result === true) {
-      navigate(destination, { replace: true });
+      navigate(landingFor(), { replace: true });
     }
   };
 
@@ -124,7 +136,7 @@ function LoginPage() {
     clearError();
     const success = await loginWithCredentials(account.login_id, account.password);
     if (success) {
-      navigate(destination, { replace: true });
+      navigate(landingFor(), { replace: true });
     }
   };
 

@@ -60,7 +60,11 @@ describe('LoginPage', () => {
       clearError: mockClearError,
       ...overrides,
     });
+    // Who is signed in once the login resolves (the page reads it to decide
+    // whether the recorded page is one this account may open).
+    Object.assign(useAuthStore, { getState: () => ({ user: { role: signedInRole } }) });
   }
+  let signedInRole = 'Doctor';
 
   function renderPage(from?: string) {
     return render(
@@ -145,6 +149,19 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/soap', { replace: true }));
+  });
+
+  it('goes to the dashboard, not the recorded page, when the new account may not open it', async () => {
+    // The tab was last on an administrator's screen; a doctor signs in there.
+    mockLoginWithCredentials.mockResolvedValue(true);
+    signedInRole = 'Doctor';
+    renderPage('/user-management');
+
+    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), { target: { value: 'dr.mbeki' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a-real-password' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true }));
   });
 
   it('clears the password field after a failed attempt and stays put', async () => {

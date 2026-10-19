@@ -5,10 +5,12 @@ import App from './App';
 import { useAuthStore } from './store/authStore';
 import { ToastProvider } from './components/Toast';
 import './index.css';
-import { reloadOnStaleChunks } from '@medichain/shared';
+import { followSessionAcrossTabs, reloadOnStaleChunks } from '@medichain/shared';
 
 // A tab opened before a deploy asks for chunks that no longer exist.
 reloadOnStaleChunks();
+// Another tab signed in as someone else, or signed out: follow it.
+followSessionAcrossTabs('medichain-provider-auth');
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(<div role="status" className="min-h-screen flex items-center justify-center">Restoring your session…</div>);
