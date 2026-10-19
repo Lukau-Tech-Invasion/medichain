@@ -174,14 +174,25 @@ COMPOSE="docker compose -f docker-compose.yml -f docker-compose.backup.yml -f do
 \$COMPOSE ps
 EOF
 )
+# JSON, one script line per entry: the CLI's shorthand `commands=[...]` does not
+# decode JSON escapes, so a single JSON-encoded string arrived as one line with
+# literal "\n" in it and the shell refused it.
+PARAMS="$(python -c 'import json,sys; print(json.dumps({"commands": sys.argv[1].splitlines()}))' "$REMOTE")"
 COMMAND_ID="$(aws_ ssm send-command --instance-ids "$INSTANCE_ID" \
   --document-name AWS-RunShellScript \
   --comment "medichain deploy $TAG" \
-  --parameters "commands=[$(python -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$REMOTE")]" \
+  --timeout-seconds 1800 \
+  --parameters "$PARAMS" \
   --query Command.CommandId --output text)"
 aws_ ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" || true
+STATUS="$(aws_ ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+  --query Status --output text)"
 aws_ ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
   --query '{status:Status,stdout:StandardOutputContent,stderr:StandardErrorContent}' --output yaml
+if [ "$STATUS" != "Success" ]; then
+  echo "The stack did not start on $INSTANCE_ID (SSM status: $STATUS)." >&2
+  exit 1
+fi
 
 cat <<EOF
 
