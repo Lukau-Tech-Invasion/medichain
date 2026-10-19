@@ -15,5 +15,15 @@
 	reverse_proxy nginx:80 {
 		header_up X-Forwarded-Proto {scheme}
 	}
-	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Camera and microphone stay available to this origin (telehealth, card
+		# photos, QR scanning); everything else powerful is off.
+		Permissions-Policy "camera=(self), microphone=(self), geolocation=(self), payment=(), usb=(), serial=(), bluetooth=(), interest-cohort=()"
+		-Server
+	}
 }
