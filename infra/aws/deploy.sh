@@ -117,6 +117,14 @@ PY
 )
 
 echo "3/5 images tagged $TAG"
+# The registry login lives in a private Docker config for this run only: an ECR
+# token is larger than some OS credential stores accept (Windows Credential
+# Manager answers "The stub received bad data"), and it should not outlive the
+# deploy anyway. Removed on exit.
+DOCKER_CONFIG="$(mktemp -d)"
+export DOCKER_CONFIG
+trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+echo '{}' > "$DOCKER_CONFIG/config.json"
 REGISTRY="${API_REPO%%/*}"
 aws_ ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
 docker build -f api/Dockerfile -t "$API_REPO:$TAG" .
