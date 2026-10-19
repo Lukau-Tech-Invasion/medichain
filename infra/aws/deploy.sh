@@ -174,6 +174,13 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.backup.yml -f docker-compose.prod.yml -f docker-compose.aws.yml"
 \$COMPOSE pull
 \$COMPOSE up -d --no-build --remove-orphans
+# The backup repositories must exist before PostgreSQL archives its first WAL
+# segment: without a stanza every archive-push exits 103, which PostgreSQL
+# treats as a crashed backend and restarts every few seconds. stanza-create is
+# idempotent, so it runs on every deploy once the database accepts connections.
+for i in \$(seq 1 30); do docker exec medichain_postgres pg_isready -q && break; sleep 2; done
+docker exec -u postgres medichain_postgres pgbackrest --stanza=medichain stanza-create
+docker exec -u postgres medichain_postgres pgbackrest --stanza=medichain check
 \$COMPOSE ps
 EOF
 )
