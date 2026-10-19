@@ -118,22 +118,22 @@ pub fn telemetry_snapshot() -> TelemetrySnapshot {
     let mut server_errors = 0_u64;
 
     for family in &families {
-        match family.get_name() {
+        match family.name() {
             "http_request_duration_seconds" => {
                 for metric in family.get_metric() {
-                    let h = metric.get_histogram();
-                    latency_sum += h.get_sample_sum();
-                    latency_count += h.get_sample_count();
+                    let h = &metric.histogram;
+                    latency_sum += h.sample_sum();
+                    latency_count += h.sample_count();
                 }
             }
             "http_requests_total" => {
                 for metric in family.get_metric() {
-                    let value = metric.get_counter().get_value() as u64;
+                    let value = metric.counter.value() as u64;
                     total_requests += value;
                     let is_server_error = metric
                         .get_label()
                         .iter()
-                        .any(|l| l.get_name() == "status" && l.get_value().starts_with('5'));
+                        .any(|l| l.name() == "status" && l.value().starts_with('5'));
                     if is_server_error {
                         server_errors += value;
                     }

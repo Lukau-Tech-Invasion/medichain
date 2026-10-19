@@ -66,8 +66,8 @@ export async function initPushNotifications(): Promise<boolean> {
 
   try {
     const [{ initializeApp }, { getMessaging, getToken }] = await Promise.all([
-      import('firebase/app'),
-      import('firebase/messaging'),
+      import('@firebase/app'),
+      import('@firebase/messaging'),
     ]);
 
     const permission = await Notification.requestPermission();
