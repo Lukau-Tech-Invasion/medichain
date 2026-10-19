@@ -285,13 +285,22 @@ test.describe('public routes', () => {
 
 /** Sign in on the login page already open, keeping its router state. */
 async function signInHere(page: Page, role: RoleName) {
-  const fixture = getStaffFixture(role, 0);
+  const fixture = getStaffFixture(role, STAFF_INDEX);
   await page.getByRole('textbox', { name: 'Employee ID or work email' }).fill(fixture.login_id);
   await page.getByRole('textbox', { name: 'Password' }).fill(fixture.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
 
-for (const role of ROLES) {
+/**
+ * Which roles to walk, and which fixture account of each (`scripts/live-check.ps1`
+ * walks a deployment with the reviewer accounts, which include no administrator).
+ */
+const ROLES_UNDER_TEST = process.env.E2E_ROLES
+  ? ROLES.filter((role) => process.env.E2E_ROLES!.split(',').map((r) => r.trim()).includes(role))
+  : ROLES;
+const STAFF_INDEX = Number(process.env.E2E_STAFF_INDEX ?? 0);
+
+for (const role of ROLES_UNDER_TEST) {
   test.describe(`${role} account, every route`, () => {
     test.describe.configure({ mode: 'serial' });
 
@@ -301,7 +310,7 @@ for (const role of ROLES) {
       test.setTimeout(45 * 60_000);
       const page = await browser.newPage({ viewport: DESKTOP });
       const pace = requestPacer(page, 180);
-      await signIn(page, role, 0);
+      await signIn(page, role, STAFF_INDEX);
 
       // Sidebar links carry the portal prefix; compare routes as the router sees them.
       const sidebar = (await sidebarRoutes(page)).map((href) => routeOf(new URL(href, page.url()).toString()));
