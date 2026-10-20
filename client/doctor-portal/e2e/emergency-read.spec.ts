@@ -1,6 +1,7 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { api, fixtureToken, readFixtures } from './identity';
 import { settle, signIn, answerPasswordConfirmation } from './support';
+import { clinicianWorkLocation, enrolDevice, revokeDevice } from './emergency-device';
 
 /**
  * The emergency read: tap a card, see the blood type and the allergies, and leave
@@ -27,45 +28,6 @@ import { settle, signIn, answerPasswordConfirmation } from './support';
  */
 
 const fixtures = () => readFixtures();
-
-async function enrolDevice(
-  admin: Page,
-  name: string,
-  workLocation: { organization_id: string; facility_id: string }
-): Promise<string> {
-  await settle(admin, '/devices');
-  await expect(admin.getByRole('heading', { name: /approved devices/i })).toBeVisible({ timeout: 20000 });
-  await admin.locator('#device-org').selectOption(workLocation.organization_id);
-  await admin.locator('#device-facility').selectOption(workLocation.facility_id);
-  await admin.locator('#device-name').fill(name);
-  await admin.locator('#device-fingerprint').fill(`e2e-emergency-${Date.now()}`);
-  await admin.getByRole('button', { name: /enrol device/i }).click();
-
-  const row = admin.locator('[data-testid="device-table"] tr').filter({ hasText: name });
-  await expect(row).toHaveCount(1, { timeout: 20000 });
-  const deviceId = (await row.locator('td').nth(1).innerText()).trim();
-  expect(deviceId).not.toEqual('');
-
-  await row.getByRole('button', { name: /provision key/i }).click();
-  await expect(row).toContainText(/active/i, { timeout: 20000 });
-  return deviceId;
-}
-
-/** Bind a test device to the clinician's real work assignment. */
-async function clinicianWorkLocation(request: Parameters<typeof api>[0]) {
-  const doctor = fixtures().staff.find((member) => member.role === 'Doctor');
-  expect(doctor, 'the fixture has no doctor').toBeTruthy();
-  const token = await fixtureToken(request, {
-    login_id: doctor!.login_id,
-    password: doctor!.password ?? '',
-  });
-  const response = await api(request, 'POST', '/api/identity/context/work', { token, data: {} });
-  expect(response.status).toBe(200);
-  const { organization_id, facility_id } = response.body.context ?? {};
-  expect(organization_id).toBeTruthy();
-  expect(facility_id).toBeTruthy();
-  return { organization_id: String(organization_id), facility_id: String(facility_id) };
-}
 
 test('a clinician taps a card and reads the emergency data; the patient can see it happened', async ({
   browser,
@@ -150,13 +112,7 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     }
   } finally {
     // 4. Leave the fleet as it was found: revoke the device, and confirm it leaves the picker.
-    await settle(admin, '/devices');
-    const row = admin.locator('[data-testid="device-table"] tr').filter({ hasText: deviceName });
-    await row.getByRole('button', { name: /^revoke$/i }).click();
-    // Revoking a device that still carries another person's emergency grant
-    // revokes that grant too: ADR-0008 Class C, confirmed by the administrator.
-    await answerPasswordConfirmation(admin, 'Admin');
-    await expect(row).toContainText(/revoked/i, { timeout: 20000 });
+    await revokeDevice(admin, deviceName);
     await admin.close();
   }
 });
@@ -181,13 +137,7 @@ test('a tag that belongs to no patient is refused, and refused plainly', async (
     await expect(clinician.getByText('Emergency Access Active')).toHaveCount(0);
     await clinician.close();
   } finally {
-    await settle(admin, '/devices');
-    const row = admin.locator('[data-testid="device-table"] tr').filter({ hasText: deviceName });
-    await row.getByRole('button', { name: /^revoke$/i }).click();
-    // Revoking a device that still carries another person's emergency grant
-    // revokes that grant too: ADR-0008 Class C, confirmed by the administrator.
-    await answerPasswordConfirmation(admin, 'Admin');
-    await expect(row).toContainText(/revoked/i, { timeout: 20000 });
+    await revokeDevice(admin, deviceName);
     await admin.close();
   }
 });

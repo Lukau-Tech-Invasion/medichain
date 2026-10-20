@@ -2,9 +2,17 @@ import { useState, useCallback, useEffect } from 'react';
 import type { EmergencyInfo } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
-import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
-import { enterWorkContext, grantBoundEmergencyAccess, listUsableDevices } from '@medichain/shared';
-import type { UsableDevice } from '@medichain/shared';
+import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle, Camera } from 'lucide-react';
+import {
+  ApiClientError,
+  QrScanner,
+  enterWorkContext,
+  grantBoundEmergencyAccess,
+  listUsableDevices,
+  parseEmergencyCode,
+} from '@medichain/shared';
+import type { EmergencySubject, OfflineEmergencySummary, UsableDevice } from '@medichain/shared';
+import { OfflineQrSummary } from './OfflineQrSummary';
 
 /**
  * NFC tap simulation states
@@ -40,6 +48,10 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'nfc' | 'qr' | 'manual'>('nfc');
+  const [cameraOpen, setCameraOpen] = useState(false);
+  // The summary printed in a scanned Medical ID QR, shown only when the server
+  // cannot open access: no connection, or a code made before access by QR.
+  const [offlineView, setOfflineView] = useState<{ summary: OfflineEmergencySummary; reason: string } | null>(null);
 
   useEffect(() => {
     listUsableDevices()
@@ -57,32 +69,31 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   }, []);
 
   /**
-   * Simulate NFC tap
+   * Open emergency access for the card or Medical ID QR the responder holds.
+   * `offline` is the scanned QR's own summary, shown if the server is unreachable.
    */
-  const simulateTap = useCallback(async (tagId: string) => {
-    if (!tagId.trim()) {
-      setError('Please enter an NFC tag ID');
-      return;
-    }
-
+  const requestAccess = useCallback(async (subject: EmergencySubject, offline?: OfflineEmergencySummary) => {
     if (!deviceId.trim()) {
-      setError('Enter the approved hospital device ID before emergency access');
+      setTapState('error');
+      setError('Select the approved hospital device you are using before emergency access');
       return;
     }
 
     setTapState('waiting');
     setError(null);
+    setOfflineView(null);
+    const byQr = subject.patient_id !== undefined;
 
     try {
       // Always mint a fresh work context. This prevents personal-health or
       // stale professional tokens from being reused for emergency access.
       const workContext = await enterWorkContext();
       const data = await grantBoundEmergencyAccess({
-        nfc_tag_id: tagId,
+        ...subject,
         device_id: deviceId.trim(),
         work_context_id: workContext.context.id,
-        reason_code: 'emergency_nfc_access',
-        reason_text: 'NFC emergency summary access',
+        reason_code: byQr ? 'emergency_qr_access' : 'emergency_nfc_access',
+        reason_text: byQr ? 'Medical ID QR emergency summary access' : 'NFC emergency summary access',
       });
 
       // Store emergency info
@@ -114,8 +125,49 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
     } catch (err) {
       setTapState('error');
       setError(err instanceof Error ? err.message : 'Failed to access records');
+      if (offline && err instanceof ApiClientError && err.isNetworkError()) {
+        setOfflineView({
+          summary: offline,
+          reason: 'No connection to MediChain. This is what the patient carries on their code: it is not checked by the server, and this look is not recorded in their access history.',
+        });
+      }
     }
   }, [deviceId, setEmergencyAccess, navigate, onEmergencyAccess, isParamedic]);
+
+  const simulateTap = (tagId: string) => {
+    if (!tagId.trim()) {
+      setTapState('error');
+      setError('Please enter an NFC tag ID');
+      return;
+    }
+    void requestAccess({ nfc_tag_id: tagId.trim() });
+  };
+
+  /** A code read by the camera, or pasted by hand. */
+  const handleScannedCode = (raw: string) => {
+    setCameraOpen(false);
+    setOfflineView(null);
+    const code = parseEmergencyCode(raw);
+    if (code.kind === 'invalid') {
+      setTapState('error');
+      setError(code.reason);
+      return;
+    }
+    if (code.kind === 'card') {
+      void requestAccess({ nfc_tag_id: code.tagId });
+      return;
+    }
+    if (!code.proof) {
+      setTapState('error');
+      setError('This Medical ID QR code was made before scanning could open access. Ask the patient to download a current one from the patient app.');
+      setOfflineView({
+        summary: code.offline,
+        reason: "Shown from the code itself: it is not checked by the server, and this look is not recorded in the patient's access history.",
+      });
+      return;
+    }
+    void requestAccess({ patient_id: code.patientId, qr_proof: code.proof }, code.offline);
+  };
 
   /**
    * Use demo NFC tag
@@ -271,34 +323,52 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
       {mode === 'qr' && (
         <div className="space-y-4">
-          <div>
-            <label htmlFor="qr-data" className="block text-sm font-medium text-content-secondary mb-1">
-              QR Code Data (JSON)
-            </label>
-            <textarea
-              id="qr-data"
-              value={qrInput}
-              onChange={(e) => setQrInput(e.target.value)}
-              placeholder='{"tag_id": "NFC-DEMO-001", ...}'
-              className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand h-24"
-              disabled={tapState === 'waiting'}
+          {cameraOpen ? (
+            <QrScanner
+              onResult={handleScannedCode}
+              onCancel={() => setCameraOpen(false)}
+              hint="Point the camera at the patient's Medical ID QR code or card. On a laptop, hold the code up to the webcam."
             />
-          </div>
-          <button
-            onClick={() => {
-              try {
-                const data = JSON.parse(qrInput);
-                simulateTap(data.tag_id || data.nfc_tag_id);
-              } catch {
-                setError('Invalid QR code data');
-                setTapState('error');
-              }
-            }}
-            disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-          >
-            Verify QR Code
-          </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setTapState('idle');
+                setOfflineView(null);
+                setCameraOpen(true);
+              }}
+              disabled={tapState === 'waiting'}
+              className="w-full min-h-[44px] py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 inline-flex items-center justify-center gap-2"
+            >
+              <Camera size={18} aria-hidden="true" /> Scan QR code with camera
+            </button>
+          )}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-content-muted">No camera? Enter the code by hand</summary>
+            <div className="mt-2 space-y-2">
+              <label htmlFor="qr-data" className="block text-sm font-medium text-content-secondary">
+                QR code text
+              </label>
+              <textarea
+                id="qr-data"
+                value={qrInput}
+                onChange={(e) => setQrInput(e.target.value)}
+                placeholder="NFC-XXXX-XXXX, or the text a QR reader app shows"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand h-24"
+                disabled={tapState === 'waiting'}
+              />
+              <button
+                type="button"
+                onClick={() => handleScannedCode(qrInput)}
+                disabled={tapState === 'waiting' || !qrInput.trim()}
+                className="w-full py-2 bg-surface-sunken text-content-secondary font-medium rounded-lg disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              >
+                Verify code
+              </button>
+            </div>
+          </details>
+          {offlineView && <OfflineQrSummary summary={offlineView.summary} reason={offlineView.reason} />}
         </div>
       )}
 

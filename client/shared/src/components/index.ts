@@ -17,6 +17,7 @@ export { StepUpDialog } from './StepUpDialog';
 export { TransactionAuthorizationHost } from './TransactionAuthorizationHost';
 export { ActivationForm } from './ActivationForm';
 export { ChangePasswordDialog } from './ChangePasswordDialog';
+export { QrScanner, cameraErrorMessage } from './QrScanner';
 export type { ActivationValues } from './ActivationForm';
 export { DialogHost, confirmDialog, promptDialog } from './Dialog';
 export type { ConfirmDialogOptions, PromptDialogOptions } from './Dialog';

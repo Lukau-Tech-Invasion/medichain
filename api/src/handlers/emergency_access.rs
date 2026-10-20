@@ -6,7 +6,12 @@ use crate::federation_identity::ContextType;
 
 #[derive(Debug, Deserialize)]
 pub struct GrantBoundEmergencyAccessRequest {
-    pub nfc_tag_id: String,
+    /// What the responder holds: the tag id read from the patient's NFC card,
+    /// or the patient id and possession proof scanned from their Medical ID QR.
+    /// Exactly one of the two.
+    pub nfc_tag_id: Option<String>,
+    pub patient_id: Option<String>,
+    pub qr_proof: Option<String>,
     pub device_id: String,
     pub work_context_id: String,
     pub reason_code: String,
@@ -140,23 +145,9 @@ pub async fn grant_bound_emergency_access(
             "DEVICE_CONTEXT_MISMATCH",
         );
     }
-    let patient_id = match data.repositories.nfc_tags.get_by_id(&body.nfc_tag_id).await {
-        Ok(tag) => tag.patient_id,
-        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
-            return emergency_error(
-                HttpResponse::NotFound(),
-                "NFC tag not found",
-                "NFC_NOT_FOUND",
-            )
-        }
-        Err(error) => {
-            log::error!("Grant-bound NFC lookup failed: {error}");
-            return emergency_error(
-                HttpResponse::InternalServerError(),
-                "Emergency lookup unavailable",
-                "EMERGENCY_LOOKUP_FAILED",
-            );
-        }
+    let (patient_id, presented) = match resolve_presented_patient(&data, &body).await {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     let entity = match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(value) => value,
@@ -197,7 +188,7 @@ pub async fn grant_bound_emergency_access(
                     EmergencyGrantScope::OfflineProhibited,
                 ],
                 event_type: "emergency_grant_issued".into(),
-                payload: serde_json::json!({"device_id": body.device_id}),
+                payload: serde_json::json!({"device_id": body.device_id, "presented": presented}),
                 now: Utc::now(),
             },
         )
@@ -273,6 +264,65 @@ pub async fn grant_bound_emergency_access(
         dnr_actionable: verified.as_ref().map(|v| v.capsule.dnr_is_actionable()),
         commitment_verified,
     })
+}
+
+/// The patient whose card or QR the responder presented, and which it was.
+///
+/// Both bind access to holding something the patient carries: the NFC tag id
+/// is looked up, and the QR's patient id must come with the server-minted
+/// possession proof printed beside it. A patient id alone is refused, since
+/// staff see patient ids in every chart URL.
+async fn resolve_presented_patient(
+    data: &web::Data<AppState>,
+    body: &GrantBoundEmergencyAccessRequest,
+) -> Result<(String, &'static str), HttpResponse> {
+    let tag = body
+        .nfc_tag_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let qr_patient = body
+        .patient_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    match (tag, qr_patient) {
+        (Some(tag_id), None) => match data.repositories.nfc_tags.get_by_id(tag_id).await {
+            Ok(tag) => Ok((tag.patient_id, "nfc_card")),
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => Err(emergency_error(
+                HttpResponse::NotFound(),
+                "NFC tag not found",
+                "NFC_NOT_FOUND",
+            )),
+            Err(error) => {
+                log::error!("Grant-bound NFC lookup failed: {error}");
+                Err(emergency_error(
+                    HttpResponse::InternalServerError(),
+                    "Emergency lookup unavailable",
+                    "EMERGENCY_LOOKUP_FAILED",
+                ))
+            }
+        },
+        (None, Some(patient_id)) => {
+            let proof = body.qr_proof.as_deref().unwrap_or_default();
+            if crate::clinical_endpoints::emergency_access::medical_id_qr_proof_matches(
+                patient_id, proof,
+            ) {
+                Ok((patient_id.to_string(), "medical_id_qr"))
+            } else {
+                Err(emergency_error(
+                    HttpResponse::Forbidden(),
+                    "This Medical ID QR code is not valid for emergency access. Ask the patient to download a current one.",
+                    "QR_PROOF_INVALID",
+                ))
+            }
+        }
+        _ => Err(emergency_error(
+            HttpResponse::BadRequest(),
+            "Present either the patient's NFC card or their Medical ID QR code",
+            "EMERGENCY_SUBJECT_REQUIRED",
+        )),
+    }
 }
 
 fn emergency_error(
@@ -532,5 +582,73 @@ mod hz_001_exchange_tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
+}
+
+#[cfg(test)]
+mod presented_patient_tests {
+    use super::*;
+
+    fn request(
+        nfc_tag_id: Option<&str>,
+        patient_id: Option<&str>,
+        qr_proof: Option<&str>,
+    ) -> GrantBoundEmergencyAccessRequest {
+        GrantBoundEmergencyAccessRequest {
+            nfc_tag_id: nfc_tag_id.map(str::to_string),
+            patient_id: patient_id.map(str::to_string),
+            qr_proof: qr_proof.map(str::to_string),
+            device_id: "device-1".to_string(),
+            work_context_id: "context-1".to_string(),
+            reason_code: "emergency_qr_access".to_string(),
+            reason_text: None,
+        }
+    }
+
+    async fn status_of(body: GrantBoundEmergencyAccessRequest) -> Result<String, u16> {
+        let data = web::Data::new(AppState::new());
+        resolve_presented_patient(&data, &body)
+            .await
+            .map(|(patient, presented)| format!("{patient}/{presented}"))
+            .map_err(|response| response.status().as_u16())
+    }
+
+    #[actix_web::test]
+    async fn a_scanned_medical_id_qr_with_its_proof_names_the_patient() {
+        let proof = crate::clinical_endpoints::emergency_access::medical_id_qr_proof("PAT-1");
+        let result = status_of(request(None, Some("PAT-1"), Some(&proof))).await;
+        assert_eq!(result, Ok("PAT-1/medical_id_qr".to_string()));
+    }
+
+    #[actix_web::test]
+    async fn a_patient_id_without_its_proof_is_refused() {
+        let other = crate::clinical_endpoints::emergency_access::medical_id_qr_proof("PAT-2");
+        assert_eq!(
+            status_of(request(None, Some("PAT-1"), None)).await,
+            Err(403)
+        );
+        assert_eq!(
+            status_of(request(None, Some("PAT-1"), Some(&other))).await,
+            Err(403)
+        );
+    }
+
+    #[actix_web::test]
+    async fn exactly_one_of_card_or_qr_is_presented() {
+        let proof = crate::clinical_endpoints::emergency_access::medical_id_qr_proof("PAT-1");
+        assert_eq!(status_of(request(None, None, None)).await, Err(400));
+        assert_eq!(status_of(request(Some("  "), None, None)).await, Err(400));
+        assert_eq!(
+            status_of(request(Some("NFC-1"), Some("PAT-1"), Some(&proof))).await,
+            Err(400)
+        );
+    }
+
+    #[actix_web::test]
+    async fn an_unknown_card_is_not_found() {
+        assert_eq!(
+            status_of(request(Some("NFC-UNKNOWN"), None, None)).await,
+            Err(404)
+        );
     }
 }

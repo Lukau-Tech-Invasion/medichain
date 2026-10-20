@@ -399,6 +399,9 @@ pub async fn get_medical_id_qr(
         // a card with blank criticals that looks like a patient with none.
         "profile_unavailable": qr_profile.is_none(),
         "api_url": format!("/api/medical-id/{}", patient_id),
+        // Possession proof: lets a clinician's scan open server-side emergency
+        // access the way an NFC tap does (`POST /api/emergency/access`).
+        "emergency_proof": crate::clinical_endpoints::emergency_access::medical_id_qr_proof(&patient.id),
         "generated_at": chrono::Utc::now().timestamp()
     });
 

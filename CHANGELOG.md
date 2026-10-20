@@ -6,6 +6,21 @@ pre-1.0 and does not yet make compatibility guarantees.
 
 ## [Unreleased]
 
+### Added (2026-10-20)
+- Emergency access by camera. The emergency screen's QR option opens the
+  phone's back camera or the laptop webcam (with the browser's permission
+  prompt) and reads the code itself: `BarcodeDetector` where the browser has
+  one, jsQR elsewhere (Windows Chrome has none). It previously offered only a
+  text box for pasting the code's JSON.
+- The patient's Medical ID QR carries `emergency_proof`, an HMAC the server
+  mints over the patient id. `POST /api/emergency/access` accepts it in place
+  of an NFC tag id (`patient_id` + `qr_proof`), under the same device, work
+  context, grant and audit; a patient id without its proof is refused
+  (`QR_PROOF_INVALID`), since patient ids appear in every chart URL. QR codes
+  downloaded earlier carry no proof: patients re-download. When the server is
+  unreachable the screen shows the summary printed in the code, labelled as
+  unverified and unrecorded.
+
 ### Added (2026-10-18/19)
 - `AUDIT_CHECKPOINT_SINK=s3`: sealed checkpoints written once per batch to an
   S3 bucket under Object Lock (`If-None-Match`, SHA-256 integrity header),

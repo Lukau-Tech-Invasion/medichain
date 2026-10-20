@@ -455,13 +455,20 @@ export interface DownloadMedicalRecordResponse {
 // ============================================================================
 
 /** Strict emergency path: all authorisation bindings are enforced server-side. */
-export interface GrantBoundEmergencyAccessRequest {
-  nfc_tag_id: string;
+/**
+ * What the responder holds: the patient's NFC card tag id, or the patient id
+ * and possession proof scanned from their Medical ID QR. Exactly one.
+ */
+export type EmergencySubject =
+  | { nfc_tag_id: string; patient_id?: never; qr_proof?: never }
+  | { patient_id: string; qr_proof: string; nfc_tag_id?: never };
+
+export type GrantBoundEmergencyAccessRequest = EmergencySubject & {
   device_id: string;
   work_context_id: string;
   reason_code: string;
   reason_text?: string;
-}
+};
 
 export interface GrantBoundEmergencyAccessResponse {
   grant_id: string;
