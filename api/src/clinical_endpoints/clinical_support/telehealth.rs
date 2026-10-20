@@ -751,12 +751,55 @@ pub async fn telehealth_event(
         });
     }
 
+    // Only the consultation's own clinician and patient may report on it, and
+    // only they are told: this went to every connected account, and accepted
+    // events for any session id from anyone signed in.
+    let session: crate::clinical::TelehealthSession = match data
+        .repositories
+        .telehealth_session_records
+        .get_by_id(&session_id)
+        .await
+    {
+        Ok(Some(record)) => match serde_json::from_value(record.data) {
+            Ok(session) => session,
+            Err(error) => {
+                log::error!("telehealth session {session_id} does not decode: {error}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Telehealth is temporarily unavailable".to_string(),
+                    code: "TELEHEALTH_UNAVAILABLE".to_string(),
+                });
+            }
+        },
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "Session not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+        Err(error) => {
+            log::error!("telehealth session {session_id} load failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Telehealth is temporarily unavailable".to_string(),
+                code: "TELEHEALTH_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let is_party = actor == session.provider_id
+        || crate::support::caller_owns_patient_record(&data, &actor, &session.patient_id);
+    if !is_party {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the consultation's clinician and patient can report its events"
+                .to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
     let now = chrono::Utc::now();
 
-    // Broadcast to connected SSE clients.
+    // Tell the other participant's screen.
     data.ws_manager.push_event(crate::websocket::PushEvent {
         event_type: "telehealth".to_string(),
-        patient_id: None,
+        patient_id: Some(session.patient_id.clone()),
         payload: serde_json::json!({
             "session_id": session_id,
             "event": body.event_type,
@@ -764,6 +807,7 @@ pub async fn telehealth_event(
             "detail": body.detail,
         }),
         timestamp: now.timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![session.provider_id.clone()]),
     });
 
     // Audit trail (HIPAA): persist the event via the access-log repository.
@@ -969,6 +1013,7 @@ pub async fn telehealth_recording(
         patient_id: Some(session.patient_id.clone()),
         payload: serde_json::json!({ "session_id": session_id, "event": action }),
         timestamp: now.timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![session.provider_id.clone()]),
     });
 
     HttpResponse::Ok().json(serde_json::json!({

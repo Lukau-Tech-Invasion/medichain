@@ -153,6 +153,7 @@ impl SecurityState {
                 "message": alert.message,
             }),
             timestamp: alert.created_at.timestamp(),
+            audience: crate::websocket::Audience::Administrators,
         });
     }
 

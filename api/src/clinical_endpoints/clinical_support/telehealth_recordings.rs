@@ -240,6 +240,7 @@ fn broadcast_recording_state(data: &web::Data<crate::AppState>, session: &Telehe
             "recording": session.recording_enabled,
         }),
         timestamp: chrono::Utc::now().timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![session.provider_id.clone()]),
     });
 }
 

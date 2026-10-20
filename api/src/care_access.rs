@@ -162,6 +162,30 @@ pub async fn resolve_chart_access(
     clinician_authority(data, caller, patient_id, Utc::now()).await
 }
 
+/// Whether `caller` is one of the clinicians a patient's clinical notification
+/// is for: someone treating them, by the patient's own grant, a care
+/// relationship, or an emergency (break-glass) grant.
+///
+/// An administrator's oversight access does not count, and neither does the
+/// patient's own (patients are told about their own record separately): a
+/// notification about a patient goes to the people caring for them, not to
+/// everybody whose role could open a chart.
+pub async fn treats_patient(
+    data: &actix_web::web::Data<AppState>,
+    caller: &crate::User,
+    patient_id: &str,
+) -> Result<bool, AuthorityUnavailable> {
+    if caller.role.is_admin() || !caller.role.can_view_medical_records() {
+        return Ok(false);
+    }
+    Ok(matches!(
+        resolve_chart_access(data, caller, patient_id).await?,
+        ChartAuthority::PatientGrant(_)
+            | ChartAuthority::CareRelationship { .. }
+            | ChartAuthority::BreakGlass(_)
+    ))
+}
+
 /// Record (or refresh) a care relationship from a clinical workflow item.
 ///
 /// A failure is logged, not returned: the appointment or consult it came from

@@ -45,14 +45,28 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
 
     let mut notifications = Vec::new();
 
-    // For doctors/nurses/admins - check for critical values
-    if current_user.role.can_view_medical_records() {
+    // Clinicians: alerts about the patients they are treating. This used to be
+    // the whole hospital's critical values and code blues, shown to every
+    // clinician and to the administrator, whose role does no bedside care.
+    if current_user.role.can_view_medical_records() && !current_user.role.is_admin() {
+        let mut treating = TreatingCache::default();
         // Via repository (was: in-memory data.critical_values HashMap)
         let critical_values = required_worklist_read!(
             data.repositories.critical_values.list_all().await,
             "critical-value notification"
         );
-        for cv in critical_values.iter().take(5) {
+        let mut mine = Vec::new();
+        for cv in critical_values {
+            if mine.len() == 5 {
+                break;
+            }
+            match treating.check(&data, &current_user, &cv.patient_id).await {
+                Ok(true) => mine.push(cv),
+                Ok(false) => {}
+                Err(response) => return response,
+            }
+        }
+        for cv in mine.iter() {
             notifications.push(serde_json::json!({
                 "id": cv.id,
                 "type": "critical_value",
@@ -63,8 +77,8 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
             }));
         }
 
-        // Check for pending lab approvals (doctors only)
-        if matches!(current_user.role, crate::Role::Doctor | crate::Role::Admin) {
+        // Pending lab approvals: the doctors' review queue.
+        if matches!(current_user.role, crate::Role::Doctor) {
             let pending: Vec<crate::LabResultSubmission> = required_worklist_read!(
                 data.repositories.lab_result_submissions.list_all().await,
                 "pending lab notification"
@@ -90,7 +104,18 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
             data.repositories.code_blue.list_all().await,
             "code-blue notification"
         );
-        for cb in code_blues.iter().take(3) {
+        let mut mine = Vec::new();
+        for cb in code_blues {
+            if mine.len() == 3 {
+                break;
+            }
+            match treating.check(&data, &current_user, &cb.patient_id).await {
+                Ok(true) => mine.push(cb),
+                Ok(false) => {}
+                Err(response) => return response,
+            }
+        }
+        for cb in mine.iter() {
             notifications.push(serde_json::json!({
                 "id": cb.id,
                 "type": "code_blue",
@@ -165,6 +190,35 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
         "unread_count": unread,
         "read_at": read_at,
     }))
+}
+
+/// "Is this clinician treating this patient?", asked once per patient per
+/// request: the lists above repeat patients, and each answer is a chart check.
+#[derive(Default)]
+struct TreatingCache(std::collections::HashMap<String, bool>);
+
+impl TreatingCache {
+    async fn check(
+        &mut self,
+        data: &web::Data<AppState>,
+        clinician: &crate::User,
+        patient_id: &str,
+    ) -> Result<bool, HttpResponse> {
+        if let Some(answer) = self.0.get(patient_id) {
+            return Ok(*answer);
+        }
+        let answer = crate::care_access::treats_patient(data, clinician, patient_id)
+            .await
+            .map_err(|error| {
+                log::error!("notification chart check failed: {}", error.0);
+                HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Clinical worklist data is temporarily unavailable".to_string(),
+                    code: "WORKLIST_DATA_UNAVAILABLE".to_string(),
+                })
+            })?;
+        self.0.insert(patient_id.to_string(), answer);
+        Ok(answer)
+    }
 }
 
 /// Is this entry newer than the caller's read marker?
@@ -330,6 +384,83 @@ mod notification_read_tests {
         .await;
         assert_eq!(after["unread_count"], 0, "{after}");
         assert_eq!(after["count"], 1, "the entry is read, not deleted");
+    }
+
+    /// A critical value reaches the clinician treating that patient, not every
+    /// clinician in the hospital and not the administrator.
+    #[actix_web::test]
+    async fn a_critical_value_reaches_the_patients_clinician_only() {
+        let state = AppState::new();
+        for (id, role) in [
+            ("doctor_treating", crate::Role::Doctor),
+            ("doctor_other", crate::Role::Doctor),
+            ("admin_a", crate::Role::Admin),
+        ] {
+            register(&state, id, role);
+        }
+        for patient in ["PAT-1", "PAT-2"] {
+            state
+                .repositories
+                .critical_values
+                .create(crate::repositories::traits::CriticalValueEntity {
+                    id: format!("CV-{patient}"),
+                    patient_id: patient.to_string(),
+                    test_code: "K".to_string(),
+                    test_name: format!("Potassium {patient}"),
+                    unit: "mmol/L".to_string(),
+                    severity: "critical".to_string(),
+                    reported_by: "lab_a".to_string(),
+                    created_at: chrono::Utc::now(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        crate::care_access::record_encounter(
+            &state,
+            "PAT-1",
+            "doctor_treating",
+            "APPT-1",
+            chrono::Utc::now(),
+        )
+        .await;
+        let state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(get_notifications),
+        )
+        .await;
+        let titles = |body: serde_json::Value| -> Vec<String> {
+            body["notifications"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|n| n["title"].as_str().map(str::to_string))
+                .collect()
+        };
+        let read = |user: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/notifications")
+                .insert_header(crate::test_fixtures::as_user(user))
+                .to_request()
+        };
+
+        let treating = titles(test::call_and_read_body_json(&app, read("doctor_treating")).await);
+        assert!(
+            treating.iter().any(|t| t.contains("Potassium PAT-1")),
+            "{treating:?}"
+        );
+        assert!(
+            !treating.iter().any(|t| t.contains("PAT-2")),
+            "{treating:?}"
+        );
+
+        let other = titles(test::call_and_read_body_json(&app, read("doctor_other")).await);
+        assert!(!other.iter().any(|t| t.contains("Potassium")), "{other:?}");
+
+        let admin = titles(test::call_and_read_body_json(&app, read("admin_a")).await);
+        assert!(admin.is_empty(), "{admin:?}");
     }
 
     #[actix_web::test]

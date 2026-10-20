@@ -6,6 +6,20 @@ pre-1.0 and does not yet make compatibility guarantees.
 
 ## [Unreleased]
 
+### Fixed (2026-10-20)
+- Notifications reach the account they are for. Every real-time event went
+  to every staff and administrator connection, so a doctor setting a
+  patient's medication reminder put "Time to take" on the administrator's
+  screen and every clinician's. Events now carry an audience: reminders to
+  the patient only; clinical alerts to the patient and the clinicians treating
+  them (patient grant, care relationship or break-glass); telehealth events to
+  the consultation's clinician and patient; security alerts to administrators.
+  An event without an audience reaches nobody. The bell list likewise shows a
+  clinician only their own patients' critical values and code blues, and
+  shows an administrator no clinical items. `POST
+  /api/telehealth/sessions/{id}/event` now refuses anyone outside the
+  consultation (it accepted events for any session from anyone signed in).
+
 ### Added (2026-10-20)
 - Emergency access by camera. The emergency screen's QR option opens the
   phone's back camera or the laptop webcam (with the browser's permission
