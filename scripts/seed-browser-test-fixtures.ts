@@ -292,8 +292,19 @@ export async function ensurePatientAccess(
 
   const request = await call('POST', `/access/patient/${patientId}/requests`,
     { reason }, provider.token);
-  const requestId = String((request.json.request as Json | undefined)?.id ?? '');
-  if (request.status !== 201 || !requestId) fail('request patient access', request.status, request.json);
+  let requestId = String((request.json.request as Json | undefined)?.id ?? '');
+  // A run stopped between asking and approving leaves the request pending;
+  // approve that one rather than fail on asking twice.
+  if (request.status === 409 && JSON.stringify(request.json).includes('ACCESS_REQUEST_ALREADY_PENDING')) {
+    const pending = await call('GET', `/access/patient/${patientId}/requests`, undefined, patient.token);
+    const waiting = ((pending.json.requests ?? []) as Json[]).find(
+      (item) => (item.providerId ?? item.provider_id) === provider.userId && item.status === 'pending'
+    );
+    requestId = String(waiting?.id ?? '');
+  } else if (request.status !== 201) {
+    fail('request patient access', request.status, request.json);
+  }
+  if (!requestId) fail('find the pending access request', request.status, request.json);
   const approval = await call('POST', `/access/requests/${requestId}/approve`,
     { expires_at: new Date(Date.now() + days * 86400000).toISOString() }, patient.token,
     // The patient confirms their own decision, as in the portal.
