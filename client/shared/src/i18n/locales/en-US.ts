@@ -2102,6 +2102,8 @@ const en_US: TranslationRecord = {
     recipientPlaceholder: 'Recipient ID...',
     toProvider: 'To',
     chooseRecipient: 'Choose who to write to',
+    startNew: 'Start a new conversation',
+    startNewDesc: 'Write to a patient you are treating, or to a colleague',
     patientsGroup: 'Patients you are treating',
     staffGroup: 'Staff',
     recipientsFailed: 'Recipients could not be loaded.',

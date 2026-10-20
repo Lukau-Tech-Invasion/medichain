@@ -132,6 +132,12 @@ enum Delivery {
 /// patient's care-team events only while treating that patient.
 fn delivery(user: &crate::User, event: &PushEvent) -> Delivery {
     let about = event.patient_id.as_deref();
+    // An event addressed to this account by name reaches it, whoever it is.
+    if let Audience::Accounts(ids) = &event.audience {
+        if ids.iter().any(|id| id == &user.id) {
+            return Delivery::Deliver;
+        }
+    }
     if user.role == crate::types::Role::Patient {
         let mine = about.is_some() && about == user.linked_patient_id.as_deref();
         let for_patients = matches!(
@@ -431,6 +437,25 @@ mod audience_tests {
         );
         assert_eq!(
             delivery(&account("u-p1", Role::Patient, Some("PAT-1")), &security),
+            Delivery::Skip
+        );
+    }
+
+    /// A message notice addressed to a patient's account reaches that patient
+    /// though it names no patient record, and nobody else.
+    #[test]
+    fn a_named_account_receives_its_message_notice() {
+        let notice = event(None, Audience::Accounts(vec!["u-p1".to_string()]));
+        assert_eq!(
+            delivery(&account("u-p1", Role::Patient, Some("PAT-1")), &notice),
+            Delivery::Deliver
+        );
+        assert_eq!(
+            delivery(&account("u-p2", Role::Patient, Some("PAT-2")), &notice),
+            Delivery::Skip
+        );
+        assert_eq!(
+            delivery(&account("u-admin", Role::Admin, None), &notice),
             Delivery::Skip
         );
     }

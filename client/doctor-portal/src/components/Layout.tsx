@@ -7,6 +7,7 @@ import {
   useApiStatus,
   useTranslation,
   RestrictedSection,
+  refreshNotificationBadges,
 } from '@medichain/shared';
 import {
   LogOut,
@@ -353,8 +354,20 @@ function Layout() {
       const latestEvent = events[0];
       if (latestEvent.timestamp > lastProcessedEventRef.current) {
         lastProcessedEventRef.current = latestEvent.timestamp;
+        refreshNotificationBadges();
         
         switch (latestEvent.event_type) {
+          case 'message':
+            // A message for this account arrived: say so, and tell an open
+            // Messages page to reload. It used to appear only on a reload.
+            showInfo(
+              latestEvent.payload.sender_name
+                ? `From ${latestEvent.payload.sender_name}`
+                : 'You have a new message',
+              'New message'
+            );
+            window.dispatchEvent(new Event('medichain:messages-refresh'));
+            break;
           case 'cds_alert':
             showWarning(
               latestEvent.payload.title || 'Clinical Alert',

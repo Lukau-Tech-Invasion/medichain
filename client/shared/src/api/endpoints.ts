@@ -3848,7 +3848,9 @@ export interface MessageRecipients {
  * access). The server refuses a message to any other patient.
  */
 export async function getMessageRecipients(): Promise<MessageRecipients> {
-  return getApiClient().get('/api/messages/recipients');
+  // Two lists side by side: without keepEnvelope the client unwraps the body
+  // to its `patients` array and the staff list is lost.
+  return getApiClient().get('/api/messages/recipients', { keepEnvelope: true });
 }
 
 /** The caller's persisted message copies, optionally limited to a mailbox. */

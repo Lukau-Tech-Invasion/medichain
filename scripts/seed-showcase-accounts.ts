@@ -259,7 +259,10 @@ async function main(): Promise<void> {
     // Each patient lets the care team open their chart, as a patient would in
     // the app, so reviewers can work every clinical screen without setup.
     for (const provider of staff.filter((s) => s.role !== 'Paramedic')) {
-      await ensurePatientAccess(patientId, account, provider, password, 'Clinical care at the showcase clinic');
+      // The longest grant the server allows, renewed on every run when it has
+      // under 25 days left, so reviewers keep their patients (charts,
+      // messages, notifications) until judging. Run again within 30 days.
+      await ensurePatientAccess(patientId, account, provider, password, 'Clinical care at the showcase clinic', 30, 25);
     }
     issued.push({
       role: 'Patient', name: String(record.full_name), login_id: username, password,

@@ -7,6 +7,7 @@ import {
   markNotificationsRead,
   removeNotification,
   useTranslation,
+  refreshNotificationBadges,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -100,6 +101,7 @@ function useNotificationsPage() {
       return;
     }
     await inbox.reload();
+    refreshNotificationBadges();
   };
   const removeOne = async (entry: Notification) => {
     if (!entry.key) return;
@@ -112,6 +114,7 @@ function useNotificationsPage() {
       return;
     }
     await inbox.reload();
+    refreshNotificationBadges();
   };
 
   const handleMarkAllRead = async () => {
@@ -132,6 +135,7 @@ function useNotificationsPage() {
       setMarking(false);
     }
     if (mounted.current && requestOwner === currentOwner.current) await inbox.reload();
+    refreshNotificationBadges();
   };
   const highAlerts = alerts.filter(a => (a.severity || '').toLowerCase() === 'high').length;
 

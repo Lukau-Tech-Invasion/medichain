@@ -11,6 +11,7 @@ import {
   Alert,
   LoadingSpinner,
   formatTimestamp,
+  refreshNotificationBadges,
 } from '@medichain/shared';
 import type { InboxNotification } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -112,6 +113,7 @@ const NotificationsPage: React.FC = () => {
       return;
     }
     await fetchNotifications();
+    refreshNotificationBadges();
     showSuccess(t('docNotifications.markedRead'));
   };
 
@@ -125,6 +127,7 @@ const NotificationsPage: React.FC = () => {
       return false;
     }
     setNotifications((list) => list.map((n) => (n.key === entry.key ? { ...n, read: true } : n)));
+    refreshNotificationBadges();
     return true;
   };
 
@@ -142,6 +145,7 @@ const NotificationsPage: React.FC = () => {
       return;
     }
     setNotifications((list) => list.filter((n) => n.key !== entry.key));
+    refreshNotificationBadges();
   };
 
   const { fresh, history } = splitInbox(notifications);

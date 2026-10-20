@@ -48,7 +48,9 @@ export default function MessageRecipientSelect({
         disabled={!recipients}
         className="w-full border border-border-interactive rounded px-3 py-2 text-sm bg-surface text-content min-h-[44px]"
       >
-        <option value="">{recipients ? t('docMessages.chooseRecipient') : t('common.loading')}</option>
+        <option value="">
+          {recipients ? t('docMessages.chooseRecipient') : error ? t('docMessages.recipientsFailed') : t('common.loading')}
+        </option>
         {recipients && recipients.patients.length > 0 && (
           <optgroup label={t('docMessages.patientsGroup')}>
             {recipients.patients.map((patient) => (

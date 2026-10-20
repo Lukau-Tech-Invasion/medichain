@@ -12,6 +12,7 @@
 // script-readable should survive a full page load. A dead weaker auth path beside the live one is a trap, not
 // spare capacity.
 export * from './useSidebarData';
+export * from './useUnreadNotifications';
 export * from './useSSE';
 export * from './useApiStatus';
 export * from './useOfflineCache';

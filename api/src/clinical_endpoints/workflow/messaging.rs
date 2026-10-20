@@ -497,6 +497,20 @@ pub async fn send_message(
         log::warn!("message persist (sent folder) failed: {}", e);
     }
 
+    // Tell the recipient's open screens. Without this a delivered message
+    // appeared only when they reloaded, which reads as "it never sent". The
+    // event names the sender, never the content.
+    data.ws_manager.push_event(crate::websocket::PushEvent {
+        event_type: "message".to_string(),
+        patient_id: None,
+        payload: serde_json::json!({
+            "message_id": message_id,
+            "sender_name": current_user.name,
+        }),
+        timestamp: chrono::Utc::now().timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![recipient_id.to_string()]),
+    });
+
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "message": message,

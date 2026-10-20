@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AttachmentPicker,
   attachFilesToMessage,
@@ -10,9 +10,10 @@ import {
   sendMessage,
   formatDateOnly,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import type { MessageConversation, SecureMessagesResponse, SecureMessage } from '@medichain/shared';
-import { Loader2, MessageSquare, RefreshCw, Send, User } from 'lucide-react';
+import { Loader2, MessageSquare, Plus, RefreshCw, Send, User } from 'lucide-react';
 import MessageRecipientSelect from '../components/MessageRecipientSelect';
 import { useAuthStore } from '../store/authStore';
 
@@ -155,6 +156,7 @@ export default function MessagesPage() {
         setError(t('messages.attachmentsPartlyFailed', { files: list }));
       }
       setSuccess(t('docMessages.sentVisible'));
+      notifySuccess(t('docMessages.sentVisible'));
       setSendForm({ recipient_id: recipientId, subject: '', body: '' });
       setShowCompose(false);
       const loaded = await fetchConversations();
@@ -175,6 +177,22 @@ export default function MessagesPage() {
     (total, conversation) => total + conversation.unreadCount,
     0,
   );
+
+  // A message arriving for this account reloads the list (see Layout).
+  useEffect(() => {
+    const reload = () => void fetchConversations();
+    window.addEventListener('medichain:messages-refresh', reload);
+    return () => window.removeEventListener('medichain:messages-refresh', reload);
+  }, [fetchConversations]);
+
+  // On a phone the panel sits below a tall conversation list, so opening
+  // Compose or a conversation looked like nothing happened.
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if ((showCompose || selectedId) && window.matchMedia?.('(max-width: 1023px)').matches) {
+      panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }
+  }, [showCompose, selectedId]);
 
   const beginCompose = () => {
     setShowCompose(true);
@@ -206,12 +224,6 @@ export default function MessagesPage() {
           >
             <RefreshCw size={14} /> {t('docMessages.refresh')}
           </button>
-          <button
-            onClick={beginCompose}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
-          >
-            <Send size={14} /> {t('docMessages.compose')}
-          </button>
         </div>
       </header>
 
@@ -230,6 +242,22 @@ export default function MessagesPage() {
         <section className="bg-surface rounded-xl shadow min-h-[520px]" aria-label={t('docMessages.conversations')}>
           <div className="p-4 border-b">
             <h2 className="font-semibold text-content">{t('docMessages.conversations')}</h2>
+          </div>
+          {/* The same entry point as the patient app: one large, obvious button. */}
+          <div className="p-4 border-b">
+            <button
+              type="button"
+              onClick={beginCompose}
+              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-transparent bg-surface-sunken hover:border-brand text-left"
+            >
+              <span className="w-12 h-12 shrink-0 bg-brand-subtle rounded-full flex items-center justify-center">
+                <Plus className="w-6 h-6 text-brand" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-medium text-content">{t('docMessages.startNew')}</span>
+                <span className="block text-sm text-content-muted">{t('docMessages.startNewDesc')}</span>
+              </span>
+            </button>
           </div>
           {loading ? (
             <div className="p-8 text-center">
@@ -275,7 +303,7 @@ export default function MessagesPage() {
           )}
         </section>
 
-        <section className="bg-surface rounded-xl shadow min-h-[520px] flex flex-col" aria-label={t('docMessages.history')}>
+        <section ref={panelRef} className="bg-surface rounded-xl shadow min-h-[520px] flex flex-col scroll-mt-4" aria-label={t('docMessages.history')}>
           {showCompose ? (
             <ComposeForm
               form={sendForm}

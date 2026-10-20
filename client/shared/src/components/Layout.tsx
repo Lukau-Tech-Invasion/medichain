@@ -34,6 +34,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { refreshNotificationBadges, useUnreadNotifications } from '../hooks/useUnreadNotifications';
 import { useSSE } from '../hooks/useSSE';
 import { useApiStatus } from '../hooks/useApiStatus';
 import { useToastActions } from './Toast';
@@ -73,6 +74,9 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
   const { showInfo, showWarning, showSuccess } = useToastActions();
+  // The bell's number. Its dot used to be the live-connection light, which
+  // read as "a new notification" and never went away.
+  const unreadNotifications = useUnreadNotifications(variant === 'patient');
   const lastProcessedEventRef = useRef<number>(0);
 
   // Handle incoming real-time events
@@ -81,10 +85,22 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
       const latestEvent = events[0];
       if (latestEvent.timestamp > lastProcessedEventRef.current) {
         lastProcessedEventRef.current = latestEvent.timestamp;
+        refreshNotificationBadges();
         
         // Customize notifications based on portal variant
         if (variant === 'patient') {
           switch (latestEvent.event_type) {
+            case 'message':
+              // A message for this account arrived: say so, and tell an open
+              // Messages page to reload. It used to appear only on a reload.
+              showInfo(
+                latestEvent.payload.sender_name
+                  ? `From ${latestEvent.payload.sender_name}`
+                  : 'You have a new message',
+                'New message'
+              );
+              window.dispatchEvent(new Event('medichain:messages-refresh'));
+              break;
             case 'reminder_due':
               showInfo(
                 latestEvent.payload.message || 'Time to take your medication',
@@ -319,14 +335,17 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
             {/* Right Actions */}
             <div className="flex items-center gap-3">
               <button 
-                aria-label="Notifications"
+                aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}
                 onClick={() => navigate('/notifications')}
                 className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
                 title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
               >
                 <Bell className={`w-6 h-6 ${isSSEConnected ? 'text-notice-subtle-fg' : 'text-content-muted'}`} />
-                {isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
-                {!isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-red-400 rounded-full" />}
+                {unreadNotifications !== null && unreadNotifications > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 bg-critical text-critical-fg text-xs font-semibold rounded-full flex items-center justify-center">
+                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  </span>
+                )}
               </button>
 
               {variant !== 'patient' && <button

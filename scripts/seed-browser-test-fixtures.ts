@@ -267,20 +267,26 @@ export interface Account {
   linkedPatientId: string;
 }
 
-/** Have a patient approve a clinician who must open their chart (seven days). */
+/**
+ * Have a patient approve a clinician who must open their chart, for `days`
+ * (the server allows at most 30). A grant that ends within `renewWithinDays`
+ * is renewed rather than left to lapse.
+ */
 export async function ensurePatientAccess(
   patientId: string,
   patient: Account,
   provider: Account,
   patientPassword: string = PASSWORD,
-  reason = 'Synthetic browser verification of clinical care'
+  reason = 'Synthetic browser verification of clinical care',
+  days = 7,
+  renewWithinDays = 0
 ): Promise<void> {
   const existing = await call('GET', `/access/patient/${patientId}/grants`, undefined, patient.token);
   if (!ok(existing.status)) fail('read patient grants', existing.status, existing.json);
   const grants = Array.isArray(existing.json.grants) ? existing.json.grants as Json[] : [];
   const active = grants.some((grant) =>
     grant.provider_id === provider.userId && !grant.revoked_at &&
-    Date.parse(String(grant.expires_at ?? '')) > Date.now()
+    Date.parse(String(grant.expires_at ?? '')) > Date.now() + renewWithinDays * 86400000
   );
   if (active) return;
 
@@ -289,7 +295,7 @@ export async function ensurePatientAccess(
   const requestId = String((request.json.request as Json | undefined)?.id ?? '');
   if (request.status !== 201 || !requestId) fail('request patient access', request.status, request.json);
   const approval = await call('POST', `/access/requests/${requestId}/approve`,
-    { expires_at: new Date(Date.now() + 7 * 86400000).toISOString() }, patient.token,
+    { expires_at: new Date(Date.now() + days * 86400000).toISOString() }, patient.token,
     // The patient confirms their own decision, as in the portal.
     { loginId: patient.loginId, password: patientPassword });
   if (!ok(approval.status)) fail('patient approves access', approval.status, approval.json);

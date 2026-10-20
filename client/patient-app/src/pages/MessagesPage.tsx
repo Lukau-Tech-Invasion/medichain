@@ -147,6 +147,20 @@ export function MessagesPage() {
     }
   }, [patient, loadConversations]);
 
+  // A message arriving for this account reloads the list, and the open
+  // conversation with it (see Layout). It used to appear only on a reload.
+  useEffect(() => {
+    const reload = async () => {
+      const loaded = await loadConversations();
+      setSelectedConversation((current) =>
+        current ? loaded.find((conversation) => conversation.providerId === current.providerId) ?? current : current
+      );
+    };
+    const onMessage = () => void reload();
+    window.addEventListener('medichain:messages-refresh', onMessage);
+    return () => window.removeEventListener('medichain:messages-refresh', onMessage);
+  }, [loadConversations]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedConversation?.messages]);
