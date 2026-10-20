@@ -113,7 +113,8 @@ test.describe('public routes', () => {
 
 test('every patient route passes the page checks; an ended session returns to its page', async ({ browser }) => {
   test.setTimeout(30 * 60_000);
-  const page = await browser.newPage({ viewport: DESKTOP });
+  const context = await browser.newContext({ viewport: DESKTOP });
+  const page = await context.newPage();
   const pace = requestPacer(page, 180);
   await signIn(page);
 
@@ -176,14 +177,19 @@ test('every patient route passes the page checks; an ended session returns to it
   }
 
   // A patient session is not a staff session: the staff portal stays signed out.
+  // Its own tab, in the same browser session: the portal's redirect to sign-in
+  // can still be loading when the refusal is seen, and in the shared tab that
+  // late navigation took over the next step.
   const staffPrefix = '/doctor';
   if (process.env.E2E_PORTAL_PREFIX) {
-    await page.goto(new URL(`${staffPrefix}/dashboard`, page.url()).toString());
-    const refused = await page
+    const staffTab = await context.newPage();
+    await staffTab.goto(new URL(`${staffPrefix}/dashboard`, page.url()).toString());
+    const refused = await staffTab
       .waitForURL(/\/doctor\/login/, { timeout: 20000 })
       .then(() => true)
       .catch(() => false);
-    if (!refused) add('/doctor/dashboard', 'unauthorized', `a patient session reached ${new URL(page.url()).pathname}`);
+    if (!refused) add('/doctor/dashboard', 'unauthorized', `a patient session reached ${new URL(staffTab.url()).pathname}`);
+    await staffTab.close();
   }
 
   // An ended session returns to sign-in, and signing in returns to the page.
@@ -200,7 +206,7 @@ test('every patient route passes the page checks; an ended session returns to it
     if (!back) add('/medications', 'session-expiry', `after sign-in landed on ${routeOf(page.url())}`);
   }
 
-  await page.close();
+  await context.close();
   expect(findings, `\n${findings.map((f) => `  ${f.route} [${f.check}] ${f.detail}`).join('\n')}`).toEqual([]);
 });
 
