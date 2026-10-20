@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { takeNoteDraft } from '../utils/noteDraft';
 import {
   FileText,
   Search,
@@ -78,6 +79,22 @@ const ProgressNotePage: React.FC = () => {
     patientId: '', patientName: '', noteType: 'daily' as NoteType,
     subjective: '', objective: '', assessment: '', plan: '',
   });
+
+  // A template started from the template screen fills the note once, on arrival.
+  useEffect(() => {
+    const draft = takeNoteDraft();
+    if (!draft) return;
+    setForm((current) => ({
+      ...current,
+      subjective: draft.subjective || current.subjective,
+      objective: draft.objective || current.objective,
+      assessment: draft.assessment || current.assessment,
+      plan: draft.plan || current.plan,
+    }));
+    notifySuccess(t('docNoteTemplates.templateApplied', { name: draft.templateName }));
+    // Runs once: the draft is removed as it is read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const fetchNotes = async () => {

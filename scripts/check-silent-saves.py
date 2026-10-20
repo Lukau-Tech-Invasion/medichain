@@ -35,6 +35,8 @@ HANDLER_NAME = re.compile(
 
 ALLOWED = {
     ('RetentionPage.tsx', 'submitHold'): 'run() turns the returned message into a notice and a toast',
+    ('NoteTemplatesPage.tsx', 'saveTemplate'): 'shared by Create and Duplicate, each of which shows its own toast',
+    ('NoteTemplatesPage.tsx', 'saveEdit'): 'handleCreateTemplate shows the update toast after it',
 }
 
 

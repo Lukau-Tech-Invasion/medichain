@@ -1534,7 +1534,7 @@ export async function runConsentWithdrawalSteps(
 
   const signed = await http('POST', '/consent/sign', {
     token: patient.token,
-    body: { patient_id: id, consent_type: consentType },
+    body: { patient_id: id, consent_type: consentType, consent_given: true },
   });
   const didSign = j.status('the patient signs a consent', signed.status, [200, 201], signed.json);
 

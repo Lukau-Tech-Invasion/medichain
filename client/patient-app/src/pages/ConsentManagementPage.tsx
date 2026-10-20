@@ -207,7 +207,8 @@ export function ConsentManagementPage() {
     setIsSigning(consentType);
     setConsentError(null);
     try {
-      await signConsent({ patient_id: patient.healthId, consent_type: consentType });
+      // Pressing Sign is the patient giving consent.
+      await signConsent({ patient_id: patient.healthId, consent_type: consentType, consent_given: true });
       // Reload consents
       const result = await getPatientConsents(patient.healthId) as { consents: SignedConsent[] };
       setSignedConsents(result.consents || []);

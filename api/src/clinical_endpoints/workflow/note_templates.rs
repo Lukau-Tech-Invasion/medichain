@@ -219,6 +219,89 @@ pub async fn create_note_template(
     }
 }
 
+/// Change a clinician-authored template: its name, type, category,
+/// description and sections. The template screen offered no way to edit one,
+/// so a typo meant duplicating it, and the copy could not be edited either.
+/// Same rules as retiring one: the author or an administrator, never a
+/// built-in, never a retired template.
+#[put("/api/templates/notes/{template_id}")]
+pub async fn update_note_template(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<CreateNoteTemplateRequest>,
+) -> impl Responder {
+    let user = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user,
+        Err(response) => return response,
+    };
+    let template_id = path.into_inner();
+    if super::compliance::is_builtin_note_template(&template_id) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            error: "Built-in templates cannot be edited; duplicate one to change it".to_string(),
+            code: "BUILT_IN_TEMPLATE".to_string(),
+        });
+    }
+    let req = body.into_inner();
+    if let Err(response) = validate_template(&req) {
+        return response;
+    }
+    let record = match data
+        .repositories
+        .note_templates
+        .get_by_id(&template_id)
+        .await
+    {
+        Ok(Some(record)) if is_active(&record) => record,
+        Ok(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "Unknown note template".to_string(),
+                code: "TEMPLATE_NOT_FOUND".to_string(),
+            })
+        }
+        Err(error) => {
+            log::error!("note template read failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The template could not be loaded".to_string(),
+                code: "TEMPLATE_PERSISTENCE_FAILED".to_string(),
+            });
+        }
+    };
+    if !may_deactivate(&user, &record) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the template's author or an administrator can edit it".to_string(),
+            code: "NOT_TEMPLATE_AUTHOR".to_string(),
+        });
+    }
+    let now = chrono::Utc::now();
+    let mut template = stored_template(&req, &template_id, &record.owner_id, now);
+    // Authorship and creation stay as they were; only the content changes.
+    for key in ["created_by", "created_at"] {
+        if let Some(original) = record.data.get(key) {
+            template[key] = original.clone();
+        }
+    }
+    let updated = crate::repositories::traits::JsonRecordEntity {
+        id: template_id,
+        owner_id: record.owner_id.clone(),
+        data: template.clone(),
+        created_at: record.created_at,
+        updated_at: now,
+    };
+    match data.repositories.note_templates.create(updated).await {
+        Ok(_) => {
+            HttpResponse::Ok().json(serde_json::json!({ "success": true, "template": template }))
+        }
+        Err(error) => {
+            log::error!("note template update failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The template could not be saved".to_string(),
+                code: "TEMPLATE_PERSISTENCE_FAILED".to_string(),
+            })
+        }
+    }
+}
+
 /// Who may retire a shared template: its author, or an administrator.
 fn may_deactivate(
     user: &crate::User,
@@ -341,6 +424,7 @@ mod tests {
                     .app_data($state.clone())
                     .service(create_note_template)
                     .service(deactivate_note_template)
+                    .service(update_note_template)
                     .service(super::super::compliance::get_note_templates)
                     .service(super::super::compliance::use_note_template),
             )
@@ -379,6 +463,56 @@ mod tests {
                 .expect("template id")
                 .to_string()
         }};
+    }
+
+    /// The author edits a template; a colleague cannot; the change is what
+    /// everyone then lists.
+    #[actix_web::test]
+    async fn the_author_can_edit_a_template_and_a_colleague_cannot() {
+        let state = state();
+        let app = app!(state);
+        let id = create!(&app, "doctor_a");
+        let mut edited = body();
+        edited["name"] = serde_json::json!("Asthma review (revised)");
+        edited["sections"][3]["content"] = serde_json::json!("Review in 2 weeks");
+        let put = |who: &'static str, payload: serde_json::Value| {
+            test::TestRequest::put()
+                .uri(&format!("/api/templates/notes/{id}"))
+                .insert_header(crate::test_fixtures::as_user(who))
+                .set_json(payload)
+                .to_request()
+        };
+        assert_eq!(
+            test::call_service(&app, put("nurse_b", edited.clone()))
+                .await
+                .status(),
+            403
+        );
+        let saved: serde_json::Value =
+            test::call_and_read_body_json(&app, put("doctor_a", edited)).await;
+        assert_eq!(
+            saved["template"]["name"], "Asthma review (revised)",
+            "{saved}"
+        );
+        assert_eq!(saved["template"]["created_by"], "doctor_a");
+        let listed: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/templates/notes")
+                .insert_header(crate::test_fixtures::as_user("nurse_b"))
+                .to_request(),
+        )
+        .await;
+        assert!(
+            listed.to_string().contains("Asthma review (revised)"),
+            "{listed}"
+        );
+        let builtin = test::TestRequest::put()
+            .uri("/api/templates/notes/TPL-001")
+            .insert_header(crate::test_fixtures::as_user("admin"))
+            .set_json(body())
+            .to_request();
+        assert_ne!(test::call_service(&app, builtin).await.status(), 200);
     }
 
     /// The whole point: what one clinician saves, another can find and use,

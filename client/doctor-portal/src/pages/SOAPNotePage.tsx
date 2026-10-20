@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { takeNoteDraft } from '../utils/noteDraft';
 import { useAuthStore } from '../store';
 import {
   addSoapAddendum,
@@ -252,6 +253,19 @@ function SOAPNotePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  // A template started from the template screen fills the note once, on arrival.
+  useEffect(() => {
+    const draft = takeNoteDraft();
+    if (!draft) return;
+    if (draft.subjective) setHpi(draft.subjective);
+    if (draft.objective) setGeneralAppearance(draft.objective);
+    if (draft.assessment) setClinicalSummary(draft.assessment);
+    if (draft.plan) setTreatmentPlan(draft.plan);
+    notifySuccess(t('docNoteTemplates.templateApplied', { name: draft.templateName }));
+    // Runs once: the draft is removed as it is read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (patientIdFromUrl) {

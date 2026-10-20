@@ -3551,6 +3551,14 @@ export async function createNoteTemplate(
 }
 
 /** Retire a clinician-authored template. It is hidden, not deleted. */
+/** Change a template its author (or an administrator) wrote. */
+export async function updateNoteTemplate(
+  templateId: string,
+  data: CreateNoteTemplatePayload
+): Promise<{ success: boolean; template: Record<string, unknown> }> {
+  return getApiClient().put(`/api/templates/notes/${encodeURIComponent(templateId)}`, data);
+}
+
 export async function deactivateNoteTemplate(
   templateId: string
 ): Promise<{ success: boolean; template_id: string }> {
@@ -3983,6 +3991,11 @@ export async function getConsentTypes(): Promise<{ consent_types: unknown[] }> {
 export async function signConsent(data: {
   patient_id: string;
   consent_type: string;
+  /**
+   * The patient's decision. Required: the server refuses a consent that does
+   * not say (CONSENT_DECISION_REQUIRED), and without it the Sign button failed.
+   */
+  consent_given: boolean;
 }): Promise<{ success: boolean; consent_id: string }> {
   return getApiClient().post('/api/consent/sign', data);
 }
