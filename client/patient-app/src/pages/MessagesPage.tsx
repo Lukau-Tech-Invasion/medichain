@@ -9,6 +9,7 @@ import {
   MessageAttachmentList,
   sendMessage as sendSecureMessage,
   useTranslation,
+  notifySuccess,
 } from '@medichain/shared';
 import type { BookableProvider, MessageAttachment, MessageConversation, SecureMessage } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -174,6 +175,7 @@ export function MessagesPage() {
       setSelectedConversation(
         loaded.find((conversation) => conversation.providerId === selectedConversation.providerId) ?? null
       );
+      notifySuccess('Message sent.');
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'The message could not be sent.');
     } finally {

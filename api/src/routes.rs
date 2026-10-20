@@ -479,6 +479,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::retract_symptom)
         // Secure Messaging endpoints
         .service(clinical_endpoints::send_message)
+        .service(clinical_endpoints::list_message_recipients)
         .service(clinical_endpoints::get_messages)
         .service(clinical_endpoints::mark_message_read)
         .service(clinical_endpoints::upload_message_attachment)

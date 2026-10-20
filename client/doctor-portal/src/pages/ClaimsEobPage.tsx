@@ -7,6 +7,7 @@ import {
   MESSAGE_ATTACHMENT_TYPES,
   uploadClaimEob,
   useTranslation,
+  notifySuccess,
 } from '@medichain/shared';
 import type { EobDocument } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
@@ -141,6 +142,7 @@ function EobUpload({ claimId, onAdded }: { claimId: string; onAdded: (doc: EobDo
       const body = await uploadClaimEob(claimId, file);
       onAdded(body.document);
       setFile(null);
+      notifySuccess('Document uploaded.');
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : t('docClaims.uploadFailed'));
     } finally {

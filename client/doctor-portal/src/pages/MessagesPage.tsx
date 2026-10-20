@@ -13,7 +13,7 @@ import {
 } from '@medichain/shared';
 import type { MessageConversation, SecureMessagesResponse, SecureMessage } from '@medichain/shared';
 import { Loader2, MessageSquare, RefreshCw, Send, User } from 'lucide-react';
-import StaffSelect from '../components/StaffSelect';
+import MessageRecipientSelect from '../components/MessageRecipientSelect';
 import { useAuthStore } from '../store/authStore';
 
 interface SendForm {
@@ -379,13 +379,11 @@ function ComposeForm({
     <div className="p-4">
       <h2 className="font-semibold text-content mb-4">{title}</h2>
       <form onSubmit={onSubmit} className="space-y-3">
-        <StaffSelect
+        <MessageRecipientSelect
           id="msg-recipient"
           value={form.recipient_id}
           onChange={recipientId => onChange({ ...form, recipient_id: recipientId })}
           label={t('docMessages.toProvider')}
-          placeholder={t('docMessages.providerPlaceholder')}
-          required
         />
         <div>
           <label htmlFor="msg-subject" className="block text-xs font-medium text-content-secondary mb-1">{t('docMessages.subject')}</label>

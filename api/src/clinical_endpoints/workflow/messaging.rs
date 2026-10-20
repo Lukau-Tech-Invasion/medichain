@@ -422,6 +422,22 @@ pub async fn send_message(
             code: "INVALID_RECIPIENT".to_string(),
         });
     }
+    // Staff may write to a patient they are treating, or answer one who wrote
+    // to them. Any staff account could message any patient account before.
+    if !matches!(current_user.role, crate::Role::Patient)
+        && matches!(recipient.role, crate::Role::Patient)
+    {
+        match may_message_patient(&data, &current_user, &recipient).await {
+            Ok(true) => {}
+            Ok(false) => return HttpResponse::Forbidden().json(ErrorResponse {
+                error:
+                    "You can message a patient you are treating, or reply to one who wrote to you"
+                        .to_string(),
+                code: "NOT_TREATING_PATIENT".to_string(),
+            }),
+            Err(response) => return response,
+        }
+    }
 
     let message_id = format!(
         "MSG-{}",
@@ -748,12 +764,132 @@ fn enrich_message_display_names(
     message
 }
 
+/// Whether `sender` (staff) may write to `patient`: they are treating them
+/// (`care_access::treats_patient`), or the patient has written to them.
+async fn may_message_patient(
+    data: &web::Data<AppState>,
+    sender: &crate::User,
+    patient: &crate::User,
+) -> Result<bool, HttpResponse> {
+    let unavailable = |what: &str| {
+        HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: format!("{what} could not be checked. Please try again."),
+            code: "RECIPIENT_CHECK_UNAVAILABLE".to_string(),
+        })
+    };
+    if let Some(patient_id) = patient.linked_patient_id.as_deref() {
+        match crate::care_access::treats_patient(data, sender, patient_id).await {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            Err(error) => {
+                log::error!("messaging chart check failed: {}", error.0);
+                return Err(unavailable("Your care relationship"));
+            }
+        }
+    }
+    let copies = data
+        .repositories
+        .messages
+        .get_by_owner(&sender.id)
+        .await
+        .map_err(|error| {
+            log::error!("messaging reply check failed: {error}");
+            unavailable("Your conversation")
+        })?;
+    Ok(copies.iter().any(|copy| {
+        copy.data.get("sender_id").and_then(|v| v.as_str()) == Some(patient.id.as_str())
+    }))
+}
+
+/// Most patient accounts one recipient listing considers. A clinician's list
+/// is filtered from these by a chart check each; a deployment with more
+/// patients than this wants a "patients of clinician" read instead.
+const RECIPIENT_PATIENT_CANDIDATES: usize = 500;
+
+/// Who the caller can write to.
+///
+/// Staff: every active staff account, and the patients they are treating (a
+/// patient's grant, a care relationship from an appointment, consultation or
+/// referral, or emergency access). The compose box offered only staff, so a
+/// doctor could not message a patient at all. Patients: staff only.
+#[get("/api/messages/recipients")]
+pub async fn list_message_recipients(
+    data: web::Data<AppState>,
+    caller: crate::middleware::AuthorizedUser,
+) -> impl Responder {
+    let (staff, candidates): (Vec<crate::User>, Vec<crate::User>) = {
+        let users = match data.users.read() {
+            Ok(users) => users,
+            Err(_) => {
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Recipients could not be loaded".to_string(),
+                    code: "RECIPIENTS_UNAVAILABLE".to_string(),
+                })
+            }
+        };
+        let active = users
+            .values()
+            .filter(|u| u.id != caller.user_id && u.status.eq_ignore_ascii_case("active"));
+        let (patients, staff): (Vec<&crate::User>, Vec<&crate::User>) =
+            active.partition(|u| u.role == crate::Role::Patient);
+        (
+            staff.into_iter().cloned().collect(),
+            patients
+                .into_iter()
+                .filter(|u| u.linked_patient_id.is_some())
+                .take(RECIPIENT_PATIENT_CANDIDATES)
+                .cloned()
+                .collect(),
+        )
+    };
+    let mut patients = Vec::new();
+    if caller.user.role != crate::Role::Patient {
+        for candidate in &candidates {
+            let patient_id = candidate.linked_patient_id.as_deref().unwrap_or_default();
+            match crate::care_access::treats_patient(&data, &caller.user, patient_id).await {
+                Ok(true) => patients.push(serde_json::json!({
+                    "user_id": candidate.id,
+                    "name": candidate.name,
+                    "patient_id": patient_id,
+                })),
+                Ok(false) => {}
+                Err(error) => {
+                    log::error!("recipient chart check failed: {}", error.0);
+                    return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                        error: "Recipients could not be loaded".to_string(),
+                        code: "RECIPIENTS_UNAVAILABLE".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    let mut staff: Vec<serde_json::Value> = staff
+        .iter()
+        .map(|u| {
+            serde_json::json!({
+                "user_id": u.id,
+                "name": u.name,
+                "role": u.role.to_string(),
+                "specialty": u.specialty,
+            })
+        })
+        .collect();
+    staff.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    patients.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "staff": staff,
+        "patients": patients,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use actix_web::{test, App};
 
     fn register(state: &AppState, user_id: &str, name: &str, role: crate::Role) {
+        let is_patient = role == crate::Role::Patient;
         state.users.write().unwrap().insert(
             user_id.to_string(),
             crate::User {
@@ -763,7 +899,8 @@ mod tests {
                 role,
                 created_at: chrono::Utc::now(),
                 created_by: None,
-                linked_patient_id: None,
+                // A patient account is bound to its record.
+                linked_patient_id: is_patient.then(|| format!("PAT-{user_id}")),
                 email: None,
                 phone: None,
                 department: None,
@@ -775,11 +912,109 @@ mod tests {
         );
     }
 
+    /// A care relationship between a clinician and a patient account.
+    async fn treat(state: &AppState, clinician: &str, patient_user: &str) {
+        crate::care_access::record_encounter(
+            state,
+            &format!("PAT-{patient_user}"),
+            clinician,
+            "APPT-test",
+            chrono::Utc::now(),
+        )
+        .await;
+    }
+
+    fn send(from: &str, to: &str) -> test::TestRequest {
+        test::TestRequest::post()
+            .uri("/api/messages/send")
+            .insert_header(crate::test_fixtures::as_user(from))
+            .set_json(serde_json::json!({ "recipient_id": to, "content": "Hello" }))
+    }
+
+    /// Staff write to patients they treat, or answer one who wrote first.
+    #[actix_web::test]
+    async fn staff_message_a_patient_they_treat_or_one_who_wrote() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Treating", crate::Role::Doctor);
+        register(&state, "stranger", "Dr Stranger", crate::Role::Doctor);
+        register(&state, "patient", "Patient Test", crate::Role::Patient);
+        treat(&state, "doctor", "patient").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(send_message),
+        )
+        .await;
+        assert_eq!(
+            test::call_service(&app, send("doctor", "patient").to_request())
+                .await
+                .status(),
+            201
+        );
+        assert_eq!(
+            test::call_service(&app, send("stranger", "patient").to_request())
+                .await
+                .status(),
+            403
+        );
+        // The patient writes to the stranger; now the stranger may answer.
+        assert_eq!(
+            test::call_service(&app, send("patient", "stranger").to_request())
+                .await
+                .status(),
+            201
+        );
+        assert_eq!(
+            test::call_service(&app, send("stranger", "patient").to_request())
+                .await
+                .status(),
+            201
+        );
+    }
+
+    /// The compose box lists staff, and only the patients the caller treats.
+    #[actix_web::test]
+    async fn recipients_are_staff_and_the_patients_you_treat() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Treating", crate::Role::Doctor);
+        register(&state, "nurse", "Sister Nurse", crate::Role::Nurse);
+        register(&state, "mine", "Thabo Mine", crate::Role::Patient);
+        register(&state, "other", "Zanele Other", crate::Role::Patient);
+        treat(&state, "doctor", "mine").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(list_message_recipients),
+        )
+        .await;
+        let list = |user: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/messages/recipients")
+                .insert_header(crate::test_fixtures::as_user(user))
+                .to_request()
+        };
+        let names = |body: &serde_json::Value, key: &str| -> Vec<String> {
+            body[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let doctor: serde_json::Value = test::call_and_read_body_json(&app, list("doctor")).await;
+        assert_eq!(names(&doctor, "patients"), vec!["Thabo Mine"], "{doctor}");
+        assert_eq!(names(&doctor, "staff"), vec!["Sister Nurse"], "{doctor}");
+        let patient: serde_json::Value = test::call_and_read_body_json(&app, list("mine")).await;
+        assert!(names(&patient, "patients").is_empty(), "{patient}");
+        assert_eq!(names(&patient, "staff").len(), 2, "{patient}");
+    }
+
     #[actix_web::test]
     async fn opening_message_persists_read_state_and_updates_counts() {
         let state = crate::AppState::new();
         register(&state, "doctor", "Dr Test", crate::Role::Doctor);
         register(&state, "patient", "Patient Test", crate::Role::Patient);
+        treat(&state, "doctor", "patient").await;
         let data = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -857,6 +1092,7 @@ mod tests {
         let state = crate::AppState::new();
         register(&state, "doctor", "Dr Test", crate::Role::Doctor);
         register(&state, "patient", "Patient Test", crate::Role::Patient);
+        treat(&state, "doctor", "patient").await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))

@@ -15,7 +15,9 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog, ModalPanel } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog, ModalPanel,
+  notifySuccess,
+} from '@medichain/shared';
 import type { EobDocument } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -315,6 +317,7 @@ const InsurancePage: React.FC = () => {
       setInsuranceCards(prev => prev.map(card =>
         card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
       ));
+      notifySuccess('Coverage check complete.');
     } catch (err) {
       console.warn('Insurance verification failed:', err);
       setCardError(t('insurance.verificationFailed'));
@@ -360,6 +363,7 @@ const InsurancePage: React.FC = () => {
           : card
       ));
       setShowUploadModal(false);
+      notifySuccess('Card image uploaded.');
     } catch (err) {
       console.error('Insurance card image upload failed:', err);
       setUploadError(t('insurance.uploadFailed'));
@@ -418,6 +422,7 @@ const InsurancePage: React.FC = () => {
         patient_id: patient.healthId,
       });
       setInsuranceCards(prev => [...prev, response.card as unknown as InsuranceCard]);
+      notifySuccess('Insurance card added.');
     } catch (error) {
       setCardError(error instanceof Error ? error.message : t('insurance.addFailed'));
       return;

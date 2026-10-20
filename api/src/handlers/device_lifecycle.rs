@@ -231,6 +231,27 @@ async fn persist_rotation(
     Ok(())
 }
 
+/// Record that a device was used, for the "last seen" an administrator reviews.
+///
+/// The column existed and nothing wrote it, so every device in the fleet read
+/// as never seen, including ones opening emergency records daily. A failure is
+/// logged: the access it accompanies has already been granted and audited.
+pub(crate) async fn record_device_use(data: &web::Data<AppState>, device_id: &str) {
+    let now = Utc::now();
+    let _ = data.device_lifecycle.mark_seen(device_id, now);
+    let Some(pool) = data.db_pool.as_ref() else {
+        return;
+    };
+    if let Err(error) = sqlx::query("UPDATE managed_devices SET last_seen_at = $2 WHERE id = $1")
+        .bind(device_id)
+        .bind(now)
+        .execute(pool)
+        .await
+    {
+        log::warn!("device {device_id} use not recorded: {error}");
+    }
+}
+
 async fn persist_revocation(
     data: &web::Data<AppState>,
     device: &ManagedDevice,

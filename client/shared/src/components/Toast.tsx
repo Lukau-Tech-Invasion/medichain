@@ -118,6 +118,21 @@ function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: 
   );
 }
 
+/** The mounted provider's `addToast`, for `notifySuccess`. */
+let activeAddToast: ((type: ToastType, message: string, title?: string) => void) | null = null;
+
+/**
+ * Confirm a save from anywhere, without threading a hook through.
+ *
+ * 38 forms saved and said nothing: no toast, no message, the form simply sat
+ * there, so a clinician could not tell a save from a click that did nothing.
+ * Call this where the save has actually succeeded (after the awaited request,
+ * inside its `try`). Without a mounted `ToastProvider` it does nothing.
+ */
+export function notifySuccess(message: string, title?: string): void {
+  activeAddToast?.('success', message, title);
+}
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -125,6 +140,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     setToasts((prev) => [...prev, { id, type, message, title }]);
   }, []);
+
+  useEffect(() => {
+    activeAddToast = addToast;
+    return () => {
+      if (activeAddToast === addToast) activeAddToast = null;
+    };
+  }, [addToast]);
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));

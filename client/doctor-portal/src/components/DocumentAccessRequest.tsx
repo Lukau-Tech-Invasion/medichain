@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { getApiErrorMessage, requestPatientDocumentAccess } from '@medichain/shared';
+import { getApiErrorMessage, requestPatientDocumentAccess,
+  notifySuccess,
+} from '@medichain/shared';
 
 /** Request access for one patient; only the patient can approve this request. */
 export function DocumentAccessRequest({ patientId, onCheckAccess, scope = 'documents' }: {
@@ -25,6 +27,7 @@ export function DocumentAccessRequest({ patientId, onCheckAccess, scope = 'docum
     try {
       await requestPatientDocumentAccess(patientId, reason.trim());
       if (active.current) setSent(true);
+      notifySuccess('Access request sent to the patient.');
     } catch (err) {
       console.error('Document access request failed', err);
       if (active.current) setError(getApiErrorMessage(err, 'The access request could not be sent. Please try again.'));

@@ -6,6 +6,41 @@ pre-1.0 and does not yet make compatibility guarantees.
 
 ## [Unreleased]
 
+### Fixed (2026-10-20, later)
+- "Last login" read "Never" for every account: nothing wrote
+  `users.last_login_at`, and every user save overwrote it with the cache's
+  stale value. A successful sign-in now records it, and a save can no longer
+  move it backwards.
+- The same defect class, found by `scripts/probe-empty-fields.ts` (every
+  parameter-free list read as three roles, reporting fields empty in every
+  row): an NFC card's "last used" (`record_usage` had no caller), a device's
+  "last seen" (never written), a card's "issued by" (never set at
+  registration), and the medication administration list's start date (read
+  `created_at` as text; it is a number).
+- A registered patient's card read as "none issued": registration writes the
+  emergency tag to `nfc_tags` with a type the card registry does not load.
+  `GET /api/nfc/card/{patient_id}` now falls back to the patient's active tag.
+
+- A doctor could not message a patient: the compose box offered staff only.
+  `GET /api/messages/recipients` lists staff and the patients the caller is
+  treating (patient grant, care relationship, or break-glass), and sending to a
+  patient now requires that, or that the patient wrote to them first (any staff
+  account could message any patient before).
+- 38 forms saved without telling anyone. Each now confirms with a toast
+  (`notifySuccess` in `@medichain/shared`, usable without a hook), and
+  `scripts/check-silent-saves.py` refuses a saving handler with no success
+  signal.
+
+### Added (2026-10-20, later)
+- Reading a patient's NFC card or sticker on Android Chrome (Web NFC): "Tap
+  card to read" on the emergency screen. Patients on Android can write their
+  card number onto a blank NFC sticker from the Medical ID page. A phone cannot
+  act as a card from a web page, so phone-to-phone taps need a native app.
+- The emergency screen no longer offers a "Demo" card or "Simulate NFC Tap".
+- `scripts/seed-showcase-accounts.ts` enrols one shared approved device for the
+  reviewer accounts and renews its credential on every run (30 days, 7 days'
+  grace), and gives the reviewer staff departments and specialties.
+
 ### Fixed (2026-10-20)
 - Notifications have New and History. Read state was a single "read up to"
   marker that only "Mark all as read" moved, so opening a notification left it

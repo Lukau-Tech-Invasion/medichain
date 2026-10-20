@@ -12,6 +12,7 @@ import {
   LoadingSpinner,
   confirmDialog,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
@@ -164,6 +165,7 @@ const NoteTemplatesPage: React.FC = () => {
         tags: template.tags ?? [],
       });
       await fetchTemplates();
+      notifySuccess('Template saved.');
       return true;
     } catch (err) {
       showError(getApiErrorMessage(err, t('docNoteTemplates.createFailed')));

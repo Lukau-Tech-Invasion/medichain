@@ -94,6 +94,7 @@ export { csvCell, csvRow } from './utils/csv';
 export { reloadOnStaleChunks } from './utils/staleChunks';
 export { followSessionAcrossTabs, signedInIdentity } from './utils/sessionAcrossTabs';
 export { parseEmergencyCode } from './utils/emergencyQr';
+export { nfcSupported, nfcErrorMessage, readNfcCardOnce, writeNfcCard, textOfRecords } from './utils/webNfc';
 export type { OfflineEmergencySummary, ScannedEmergencyCode } from './utils/emergencyQr';
 
 export { getEmergencyNumber } from './utils/emergencyNumber';

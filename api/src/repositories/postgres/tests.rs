@@ -4880,3 +4880,43 @@ async fn test_pg_refresh_token_reuse_revokes_the_login() {
     assert!(successor.is_none(), "the successor dies with the login");
     pool.close().await;
 }
+
+/// A sign-in is recorded, and a later profile save carrying the stale cached
+/// value cannot erase it. Nothing wrote `last_login_at`, and every user save
+/// overwrote it, so user management said "Never" for everyone.
+#[tokio::test]
+async fn test_pg_sign_in_is_recorded_and_survives_a_profile_save() {
+    let pool = get_test_pool().await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let uuid = uuid::Uuid::parse_str(&account_id).unwrap();
+    let state = crate::AppState::new_with_pool(Some(pool.clone()));
+    let read = || async {
+        sqlx::query_scalar::<_, Option<chrono::DateTime<Utc>>>(
+            "SELECT last_login_at FROM users WHERE id = $1",
+        )
+        .bind(uuid)
+        .fetch_one(&pool)
+        .await
+        .expect("read last_login_at")
+    };
+    assert_eq!(read().await, None, "a new account has never signed in");
+
+    crate::credentials::record_sign_in(&state, &pool, uuid).await;
+    let recorded = read().await.expect("the sign-in was not recorded");
+
+    // A profile save from a cache that never saw the sign-in.
+    let stale = crate::test_fixtures::staff(&account_id, crate::Role::Doctor);
+    assert_eq!(stale.last_login, None);
+    state.persist_user(&stale).await.expect("profile save");
+    assert_eq!(
+        read().await,
+        Some(recorded),
+        "a profile save erased the sign-in"
+    );
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(uuid)
+        .execute(&pool)
+        .await
+        .ok();
+}

@@ -158,6 +158,7 @@ pub async fn password_login(
         return credential_error();
     };
     credentials::clear_failures(&key);
+    credentials::record_sign_in(&data, pool, account.id).await;
     super::auth_jwt::issue_token_pair(
         &data,
         &req,
@@ -249,6 +250,7 @@ pub async fn redeem_credential(
             "success": true, "mfa": false, "mfa_required": true,
         }));
     }
+    credentials::record_sign_in(&data, pool, account.id).await;
     super::auth_jwt::issue_token_pair(
         &data,
         &req,

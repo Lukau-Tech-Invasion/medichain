@@ -32,6 +32,7 @@ import {
   useTranslation,
   confirmDialog,
   formatDateOnly,
+  notifySuccess,
 } from '@medichain/shared';
 import type {
   SupportedWearable,
@@ -191,6 +192,7 @@ const WearablesPage: React.FC = () => {
       setPendingManufacturer(null);
       setPendingModel('');
       loadWearableData();
+      notifySuccess('Device registered.');
     } catch (err) {
       // Said out loud. A button that fails silently is why this went unnoticed.
       setRegisterError(getApiErrorMessage(err, t('wearables.registerFailed')));
@@ -346,6 +348,7 @@ const WearablesPage: React.FC = () => {
       setRuleLow('');
       setRuleHigh('');
       await loadAlerting();
+      notifySuccess('Alert rule saved.');
     } catch (err) {
       setRuleError(getApiErrorMessage(err, t('wearables.ruleFailed')));
     } finally {

@@ -19,7 +19,9 @@ import {
   Textarea,
   useValidatedForm,
   progressNoteSchema,
-  progressNoteDraftSchema, ModalPanel } from '@medichain/shared';
+  progressNoteDraftSchema, ModalPanel,
+  notifySuccess,
+} from '@medichain/shared';
 import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import PatientSelect, { type Patient, useDirectoryNames } from '../components/PatientSelect';
@@ -243,6 +245,7 @@ const ProgressNotePage: React.FC = () => {
       }, ...current]);
       setForm({ patientId: '', patientName: '', noteType: 'daily', subjective: '', objective: '', assessment: '', plan: '' });
       setActiveTab('notes');
+      notifySuccess('Progress note saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docProgressNote.cannotConnect'));
     } finally {

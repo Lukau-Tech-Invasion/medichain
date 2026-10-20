@@ -24,7 +24,9 @@ import {
   createSpecimen,
   rejectSpecimen,
   getApiErrorMessage,
-  formatTimestamp, ModalPanel } from '@medichain/shared';
+  formatTimestamp, ModalPanel,
+  notifySuccess,
+} from '@medichain/shared';
 import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -162,6 +164,7 @@ const SpecimenPage: React.FC = () => {
       setRejectReason('');
       setRejectNotes('');
       setRejectRecollect(false);
+      notifySuccess('Specimen rejection recorded.');
     } catch (err) {
       setRejectMessage(getApiErrorMessage(err, t('docSpecimen.rejectFailed')));
     } finally {
@@ -194,6 +197,7 @@ const SpecimenPage: React.FC = () => {
         patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
         collectionSite: '', notes: '', checklist: [],
       });
+      notifySuccess('Specimen collection recorded.');
     } catch (err) {
       console.error('Failed to record specimen collection:', err);
       setSaveMessage(t('docSpecimen.errSaveFailed'));

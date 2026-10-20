@@ -24,6 +24,7 @@ import {
   getApiErrorCode,
   type LabDashboardResponse,
   promptDialog,
+  notifySuccess,
 } from '@medichain/shared';
 import {
   StatCard,
@@ -123,6 +124,7 @@ export default function LabTechDashboardPage() {
     try {
       await requestSpecimenRecollection(rejectionId, reason.trim());
       setRecollectResult((p) => ({ ...p, [rejectionId]: t('docLabDashboard.recollectionRequested') }));
+      notifySuccess('Recollection requested.');
     } catch (error) {
       const code = getApiErrorCode(error);
       const friendly =
@@ -175,6 +177,7 @@ export default function LabTechDashboardPage() {
         [recollectionId]: t('docLabDashboard.recollectionCancelled'),
       }));
       await loadDashboard();
+      notifySuccess('Recollection cancelled.');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCompletionResult((previous) => ({

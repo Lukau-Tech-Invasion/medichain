@@ -6,6 +6,7 @@ import {
   updateDemographics,
   replaceEmergencyContacts,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { validInsuranceDates } from './insuranceDates';
@@ -325,6 +326,7 @@ export function MyProfilePage() {
       });
       setEditingDetails(false);
       flash(t('profile.detailsSaved'));
+      notifySuccess('Your details are saved.');
     } catch (err) {
       console.error('Failed to save details:', err);
       setError(t('profile.saveFailedRetry'));
@@ -361,6 +363,7 @@ export function MyProfilePage() {
       setProfile({ ...profile, address: addressDraft, lastUpdated: new Date().toISOString() });
       setEditingAddress(false);
       flash(t('profile.detailsSaved'));
+      notifySuccess('Your address is saved.');
     } catch (err) {
       console.error('Failed to save address:', err);
       setAddressError(t('profile.addressSaveFailed'));
@@ -406,6 +409,7 @@ export function MyProfilePage() {
       setProfile({ ...profile, insurance: insuranceDraft, lastUpdated: new Date().toISOString() });
       setEditingInsurance(false);
       flash(t('profile.detailsSaved'));
+      notifySuccess('Your insurance details are saved.');
     } catch (err) {
       console.error('Failed to save insurance:', err);
       setInsuranceError(t('profile.insuranceSaveFailed'));

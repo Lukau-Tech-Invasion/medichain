@@ -422,7 +422,9 @@ impl AppState {
                 linked_patient_id = EXCLUDED.linked_patient_id,
                 is_active = EXCLUDED.is_active,
                 status = EXCLUDED.status,
-                last_login_at = EXCLUDED.last_login_at,
+                -- A profile save carries whatever the cache held, which can be
+                -- older than the sign-in recorded since: never move it back.
+                last_login_at = GREATEST(users.last_login_at, EXCLUDED.last_login_at),
                 updated_at = NOW()",
         )
         .bind(user_id)

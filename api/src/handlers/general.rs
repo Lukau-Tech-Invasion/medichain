@@ -533,7 +533,13 @@ pub async fn register_patient(
         entity.health_id = issue_medical_id();
         if let Err(e) = data
             .repositories
-            .create_patient_with_nfc(entity, nfc_tag.into())
+            .create_patient_with_nfc(entity, {
+                // Who issued the card: the column existed and was never set,
+                // so every card's "issued by" read blank.
+                let mut tag: crate::repositories::traits::NfcTagEntity = nfc_tag.into();
+                tag.issued_by = Some(current_user_id.clone());
+                tag
+            })
             .await
         {
             log::error!("Patient persistence failed: {}", e);

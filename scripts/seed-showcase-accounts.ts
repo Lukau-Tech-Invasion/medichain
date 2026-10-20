@@ -28,6 +28,8 @@ import {
   type Json,
   type StaffFixture,
   SeedFailure,
+  adminConfirmer,
+  call,
   ensurePatientAccess,
   fail,
   issuedMedicalId,
@@ -49,6 +51,20 @@ const STAFF: StaffFixture[] = [
   { key: 'labtech', loginId: 'kagiso.mokoena', name: 'Kagiso Mokoena', role: 'LabTechnician' },
   { key: 'paramedic', loginId: 'bongani.mthembu', name: 'Bongani Mthembu', role: 'Paramedic' },
 ];
+
+/**
+ * What each reviewer's profile says about them. Screens show department and
+ * specialty (the provider list, message recipients, the staff roster); left
+ * unset they read blank for every account.
+ */
+const STAFF_PROFILE: Record<string, { department: string; specialty: string }> = {
+  'naledi.mahlaba': { department: 'Emergency Department', specialty: 'Emergency Medicine' },
+  'riaan.botha': { department: 'Internal Medicine', specialty: 'Internal Medicine' },
+  'busisiwe.zulu': { department: 'Emergency Department', specialty: 'Emergency Nursing' },
+  'fatima.ebrahim': { department: 'Pharmacy', specialty: 'Clinical Pharmacy' },
+  'kagiso.mokoena': { department: 'Laboratory', specialty: 'Clinical Pathology' },
+  'bongani.mthembu': { department: 'Emergency Medical Services', specialty: 'Advanced Life Support' },
+};
 
 /**
  * Four patients whose records exercise different screens: chronic disease,
@@ -130,6 +146,60 @@ function passphrase(): string {
   return `${words.join('-')}-${randomInt(10, 100)}`;
 }
 
+/** The one approved device every reviewer's clinical account uses. */
+const SHOWCASE_DEVICE = 'Showcase emergency device';
+
+/**
+ * Emergency access (NFC card or QR scan) runs only from an approved device in
+ * the clinician's facility. An approved device is a record, not a handset, so
+ * one serves every reviewer on any phone, and the emergency screen selects it
+ * by itself when it is the only one.
+ *
+ * Its credential must be renewed every 30 days (7 days' grace after that), so
+ * every run renews it: run this script again within 30 days of judging.
+ */
+async function ensureShowcaseDevice(admin: Account, clinician: Account): Promise<string> {
+  const work = await call('POST', '/identity/context/work', {}, clinician.token);
+  const context = (work.json.context ?? {}) as Json;
+  const organization = String(context.organization_id ?? '');
+  const facility = context.facility_id ? String(context.facility_id) : null;
+  if (!organization) fail('read the clinicians\' work location', work.status, work.json);
+
+  const listed = await call('GET', '/devices', undefined, admin.token);
+  if (listed.status !== 200) fail('list approved devices', listed.status, listed.json);
+  const devices = ((listed.json.devices ?? []) as Json[]).filter(
+    (device) =>
+      device.device_name === SHOWCASE_DEVICE &&
+      device.organization_id === organization &&
+      (device.facility_id ?? null) === facility &&
+      String(device.status ?? '').toLowerCase() !== 'revoked'
+  );
+  let deviceId = String(devices[0]?.id ?? '');
+  const confirmer = adminConfirmer(admin);
+  if (!deviceId) {
+    const enrolled = await call(
+      'POST',
+      '/devices/enroll',
+      {
+        organization_id: organization,
+        facility_id: facility,
+        device_name: SHOWCASE_DEVICE,
+        device_type: 'handheld',
+        hardware_fingerprint: `showcase-${randomInt(1e9, 1e10)}`,
+        platform: 'Any phone (reviewer accounts)',
+      },
+      admin.token,
+      confirmer
+    );
+    if (enrolled.status !== 201) fail('enrol the showcase device', enrolled.status, enrolled.json);
+    deviceId = String(enrolled.json.id);
+  }
+  const keyId = `showcase-${new Date().toISOString().slice(0, 10)}-${randomInt(1e5, 1e6)}`;
+  const rotated = await call('POST', `/devices/${deviceId}/rotate`, { key_id: keyId }, admin.token, confirmer);
+  if (rotated.status !== 200) fail('renew the showcase device credential', rotated.status, rotated.json);
+  return String(rotated.json.next_rotation_at ?? '');
+}
+
 interface Issued {
   role: string;
   name: string;
@@ -172,6 +242,11 @@ async function main(): Promise<void> {
     const password = known.get(fixture.loginId) ?? passphrase();
     const account = (await tryLogin(fixture.loginId, password)) ?? (await provisionStaff(admin, fixture, password));
     staff.push(account);
+    const profile = STAFF_PROFILE[fixture.loginId];
+    if (profile) {
+      const saved = await call('PUT', `/users/${account.userId}`, profile, admin.token, adminConfirmer(admin));
+      if (saved.status !== 200) fail(`set ${fixture.loginId}'s department and specialty`, saved.status, saved.json);
+    }
     issued.push({ role: fixture.role, name: fixture.name, login_id: fixture.loginId, password, user_id: account.userId });
     console.log(`  · ${fixture.role.padEnd(13)} ${fixture.name}`);
   }
@@ -192,6 +267,9 @@ async function main(): Promise<void> {
     });
     console.log(`  · Patient       ${record.full_name}  (${medicalId})`);
   }
+
+  const renewBy = await ensureShowcaseDevice(admin, doctor);
+  console.log(`\n  · Approved device "${SHOWCASE_DEVICE}" ready; renew by running this again before ${renewBy || 'its rotation date'}`);
 
   // Proof before anything is handed out: every account signs in from scratch.
   console.log('\nSign-in check');

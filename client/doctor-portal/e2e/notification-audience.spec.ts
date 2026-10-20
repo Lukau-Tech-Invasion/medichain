@@ -16,7 +16,7 @@ import { api, fixtureStaff, fixtureToken, readFixtures } from './identity';
  *   2. the doctor sets the patient a medication reminder that falls due: only
  *      the patient is told.
  *
- * The reminder job runs once a minute against HH:MM in UTC, so the reminder is
+ * The reminder job runs once a minute against the clinic's HH:MM, so the reminder is
  * set for the next two minutes and the streams stay open long enough to see it.
  */
 
@@ -54,7 +54,13 @@ function listen(baseURL: string, token: string): Listener {
   return listener;
 }
 
-const utcMinute = (offset: number) => new Date(Date.now() + offset * 60_000).toISOString().slice(11, 16);
+/**
+ * Reminder times are the clinic's wall clock (`CLINIC_TIMEZONE`): South
+ * Africa, UTC+2, unless E2E_CLINIC_UTC_OFFSET_MINUTES says otherwise.
+ */
+const CLINIC_OFFSET_MINUTES = Number(process.env.E2E_CLINIC_UTC_OFFSET_MINUTES ?? 120);
+const clinicMinute = (offset: number) =>
+  new Date(Date.now() + (offset + CLINIC_OFFSET_MINUTES) * 60_000).toISOString().slice(11, 16);
 
 test('a patient\'s notifications reach that patient and their clinician, not the administrator', async ({
   request,
@@ -99,7 +105,7 @@ test('a patient\'s notifications reach that patient and their clinician, not the
         medication_name: medication,
         dosage: '1 tablet',
         frequency: 'once',
-        reminder_times: [utcMinute(1), utcMinute(2)],
+        reminder_times: [clinicMinute(1), clinicMinute(2)],
         start_date: new Date().toISOString().slice(0, 10),
         push_notification: true,
       },

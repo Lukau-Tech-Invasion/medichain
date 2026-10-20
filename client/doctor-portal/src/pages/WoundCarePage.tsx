@@ -27,7 +27,9 @@ import {
   clickable,
   Input,
   useValidatedForm,
-  woundAssessmentSchema, ModalPanel } from '@medichain/shared';
+  woundAssessmentSchema, ModalPanel,
+  notifySuccess,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -241,6 +243,7 @@ const WoundCarePage: React.FC = () => {
         widthCm: '', depthCm: '', exudate: '', painLevel: '', tissueTypes: [], notes: '',
       });
       await reloadWounds();
+      notifySuccess('Wound assessment saved.');
     } catch (err) {
       console.error('Failed to save wound assessment:', err);
       setSaveMessage(t('docWoundCare.errSaveFailed'));

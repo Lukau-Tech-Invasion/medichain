@@ -635,6 +635,31 @@ fn make_room(table: &mut HashMap<String, Failures>) {
     }
 }
 
+/// Record a successful sign-in: `users.last_login_at`, and the cached user.
+///
+/// Nothing wrote this column, so every account's "Last login" read "Never" in
+/// user management however often the person had signed in. A failure is
+/// logged, not returned: the person has proved who they are, and bookkeeping
+/// must not refuse them.
+pub async fn record_sign_in(state: &crate::AppState, pool: &PgPool, account_id: Uuid) {
+    let recorded: Result<DateTime<Utc>, sqlx::Error> = sqlx::query_scalar(
+        "UPDATE users SET last_login_at = NOW() WHERE id = $1 RETURNING last_login_at",
+    )
+    .bind(account_id)
+    .fetch_one(pool)
+    .await;
+    match recorded {
+        Ok(at) => {
+            if let Ok(mut users) = state.users.write() {
+                if let Some(user) = users.get_mut(&account_id.to_string()) {
+                    user.last_login = Some(at);
+                }
+            }
+        }
+        Err(error) => log::error!("last sign-in for {account_id} not recorded: {error}"),
+    }
+}
+
 pub fn clear_failures(key: &str) {
     if let Ok(mut table) = failure_table().lock() {
         table.remove(key);

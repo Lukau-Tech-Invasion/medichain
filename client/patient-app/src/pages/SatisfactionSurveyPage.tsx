@@ -7,6 +7,7 @@ import {
   type SatisfactionSurveyResponseInput,
   useTranslation,
   localDateInput,
+  notifySuccess,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -163,6 +164,7 @@ const SatisfactionSurveyPage: React.FC = () => {
         follow_up_requested: false,
       });
       setStep('submitted');
+      notifySuccess('Thank you. Your feedback was sent.');
     } catch (error) {
       debugLog('SatisfactionSurveyPage', 'Survey submission failed:', error);
       setSubmitError(t('survey.submitError'));

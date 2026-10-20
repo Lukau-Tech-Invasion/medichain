@@ -140,6 +140,11 @@ jobs:
             - name: No client calls a native browser dialog
               run: python scripts/check-native-dialogs.py
 
+            # 38 forms saved and showed nothing, so a save looked like a dead
+            # click. Every saving handler gives a visible success signal.
+            - name: No form saves silently
+              run: python scripts/check-silent-saves.py
+
             # `new Date(undefined).toLocaleString()` prints "Invalid Date";
             # 83 sites did it before they moved onto the shared formatters.
             - name: No client formats a timestamp without the shared guard

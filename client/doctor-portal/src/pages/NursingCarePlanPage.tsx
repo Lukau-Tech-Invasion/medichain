@@ -24,6 +24,7 @@ import {
   useValidatedForm,
   carePlanSchema,
   createCarePlan,
+  notifySuccess,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -170,6 +171,7 @@ const NursingCarePlanPage: React.FC = () => {
       });
       setSaveMessage(t('docNursingCarePlan.savedOk'));
       setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
+      notifySuccess('Care plan saved.');
     } catch (err) {
       console.error('Failed to create care plan:', err);
       setSaveMessage(t('docNursingCarePlan.errSaveFailed'));

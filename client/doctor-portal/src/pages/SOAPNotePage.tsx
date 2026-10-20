@@ -12,6 +12,7 @@ import {
   useTranslation,
   useValidatedForm,
   formatDateOnly,
+  notifySuccess,
 } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
@@ -175,6 +176,7 @@ function SOAPNotePage() {
       setAddendumNotice(
         t('docSOAPNote.addendumCount', { count: String(addenda.length) })
       );
+      notifySuccess('Addendum added.');
     } catch (err) {
       setAddendumError(getApiErrorMessage(err, t('docSOAPNote.addendumFailed')));
     } finally {

@@ -16,6 +16,7 @@ import {
   useTranslation,
   formatDateOnly,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import type {
   DeletionRegisterEntry,
@@ -216,7 +217,9 @@ function RetentionPage() {
     setNotice('');
     setBusy(key);
     try {
-      setNotice(await action());
+      const done = await action();
+      setNotice(done);
+      notifySuccess(done);
       await loadReport();
       await loadLists();
     } catch (err) {

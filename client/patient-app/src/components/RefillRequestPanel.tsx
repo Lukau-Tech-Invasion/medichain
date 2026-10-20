@@ -6,6 +6,7 @@ import {
   requestPrescriptionRefill,
   REFILL_NOTE_MAX_CHARS,
   useTranslation,
+  notifySuccess,
 } from '@medichain/shared';
 import type { RefillRequest } from '@medichain/shared';
 
@@ -148,6 +149,7 @@ function RefillRequestForm({ prescriptionId, onChanged }: { prescriptionId: stri
       onChanged(body.request);
       setOpen(false);
       setNote('');
+      notifySuccess('Refill request sent.');
     } catch (err) {
       setError(err instanceof Error ? err.message : t('medications.refillFailed'));
     } finally {

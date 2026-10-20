@@ -8,6 +8,7 @@ import {
   Input,
   useValidatedForm,
   medicationReminderSchema,
+  notifySuccess,
 } from '@medichain/shared';
 
 import { usePatientAuthStore } from '../store/authStore';
@@ -120,6 +121,7 @@ export function MedicationRemindersPage() {
       setNotifyEmail(false);
       setShowForm(false);
       await load(patient.healthId);
+      notifySuccess('Reminder added.');
     } catch (err) {
       // Surfaced, not swallowed. A reminder that failed to save must not leave
       // the screen looking as though it did.

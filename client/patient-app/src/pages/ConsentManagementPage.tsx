@@ -32,6 +32,7 @@ import {
   clickable,
   formatTimestamp,
   ModalPanel,
+  notifySuccess,
 } from '@medichain/shared';
 import type { PatientAccessGrant, PatientAccessRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -113,6 +114,7 @@ export function ConsentManagementPage() {
       // simply lost something.
       setWithdrawNotice(t('consent.withdrawDone'));
       setWithdrawReason('');
+      notifySuccess('Consent withdrawn.');
     } catch (err) {
       setWithdrawError(getApiErrorMessage(err, t('consent.withdrawFailed')));
     } finally {
@@ -209,6 +211,7 @@ export function ConsentManagementPage() {
       // Reload consents
       const result = await getPatientConsents(patient.healthId) as { consents: SignedConsent[] };
       setSignedConsents(result.consents || []);
+      notifySuccess('Consent signed.');
     } catch (err) {
       console.error('Failed to sign consent:', err);
       setConsentError(err instanceof Error ? err.message : 'The consent could not be signed.');
@@ -279,6 +282,7 @@ export function ConsentManagementPage() {
     try {
       await revokePatientAccessGrant(selectedGrant.id);
       await loadData();
+      notifySuccess('Access withdrawn.');
     } catch (error) {
       console.error('Error revoking access:', error);
       setLoadError(getApiErrorMessage(error, 'Access could not be withdrawn. Please try again.'));
@@ -295,6 +299,7 @@ export function ConsentManagementPage() {
       const days = approvalDays[requestId] ?? 7;
       await approvePatientAccessRequest(requestId, new Date(Date.now() + days * 86_400_000).toISOString());
       await loadData();
+      notifySuccess('Access approved.');
     } catch (error) {
       console.error('Error approving request:', error);
       setLoadError(getApiErrorMessage(error, 'The request could not be approved. Please try again.'));

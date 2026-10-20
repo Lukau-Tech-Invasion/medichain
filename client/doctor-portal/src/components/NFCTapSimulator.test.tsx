@@ -124,3 +124,66 @@ describe('NFCTapSimulator, QR scan', () => {
     );
   });
 });
+
+describe('NFCTapSimulator, NFC card', () => {
+  const setEmergencyAccess = vi.fn();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(usePatientStore).mockReturnValue({ setEmergencyAccess });
+    vi.mocked(useAuthStore).mockReturnValue(true);
+    vi.mocked(shared.listUsableDevices).mockResolvedValue({
+      devices: [{ id: 'device-1', device_name: 'Ward tablet', device_type: 'tablet' }],
+    } as never);
+    vi.mocked(shared.enterWorkContext).mockResolvedValue({ context: { id: 'context-1' } } as never);
+    vi.mocked(shared.grantBoundEmergencyAccess).mockRejectedValue(
+      new shared.ApiClientError('NFC tag not found', 'NFC_NOT_FOUND', 404)
+    );
+  });
+
+  const renderPanel = async () => {
+    render(
+      <MemoryRouter>
+        <NFCTapSimulator />
+      </MemoryRouter>
+    );
+    await screen.findByRole('option', { name: /Ward tablet/ });
+  };
+
+  it('offers no demo shortcut', async () => {
+    await renderPanel();
+    expect(screen.queryByText(/demo/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/simulate/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open emergency summary/i })).toBeInTheDocument();
+  });
+
+  it('hides tap-to-read where the browser has no Web NFC', async () => {
+    await renderPanel();
+    expect(screen.queryByRole('button', { name: /tap card to read/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/works in Chrome on Android/)).toBeInTheDocument();
+  });
+
+  it('reads a card with Web NFC and opens access with its number', async () => {
+    class FakeReader extends EventTarget {
+      async scan() {
+        const record = { recordType: 'text', encoding: 'utf-8', data: new DataView(new TextEncoder().encode('NFC-CARD-7').buffer) };
+        setTimeout(() => {
+          const event = new Event('reading') as Event & { message: unknown };
+          event.message = { records: [record] };
+          this.dispatchEvent(event);
+        }, 0);
+      }
+    }
+    (window as unknown as { NDEFReader?: unknown }).NDEFReader = FakeReader;
+    try {
+      await renderPanel();
+      fireEvent.click(screen.getByRole('button', { name: /tap card to read/i }));
+      await waitFor(() =>
+        expect(shared.grantBoundEmergencyAccess).toHaveBeenCalledWith(
+          expect.objectContaining({ nfc_tag_id: 'NFC-CARD-7', reason_code: 'emergency_nfc_access' })
+        )
+      );
+    } finally {
+      delete (window as unknown as { NDEFReader?: unknown }).NDEFReader;
+    }
+  });
+});

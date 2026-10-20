@@ -35,7 +35,9 @@ import {
   recordPharmacyDecision,
   controlledSubstanceReport,
   promptDialog,
-  formatTimestamp, ModalPanel } from '@medichain/shared';
+  formatTimestamp, ModalPanel,
+  notifySuccess,
+} from '@medichain/shared';
 
 interface SecondaryVerification {
   required: boolean;
@@ -194,6 +196,7 @@ export default function PharmacistDashboardPage() {
       setDecisionFor(null);
       setDecisionReason('');
       await loadDashboard();
+      notifySuccess('Decision recorded.');
     } catch (err) {
       setDecisionError(getApiErrorMessage(err, t('docPharmDashboard.decisionFailed')));
     } finally {
@@ -390,6 +393,7 @@ export default function PharmacistDashboardPage() {
       }
       setRxResult((p) => ({ ...p, [prescriptionId]: message }));
       await loadDashboard();
+      notifySuccess(message);
     } catch (error) {
       const code = getApiErrorCode(error);
       const friendly =

@@ -10,6 +10,7 @@ import {
   getPatientAppointmentSummaries,
   promptDialog,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -337,6 +338,7 @@ export function AppointmentsPage() {
       setBooking({ providerId: '', date: '', time: '', type: 'consultation', reason: '' });
       setSlots([]);
       await loadAppointments();
+      notifySuccess('Appointment requested.');
     } catch (err) {
       // Surfaced verbatim: a refused slot (409) or an unknown type (400) should
       // explain itself rather than read as a generic failure.

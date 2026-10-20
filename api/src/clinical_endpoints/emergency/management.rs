@@ -59,6 +59,23 @@ const MAR_ACTIVE_STATUSES: [&str; 6] = [
 /// Most rows one MAR read returns; a ward-wide list past this is logged.
 const MAR_MAX_ROWS: usize = 1000;
 
+/// The day a prescription was written, as `YYYY-MM-DD`.
+///
+/// Prescriptions store `created_at` as Unix seconds; this read it as text, so
+/// every MAR row's start date was blank. An older record holding a string is
+/// passed through.
+fn prescribed_on(prescription: &serde_json::Value) -> String {
+    match prescription.get("created_at") {
+        Some(serde_json::Value::Number(seconds)) => seconds
+            .as_i64()
+            .and_then(|seconds| chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0))
+            .map(|at| at.format("%Y-%m-%d").to_string())
+            .unwrap_or_default(),
+        Some(serde_json::Value::String(text)) => text.clone(),
+        _ => String::new(),
+    }
+}
+
 /// One MAR row for an active prescription.
 fn mar_row(
     record: &crate::repositories::JsonRecordEntity,
@@ -92,7 +109,7 @@ fn mar_row(
         "form": text(&med, "form"),
         "frequency": text(&med, "directions"),
         "scheduled_times": [],
-        "start_date": text(v, "created_at"),
+        "start_date": prescribed_on(v),
         "indication": text(v, "patient_instructions"),
         "prescriber": text(v, "prescriber_name"),
         "status": text(v, "status"),
@@ -2153,5 +2170,23 @@ mod mar_list_tests {
             ]
         );
         assert!(rows.iter().all(|r| r["patient_id"] == late));
+    }
+}
+
+#[cfg(test)]
+mod prescribed_on_tests {
+    use super::prescribed_on;
+
+    #[test]
+    fn the_start_date_comes_from_the_numeric_creation_time() {
+        assert_eq!(
+            prescribed_on(&serde_json::json!({ "created_at": 1_792_400_000 })),
+            "2026-10-19"
+        );
+        assert_eq!(
+            prescribed_on(&serde_json::json!({ "created_at": "2026-10-01" })),
+            "2026-10-01"
+        );
+        assert_eq!(prescribed_on(&serde_json::json!({})), "");
     }
 }

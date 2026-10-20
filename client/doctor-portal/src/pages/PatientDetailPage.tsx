@@ -26,6 +26,7 @@ import {
   formatDateOnly,
   formatTimestamp,
   SealStatusBadge,
+  notifySuccess,
 } from '@medichain/shared';
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
@@ -180,6 +181,7 @@ function PatientDetailPage() {
         lastUpdated: new Date().toISOString(),
       });
       setEditingClinicalDetails(false);
+      notifySuccess('Patient details saved.');
     } catch (saveError) {
       setClinicalDetailsError(
         saveError instanceof Error ? saveError.message : t('docPatientDetail.editSaveFailed')

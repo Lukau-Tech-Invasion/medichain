@@ -17,6 +17,7 @@ import {
   cdsActionSchema,
   formatTimestamp,
   confirmDialog,
+  notifySuccess,
 } from '@medichain/shared';
 import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -269,6 +270,7 @@ const CDSAlertsPage: React.FC = () => {
     };
     try {
       await createCdsRule(payload);
+      notifySuccess('Rule saved.');
     } catch (err) {
       showError(getApiErrorMessage(err, t('docCDS.errorRuleSaveFailed')));
       return false;

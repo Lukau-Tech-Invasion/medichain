@@ -1,21 +1,24 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { EmergencyInfo } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
-import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle, Camera } from 'lucide-react';
+import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle, Camera, Nfc } from 'lucide-react';
 import {
   ApiClientError,
   QrScanner,
   enterWorkContext,
   grantBoundEmergencyAccess,
   listUsableDevices,
+  nfcErrorMessage,
+  nfcSupported,
   parseEmergencyCode,
+  readNfcCardOnce,
 } from '@medichain/shared';
 import type { EmergencySubject, OfflineEmergencySummary, UsableDevice } from '@medichain/shared';
 import { OfflineQrSummary } from './OfflineQrSummary';
 
 /**
- * NFC tap simulation states
+ * Emergency access states
  */
 type TapState = 'idle' | 'waiting' | 'success' | 'error';
 
@@ -169,11 +172,36 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
     void requestAccess({ patient_id: code.patientId, qr_proof: code.proof }, code.offline);
   };
 
-  /**
-   * Use demo NFC tag
-   */
-  const useDemoTag = () => {
-    setNfcTagId('NFC-DEMO-001');
+  // Reading a real card: Chrome on Android only (Web NFC). Elsewhere the card
+  // number is typed, or the patient's QR code is scanned.
+  const canReadCards = nfcSupported();
+  const [listening, setListening] = useState(false);
+  const nfcAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => nfcAbort.current?.abort(), []);
+
+  const stopListening = () => {
+    nfcAbort.current?.abort();
+    nfcAbort.current = null;
+    setListening(false);
+  };
+
+  const readCard = async () => {
+    stopListening();
+    const controller = new AbortController();
+    nfcAbort.current = controller;
+    setListening(true);
+    setError(null);
+    setTapState('idle');
+    try {
+      const text = await readNfcCardOnce(controller.signal);
+      stopListening();
+      handleScannedCode(text);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      stopListening();
+      setTapState('error');
+      setError(nfcErrorMessage(err));
+    }
   };
 
   return (
@@ -198,12 +226,12 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         </div>
         <h2 className="text-xl font-bold text-content">
           {tapState === 'idle' && 'Ready to Scan'}
-          {tapState === 'waiting' && 'Scanning...'}
+          {tapState === 'waiting' && 'Opening...'}
           {tapState === 'success' && 'Access Granted!'}
           {tapState === 'error' && 'Access Failed'}
         </h2>
         <p className="text-content-muted text-sm mt-1">
-          {tapState === 'idle' && 'Tap patient NFC card or scan QR code'}
+          {tapState === 'idle' && (listening ? 'Hold the card to the back of this phone' : 'Read the patient\'s card or scan their QR code')}
           {tapState === 'waiting' && 'Reading patient data...'}
           {tapState === 'success' && (isParamedic ? 'Emergency summary is ready below.' : 'Loading patient records...')}
           {tapState === 'error' && error}
@@ -258,7 +286,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           }`}
         >
           <Smartphone size={16} className="inline mr-2" />
-          NFC Tag
+          NFC Card
         </button>
         <button
           onClick={() => setMode('qr')}
@@ -287,35 +315,44 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       {/* Input based on mode */}
       {mode === 'nfc' && (
         <div className="space-y-4">
+          {canReadCards && (
+            <button
+              type="button"
+              onClick={() => (listening ? stopListening() : void readCard())}
+              disabled={tapState === 'waiting'}
+              className="w-full min-h-[44px] py-3 bg-brand text-brand-fg font-semibold rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 inline-flex items-center justify-center gap-2"
+            >
+              <Nfc size={18} aria-hidden="true" />
+              {listening ? 'Stop reading' : 'Tap card to read'}
+            </button>
+          )}
           <div>
             <label htmlFor="nfc-tag" className="block text-sm font-medium text-content-secondary mb-1">
-              NFC Tag ID
+              {canReadCards ? 'Or enter the card number' : 'Card number'}
             </label>
-            <div className="flex gap-2">
-              <input
-                id="nfc-tag"
-                type="text"
-                value={nfcTagId}
-                onChange={(e) => setNfcTagId(e.target.value)}
-                placeholder="NFC-XXXX-XXXX"
-                className="flex-1 px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
-                disabled={tapState === 'waiting'}
-              />
-              <button
-                onClick={useDemoTag}
-                className="px-4 py-2 text-sm text-brand-subtle-fg hover:bg-brand-subtle rounded-lg"
-              >
-                Demo
-              </button>
-            </div>
+            <input
+              id="nfc-tag"
+              type="text"
+              value={nfcTagId}
+              onChange={(e) => setNfcTagId(e.target.value)}
+              placeholder="NFC-XXXX-XXXX"
+              className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
+              disabled={tapState === 'waiting'}
+            />
+            {!canReadCards && (
+              <p className="mt-1 text-xs text-content-muted">
+                Reading a card by tapping works in Chrome on Android. On this device, enter the number printed on the card, or scan the patient&apos;s QR code.
+              </p>
+            )}
           </div>
           <button
+            type="button"
             onClick={() => simulateTap(nfcTagId)}
             disabled={tapState === 'waiting'}
             className="w-full py-3 bg-critical text-critical-fg font-semibold rounded-lg hover:bg-critical transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed emergency-pulse"
           >
-            {tapState === 'waiting' ? 'Scanning...' : (
-              <span className="inline-flex items-center justify-center gap-2"><Wifi size={18} aria-hidden="true" /> Simulate NFC Tap</span>
+            {tapState === 'waiting' ? 'Opening...' : (
+              <span className="inline-flex items-center justify-center gap-2"><Wifi size={18} aria-hidden="true" /> Open emergency summary</span>
             )}
           </button>
         </div>

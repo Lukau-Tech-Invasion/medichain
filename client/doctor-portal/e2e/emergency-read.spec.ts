@@ -66,7 +66,7 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     await picker.selectOption(deviceId);
 
     await clinician.locator('#nfc-tag').fill(nfcTag as string);
-    await clinician.getByRole('button', { name: /simulate nfc tap/i }).click();
+    await clinician.getByRole('button', { name: /open emergency summary/i }).click();
 
     // Granted, and the emergency card is on screen: blood type, and the allergy
     // a clinician must know before touching the patient. The screen moves on to the
@@ -130,7 +130,7 @@ test('a tag that belongs to no patient is refused, and refused plainly', async (
     await settle(clinician, '/emergency');
     await clinician.locator('#approved-device').selectOption(deviceId);
     await clinician.locator('#nfc-tag').fill(`NFC-NO-SUCH-${Date.now()}`);
-    await clinician.getByRole('button', { name: /simulate nfc tap/i }).click();
+    await clinician.getByRole('button', { name: /open emergency summary/i }).click();
 
     // Not a blank card: a failure that says so, and no patient data.
     await expect(clinician.getByText('Access Failed')).toBeVisible({ timeout: 30000 });

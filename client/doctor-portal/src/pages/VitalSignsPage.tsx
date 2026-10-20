@@ -11,6 +11,7 @@ import {
   addVitalSigns,
   getVitalsFlowsheet,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import type { GcsScale } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
@@ -210,6 +211,7 @@ function VitalSignsPage() {
       setGcsVerbal('');
       setGcsMotor('');
       setGcsNotes('');
+      notifySuccess('Glasgow Coma Scale saved.');
     } catch (err) {
       setGcsError(getApiErrorMessage(err, t('docVitalSigns.gcsErrorFailed')));
     } finally {

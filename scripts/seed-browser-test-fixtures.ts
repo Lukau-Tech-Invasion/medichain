@@ -508,7 +508,7 @@ export async function obtainAdmin(): Promise<Account> {
 }
 
 /** How the administrator confirms a Class C demand: with their own password. */
-function adminConfirmer(admin: Account): Confirmer {
+export function adminConfirmer(admin: Account): Confirmer {
   return {
     loginId: admin.loginId,
     password: ADMIN_LOGIN_ID ? ADMIN_PASSWORD : PASSWORD,

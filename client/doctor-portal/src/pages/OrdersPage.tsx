@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import PatientSelect from '../components/PatientSelect';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { createOrder, listOrders, updateOrderStatus, useTranslation, ModalPanel } from '@medichain/shared';
+import { createOrder, listOrders, updateOrderStatus, useTranslation, ModalPanel,
+  notifySuccess,
+} from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
   Pill, FlaskConical, Stethoscope, Activity, FileText, Loader2, Search
@@ -128,6 +130,7 @@ function OrdersPage() {
           priority: 'routine',
           notes: '',
         });
+        notifySuccess('Order placed.');
       } else {
         setError(t('docOrders.failCreate'));
       }
@@ -141,6 +144,7 @@ function OrdersPage() {
     let persistedStatus: string;
     try {
       persistedStatus = (await updateOrderStatus(orderId, newStatus)).status;
+      notifySuccess('Order status updated.');
     } catch {
       // The local update below used to happen regardless, with a comment
       // saying "Update locally" -- so an order the server refused to advance

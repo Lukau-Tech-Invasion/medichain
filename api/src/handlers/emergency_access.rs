@@ -204,6 +204,16 @@ pub async fn grant_bound_emergency_access(
         }
     };
     let (grant, event) = grant;
+    super::device_lifecycle::record_device_use(&data, &body.device_id).await;
+    // The card's "last used" on the Health ID screen: `record_usage` existed
+    // and nothing called it, so every card read as never used.
+    if presented == "nfc_card" {
+        if let Some(tag_id) = body.nfc_tag_id.as_deref().map(str::trim) {
+            if let Err(error) = data.repositories.nfc_tags.record_usage(tag_id).await {
+                log::warn!("NFC tag {tag_id} use not recorded: {error}");
+            }
+        }
+    }
     if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
         return emergency_error(
             HttpResponse::ServiceUnavailable(),

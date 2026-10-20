@@ -3834,6 +3834,23 @@ export async function sendMessage(data: {
   return getApiClient().post('/api/messages/send', data);
 }
 
+/** Who the signed-in account can write to. */
+export interface MessageRecipients {
+  success: boolean;
+  staff: Array<{ user_id: string; name: string; role: string; specialty?: string | null }>;
+  /** Patients the caller is treating; always empty for a patient caller. */
+  patients: Array<{ user_id: string; name: string; patient_id: string }>;
+}
+
+/**
+ * Staff, and the patients the caller is treating (a patient's grant, a care
+ * relationship from an appointment, consultation or referral, or emergency
+ * access). The server refuses a message to any other patient.
+ */
+export async function getMessageRecipients(): Promise<MessageRecipients> {
+  return getApiClient().get('/api/messages/recipients');
+}
+
 /** The caller's persisted message copies, optionally limited to a mailbox. */
 export async function getMessages(folder: 'inbox' | 'sent' | 'all' = 'inbox'): Promise<SecureMessagesResponse> {
   return getApiClient().get(`/api/messages?folder=${folder}`);

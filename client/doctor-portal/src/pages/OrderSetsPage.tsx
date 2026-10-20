@@ -11,6 +11,7 @@ import {
   Alert,
   LoadingSpinner,
   confirmDialog,
+  notifySuccess,
 } from '@medichain/shared';
 import type { CreateOrderSetPayload } from '@medichain/shared';
 import {
@@ -171,6 +172,7 @@ const OrderSetsPage: React.FC = () => {
     try {
       await createOrderSet(draftPayload(draft));
       await fetchOrderSets();
+      notifySuccess('Order set saved.');
       return true;
     } catch (err) {
       showError(getApiErrorMessage(err, t('docOrderSets.errorCreateFailed')));

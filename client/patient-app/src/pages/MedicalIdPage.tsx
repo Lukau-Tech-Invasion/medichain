@@ -12,6 +12,7 @@ import {
 } from '@medichain/shared';
 import type { MedicalIdCard } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { NfcStickerWriter } from '../components/NfcStickerWriter';
 import {
   AlertTriangle,
   Heart,
@@ -704,6 +705,8 @@ export function MedicalIdPage() {
           {t('medicalId.downloadQrCode')}
         </button>
       </div>
+
+      {patient && <NfcStickerWriter patientId={patient.healthId} />}
 
       {/* Emergency Numbers */}
       <div className="bg-critical-subtle border border-critical rounded-xl p-4">

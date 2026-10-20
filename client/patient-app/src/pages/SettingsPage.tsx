@@ -20,6 +20,7 @@ import {
   formatDateOnly,
   ChangePasswordDialog,
   getRememberedLoginId,
+  notifySuccess,
 } from '@medichain/shared';
 import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -185,6 +186,7 @@ export function SettingsPage() {
         });
       }
       setSaveSucceeded(true);
+      notifySuccess('Settings saved.');
     } catch (error) {
       debugLog('PatientSettingsPage', 'Could not save settings:', error);
       setSettingsError(t('settings.saveError'));
