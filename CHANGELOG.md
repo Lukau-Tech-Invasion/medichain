@@ -7,6 +7,18 @@ pre-1.0 and does not yet make compatibility guarantees.
 ## [Unreleased]
 
 ### Fixed (2026-10-20)
+- Notifications have New and History. Read state was a single "read up to"
+  marker that only "Mark all as read" moved, so opening a notification left it
+  new forever. Opening or marking one read now moves it to History, and each
+  can be removed from that person's list (`POST
+  /api/notifications/{type:id}/read`, `.../remove`). Removing hides it for that
+  account only: the record it describes and its audit trail are untouched, and
+  nobody else's list changes. A mark covers the entry as it was, so an
+  aggregate such as "6 lab results awaiting approval" is new again when it
+  changes.
+- Medication reminders fire on the clinic's clock (`CLINIC_TIMEZONE`, now
+  `Africa/Johannesburg` on AWS); they were compared against UTC and arrived two
+  hours late.
 - Notifications reach the account they are for. Every real-time event went
   to every staff and administrator connection, so a doctor setting a
   patient's medication reminder put "Time to take" on the administrator's

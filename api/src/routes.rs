@@ -469,6 +469,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::deactivate_order_set)
         .service(clinical_endpoints::get_notifications)
         .service(clinical_endpoints::mark_notifications_read)
+        .service(clinical_endpoints::mark_notification_read)
+        .service(clinical_endpoints::remove_notification)
         .service(clinical_endpoints::get_medication_reminders)
         .service(clinical_endpoints::get_nurse_tasks)
         // Symptom Tracker endpoints

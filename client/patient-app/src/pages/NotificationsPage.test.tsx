@@ -8,7 +8,7 @@ import * as shared from '@medichain/shared';
 
 vi.mock('@medichain/shared', async importOriginal => {
   const actual = await importOriginal<typeof import('@medichain/shared')>();
-  return { ...actual, getNotifications: vi.fn(), getPatientCdsAlerts: vi.fn(), markNotificationsRead: vi.fn() };
+  return { ...actual, getNotifications: vi.fn(), getPatientCdsAlerts: vi.fn(), markNotificationsRead: vi.fn(), markNotificationRead: vi.fn(), removeNotification: vi.fn() };
 });
 
 // Mock the auth store
@@ -44,6 +44,8 @@ describe('NotificationsPage (Patient)', () => {
         priority: 'low',
         title: 'Your lab results are ready',
         timestamp: Math.floor(Date.now() / 1000),
+        key: 'lab_result:notif1',
+        read: false,
       }],
     });
     vi.mocked(shared.getPatientCdsAlerts).mockResolvedValue({
@@ -118,12 +120,14 @@ describe('NotificationsPage (Patient)', () => {
     expect(await screen.findByText('High Blood Pressure')).toBeVisible();
   });
 
-  it('renders an entry as read using the persisted marker instead of absent per-entry flags', async () => {
+  it('lists a read entry under History, not New', async () => {
     vi.mocked(shared.getNotifications).mockResolvedValueOnce({
       success: true, count: 1, unread_count: 0, read_at: 200,
-      notifications: [{ id: 'read-entry', type: 'information', priority: 'low', title: 'Previously read notice', timestamp: 100 }],
+      notifications: [{ id: 'read-entry', type: 'information', priority: 'low', title: 'Previously read notice', timestamp: 100, key: 'information:read-entry', read: true }],
     });
     render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    expect(await screen.findByText('No new notifications')).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: 'History (1)' }));
     expect(await screen.findByText('Previously read notice')).toBeVisible();
     expect(screen.getByText('Read')).toBeVisible();
     expect(screen.getByText('All caught up')).toBeVisible();
@@ -158,9 +162,31 @@ describe('NotificationsPage (Patient)', () => {
     (usePatientAuthStore as unknown as Mock).mockReturnValue({ patient: { ...mockPatient, userId: 'second-user', healthId: 'HEALTH456' }, isAuthenticated: true });
     view.rerender(<MemoryRouter><NotificationsPage /></MemoryRouter>);
     await screen.findByText('No notifications');
-    resolveInbox({ success: true, notifications: [{ id: 'old', title: 'Previous patient notice', type: 'test', priority: 'low', timestamp: 100 }], count: 1, unread_count: 1, read_at: 0 });
+    resolveInbox({ success: true, notifications: [{ id: 'old', title: 'Previous patient notice', type: 'test', priority: 'low', timestamp: 100, key: 'test:old', read: false }], count: 1, unread_count: 1, read_at: 0 });
     await waitFor(() => expect(screen.getByText('No notifications')).toBeVisible());
     expect(screen.queryByText('Previous patient notice')).not.toBeInTheDocument();
   });
 
+  it('tapping a new notification marks it read and moves it to History', async () => {
+    vi.mocked(shared.markNotificationRead).mockResolvedValue({ success: true, key: 'lab_result:notif1' });
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    const entry = await screen.findByText('Your lab results are ready');
+    vi.mocked(shared.getNotifications).mockResolvedValueOnce({
+      success: true, count: 1, unread_count: 0, read_at: 0,
+      notifications: [{ id: 'notif1', type: 'lab_result', priority: 'low', title: 'Your lab results are ready', timestamp: 100, key: 'lab_result:notif1', read: true }],
+    });
+    fireEvent.click(entry);
+    await waitFor(() => expect(shared.markNotificationRead).toHaveBeenCalledWith('lab_result:notif1'));
+    expect(await screen.findByRole('tab', { name: 'History (1)' })).toBeVisible();
+  });
+
+  it('removes a notification from the screen through the server', async () => {
+    vi.mocked(shared.removeNotification).mockResolvedValue({ success: true, key: 'lab_result:notif1' });
+    render(<MemoryRouter><NotificationsPage /></MemoryRouter>);
+    await screen.findByText('Your lab results are ready');
+    vi.mocked(shared.getNotifications).mockResolvedValueOnce({ success: true, count: 0, unread_count: 0, read_at: 0, notifications: [] });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove "Your lab results are ready" from your notifications' }));
+    await waitFor(() => expect(shared.removeNotification).toHaveBeenCalledWith('lab_result:notif1'));
+    expect(await screen.findByText('No notifications')).toBeVisible();
+  });
 });

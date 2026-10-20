@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   getNotifications,
   getPatientCdsAlerts,
+  markNotificationRead,
   markNotificationsRead,
+  removeNotification,
   useTranslation,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -17,6 +19,7 @@ import {
   WifiOff,
   RefreshCw,
   Clock,
+  X,
 } from 'lucide-react';
 
 interface Notification {
@@ -26,7 +29,10 @@ interface Notification {
   message?: string;
   type?: string;
   is_read?: boolean;
+  /** Read by this account: shown under History rather than New. */
   read?: boolean;
+  /** `type:id`: what read and remove are addressed by. */
+  key?: string | null;
   created_at?: string | number;
   timestamp?: string | number;
 }
@@ -60,7 +66,7 @@ function useNotificationsPage() {
   const clinical = useNotificationRead(alertsLoad, owner, enabled);
   const notifications: Notification[] = inbox.data?.notifications ?? [];
   const alerts: ClinicalNotification[] = clinical.data?.alerts ?? [];
-  const readAt = inbox.data?.read_at ?? 0;
+  const [view, setView] = useState<'new' | 'history'>('new');
   const inboxError = inbox.status === 'failed';
   const alertsError = clinical.status === 'failed';
   const [markError, setMarkError] = useState(false);
@@ -79,8 +85,34 @@ function useNotificationsPage() {
     setMarkError(false);
   }, [isAuthenticated, patient, navigate]);
 
-  const isUnread = (entry: Notification) => Number(entry.timestamp ?? 0) > readAt;
+  // Opening one moves it from New to History; removing one takes it off this
+  // account's screen only. The record and its audit log are kept.
+  const isUnread = (entry: Notification) => entry.read !== true;
   const unreadCount = notifications.filter(isUnread).length;
+  const [removeError, setRemoveError] = useState(false);
+  const markOne = async (entry: Notification) => {
+    if (!isUnread(entry) || !entry.key) return;
+    try {
+      await markNotificationRead(entry.key);
+    } catch (err) {
+      console.error('Failed to mark notification read:', err);
+      setMarkError(true);
+      return;
+    }
+    await inbox.reload();
+  };
+  const removeOne = async (entry: Notification) => {
+    if (!entry.key) return;
+    setRemoveError(false);
+    try {
+      await removeNotification(entry.key);
+    } catch (err) {
+      console.error('Failed to remove notification:', err);
+      setRemoveError(true);
+      return;
+    }
+    await inbox.reload();
+  };
 
   const handleMarkAllRead = async () => {
     if (markPending.current) return;
@@ -103,7 +135,7 @@ function useNotificationsPage() {
   };
   const highAlerts = alerts.filter(a => (a.severity || '').toLowerCase() === 'high').length;
 
-  return { t, activeTab, setActiveTab, inbox, clinical, notifications, alerts, inboxError, alertsError, markError, marking, loadAll, handleMarkAllRead, isUnread, unreadCount, highAlerts };
+  return { t, activeTab, setActiveTab, view, setView, inbox, clinical, notifications, alerts, inboxError, alertsError, markError, removeError, marking, loadAll, handleMarkAllRead, markOne, removeOne, isUnread, unreadCount, highAlerts };
 }
 /** Independently load a resource, invalidating old responses on retry, owner change and unmount. */
 function useNotificationRead<T extends { success: boolean }>(load: () => Promise<T>, owner: string, enabled: boolean) {
@@ -171,6 +203,7 @@ function NotificationHeader(model: NotificationModel) {
       </div>
 
       {markError && <p role="alert">{t('notifications.markReadFailed')}</p>}
+      {model.removeError && <p role="alert">{t('notifications.removeFailed')}</p>}
       {inboxError && <div role="alert" className="patient-card"><p>{t('notifications.inboxFailed')}</p><button onClick={() => void loadAll('inbox')}>{t('notifications.retryInbox')}</button></div>}
       {alertsError && <div role="alert" className="patient-card"><p>{t('notifications.alertsFailed')}</p><button onClick={() => void loadAll('alerts')}>{t('notifications.retryAlerts')}</button></div>}
       {(inbox.status === 'loading' || clinical.status === 'loading') && <p role="status"><Loader2 className="inline w-4 h-4 animate-spin" />{t('notifications.loading')}</p>}
@@ -242,21 +275,46 @@ function NotificationTabs(model: NotificationModel) {
 
 /** Render NotificationInbox using the current account resource states. */
 function NotificationInbox(model: NotificationModel) {
-  const { t, activeTab, inbox, notifications, isUnread } = model;
+  const { t, activeTab, view, setView, inbox, notifications, isUnread, markOne, removeOne } = model;
   const formatTime = useNotificationTime();
+  const fresh = notifications.filter(isUnread);
+  const history = notifications.filter((n) => !isUnread(n));
+  const shown = view === 'new' ? fresh : history;
   return <>
       {/* Notifications Tab */}
       {activeTab === 'notifications' && inbox.status === 'ready' && (
         <div className="space-y-3">
-          {notifications.length === 0 ? (
+          <div role="tablist" aria-label={t('notifications.title')} className="flex gap-2">
+            {(['new', 'history'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={view === tab}
+                onClick={() => setView(tab)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium ${
+                  view === tab ? 'bg-brand text-brand-fg' : 'bg-surface-sunken text-content-secondary'
+                }`}
+              >
+                {tab === 'new'
+                  ? t('notifications.viewNew', { count: fresh.length })
+                  : t('notifications.viewHistory', { count: history.length })}
+              </button>
+            ))}
+          </div>
+          {shown.length === 0 ? (
             <div className="text-center py-12">
               <Bell className="w-12 h-12 text-content-muted mx-auto mb-3" />
-              <p className="text-content-muted">{t('notifications.noNotifications')}</p>
+              <p className="text-content-muted">
+                {notifications.length === 0
+                  ? t('notifications.noNotifications')
+                  : view === 'new' ? t('notifications.noNew') : t('notifications.noHistory')}
+              </p>
             </div>
           ) : (
-            notifications.map((n, idx) => (
+            shown.map((n, idx) => (
               <div
-                key={n.notification_id || n.id || idx}
+                key={n.key || n.notification_id || n.id || idx}
                 className={`patient-card ${isUnread(n) ? 'border-l-4 border-l-primary-400' : ''}`}
               >
                 <div className="flex items-start gap-3">
@@ -265,7 +323,11 @@ function NotificationInbox(model: NotificationModel) {
                   }`}>
                     <Bell className={`w-4 h-4 ${isUnread(n) ? 'text-brand' : 'text-content-muted'}`} />
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => void markOne(n)}
+                    className="flex-1 min-w-0 text-left"
+                  >
                     {n.title && (
                       <p className="font-medium text-content">{n.title}</p>
                     )}
@@ -276,9 +338,23 @@ function NotificationInbox(model: NotificationModel) {
                         {formatTime(n.created_at || n.timestamp)}
                       </p>
                     )}
-                  </div>
+                    {isUnread(n) && n.key && (
+                      <span className="mt-1 inline-block text-xs font-medium text-brand">{t('notifications.markRead')}</span>
+                    )}
+                  </button>
                   {!isUnread(n) && (
                     <span className="text-xs text-content-muted">{t('notifications.read')}<CheckCircle className="w-4 h-4" /></span>
+                  )}
+                  {n.key && (
+                    <button
+                      type="button"
+                      onClick={() => void removeOne(n)}
+                      aria-label={t('notifications.removeLabel', { title: n.title ?? '' })}
+                      title={t('notifications.remove')}
+                      className="p-2 -m-1 rounded-lg text-content-muted hover:bg-surface-sunken"
+                    >
+                      <X className="w-4 h-4" aria-hidden="true" />
+                    </button>
                   )}
                 </div>
               </div>

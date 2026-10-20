@@ -3858,6 +3858,21 @@ export interface InboxNotification {
   title: string;
   timestamp: number;
   patient_id?: string;
+  /** `type:id`: what read and remove are addressed by. */
+  key: string | null;
+  /** Read by this account: shown under History rather than New. */
+  read: boolean;
+}
+
+/** New (unread) and History (read), in the order the server sent them. */
+export function splitInbox(notifications: InboxNotification[]): {
+  fresh: InboxNotification[];
+  history: InboxNotification[];
+} {
+  return {
+    fresh: notifications.filter((entry) => !entry.read),
+    history: notifications.filter((entry) => entry.read),
+  };
 }
 
 export async function getNotifications(): Promise<{
@@ -3874,14 +3889,27 @@ export async function getNotifications(): Promise<{
 /**
  * Mark everything up to now as read.
  *
- * A marker, not a per-entry flag: the list is derived from live clinical state,
- * so its entries are not rows anybody can flag.
+ * Individual notifications are marked with `markNotificationRead` and
+ * `removeNotification`; this marks everything up to now in one go.
  */
 export async function markNotificationsRead(): Promise<{
   success: boolean;
   read_at: number;
 }> {
   return getApiClient().post('/api/notifications/read', {});
+}
+
+/** Mark one notification read: it moves from New to History for this account. */
+export async function markNotificationRead(key: string): Promise<{ success: boolean; key: string }> {
+  return getApiClient().post(`/api/notifications/${encodeURIComponent(key)}/read`, {});
+}
+
+/**
+ * Take one notification off this account's screen. The record it describes and
+ * its audit trail are kept, and nobody else's list changes.
+ */
+export async function removeNotification(key: string): Promise<{ success: boolean; key: string }> {
+  return getApiClient().post(`/api/notifications/${encodeURIComponent(key)}/remove`, {});
 }
 
 // ============================================================================
