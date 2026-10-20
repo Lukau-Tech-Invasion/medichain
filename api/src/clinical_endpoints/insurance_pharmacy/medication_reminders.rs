@@ -464,12 +464,26 @@ pub async fn delete_medication_reminder(
     }))
 }
 
+/// The facility's wall-clock time, as `HH:MM`, at `now`.
+///
+/// Reminder times are what a person typed ("08:00"), in the facility's time.
+/// They were compared against UTC, so in South Africa every reminder arrived
+/// two hours late.
+pub(crate) fn clinic_clock_hhmm(now: chrono::DateTime<chrono::Utc>, offset_minutes: i64) -> String {
+    (now + chrono::Duration::minutes(offset_minutes))
+        .format("%H:%M")
+        .to_string()
+}
+
 /// Check and deliver due medication reminders.
 /// Called by a background task to simulate notification delivery.
-/// Reminders are matched by comparing their HH:MM time strings against the current UTC time.
+/// Reminders are matched by comparing their HH:MM time strings against the
+/// facility's clock (`CLINIC_TIMEZONE`).
 pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
-    let now_utc = chrono::Utc::now();
-    let current_hhmm = now_utc.format("%H:%M").to_string();
+    let current_hhmm = clinic_clock_hhmm(
+        chrono::Utc::now(),
+        crate::types::clinic_utc_offset_minutes(),
+    );
 
     let due_reminders: Vec<crate::clinical::MedicationReminder> = match data
         .repositories
@@ -587,5 +601,28 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
                 ),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod clinic_clock_tests {
+    use super::clinic_clock_hhmm;
+
+    /// A reminder set for 08:00 in South Africa (UTC+2) is due at 06:00 UTC.
+    #[test]
+    fn reminders_are_due_on_the_facilitys_clock() {
+        let six_utc = chrono::DateTime::parse_from_rfc3339("2026-10-20T06:00:30Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert_eq!(clinic_clock_hhmm(six_utc, 120), "08:00");
+        assert_eq!(clinic_clock_hhmm(six_utc, 0), "06:00");
+        let late_utc = chrono::DateTime::parse_from_rfc3339("2026-10-20T23:15:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert_eq!(
+            clinic_clock_hhmm(late_utc, 120),
+            "01:15",
+            "past midnight UTC+2"
+        );
     }
 }

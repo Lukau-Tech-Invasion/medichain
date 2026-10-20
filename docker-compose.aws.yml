@@ -30,6 +30,9 @@ services:
       # Refuse passwords found in Pwned Passwords when one is set (k-anonymity:
       # only five hex characters of a SHA-1 leave the host). src/password_policy.rs
       PASSWORD_BREACH_CHECK: pwned
+      # Wall-clock times people enter (appointments, medication reminders) are
+      # South African time; unset, they were read as UTC, two hours late.
+      CLINIC_TIMEZONE: ${CLINIC_TIMEZONE:-Africa/Johannesburg}
 
   nginx:
     image: ${MEDICHAIN_WEB_IMAGE:?MEDICHAIN_WEB_IMAGE (ECR URI) is required}
