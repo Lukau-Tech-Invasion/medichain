@@ -53,9 +53,11 @@ Parameters:
     MinValue: 30
     MaxValue: 500
   AmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
-    Description: Amazon Linux 2023, resolved from the public SSM parameter at deploy time.
+    Type: AWS::EC2::Image::Id
+    Description: >-
+      Pinned Amazon Linux 2023 image. deploy.sh passes the image the stack already
+      runs, because a new image replaces the instance and its root disk holds the
+      database; it resolves the latest image only for a new stack or UPGRADE_AMI=1.
   AuditRetentionMode:
     Type: String
     Default: COMPLIANCE

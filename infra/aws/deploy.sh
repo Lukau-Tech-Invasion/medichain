@@ -51,6 +51,25 @@ EXTRA_PARAMS=()
 [ -n "${AUDIT_RETENTION_MODE:-}" ] && EXTRA_PARAMS+=("AuditRetentionMode=$AUDIT_RETENTION_MODE")
 [ -n "${AUDIT_RETENTION_DAYS:-}" ] && EXTRA_PARAMS+=("AuditRetentionDays=$AUDIT_RETENTION_DAYS")
 
+# The database lives in Docker volumes on the instance's root disk. A new AMI
+# makes CloudFormation replace the instance, and the replacement boots on a new,
+# empty disk: on 2026-10-23 an ordinary redeploy picked up a newer Amazon Linux
+# image and started production on an empty database. So a deploy keeps the AMI
+# the stack already runs. UPGRADE_AMI=1 takes the latest one on purpose, which
+# means restoring the database onto the new instance afterwards.
+current_ami() {
+  local template
+  template="$(aws_ cloudformation describe-stack-resource --stack-name "$STACK"     --logical-resource-id LaunchTemplate     --query StackResourceDetail.PhysicalResourceId --output text 2>/dev/null)" || return 0
+  aws_ ec2 describe-launch-template-versions --launch-template-id "$template"     --versions '$Latest' --query 'LaunchTemplateVersions[0].LaunchTemplateData.ImageId' --output text
+}
+AMI="$(current_ami)"
+if [ -z "$AMI" ] || [ "$AMI" = "None" ] || [ "${UPGRADE_AMI:-}" = "1" ]; then
+  [ -n "$AMI" ] && [ "$AMI" != "None" ] &&     echo "UPGRADE_AMI=1: the instance will be REPLACED and start on an empty disk; restore the database afterwards." >&2
+  # MSYS_NO_PATHCONV: Git Bash would otherwise rewrite the parameter name as a Windows path.
+  AMI="$(MSYS_NO_PATHCONV=1 aws_ ssm get-parameter     --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64     --query Parameter.Value --output text)"
+fi
+EXTRA_PARAMS+=("AmiId=$AMI")
+
 deploy_stack() {
   aws_ cloudformation deploy \
     --template-file infra/aws/medichain.yaml \
