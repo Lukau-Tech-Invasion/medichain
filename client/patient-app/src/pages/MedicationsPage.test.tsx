@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
-import { mapPrescription, MedicationsPage } from './MedicationsPage';
+import { mapPrescription, MedicationsPage, profileOnlyMedicines } from './MedicationsPage';
 import { usePatientAuthStore } from '../store/authStore';
 
 // Mock the auth store
@@ -226,6 +226,38 @@ describe('MedicationsPage (Patient)', () => {
     fireEvent.click(screen.getByText(/Today's Schedule/i));
     expect(await screen.findByText(/07:30/)).toBeInTheDocument();
     expect(screen.queryByText('08:00')).not.toBeInTheDocument();
+  });
+
+  it('keeps profile medicines a prescription does not already name', () => {
+    const prescribed = [mapPrescription({ prescription_id: 'p1', medication: { name: 'Metformin' } })!];
+    expect(profileOnlyMedicines(['metformin 850mg twice daily', ' amlodipine 10mg daily ', ''], prescribed))
+      .toEqual(['amlodipine 10mg daily']);
+  });
+
+  it('lists medicines recorded on the profile when nothing was prescribed', async () => {
+    mockFetch.mockImplementation((url) => {
+      const body = url.includes('/api/e-prescriptions/patient/')
+        ? { prescriptions: [] }
+        : url.endsWith('/api/patients/HEALTH123')
+          ? { patient_id: 'HEALTH123', emergency_info: { current_medications: ['metformin 850mg twice daily', 'amlodipine 10mg daily'] } }
+          : {};
+      return Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(body),
+      });
+    });
+
+    render(
+      <MemoryRouter>
+        <MedicationsPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('metformin 850mg twice daily')).toBeInTheDocument();
+    expect(screen.getByText('amlodipine 10mg daily')).toBeInTheDocument();
+    expect(screen.getByText('On your health record')).toBeInTheDocument();
+    expect(screen.queryByText(/No active medications/i)).not.toBeInTheDocument();
   });
 
   it('shows no medications message when list is empty', async () => {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
+  getPatient,
   getPatientEPrescriptions,
   getPatientPharmacyDecisions,
   getPatientReminders,
@@ -167,6 +168,19 @@ export function mapPrescription(m: RawPrescription): Medication | null {
   };
 }
 
+/**
+ * Medicines recorded on the patient's profile (`emergency_info.current_medications`)
+ * that no prescription in the list already names. The profile is where a
+ * clinician records what the patient takes, prescribed here or not, so a page
+ * that read prescriptions alone told a patient on two medicines that they had none.
+ */
+export function profileOnlyMedicines(profile: string[], prescribed: Medication[]): string[] {
+  const names = prescribed.map((m) => m.name.toLowerCase());
+  return profile
+    .map((entry) => entry.trim())
+    .filter((entry) => entry && !names.some((name) => entry.toLowerCase().includes(name)));
+}
+
 export function MedicationsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -175,6 +189,7 @@ export function MedicationsPage() {
     ({ active: t('medications.statusActive'), completed: t('medications.statusCompleted'), paused: t('medications.statusPaused') }[s] ||
       s.charAt(0).toUpperCase() + s.slice(1));
   const [medications, setMedications] = useState<Medication[]>([]);
+  const [profileMedicines, setProfileMedicines] = useState<string[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
   // A pharmacist's decision about this patient's medicine -- why something
   // they were prescribed did not arrive. Recorded on the pharmacy side and,
@@ -233,6 +248,13 @@ export function MedicationsPage() {
         .filter((medication): medication is Medication => medication !== null);
 
       setMedications(meds);
+      // The profile read is separate: if it fails, prescriptions still show.
+      getPatient(patientId)
+        .then((data) => setProfileMedicines(profileOnlyMedicines(data.emergency_info?.current_medications ?? [], meds)))
+        .catch((err: unknown) => {
+          console.error('Profile medicines could not be loaded:', err);
+          setProfileMedicines([]);
+        });
         
         const today = new Date().toISOString().slice(0, 10);
         const dosesTakenToday = new Map(
@@ -546,7 +568,24 @@ export function MedicationsPage() {
             </div>
           ))}
 
-          {medications.length === 0 && (
+          {profileMedicines.length > 0 && (
+            <section className="patient-card" data-testid="profile-medicines">
+              <h3 className="font-semibold text-content">{t('medications.profileHeading')}</h3>
+              <p className="text-sm text-content-muted mb-3">{t('medications.profileNote')}</p>
+              <ul className="space-y-2">
+                {profileMedicines.map((entry) => (
+                  <li key={entry} className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-brand-subtle rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Pill className="w-5 h-5 text-brand" />
+                    </div>
+                    <span className="text-sm font-medium text-content">{entry}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {medications.length === 0 && profileMedicines.length === 0 && (
             <div className="text-center py-12">
               <Pill className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medications.noneActive')}</p>

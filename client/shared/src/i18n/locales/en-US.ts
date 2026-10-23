@@ -399,6 +399,8 @@ const en_US: TranslationRecord = {
     refillFailed: 'The refill request could not be sent. Please try again.',
     refillWithdrawFailed: 'The request could not be withdrawn. Please try again.',
     noneActive: 'No active medications',
+    profileHeading: 'On your health record',
+    profileNote: 'Medicines your care team recorded on your profile. Prescriptions written in MediChain are listed separately, with refills.',
     historyTitle: 'Medication History',
     historyEmpty: 'Medication history will appear here once you start tracking doses.',
     loadingReminders: 'Loading reminders...',
