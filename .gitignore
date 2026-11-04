@@ -139,3 +139,9 @@ client/**/.auth/
 
 # Jitsi generates its own configuration and certificates into this tree.
 .jitsi-config/
+
+# Local tooling and generated output (not source)
+.node-bin/
+.presentation-build/
+.clinerules/
+docs/fnb-submission/build/
