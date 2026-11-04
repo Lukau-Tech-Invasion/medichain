@@ -89,7 +89,7 @@ describe('MCIPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add & Tag Patient' }));
     // It used to read "RR 16, pulse 80, cap refill 2, alert" for a casualty
     // whose vitals no one had taken.
-    expect(screen.queryByText(/80/)).toBeNull();
+    expect(screen.queryByText(/\b80\b/)).toBeNull();
     expect(screen.getByText(/not assessed/)).toBeInTheDocument();
   });
 });

@@ -558,7 +558,7 @@ export async function choose(
   }
   const chip = wanted.value !== undefined
     ? field.locator(`label:has(input[value="${wanted.value}"])`)
-    : field.locator('label', { hasText: new RegExp(`^\s*${wanted.label}\s*$`) });
+    : field.locator('label', { hasText: new RegExp(`^\\s*${wanted.label}\\s*$`) });
   await chip.click();
   await expect(chip.locator('input')).toBeChecked();
 }

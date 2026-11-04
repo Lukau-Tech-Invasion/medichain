@@ -39,14 +39,12 @@ feature-depth = 1
 [advisories]
 version = 2
 ignore = [
-    # proc-macro-only crate: no runtime attack surface, nothing to reach.
-    "RUSTSEC-2024-0436", # paste
+    # RUSTSEC-2024-0436 (paste, unmaintained) was ignored here; paste is no
+    # longer in the dependency tree (2026-11-04).
 
-    # protobuf's uncontrolled-recursion advisory is a *decoding* (parse) issue.
-    # The only consumer in this tree is `prometheus`, which uses protobuf to
-    # *serialize* MediChain's own metrics for the `/api/metrics` scrape
-    # endpoint — MediChain never decodes attacker-supplied protobuf bytes.
-    "RUSTSEC-2024-0437",
+    # RUSTSEC-2024-0437 (protobuf recursion) was ignored here; protobuf is now
+    # 3.7.2, which the advisory does not affect, and cargo-deny refuses an
+    # ignore that matches nothing (2026-11-04).
 
     # lopdf's stack-overflow advisory requires *parsing* a maliciously deeply
     # nested PDF. `api/src/pdf.rs` only calls `PdfDocument::new(...)` to

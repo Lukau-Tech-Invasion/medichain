@@ -73,5 +73,20 @@ module.exports = {
     'jsx-a11y/no-static-element-interactions': 'warn',
     'jsx-a11y/label-has-associated-control': 'warn',
     'jsx-a11y/no-autofocus': 'warn',
+
+    // The recommended setting, plus one exception: a <form> may listen for
+    // keydown. `keepEnterInField` (shared/src/forms/enterKey.ts) sits there to
+    // stop Enter in a small "add" field from submitting a half-built record; it
+    // delegates from the fields inside and gives the form no behaviour of its
+    // own, which is what this rule exists to prevent.
+    'jsx-a11y/no-noninteractive-element-interactions': ['error', {
+      handlers: ['onClick', 'onError', 'onLoad', 'onMouseDown', 'onMouseUp', 'onKeyPress', 'onKeyDown', 'onKeyUp'],
+      alert: ['onKeyUp', 'onKeyDown', 'onKeyPress'],
+      body: ['onError', 'onLoad'],
+      dialog: ['onKeyDown', 'onKeyUp', 'onKeyPress'],
+      iframe: ['onError', 'onLoad'],
+      img: ['onError', 'onLoad'],
+      form: ['onKeyDown'],
+    }],
   },
 }
