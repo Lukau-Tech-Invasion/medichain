@@ -17,6 +17,7 @@ import { login, redeemCredential } from '../api/endpoints';
 import type { LoginResponse, SignedInUser } from '../api/endpoints';
 import { deriveAuthProof } from './proof';
 import { rememberLoginId, forgetLoginId } from './loginId';
+import { forgetOfflineCopiesOf } from '../utils/indexedDB';
 
 /**
  * The shortest password the clients accept when a person chooses one.
@@ -127,18 +128,22 @@ export function clearSessionMemory(): void {
   clearAllDrafts();
   clearUnsavedForms();
   forgetLoginId();
+  const owner = getApiClient().getUserId();
   getApiClient().setUserId(undefined);
   void clearOfflineRecordCache();
+  if (owner && typeof indexedDB !== 'undefined') {
+    void forgetOfflineCopiesOf(owner).catch(() => undefined);
+  }
 }
 
 /**
- * Delete the service worker's cached API responses.
+ * Delete any service-worker data caches.
  *
- * The patient worker keeps the medical ID for offline emergency use, in plain
- * Cache Storage. It must not outlive the session that fetched it: on a shared
- * phone the next person to pick it up, signed in or not, could otherwise read
- * the previous patient's blood type, allergies and conditions offline. Only
- * the data caches go; the static shell stays so the app still opens offline.
+ * The patient worker used to keep the medical ID in plain Cache Storage; it no
+ * longer caches API responses (the app keeps a sealed copy, removed at sign-out
+ * by `forgetOfflineCopiesOf`), but a device that ran the older worker may still
+ * hold one. Only the data caches go; the static shell stays so the app still
+ * opens offline.
  */
 export async function clearOfflineRecordCache(): Promise<void> {
   if (typeof caches === 'undefined') return;

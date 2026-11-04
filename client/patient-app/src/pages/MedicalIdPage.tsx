@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getMedicalId,
+  useOfflineCache,
   useTranslation,
   useToastActions,
   updateMedicalIdPreferences,
@@ -179,7 +180,6 @@ export function MedicalIdPage() {
     return v == null ? '' : String(v);
   };
 
-  const [isLoading, setIsLoading] = useState(true);
   const [activeView, setActiveView] = useState<'full' | 'emergency' | 'lockscreen'>('full');
 
   // Redirect if not authenticated
@@ -189,31 +189,24 @@ export function MedicalIdPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  const loadMedicalId = useCallback(async () => {
-    if (!patient) return;
-    
-    setIsLoading(true);
-    
-    try {
-      // Emergency and lock-screen endpoints require capabilities from a
-      // managed device and must never be probed with the patient's browser
-      // session. The selector is a local preview mode; its data remains the
-      // authenticated patient's full Medical ID card.
-      const card = await getMedicalId(patient.healthId);
-      setData(toMedicalIdData(card));
-    } catch (error) {
-      console.error('Error loading Medical ID:', error);
-      setData(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [patient]);
-
-  useEffect(() => {
-    if (patient) {
-      loadMedicalId();
-    }
-  }, [patient, loadMedicalId]);
+  // Emergency and lock-screen endpoints require capabilities from a managed
+  // device and must never be probed with the patient's browser session. The
+  // selector is a local preview mode; its data remains the authenticated
+  // patient's full Medical ID card.
+  //
+  // The offline copy is kept encrypted under this account's device key
+  // (`useOfflineCache` → `cacheData`), not in the service worker's plain cache.
+  const card = useOfflineCache<MedicalIdData>(
+    `medical-id:${patient?.healthId ?? ''}`,
+    'medical-id',
+    async () => {
+      if (!patient) throw new Error('not signed in');
+      return toMedicalIdData(await getMedicalId(patient.healthId));
+    },
+  );
+  const isLoading = card.loading;
+  const loadMedicalId = card.refresh;
+  useEffect(() => { setData(card.data); }, [card.data]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {

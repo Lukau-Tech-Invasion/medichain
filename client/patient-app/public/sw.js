@@ -6,7 +6,6 @@
  */
 
 const STATIC_CACHE = 'medichain-patient-static-v4';
-const DATA_CACHE = 'medichain-patient-data-v3';
 
 // Docker mounts this app at `/patient/`. Keep every cached and notification
 // URL inside that scope instead of accidentally navigating to nginx's root.
@@ -43,8 +42,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames
           .filter((name) => name.startsWith('medichain-patient-') && 
-                          name !== STATIC_CACHE && 
-                          name !== DATA_CACHE)
+                          name !== STATIC_CACHE)
           .map((name) => caches.delete(name))
       );
     })
@@ -68,44 +66,12 @@ self.addEventListener('fetch', (event) => {
   // supports HTTP(S) requests.
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
-  // Medical ID endpoint - always cache for offline emergency access
-  if (url.pathname.includes('/api/medical-id/') || 
-      url.pathname.includes('/api/my-records')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clonedResponse = response.clone();
-            caches.open(DATA_CACHE).then((cache) => {
-              cache.put(request, clonedResponse);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(request).then((cached) => {
-            if (cached) return cached;
-            return new Response(
-              JSON.stringify({
-                success: false,
-                error: 'Offline - cached data unavailable',
-                code: 'OFFLINE',
-              }),
-              { status: 503, headers: { 'Content-Type': 'application/json' } }
-            );
-          });
-        })
-    );
-    return;
-  }
-
-  // API requests - network first
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request).catch(() => caches.match(request))
-    );
-    return;
-  }
+  // API responses are never answered or kept by this worker. The offline
+  // Medical ID and records used to be cached here in plain Cache Storage, where
+  // anyone copying the browser profile could read them; the app now keeps its
+  // offline copy encrypted under the account's device key (`useOfflineCache`).
+  // Activation deletes the old data cache.
+  if (url.pathname.startsWith('/api/')) return;
 
   // HTML must follow a deployment; cache-first navigation kept old screens
   // alive indefinitely. Preserve the offline shell when the network fails.

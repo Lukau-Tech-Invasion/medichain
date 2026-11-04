@@ -4,12 +4,13 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 describe('service worker provider boundary', () => {
-  // The doctor worker leaves the API to the browser entirely (sw.js v6): an
-  // answer from the worker for an unreachable API looked like the server
-  // replying, and the portal never noticed it had lost signal.
+  // Both workers leave the API to the browser entirely. The doctor's (sw.js v6):
+  // an answer from the worker for an unreachable API looked like the server
+  // replying. The patient's: it kept the Medical ID in plain Cache Storage; the
+  // app now keeps that copy encrypted itself.
   it.each([
     ['doctor', resolve(process.cwd(), 'public/sw.js'), 'doctor', 'browser'],
-    ['patient', resolve(process.cwd(), '../patient-app/public/sw.js'), 'patient', 'worker'],
+    ['patient', resolve(process.cwd(), '../patient-app/public/sw.js'), 'patient', 'browser'],
   ])('%s bypasses external video and still serves local API requests', async (_name, source, prefix, apiBy) => {
     type FetchEvent = {
       request: { url: string; method: string; mode: string };

@@ -689,3 +689,62 @@ fn ems_handoff_entity(
         data,
     }
 }
+
+#[cfg(test)]
+mod list_scope_tests {
+    //! The trauma, stroke, sepsis, cardiac and code-blue lists answer only to
+    //! someone with authority over the chart. The handlers' own check is the
+    //! role ("any healthcare provider"); the chart gate in
+    //! `PhiAccessAuditMiddleware` is what narrows it, so it is tested through
+    //! that middleware, as the app serves these routes.
+    use crate::middleware::phi_access_audit::PhiAccessAuditMiddleware;
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+
+    const PATIENT: &str = "PAT-EMERG-SCOPE";
+    const TREATING: &str = "emerg-treating-doctor";
+    const STRANGER: &str = "emerg-stranger-pharmacist";
+
+    #[actix_web::test]
+    async fn a_stranger_is_refused_every_emergency_list_and_the_treating_doctor_is_not() {
+        let state = AppState::new();
+        test_fixtures::register(&state, TREATING, Role::Doctor);
+        test_fixtures::register(&state, STRANGER, Role::Pharmacist);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        crate::care_access::record_encounter(&state, PATIENT, TREATING, "APT-EMERG-1", Utc::now())
+            .await;
+        let app = test::init_service(
+            App::new()
+                .wrap(PhiAccessAuditMiddleware)
+                .app_data(web::Data::new(state))
+                .service(super::list_patient_trauma)
+                .service(super::list_patient_stroke)
+                .service(super::list_patient_sepsis)
+                .service(super::list_patient_cardiac)
+                .service(super::list_patient_code_blues),
+        )
+        .await;
+        for kind in ["trauma", "stroke", "sepsis", "cardiac", "code-blue"] {
+            let uri = format!("/api/emergency/{kind}/patient/{PATIENT}");
+            let stranger = test::TestRequest::get()
+                .uri(&uri)
+                .insert_header(test_fixtures::as_user(STRANGER))
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, stranger).await.status().as_u16(),
+                403,
+                "{kind}: a pharmacist with no relationship is refused"
+            );
+            let treating = test::TestRequest::get()
+                .uri(&uri)
+                .insert_header(test_fixtures::as_user(TREATING))
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, treating).await.status().as_u16(),
+                200,
+                "{kind}: the treating doctor reads the list"
+            );
+        }
+    }
+}

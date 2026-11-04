@@ -516,8 +516,6 @@ pub struct CreateCarePlanRequest {
     pub goals: Vec<CarePlanItem>,
     #[serde(default)]
     pub interventions: Vec<CarePlanItem>,
-    #[serde(rename = "carePlanId", alias = "care_plan_id", default)]
-    pub care_plan_id: Option<String>,
 }
 
 impl CreateCarePlanRequest {

@@ -61,13 +61,13 @@ interface EmergencyEvents {
   total: number;
 }
 
+/** Card counts by stored status, across every patient. */
 interface NFCCards {
   total: number;
-  cards: Array<{
-    card_id: string;
-    patient_id: string;
-    status: string;
-  }>;
+  active: number;
+  suspended: number;
+  revoked: number;
+  expired: number;
 }
 
 interface LabSubmissions {
@@ -556,18 +556,18 @@ export default function AdminDashboardPage() {
           </h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div className="text-center p-3 bg-surface-sunken rounded-lg">
-              <div className="text-2xl font-bold text-content">{data.nfc_cards?.total || 0}</div>
+              <div className="text-2xl font-bold text-content">{data.nfc_cards?.total ?? 0}</div>
               <div className="text-xs text-content-muted">{t('docAdmin.totalIssued')}</div>
             </div>
             <div className="text-center p-3 bg-ok-subtle rounded-lg">
               <div className="text-2xl font-bold text-ok-subtle-fg">
-                {data.nfc_cards?.cards?.filter(c => c.status === 'active').length || 0}
+                {data.nfc_cards?.active ?? 0}
               </div>
               <div className="text-xs text-ok-subtle-fg">{t('docAdmin.active')}</div>
             </div>
             <div className="text-center p-3 bg-critical-subtle rounded-lg">
               <div className="text-2xl font-bold text-critical-subtle-fg">
-                {data.nfc_cards?.cards?.filter(c => c.status === 'revoked').length || 0}
+                {data.nfc_cards?.revoked ?? 0}
               </div>
               <div className="text-xs text-critical-subtle-fg">{t('docAdmin.revoked')}</div>
             </div>

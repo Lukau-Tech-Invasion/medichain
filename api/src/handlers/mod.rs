@@ -102,6 +102,7 @@ pub use national_id::*;
 pub use nfc::*;
 pub use nursing::*;
 pub use offline_bundle::*;
+pub(crate) use offline_bundle::{day_list, is_treating_authority};
 pub use organization_keys::*;
 pub use organizations::*;
 pub use patient_admin::*;

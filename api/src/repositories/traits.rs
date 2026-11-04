@@ -591,6 +591,8 @@ pub trait NfcTagRepository: Send + Sync + fmt::Debug {
     /// List all tags
     async fn list(&self, pagination: Pagination)
         -> RepositoryResult<PaginatedResult<NfcTagEntity>>;
+    /// How many cards are in each `status`, across every patient.
+    async fn count_by_status(&self) -> RepositoryResult<Vec<(String, u64)>>;
 }
 
 /// Vital signs repository trait
@@ -1445,6 +1447,9 @@ pub trait CodeBlueRepository: Send + Sync + fmt::Debug {
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
     /// List all code blue records
     async fn list_all(&self) -> RepositoryResult<Vec<CodeBlueEntity>>;
+    /// Every record of this kind, across all patients: the admin dashboard's
+    /// count, which must not be bounded by how many patients it could walk.
+    async fn count_all(&self) -> RepositoryResult<u64>;
 }
 
 /// Trauma assessment repository trait
@@ -1470,6 +1475,9 @@ pub trait TraumaAssessmentRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<TraumaAssessmentEntity>;
     /// Delete a trauma assessment
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
+    /// Every record of this kind, across all patients: the admin dashboard's
+    /// count, which must not be bounded by how many patients it could walk.
+    async fn count_all(&self) -> RepositoryResult<u64>;
 }
 
 /// Stroke assessment repository trait
@@ -1495,6 +1503,9 @@ pub trait StrokeAssessmentRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<StrokeAssessmentEntity>;
     /// Delete a stroke assessment
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
+    /// Every record of this kind, across all patients: the admin dashboard's
+    /// count, which must not be bounded by how many patients it could walk.
+    async fn count_all(&self) -> RepositoryResult<u64>;
 }
 
 /// Cardiac event repository trait
@@ -1514,6 +1525,9 @@ pub trait CardiacEventRepository: Send + Sync + fmt::Debug {
     async fn update(&self, event: CardiacEventEntity) -> RepositoryResult<CardiacEventEntity>;
     /// Delete a cardiac event
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
+    /// Every record of this kind, across all patients: the admin dashboard's
+    /// count, which must not be bounded by how many patients it could walk.
+    async fn count_all(&self) -> RepositoryResult<u64>;
 }
 
 /// Sepsis assessment repository trait
@@ -1539,6 +1553,9 @@ pub trait SepsisAssessmentRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<SepsisAssessmentEntity>;
     /// Delete a sepsis assessment
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
+    /// Every record of this kind, across all patients: the admin dashboard's
+    /// count, which must not be bounded by how many patients it could walk.
+    async fn count_all(&self) -> RepositoryResult<u64>;
 }
 
 // =============================================================================

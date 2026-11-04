@@ -350,6 +350,33 @@ async fn ward_context(data: &web::Data<AppState>, patient_id: &str) -> WardConte
     context
 }
 
+/// The caller's day (`handlers::day_list`), kept to the patients they are
+/// treating, as dashboard rows.
+///
+/// A patient is listed only when `resolve_chart_access` grants a treating
+/// authority now, the same gate a chart read applies, so a lapsed relationship
+/// drops off the list instead of showing a name the nurse cannot open.
+async fn treated_patients(
+    data: &web::Data<AppState>,
+    caller: &crate::User,
+) -> Result<Vec<DashboardPatient>, String> {
+    let mut rows = Vec::new();
+    for (patient_id, _) in crate::handlers::day_list(data, caller).await {
+        let authority = crate::care_access::resolve_chart_access(data, caller, &patient_id)
+            .await
+            .map_err(|e| e.0)?;
+        if !crate::handlers::is_treating_authority(&authority) {
+            continue;
+        }
+        match data.repositories.patients.get_by_id(&patient_id).await {
+            Ok(entity) => rows.push(dashboard_patient(&entity, &data.encryption_keyring)),
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Ok(rows)
+}
+
 #[get("/api/dashboard/nurse")]
 pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     // I/O summaries use the existing registry permission and durable bulk-read audit.
@@ -358,22 +385,22 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
     {
         return response;
     }
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.id,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.id.clone();
 
-    let patients: Vec<DashboardPatient> = required_dashboard_read!(
-        data.repositories
-            .patients
-            .list(Pagination::new(0, 15))
-            .await,
+    // The nurse's own patients: their ward, their care relationships, today's
+    // appointments. This was `patients.list(0, 15)` — the first fifteen rows in
+    // the database, which put strangers' names on every nurse's screen and left
+    // the nurse's actual ward off it.
+    let patients = required_dashboard_read!(
+        treated_patients(&data, &caller).await,
         "nurse dashboard patients"
-    )
-    .items
-    .iter()
-    .map(|e| dashboard_patient(e, &data.encryption_keyring))
-    .collect();
+    );
+    let on_list: std::collections::HashSet<&str> =
+        patients.iter().map(|p| p.patient_id.as_str()).collect();
 
     // Bed, acuity and the three standing tasks, per patient. The page has
     // always rendered these columns; the endpoint has never filled them.
@@ -409,15 +436,11 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
     let medication_records = ward_medications_due(&data, &patients).await;
 
     let critical_alerts: Vec<_> = required_dashboard_read!(
-        data.repositories
-            .cds_alerts
-            .list_all(Pagination::new(0, 20))
-            .await,
+        data.repositories.cds_alerts.get_high_severity().await,
         "nurse dashboard critical alerts"
     )
-    .items
     .into_iter()
-    .filter(|a| a.severity == "critical")
+    .filter(|a| a.severity == "critical" && on_list.contains(a.patient_id.as_str()))
     .take(5)
     .collect();
 
@@ -445,12 +468,22 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
             .get_high_risk_patients()
             .await,
         "nurse dashboard fall-risk patients"
-    );
+    )
+    .into_iter()
+    .filter(|a| on_list.contains(a.patient_id.as_str()))
+    .collect::<Vec<_>>();
 
     let io_records = required_dashboard_read!(
         super::nurse_io::summaries(&data).await,
         "nurse dashboard intake/output"
-    );
+    )
+    .into_iter()
+    .filter(|row| {
+        row.get("patient_id")
+            .and_then(|v| v.as_str())
+            .is_some_and(|id| on_list.contains(id))
+    })
+    .collect::<Vec<_>>();
 
     HttpResponse::Ok().json(serde_json::json!({
         "nurse_id": current_user_id,
@@ -706,59 +739,36 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
     )
     .items;
 
+    // Counted across the whole database. These used to walk the first 100
+    // patients of the roster and add up what each had, so past 100 patients
+    // every figure was a partial count presented as the total.
     let code_blues = required_dashboard_read!(
-        data.repositories.code_blue.list_all().await,
+        data.repositories.code_blue.count_all().await,
         "admin dashboard code-blue count"
-    )
-    .len();
-
-    // Stroke, trauma and sepsis assessments and NFC cards are only queryable per
-    // patient, so they are counted in one pass over the roster rather than
-    // through a ward-wide listing these repositories do not provide.
-    let mut strokes = 0usize;
-    let mut traumas = 0usize;
-    let mut sepsis_cases = 0usize;
-    let mut nfc_cards = Vec::new();
-    let roster = required_dashboard_read!(
-        data.repositories
-            .patients
-            .list(Pagination::new(0, 100))
-            .await,
-        "admin dashboard patient roster"
     );
-    for entity in roster.items {
-        strokes += required_dashboard_read!(
-            data.repositories
-                .stroke_assessments_repo
-                .get_by_patient(&entity.id, Pagination::new(0, 100))
-                .await,
-            "admin dashboard stroke assessments"
-        )
-        .items
-        .len();
-        traumas += required_dashboard_read!(
-            data.repositories
-                .trauma_assessments_repo
-                .get_by_patient(&entity.id, Pagination::new(0, 100))
-                .await,
-            "admin dashboard trauma assessments"
-        )
-        .items
-        .len();
-        sepsis_cases += required_dashboard_read!(
-            data.repositories
-                .sepsis_assessments_repo
-                .get_by_patient(&entity.id, Pagination::new(0, 100))
-                .await,
-            "admin dashboard sepsis assessments"
-        )
-        .items
-        .len();
-        nfc_cards.extend(required_dashboard_read!(
-            data.repositories.nfc_tags.get_by_patient(&entity.id).await,
-            "admin dashboard NFC cards"
-        ));
-    }
+    let strokes = required_dashboard_read!(
+        data.repositories.stroke_assessments_repo.count_all().await,
+        "admin dashboard stroke assessments"
+    );
+    let traumas = required_dashboard_read!(
+        data.repositories.trauma_assessments_repo.count_all().await,
+        "admin dashboard trauma assessments"
+    );
+    let sepsis_cases = required_dashboard_read!(
+        data.repositories.sepsis_assessments_repo.count_all().await,
+        "admin dashboard sepsis assessments"
+    );
+    let card_counts = required_dashboard_read!(
+        data.repositories.nfc_tags.count_by_status().await,
+        "admin dashboard NFC cards"
+    );
+    let cards_in = |status: &str| -> u64 {
+        card_counts
+            .iter()
+            .filter(|(s, _)| s.eq_ignore_ascii_case(status))
+            .map(|(_, n)| n)
+            .sum()
+    };
 
     let submissions = required_dashboard_read!(
         data.repositories
@@ -803,9 +813,15 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
             "pending": labs_pending,
             "approved": labs_approved,
         },
+        // Counts by status. The page used to filter a list of cards for
+        // `'active'` and `'revoked'` while the stored status is `Active` and
+        // `Revoked`, so both tiles read 0 whatever was issued.
         "nfc_cards": {
-            "total": nfc_cards.len(),
-            "cards": nfc_cards,
+            "total": card_counts.iter().map(|(_, n)| n).sum::<u64>(),
+            "active": cards_in("Active"),
+            "suspended": cards_in("Suspended"),
+            "revoked": cards_in("Revoked"),
+            "expired": cards_in("Expired"),
         },
         "audit_seal": audit_seal
     }))
@@ -1706,5 +1722,111 @@ mod pharmacy_interaction_panel_tests {
         let allergy = &body["allergy_alerts"][0];
         assert_eq!(allergy["allergen"], "Penicillin", "{body}");
         assert!(allergy["id"].is_string(), "a row the page can key: {body}");
+    }
+}
+
+#[cfg(test)]
+mod nurse_list_tests {
+    //! A nurse's "My Patients" is the nurse's patients, not the first rows in
+    //! the database.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+    use serde_json::Value;
+
+    const NURSE: &str = "dash-nurse";
+    const MINE: &str = "PAT-DASH-MINE";
+    const STRANGER: &str = "PAT-DASH-STRANGER";
+
+    #[actix_web::test]
+    async fn my_patients_lists_the_nurses_patient_and_not_a_stranger() {
+        let state = AppState::new();
+        test_fixtures::register(&state, NURSE, Role::Nurse);
+        test_fixtures::seed_patient(&state, STRANGER).await;
+        test_fixtures::seed_patient(&state, MINE).await;
+        crate::care_access::record_encounter(&state, MINE, NURSE, "APT-DASH-1", Utc::now()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::nurse_dashboard),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/dashboard/nurse")
+            .insert_header(test_fixtures::as_user(NURSE))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        let ids: Vec<&str> = body["patients"]["list"]
+            .as_array()
+            .expect("a patient list")
+            .iter()
+            .filter_map(|p| p["patient_id"].as_str())
+            .collect();
+        assert_eq!(ids, vec![MINE], "only the nurse's own patient is listed");
+        assert_eq!(body["patients"]["total"], 1);
+    }
+}
+
+#[cfg(test)]
+mod admin_count_tests {
+    //! The admin card tiles count what is stored, in the case it is stored in.
+    use crate::repositories::traits::NfcTagEntity;
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+    use serde_json::Value;
+
+    const ADMIN: &str = "dash-admin";
+
+    fn card(id: &str, status: &str) -> NfcTagEntity {
+        NfcTagEntity {
+            id: id.to_string(),
+            tag_uid: format!("UID-{id}"),
+            patient_id: "PAT-CARDS".to_string(),
+            tag_type: "emergency".to_string(),
+            is_active: status == "Active",
+            pin_hash: None,
+            issued_at: Utc::now(),
+            expires_at: None,
+            last_used_at: None,
+            use_count: 0,
+            issued_by: None,
+            status: status.to_string(),
+        }
+    }
+
+    #[actix_web::test]
+    async fn card_tiles_count_stored_statuses() {
+        let state = AppState::new();
+        test_fixtures::register(&state, ADMIN, Role::Admin);
+        for (id, status) in [("c1", "Active"), ("c2", "Active"), ("c3", "Revoked")] {
+            state
+                .repositories
+                .nfc_tags
+                .create(card(id, status))
+                .await
+                .unwrap();
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::admin_dashboard),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/api/dashboard/admin")
+            .insert_header(test_fixtures::as_user(ADMIN))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        let cards = &body["nfc_cards"];
+        assert_eq!(cards["total"], 3);
+        assert_eq!(cards["active"], 2, "stored as `Active`, not `active`");
+        assert_eq!(cards["revoked"], 1);
+        assert_eq!(cards["suspended"], 0);
     }
 }

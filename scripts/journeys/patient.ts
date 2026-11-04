@@ -1263,7 +1263,6 @@ export async function runWardRecordVisibilitySteps(
   const plan = await http('POST', '/emergency/care-plan', {
     token: nurse.token,
     body: {
-      care_plan_id: `CP-${stamp}`,
       patient_id: id,
       diagnoses: [
         {
@@ -1296,9 +1295,6 @@ export async function runWardRecordVisibilitySteps(
           responsibleParty: 'nursing',
         },
       ],
-      created_by: nurse.userId,
-      created_at: Math.floor(Date.now() / 1000),
-      updated_at: Math.floor(Date.now() / 1000),
     },
   });
   await readBackAsPatient(j, patient, id, otherId, {

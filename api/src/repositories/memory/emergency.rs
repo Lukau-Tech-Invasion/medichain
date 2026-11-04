@@ -120,6 +120,14 @@ impl CodeBlueRepository for MemoryCodeBlueRepository {
         items.sort_by_key(|b| std::cmp::Reverse(b.code_called_at));
         Ok(items)
     }
+
+    async fn count_all(&self) -> RepositoryResult<u64> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.len() as u64)
+    }
 }
 
 // =============================================================================
@@ -228,6 +236,14 @@ impl TraumaAssessmentRepository for MemoryTraumaAssessmentRepository {
         data.remove(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Trauma assessment {} not found", id)))
             .map(|_| ())
+    }
+
+    async fn count_all(&self) -> RepositoryResult<u64> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.len() as u64)
     }
 }
 
@@ -338,6 +354,14 @@ impl StrokeAssessmentRepository for MemoryStrokeAssessmentRepository {
             .ok_or_else(|| RepositoryError::NotFound(format!("Stroke assessment {} not found", id)))
             .map(|_| ())
     }
+
+    async fn count_all(&self) -> RepositoryResult<u64> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.len() as u64)
+    }
 }
 
 // =============================================================================
@@ -440,6 +464,14 @@ impl CardiacEventRepository for MemoryCardiacEventRepository {
         data.remove(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Cardiac event {} not found", id)))
             .map(|_| ())
+    }
+
+    async fn count_all(&self) -> RepositoryResult<u64> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.len() as u64)
     }
 }
 
@@ -549,5 +581,13 @@ impl SepsisAssessmentRepository for MemorySepsisAssessmentRepository {
         data.remove(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Sepsis assessment {} not found", id)))
             .map(|_| ())
+    }
+
+    async fn count_all(&self) -> RepositoryResult<u64> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.len() as u64)
     }
 }

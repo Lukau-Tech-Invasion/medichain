@@ -172,6 +172,18 @@ impl NfcTagRepository for MemoryNfcTagRepository {
 
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+
+    async fn count_by_status(&self) -> RepositoryResult<Vec<(String, u64)>> {
+        let storage = self
+            .storage
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut counts: HashMap<String, u64> = HashMap::new();
+        for tag in storage.values() {
+            *counts.entry(tag.status.clone()).or_default() += 1;
+        }
+        Ok(counts.into_iter().collect())
+    }
 }
 
 #[cfg(test)]

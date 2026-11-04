@@ -53,7 +53,13 @@ pub struct ListedFor {
 }
 
 /// The caller's patients in order, each with every reason they are listed.
-async fn day_list(data: &AppState, caller: &crate::User) -> Vec<(String, Vec<ListedFor>)> {
+///
+/// Also the nurse dashboard's "My Patients": the same day, on screen instead of
+/// on the device.
+pub(crate) async fn day_list(
+    data: &AppState,
+    caller: &crate::User,
+) -> Vec<(String, Vec<ListedFor>)> {
     let now = Utc::now();
     let mut order: Vec<(String, Vec<ListedFor>)> = Vec::new();
     let mut add = |id: String, why: ListedFor| match order.iter_mut().find(|(p, _)| *p == id) {
@@ -126,8 +132,11 @@ async fn ward_admissions(
     wards.open_admissions_on(&ids).await.unwrap_or_default()
 }
 
-/// Whether this authority may carry a chart onto a device.
-fn may_take_offline(authority: &ChartAuthority) -> bool {
+/// Whether this authority is someone treating the patient: the patient's own
+/// grant, a care relationship or a ward assignment. Break-glass and an
+/// administrator's oversight are not — they may open a chart, but the patient
+/// is not on their day, so it neither leaves on a device nor fills a ward list.
+pub(crate) fn is_treating_authority(authority: &ChartAuthority) -> bool {
     matches!(
         authority,
         ChartAuthority::PatientGrant(_)
@@ -202,7 +211,7 @@ async fn include_patient(
     listed_for: Vec<ListedFor>,
 ) -> Included {
     let authority = match crate::care_access::resolve_chart_access(data, caller, patient_id).await {
-        Ok(authority) if may_take_offline(&authority) => authority,
+        Ok(authority) if is_treating_authority(&authority) => authority,
         _ => return Included::NotPermitted,
     };
     let Some(profile) = data

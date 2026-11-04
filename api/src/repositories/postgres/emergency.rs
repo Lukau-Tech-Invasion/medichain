@@ -156,6 +156,13 @@ macro_rules! pg_emergency_repo {
                 }
                 Ok(())
             }
+
+            async fn count_all(&self) -> RepositoryResult<u64> {
+                let total: i64 = sqlx::query_scalar(concat!("SELECT COUNT(*) FROM ", $table))
+                    .fetch_one(&self.pool)
+                    .await?;
+                Ok(total as u64)
+            }
         }
     };
 }
@@ -269,6 +276,13 @@ impl CodeBlueRepository for PgCodeBlueRepository {
             )));
         }
         Ok(())
+    }
+
+    async fn count_all(&self) -> RepositoryResult<u64> {
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ep_code_blue_records")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(total as u64)
     }
 
     async fn list_all(&self) -> RepositoryResult<Vec<CodeBlueEntity>> {

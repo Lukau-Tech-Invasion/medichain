@@ -8,7 +8,7 @@
  * - Cached documents
  */
 
-import { canSeal, forgetSealKey, sealBody } from './offlineSeal';
+import { canSeal, forgetSealKey, openBody, sealBody } from './offlineSeal';
 
 const DB_NAME = 'MediChainOfflineDB';
 const DB_VERSION = 1;
@@ -348,7 +348,12 @@ export async function clearCompletedSyncItems(ownerUserId?: string): Promise<num
 // ============================================================================
 
 /**
- * Cache data with expiration
+ * Cache data with expiration.
+ *
+ * Data with an owner is sealed under that account's device key
+ * (`offlineSeal`), so a copied browser profile yields ciphertext and sign-out
+ * (`forgetSealKey`) makes it unreadable. Where the browser cannot seal, owned
+ * data is not kept at all rather than kept in the clear.
  */
 export async function cacheData(
   id: string,
@@ -359,12 +364,13 @@ export async function cacheData(
   priority: 'high' | 'medium' | 'low' = 'medium',
   ownerUserId?: string,
 ): Promise<void> {
+  if (ownerUserId && !canSeal()) return;
   const item: CachedDataItem = {
     ownerUserId,
     id,
     category,
     name,
-    data,
+    data: ownerUserId ? await sealBody(data, ownerUserId) : data,
     size: JSON.stringify(data).length,
     lastSynced: Date.now(),
     expiresAt: Date.now() + ttlMs,
@@ -385,8 +391,31 @@ export async function getCachedData<T>(id: string): Promise<T | null> {
     await deleteItem(STORES.CACHED_DATA, id);
     return null;
   }
-  
-  return item.data as T;
+  if (!item.ownerUserId) return item.data as T;
+  try {
+    return (await openBody(item.data, item.ownerUserId)) as T;
+  } catch {
+    // The account's key is gone (signed out): the copy is unreadable, so drop it.
+    await deleteItem(STORES.CACHED_DATA, id);
+    return null;
+  }
+}
+
+/**
+ * At sign-out: delete everything `ownerUserId` kept for offline reading, and
+ * destroy their sealing key unless unsent work still needs it (the clinician's
+ * sign-out offers to send or discard that first; discarding destroys the key).
+ * On a shared phone the next person, signed in or not, then has nothing of the
+ * previous account to read.
+ */
+export async function forgetOfflineCopiesOf(ownerUserId: string): Promise<void> {
+  const items = await getAllItems<CachedDataItem>(STORES.CACHED_DATA);
+  for (const item of items) {
+    if (item.ownerUserId === ownerUserId) await deleteItem(STORES.CACHED_DATA, item.id);
+  }
+  if (canSeal() && (await unsentSyncItems(ownerUserId)).length === 0) {
+    await forgetSealKey(ownerUserId).catch(() => undefined);
+  }
 }
 
 /**

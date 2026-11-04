@@ -2010,6 +2010,7 @@ const en_US: TranslationRecord = {
     administer: 'Administer',
     due: 'DUE',
     statMyPatients: 'My Patients',
+    myPatientsEmpty: 'Nobody is on your list today: no ward shift, appointment or care relationship links you to a patient.',
     statRecentPatients: 'Recent patients',
     recentPatients: 'Recently registered patients',
     statVitalsDue: 'Vitals Due',

@@ -496,11 +496,9 @@ export async function nurseJourney(
 
   // --- Care plan ----------------------------------------------------------
   // CarePlanPage.tsx: POST /api/emergency/care-plan
-  const planId = `CP-${stamp}`;
   const plan = await http('POST', '/emergency/care-plan', {
     token: nurse.token,
     body: {
-      care_plan_id: planId,
       patient_id: patient,
       // CarePlanPage's `NursingDiagnosis[]`, `Goal[]` and `Intervention[]`,
       // camelCase and cross-referenced by id the way the page builds them.
@@ -535,19 +533,17 @@ export async function nurseJourney(
           responsibleParty: 'nursing',
         },
       ],
-      created_by: nurse.userId,
-      created_at: epoch(),
-      updated_at: epoch(),
     },
   });
+  // The server mints the id; the page never chose one that could collide.
+  const planId = (plan.json as { id?: string } | undefined)?.id;
   const planOk = j.status('a nursing care plan is accepted', plan.status, [200, 201], plan.json);
 
   if (planOk) {
     const list = await http('GET', '/nursing/care-plans', { token: nurse.token });
     const rows = rowsOf(list.json, 'plans', 'items');
     const mine =
-      findBy(rows, 'care_plan_id', planId) ??
-      findBy(rows, 'id', planId) ??
+      (planId ? findBy(rows, 'id', planId) : undefined) ??
       (Array.isArray(rows)
         ? (rows as any[]).find((r) => JSON.stringify(r ?? null).includes(`ND-${stamp}`))
         : undefined);

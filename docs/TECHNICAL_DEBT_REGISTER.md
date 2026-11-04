@@ -4476,7 +4476,7 @@ mutation needs a fresh confirmation, and no authorization can execute twice.
 The in-memory development backend has no challenge store and skips the gate;
 production refuses to start without PostgreSQL.
 
-## 2026-10-18 — OPEN: the admin dashboard counts only the first 100 patients
+## 2026-10-18 — CLOSED 2026-11-04: the admin dashboard counts only the first 100 patients
 
 `api/src/clinical_endpoints/workflow/dashboards.rs` builds the stroke, trauma
 and sepsis counts and the NFC card list by walking `patients.list(Pagination::new(0, 100))`,
@@ -4490,7 +4490,15 @@ Fix when touched: a ward-wide count query per repository (`SELECT count(*)`),
 or state the scope on the panel ("first 100 patients") rather than present a
 partial count as the total.
 
-## 2026-10-18 — OPEN: emergency-protocol lists are not care-scoped
+**Closed 2026-11-04.** The code-blue, stroke, trauma, sepsis and cardiac
+repositories gained `count_all()` and the NFC repository `count_by_status()`, both
+backends; the dashboard counts the whole database and no longer walks the roster.
+The same pass found the card tiles were wrong for a second reason: the page
+filtered the card list for `'active'` and `'revoked'` while the stored status is
+`Active` and `Revoked`, so both tiles read 0 whatever was issued. The endpoint now
+returns the counts per status (`admin_count_tests`).
+
+## 2026-10-18 — CLOSED (already enforced; verified 2026-11-04): emergency-protocol lists are not care-scoped
 
 `require_emergency_list_access` (`api/src/clinical_endpoints/emergency/mod.rs`)
 lets any healthcare-provider role read any patient's trauma, stroke, cardiac
@@ -4504,7 +4512,27 @@ denial tests the records summary has. Found while making these records
 patient-readable; not changed in that pass, because narrowing clinician access
 needs the same review as the other unscoped reads.
 
-## 2026-10-18 — PARTLY CLOSED: the patient's offline medical ID sat in plain Cache Storage after sign-out
+**Verified 2026-11-04: not open.** All five list routes are in
+`PhiAccessAuditMiddleware`'s chart-gate table, so a caller with no grant, care
+relationship, ward assignment, break-glass or admin authority gets 403
+`CARE_RELATIONSHIP_REQUIRED` before the handler's role check runs.
+`emergency::list_scope_tests` proves it through the middleware for each list
+(stranger pharmacist 403, treating doctor 200). The handler-level check is now
+redundant, not wrong.
+
+Two callers of the same handler check are **not** covered by that gate, and
+remain OPEN:
+
+- `POST /api/emergency/administer-med`: a write, which the GET-only chart gate
+  does not see. Any healthcare provider can record an emergency medication for
+  any patient. Whether an emergency administration should need a relationship
+  (a code blue often has none) is a policy decision.
+- `GET /api/clinical/shift-handoff/{provider_id}` passes a *provider* id into a
+  patient-ownership check, so any healthcare provider can read any colleague's
+  handoffs, which name patients. It should be scoped to the caller, or to
+  the handoff's giver and receiver.
+
+## 2026-10-18 — CLOSED 2026-11-04: the patient's offline medical ID sat in plain Cache Storage after sign-out
 
 `client/patient-app/public/sw.js` caches `GET /api/medical-id/*` (blood type,
 allergies, conditions) for offline emergency use. Nothing ever deleted it, so on
@@ -4520,6 +4548,19 @@ Still open: while signed in, the cached responses are unencrypted at rest. The
 ledger's "encrypted offline PHI ownership" item needs a keyed store (WebCrypto,
 key held in memory, released on sign-out) in place of raw Cache Storage. Until
 then the offline medical ID is as private as the device's own lock.
+
+**Closed 2026-11-04.** The patient worker (`client/patient-app/public/sw.js`)
+no longer answers or keeps any `/api/` response, and its activation deletes the old
+data cache. `cacheData` (`client/shared/src/utils/indexedDB.ts`) seals every owned
+entry with the account's non-extractable AES-GCM key (`offlineSeal`) and refuses
+to keep owned data where it cannot seal; `getCachedData` opens it, and drops an
+entry whose key is gone. The Medical ID page reads through `useOfflineCache`, so
+its offline copy is that sealed entry. Sign-out (`clearSessionMemory` →
+`forgetOfflineCopiesOf`) deletes the account's offline copies and destroys its key
+unless unsent clinician work still needs it; a session that merely fails to
+restore (no signal) keeps them, as before. Verified in the browser: three sealed
+entries while signed in, readable with fetch failing, none and no key after
+sign-out.
 
 ## 2026-11-01 — OPEN (cleanup): `OfflineQueue` is a queue nothing writes to
 
@@ -4538,9 +4579,27 @@ the result (its comment calls it a warm-up). It costs a directory read per
 visit and does nothing on screen. Removal is cleanup; its console-only catch
 carries a `ux-allow` marker until then.
 
-## 2026-11-01 — OPEN: the care plan id is minted on the client from the clock
+## 2026-11-01 — CLOSED 2026-11-04: the care plan id is minted on the client from the clock
 
 `CarePlanPage.tsx` sends `care_plan_id: \`CP-${Date.now()}\``. Two clinicians
 saving in the same millisecond produce the same id, and JSON-record creates are
 upserts (see the 2026-09 entry on client-chosen ids), so the second save can
 overwrite the first. The id should be minted by the server.
+
+**Closed 2026-11-04, and the risk was smaller than stated.** `create_care_plan`
+already minted its own id (`NCP-<uuid>`) and never used the client's: the
+clock id only reached a copy of the request. The page now sends only the patient,
+diagnoses, goals and interventions (no id, author or timestamps), the request type
+no longer accepts `care_plan_id`, and the nurse journey finds the plan by the id
+the server returned.
+
+## 2026-11-04 — CLOSED: the nurse dashboard listed the first 15 patients in the database
+
+`/api/dashboard/nurse` built "My Patients" from `patients.list(0, 15)`, so every
+nurse saw the same fifteen strangers' names and not their ward. Its critical
+alerts, fall-risk and intake/output panels were ward-wide too. It now uses the
+caller's day (`handlers::day_list`: ward shifts, care relationships, today's
+appointments, the same list the offline bundle carries), keeps each patient only
+when `resolve_chart_access` grants a treating authority now, and filters the
+other three panels to those patients (`nurse_list_tests`). The page labels the
+list "My Patients" and says why it is empty when it is.

@@ -271,15 +271,13 @@ export default function CarePlanPage() {
     setError('');
 
     try {
+      // The server mints the plan's id and takes its author and time from the
+      // session; the page sends only what the nurse entered.
       const carePlanData = {
-        care_plan_id: `CP-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
         diagnoses,
         goals,
         interventions,
-        created_by: user?.userId,
-        created_at: Math.floor(Date.now() / 1000),
-        updated_at: Math.floor(Date.now() / 1000)
       };
 
       await createCarePlan(carePlanData);

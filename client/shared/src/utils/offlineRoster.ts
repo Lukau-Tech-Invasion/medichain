@@ -12,7 +12,7 @@
  */
 import { getClinicianOfflineBundle, type OfflineBundle, type OfflinePatient } from '../api/endpoints';
 import { cacheData, deleteItem, getCachedData, STORES } from './indexedDB';
-import { canSeal, openBody, sealBody } from './offlineSeal';
+import { canSeal } from './offlineSeal';
 
 const CATEGORY = 'clinician-day';
 
@@ -25,7 +25,8 @@ export async function refreshOfflineRoster(owner: string): Promise<OfflineBundle
   const bundle = await getClinicianOfflineBundle();
   if (!canSeal()) return bundle; // never stored in the clear
   const ttl = Math.max(0, new Date(bundle.expires_at).getTime() - Date.now());
-  await cacheData(rosterKey(owner), CATEGORY, 'Patients for today', await sealBody(bundle, owner), ttl, 'high', owner);
+  // `cacheData` seals it under the owner's device key.
+  await cacheData(rosterKey(owner), CATEGORY, 'Patients for today', bundle, ttl, 'high', owner);
   return bundle;
 }
 
@@ -33,9 +34,8 @@ export async function refreshOfflineRoster(owner: string): Promise<OfflineBundle
 export async function readOfflineRoster(owner: string): Promise<OfflineBundle | null> {
   if (!canSeal()) return null;
   try {
-    const sealed = await getCachedData<unknown>(rosterKey(owner));
-    if (!sealed) return null;
-    const bundle = (await openBody(sealed, owner)) as OfflineBundle;
+    const bundle = await getCachedData<OfflineBundle>(rosterKey(owner));
+    if (!bundle) return null;
     return new Date(bundle.expires_at).getTime() > Date.now() ? bundle : null;
   } catch {
     // A key that no longer opens it (signed out elsewhere) is the same as none.
