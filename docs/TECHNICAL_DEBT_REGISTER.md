@@ -4527,10 +4527,15 @@ remain OPEN:
   does not see. Any healthcare provider can record an emergency medication for
   any patient. Whether an emergency administration should need a relationship
   (a code blue often has none) is a policy decision.
-- `GET /api/clinical/shift-handoff/{provider_id}` passes a *provider* id into a
-  patient-ownership check, so any healthcare provider can read any colleague's
-  handoffs, which name patients. It should be scoped to the caller, or to
-  the handoff's giver and receiver.
+- **CLOSED 2026-11-05:** `GET /api/clinical/shift-handoff/{provider_id}`
+  passed a *provider* id into a patient-ownership check, so any healthcare
+  provider could read any colleague's handoffs, which name patients. It now
+  answers only to the provider named (403 `NOT_OWN_HANDOFFS` otherwise). The
+  same gap was on `GET /api/emergency/handoff/{id}`, which any clinical staff
+  could read by batch or row id; it now returns only the rows the caller gave
+  or received, and 404 for the rest, so an id does not reveal that a handoff
+  exists. `handoff_scope_tests` covers both; every existing caller (the page,
+  the nurse journey, the synthetic harness) reads as giver or receiver.
 
 ## 2026-10-18 — CLOSED 2026-11-04: the patient's offline medical ID sat in plain Cache Storage after sign-out
 

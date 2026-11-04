@@ -748,3 +748,81 @@ mod list_scope_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod handoff_scope_tests {
+    //! A shift handoff names patients. Only the clinician who gave it and the
+    //! one who received it may read it, by batch, by row or in a list.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+
+    const PATIENT: &str = "PAT-HANDOFF-SCOPE";
+    const GIVER: &str = "handoff-giver-nurse";
+    const RECEIVER: &str = "handoff-receiver-nurse";
+    const COLLEAGUE: &str = "handoff-colleague-nurse";
+
+    #[actix_web::test]
+    async fn only_the_giver_and_receiver_read_a_handoff() {
+        let state = AppState::new();
+        for id in [GIVER, RECEIVER, COLLEAGUE] {
+            test_fixtures::register(&state, id, Role::Nurse);
+        }
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_shift_handoff)
+                .service(super::get_shift_handoff)
+                .service(super::list_provider_handoffs),
+        )
+        .await;
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/emergency/handoff")
+                .insert_header(test_fixtures::as_user(GIVER))
+                .set_json(serde_json::json!({
+                    "incoming_nurse": RECEIVER,
+                    "patients": [{ "patientId": PATIENT }],
+                }))
+                .to_request(),
+        )
+        .await;
+        let batch = created["id"]
+            .as_str()
+            .expect("the create answer names the batch")
+            .to_string();
+        let row = format!("{batch}-{PATIENT}");
+
+        let status = |uri: String, who: &'static str| {
+            test::TestRequest::get()
+                .uri(&uri)
+                .insert_header(test_fixtures::as_user(who))
+                .to_request()
+        };
+        for id in [&batch, &row] {
+            for (who, expected) in [(GIVER, 200), (RECEIVER, 200), (COLLEAGUE, 404)] {
+                let resp =
+                    test::call_service(&app, status(format!("/api/emergency/handoff/{id}"), who))
+                        .await;
+                assert_eq!(resp.status().as_u16(), expected, "{who} reading {id}");
+            }
+        }
+        let own = test::call_service(
+            &app,
+            status(format!("/api/clinical/shift-handoff/{GIVER}"), GIVER),
+        )
+        .await;
+        assert_eq!(own.status().as_u16(), 200);
+        let theirs = test::call_service(
+            &app,
+            status(format!("/api/clinical/shift-handoff/{GIVER}"), COLLEAGUE),
+        )
+        .await;
+        assert_eq!(
+            theirs.status().as_u16(),
+            403,
+            "a colleague cannot list another's handoffs"
+        );
+    }
+}

@@ -1572,9 +1572,10 @@ pub async fn get_shift_handoff(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
     let id = path.into_inner();
     // A handoff covers a ward, and storage is one row per patient keyed
     // `{batch}-{patient_id}` — so `create_shift_handoff` returns the batch id
@@ -1583,11 +1584,21 @@ pub async fn get_shift_handoff(
     //
     // A batch resolves to the handoff it names; a single row still resolves to
     // itself, so the existing per-row callers are unaffected.
+    //
+    // Only the clinician who gave a handoff and the one who received it may
+    // read it. A row the caller is not party to answers exactly as a missing
+    // one does, so the id is not an oracle for which handoffs exist.
     if let Ok(record) = data.repositories.shift_handoffs.get_by_id(&id).await {
-        return HttpResponse::Ok().json(record);
+        if takes_part_in(&record, &caller.id) {
+            return HttpResponse::Ok().json(record);
+        }
     }
     match data.repositories.shift_handoffs.get_by_batch(&id).await {
         Ok(rows) => {
+            let rows: Vec<_> = rows
+                .into_iter()
+                .filter(|row| takes_part_in(row, &caller.id))
+                .collect();
             if rows.is_empty() {
                 return HttpResponse::NotFound().json(ErrorResponse {
                     error: format!("No handoff found for '{id}'"),
@@ -1608,6 +1619,11 @@ pub async fn get_shift_handoff(
             })
         }
     }
+}
+
+/// Whether `user_id` gave or received this handoff.
+fn takes_part_in(handoff: &crate::repositories::traits::ShiftHandoffEntity, user_id: &str) -> bool {
+    handoff.outgoing_provider_id == user_id || handoff.incoming_provider_id == user_id
 }
 
 /// Record receipt by the authenticated recipient; repeated calls preserve first receipt.
@@ -1688,9 +1704,18 @@ pub async fn list_provider_handoffs(
     path: web::Path<String>,
     query: web::Query<HandoffHistoryQuery>,
 ) -> impl Responder {
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
     let provider_id = path.into_inner();
-    if let Err(resp) = require_emergency_list_access(&data, &http_req, &provider_id) {
-        return resp;
+    // The page asks for its own handoffs. Another provider's list names that
+    // provider's patients, which a colleague has no relationship to.
+    if provider_id != caller.id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "You can list only your own handoffs".to_string(),
+            code: "NOT_OWN_HANDOFFS".to_string(),
+        });
     }
     let days = query.days.unwrap_or(1).clamp(1, MAX_HANDOFF_HISTORY_DAYS);
     let since = Utc::now().date_naive() - chrono::Duration::days(i64::from(days - 1));
