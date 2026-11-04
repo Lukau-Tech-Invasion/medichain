@@ -11,8 +11,7 @@ import {
   addVitalSigns,
   getVitalsFlowsheet,
   formatTimestamp,
-  notifySuccess,
-} from '@medichain/shared';
+  notifySuccess, submitOnce, useSubmission } from '@medichain/shared';
 import type { GcsScale } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -106,6 +105,8 @@ function VitalSignsPage() {
   const patientIdFromUrl = searchParams.get('patientId');
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const submission = useSubmission('vitals');
+  const gcsSubmission = useSubmission('gcs');
 
   const { user, isAuthenticated } = useAuthStore();
   
@@ -193,13 +194,28 @@ function VitalSignsPage() {
 
     try {
       setGcsSubmitting(true);
-      const result = await createGCS({
+      const gcs = {
         patient_id: selectedPatientId,
         eye_response: Number(gcsEye),
         verbal_response: Number(gcsVerbal),
         motor_response: Number(gcsMotor),
         notes: gcsNotes.trim() || undefined,
-      });
+      };
+      let result: Awaited<ReturnType<typeof createGCS>> | undefined;
+      const outcome = await submitOnce(gcsSubmission, gcs, async () => { result = await createGCS(gcs); });
+      if (outcome === 'busy') return;
+      if (!result) {
+        // Kept on this device, or already saved: the server's score is not here
+        // to show, and this page does not compute one (rule 8).
+        setGcsEye('');
+        setGcsVerbal('');
+        setGcsMotor('');
+        setGcsNotes('');
+        notifySuccess(outcome === 'queued'
+          ? `${t('forms.queued')} ${t('clinicianOffline.scoreOffline')}`
+          : t('forms.alreadySaved'));
+        return;
+      }
       // Show what the server scored, not what this page thinks the total is.
       setGcsResult({
         total_score: result.total_score,
@@ -312,13 +328,17 @@ function VitalSignsPage() {
         notes: newVitals.notes || null,
       };
 
+      let outcome: Awaited<ReturnType<typeof submitOnce>>;
       try {
-        await addVitalSigns(payload);
+        // One key per submission: a double tap, or a retry after a timeout that
+        // had in fact saved, is answered "already saved" instead of writing twice.
+        outcome = await submitOnce(submission, payload, () => addVitalSigns(payload));
+        if (outcome === 'busy') return;
       } catch (refused) {
         throw new Error(getApiErrorMessage(refused, t('docVitalSigns.errorRecordVitals')));
       }
 
-      setSuccess(t('docVitalSigns.recordSuccess'));
+      setSuccess(outcome === 'queued' ? t('forms.queued') : t('docVitalSigns.recordSuccess'));
       setShowForm(false);
       setNewVitals({
         heart_rate: '',
@@ -334,8 +354,8 @@ function VitalSignsPage() {
         notes: '',
       });
 
-      // Refresh flowsheet
-      setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
+      // Refresh flowsheet (a reading still on this device is not on it yet)
+      if (outcome !== 'queued') setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docVitalSigns.errorRecordVitalsGeneric'));
     } finally {
@@ -671,8 +691,8 @@ function VitalSignsPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={submitting}
-                className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+                aria-disabled={submitting || undefined}
+                className="aria-disabled:cursor-wait px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
               >
                 {submitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
                 {t('docVitalSigns.saveVitalsButton')}

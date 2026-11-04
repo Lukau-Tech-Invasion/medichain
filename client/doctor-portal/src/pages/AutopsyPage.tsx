@@ -10,7 +10,7 @@ import {
   Textarea,
   useValidatedForm,
   autopsyReportSchema,
-  formatDateOnly,
+  formatDateOnly, ChoiceChips
 } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -24,6 +24,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
 
 type AutopsyType = 'medico-legal' | 'hospital' | 'forensic' | 'clinical';
 type MannerOfDeath = 'natural' | 'accident' | 'suicide' | 'homicide' | 'undetermined' | 'pending';
@@ -208,6 +209,7 @@ const AutopsyPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(autopsyReportSchema);
   const handleCreateAutopsy = async () => {
+    if (isLoading) return;
     // One toast for three fields on a long report form.
     if (!validate(newAutopsy)) {
       return;
@@ -437,17 +439,18 @@ const AutopsyPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-content-secondary mb-2">{t('docAutopsy.statusLabel')}</label>
-                <select aria-label={t('common.filterByStatus')}
+                <ChoiceChips
+                  label={t('common.filterByStatus')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as AutopsyStatus | 'all')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="all">{t('docAutopsy.filterAllStatuses')}</option>
-                  <option value="pending">{t('docAutopsy.status_pending')}</option>
-                  <option value="in-progress">{t('docAutopsy.status_in-progress')}</option>
-                  <option value="completed">{t('docAutopsy.status_completed')}</option>
-                  <option value="reviewed">{t('docAutopsy.status_reviewed')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as AutopsyStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docAutopsy.filterAllStatuses') },
+                    { value: 'pending', label: t('docAutopsy.status_pending') },
+                    { value: 'in-progress', label: t('docAutopsy.status_in-progress') },
+                    { value: 'completed', label: t('docAutopsy.status_completed') },
+                    { value: 'reviewed', label: t('docAutopsy.status_reviewed') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -474,7 +477,7 @@ const AutopsyPage: React.FC = () => {
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docAutopsy.lblDeceased')}</p>
                     <p className="font-semibold text-content">{autopsy.patientName}</p>
-                    <p className="text-sm text-content-muted">{autopsy.patientId}</p>
+                    <p className="text-sm"><PatientName id={autopsy.patientId} dobOnly /></p>
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docAutopsy.lblDateOfDeath')}</p>
@@ -623,6 +626,7 @@ const AutopsyPage: React.FC = () => {
       )}
 
       {activeTab === 'new-report' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCreateAutopsy(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold text-content mb-6">{t('docAutopsy.createTitle')}</h2>
 
@@ -643,16 +647,17 @@ const AutopsyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="autopsy-autopsy-type" className="block text-sm font-semibold text-content-secondary mb-2">{t('docAutopsy.autopsyTypeLabel')}</label>
-                <select id="autopsy-autopsy-type"
+                <ChoiceChips
+                  id="autopsy-autopsy-type"
+                  label={t('docAutopsy.autopsyTypeLabel')}
                   value={newAutopsy.autopsyType}
-                  onChange={(e) => setNewAutopsy({ ...newAutopsy, autopsyType: e.target.value as AutopsyType })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="hospital">{t('docAutopsy.type_hospital')}</option>
-                  <option value="forensic">{t('docAutopsy.type_forensic')}</option>
-                  <option value="clinical">{t('docAutopsy.type_clinical')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewAutopsy({ ...newAutopsy, autopsyType: next as AutopsyType }); }}
+                  options={[
+                    { value: 'hospital', label: t('docAutopsy.type_hospital') },
+                    { value: 'forensic', label: t('docAutopsy.type_forensic') },
+                    { value: 'clinical', label: t('docAutopsy.type_clinical') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -960,19 +965,20 @@ const AutopsyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="autopsy-manner-of-death" className="block text-sm font-semibold text-content-secondary mb-2">{t('docAutopsy.mannerOfDeathLabel')}</label>
-                  <select id="autopsy-manner-of-death"
+                  <ChoiceChips
+                    id="autopsy-manner-of-death"
+                    label={t('docAutopsy.mannerOfDeathLabel')}
                     value={newAutopsy.mannerOfDeath}
-                    onChange={(e) => setNewAutopsy({ ...newAutopsy, mannerOfDeath: e.target.value as MannerOfDeath })}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  >
-                    <option value="natural">{t('docAutopsy.manner_natural')}</option>
-                    <option value="accident">{t('docAutopsy.manner_accident')}</option>
-                    <option value="suicide">{t('docAutopsy.manner_suicide')}</option>
-                    <option value="homicide">{t('docAutopsy.manner_homicide')}</option>
-                    <option value="undetermined">{t('docAutopsy.manner_undetermined')}</option>
-                    <option value="pending">{t('docAutopsy.mannerOption_pending')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewAutopsy({ ...newAutopsy, mannerOfDeath: next as MannerOfDeath }); }}
+                    options={[
+                      { value: 'natural', label: t('docAutopsy.manner_natural') },
+                      { value: 'accident', label: t('docAutopsy.manner_accident') },
+                      { value: 'suicide', label: t('docAutopsy.manner_suicide') },
+                      { value: 'homicide', label: t('docAutopsy.manner_homicide') },
+                      { value: 'undetermined', label: t('docAutopsy.manner_undetermined') },
+                      { value: 'pending', label: t('docAutopsy.mannerOption_pending') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="autopsy-contributing-factors" className="block text-sm font-semibold text-content-secondary mb-2">{t('docAutopsy.contributingFactorsLabel')}</label>
@@ -1043,8 +1049,7 @@ const AutopsyPage: React.FC = () => {
               </div>
             </div>
 
-            <button
-              onClick={handleCreateAutopsy}
+            <button type="submit"
               className="w-full bg-orange-700 hover:bg-orange-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
@@ -1052,6 +1057,7 @@ const AutopsyPage: React.FC = () => {
             </button>
           </div>
         </div>
+        </form>
       )}
     </div>
   );

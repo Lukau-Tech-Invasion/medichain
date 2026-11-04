@@ -82,8 +82,9 @@ function PatientSearchPage() {
             placeholder={t('docPatientSearch.searchPlaceholder')}
             className="w-full rounded-lg border border-border-interactive bg-surface py-3 pl-10 pr-3 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500" />
         </div>
-        <button type="submit" disabled={loading}
-          className="rounded-lg bg-brand px-5 py-3 text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:opacity-50">
+        {/* A search is a read: pressing it again while one runs only repeats it. */}
+        <button type="submit" aria-disabled={loading || undefined}
+          className="rounded-lg bg-brand px-5 py-3 text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 aria-disabled:cursor-wait">
           {t('docPatientSearch.search')}
         </button>
       </form>
@@ -122,6 +123,7 @@ function DirectoryRow({ patient }: { patient: DirectoryPatient }) {
   const { t } = useTranslation();
   const contents = <>
     <strong className="text-content">{patient.full_name || t('docPatientSearch.recordUnreadable')}</strong>
+    {/* ux-allow(raw-patient-id): second line under name and date of birth; the directory is searched by it. */}
     <span className="block text-sm text-content-muted">{patient.patient_id}</span>
     {patient.date_of_birth && <span className="block text-sm text-content-muted">
       {t('docPatientSearch.dobLabel', { dob: patient.date_of_birth })}

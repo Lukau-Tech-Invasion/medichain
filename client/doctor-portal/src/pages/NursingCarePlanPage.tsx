@@ -149,7 +149,7 @@ const NursingCarePlanPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
 
   const createPlan = async () => {
-    if (!user?.userId) return;
+    if (!user?.userId || saving) return;
     // Was a banner naming both fields at once. A banner cannot say which
     // control is wrong -- that association is the whole of WCAG 3.3.1 -- and it
     // reported two problems when the nurse had one. `validate` puts the message
@@ -466,6 +466,7 @@ const NursingCarePlanPage: React.FC = () => {
         <div className="p-4">
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
+            <form onSubmit={(event) => { event.preventDefault(); void createPlan(); }} noValidate>
             <div className="space-y-4">
               <PatientSelect
                 id="ncp-patient"
@@ -510,7 +511,7 @@ const NursingCarePlanPage: React.FC = () => {
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
                 <div className="flex gap-2">
                   {(['high', 'medium', 'low'] as const).map(p => (
-                    <button
+                    <button type="button"
                       key={p}
                       onClick={() => setForm(f => ({ ...f, priority: p }))}
                       aria-pressed={form.priority === p}
@@ -523,14 +524,14 @@ const NursingCarePlanPage: React.FC = () => {
               {saveMessage && (
                 <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
-              <button
-                onClick={createPlan}
-                disabled={saving}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={saving || undefined}
+                className="aria-disabled:cursor-wait w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" /> {t('docNursingCarePlan.createCarePlan')}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

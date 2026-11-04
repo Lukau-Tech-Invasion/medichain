@@ -217,6 +217,58 @@ impl IdentityContextStore {
             .and_then(|assignment| assignment.facility_name.clone())
     }
 
+    /// The id of the facility `user_id` works at, when they have a real
+    /// (non-placeholder) active assignment. The ambulance board filters by it.
+    pub fn facility_id_for_user(&self, user_id: &str) -> Option<String> {
+        self.professional_assignments
+            .read()
+            .ok()?
+            .get(user_id)
+            .filter(|assignment| assignment.active && assignment.facility_id != LEGACY_FACILITY_ID)
+            .map(|assignment| assignment.facility_id.clone())
+    }
+
+    /// Accounts actively assigned to `facility_id`: who a pre-alert for that
+    /// hospital is pushed to.
+    pub fn users_at_facility(&self, facility_id: &str) -> Vec<String> {
+        self.professional_assignments
+            .read()
+            .map(|assignments| {
+                assignments
+                    .iter()
+                    .filter(|(_, a)| a.active && a.facility_id == facility_id)
+                    .map(|(user, _)| user.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Real facilities known from staff assignments, as (id, name): the
+    /// destination list when no database is available.
+    pub fn assigned_facilities(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = self
+            .professional_assignments
+            .read()
+            .map(|assignments| {
+                assignments
+                    .values()
+                    .filter(|a| a.active && a.facility_id != LEGACY_FACILITY_ID)
+                    .map(|a| {
+                        (
+                            a.facility_id.clone(),
+                            a.facility_name
+                                .clone()
+                                .unwrap_or_else(|| a.facility_id.clone()),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out.dedup();
+        out
+    }
+
     pub fn active_context(&self, context_id: &str, user_id: &str) -> Option<LoginContext> {
         self.contexts
             .read()

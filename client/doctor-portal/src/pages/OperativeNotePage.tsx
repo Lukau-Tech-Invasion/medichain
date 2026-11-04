@@ -11,7 +11,7 @@ import {
   Textarea,
   useValidatedForm,
   operativeNoteSchema,
-  formatDateOnly,
+  formatDateOnly, ChoiceChips
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
@@ -217,6 +217,7 @@ const OperativeNotePage: React.FC = () => {
   /** Submit one draft at a time; failed writes keep the entered documentation. */
   const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (submissionPending.current) return;
     // Was a toast naming two fields. Both diagnoses are required now as well:
     // the difference between them is what the operation found, and a note
@@ -292,6 +293,7 @@ const OperativeNotePage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient & Team */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -568,19 +570,19 @@ const OperativeNotePage: React.FC = () => {
                   placeholder={t('docOperativeNote.specimenDescriptionPh')}
                   aria-label={t('docOperativeNote.specimenDescriptionAriaLabel')}
                 />
-                <select
+                <ChoiceChips
                   id="opnote-specimen-disposition"
+                  label={t('docOperativeNote.specimenDispositionAriaLabel')}
                   value={newSpecimen.disposition}
-                  onChange={e => setNewSpecimen({ ...newSpecimen, disposition: e.target.value as Specimen['disposition'] })}
-                  className="border rounded p-2"
-                  aria-label={t('docOperativeNote.specimenDispositionAriaLabel')}
-                >
-                  <option value="pathology">{t('docOperativeNote.disposition_pathology')}</option>
-                  <option value="culture">{t('docOperativeNote.disposition_culture')}</option>
-                  <option value="cytology">{t('docOperativeNote.disposition_cytology')}</option>
-                  <option value="discarded">{t('docOperativeNote.disposition_discarded')}</option>
-                </select>
-                <button
+                  onChange={(next) => { if (next === undefined) return; setNewSpecimen({ ...newSpecimen, disposition: next as Specimen['disposition'] }); }}
+                  options={[
+                    { value: 'pathology', label: t('docOperativeNote.disposition_pathology') },
+                    { value: 'culture', label: t('docOperativeNote.disposition_culture') },
+                    { value: 'cytology', label: t('docOperativeNote.disposition_cytology') },
+                    { value: 'discarded', label: t('docOperativeNote.disposition_discarded') },
+                  ]}
+                />
+                <button type="button"
                   onClick={addSpecimen}
                   className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok"
                 >
@@ -592,7 +594,7 @@ const OperativeNotePage: React.FC = () => {
                   {specimens.map(s => (
                     <li key={s.id} className="flex justify-between items-center bg-surface-sunken p-2 rounded">
                       <span>{s.description} → <span className="text-content-muted">{t(`docOperativeNote.disposition_${s.disposition}`)}</span></span>
-                      <button onClick={() => removeSpecimen(s.id)} className="text-critical text-sm">{t('docOperativeNote.removeButton')}</button>
+                      <button type="button" onClick={() => removeSpecimen(s.id)} className="text-critical text-sm">{t('docOperativeNote.removeButton')}</button>
                     </li>
                   ))}
                 </ul>
@@ -639,14 +641,14 @@ const OperativeNotePage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="w-full py-3 bg-ok text-ok-fg rounded-lg font-semibold hover:bg-ok"
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-ok text-ok-fg rounded-lg font-semibold hover:bg-ok"
             >
               {isSubmitting ? t('common.saving') : t('docOperativeNote.saveButton')}
             </button>
           </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
             {selectedPatient && <p className="text-sm text-content-muted">{t('docOperativeNote.selectedHistory', { patientId: selectedPatient })}</p>}

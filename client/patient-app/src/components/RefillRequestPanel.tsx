@@ -142,6 +142,7 @@ function RefillRequestForm({ prescriptionId, onChanged }: { prescriptionId: stri
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError('');
     try {
@@ -189,8 +190,8 @@ function RefillRequestForm({ prescriptionId, onChanged }: { prescriptionId: stri
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={busy}
-          className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-60"
+          aria-disabled={busy || undefined}
+          className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
         >
           {busy ? t('medications.refillSending') : t('medications.refillSubmit')}
         </button>

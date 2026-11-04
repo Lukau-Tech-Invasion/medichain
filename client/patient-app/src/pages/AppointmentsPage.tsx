@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   useTranslation,
   setAppointmentStatus,
@@ -11,6 +11,7 @@ import {
   promptDialog,
   formatTimestamp,
   notifySuccess,
+  ChoiceChips,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -30,6 +31,7 @@ import {
   AlertCircle,
   FileText,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface Appointment {
   id: string;
@@ -120,6 +122,9 @@ function displayTime(startTime?: string, scheduledTime?: number | string): strin
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
+
+/** How far ahead "Next available" looks. */
+const NEXT_AVAILABLE_DAYS = 14;
 export function AppointmentsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -321,8 +326,39 @@ export function AppointmentsPage() {
     }
   };
 
+  /**
+   * "Next available" (UX plan Phase 8): look ahead day by day, at most two
+   * weeks, for this provider's first free day, and show its times. The patient
+   * still picks the time; nothing is chosen for them.
+   */
+  const findNextAvailable = async () => {
+    if (!booking.providerId) return;
+    setSlotsLoading(true);
+    setBookingError(null);
+    try {
+      const start = new Date(`${minBookingDate}T00:00:00`);
+      for (let day = 0; day < NEXT_AVAILABLE_DAYS; day++) {
+        const at = new Date(start.getTime() + day * 86_400_000);
+        const date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+        const result = await getAvailableSlots(booking.providerId, date);
+        if ((result.available_slots ?? []).length > 0) {
+          setBooking(prev => ({ ...prev, date, time: '' }));
+          setSlots(result.available_slots ?? []);
+          setSlotsAreDefaultHours((result as { slots_source?: string }).slots_source === 'default_clinic_hours');
+          return;
+        }
+      }
+      setBookingError(t('appointments.noAvailability', { days: NEXT_AVAILABLE_DAYS }));
+    } catch {
+      setBookingError(t('appointments.bookLoadSlotsFailed'));
+    } finally {
+      setSlotsLoading(false);
+    }
+  };
+
   const submitBooking = async () => {
-    if (!patient) return;
+    if (!patient || bookingBusy) return;
+    if (!bookingReady) { setBookingError(t('appointments.errChooseSlot')); return; }
     setBookingBusy(true);
     setBookingError(null);
     try {
@@ -364,6 +400,12 @@ export function AppointmentsPage() {
       a.status !== 'no_show' &&
       endOfAppointmentDay(a.date) >= now
   );
+
+  // The survey is offered after a visit, not from the menu (owner decision,
+  // 2026-11-04): on the most recent completed visit, while it is still fresh.
+  const rateable = appointments
+    .filter(a => a.status === 'completed' && endOfAppointmentDay(a.date).getTime() >= now.getTime() - 14 * 24 * 60 * 60 * 1000)
+    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))[0];
 
   const pastAppointments = appointments.filter(
     a =>
@@ -424,7 +466,7 @@ export function AppointmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('appointments.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('appointments.title')}</PageTitle>
           <p className="text-content-muted">{t('appointments.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -461,7 +503,7 @@ export function AppointmentsPage() {
         
         <button
           type="button"
-          onClick={() => navigate('/telehealth')}
+          onClick={() => navigate('/appointments?view=video')}
           className="patient-card flex items-center gap-3 p-4 hover:border-brand border-2 border-transparent text-left focus:outline-none focus-visible:ring-2"
         >
           <div className="w-12 h-12 bg-info-light rounded-xl flex items-center justify-center">
@@ -475,6 +517,7 @@ export function AppointmentsPage() {
       </div>
 
       {bookingOpen && (
+        <form onSubmit={(event) => { event.preventDefault(); void submitBooking(); }} noValidate>
         <div className="patient-card p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-content">{t('appointments.bookTitle')}</h2>
@@ -529,6 +572,12 @@ export function AppointmentsPage() {
               className="mt-1 w-full px-3 py-2 border border-border-interactive rounded-lg"
             />
           </label>
+          {booking.providerId && (
+            <button type="button" onClick={() => void findNextAvailable()} aria-disabled={slotsLoading || undefined}
+              className="min-h-[44px] rounded-lg border border-border-interactive px-4 text-sm font-semibold text-content hover:bg-surface-sunken">
+              {t('appointments.nextAvailable')}
+            </button>
+          )}
 
           <div>
             <span className="text-sm text-content-secondary">{t('appointments.bookTime')}</span>
@@ -570,21 +619,19 @@ export function AppointmentsPage() {
             )}
           </div>
 
-          <label className="block">
-            <span className="text-sm text-content-secondary">{t('appointments.bookType')}</span>
-            <select
-              value={booking.type}
-              onChange={e => setBooking(prev => ({ ...prev, type: e.target.value }))}
-              className="mt-1 w-full px-3 py-2 border border-border-interactive rounded-lg"
-            >
-              {/* Only types the server's `parse_appointment_type` accepts; an
-                  unrecognised one is refused with a 400, not defaulted. */}
-              <option value="consultation">{t('appointments.typeConsultation')}</option>
-              <option value="follow-up">{t('appointments.typeFollowUp')}</option>
-              <option value="routine">{t('appointments.typeRoutine')}</option>
-              <option value="telehealth">{t('appointments.typeTelehealth')}</option>
-            </select>
-          </label>
+          {/* Only types the server's `parse_appointment_type` accepts; an
+              unrecognised one is refused with a 400, not defaulted. */}
+          <ChoiceChips
+            label={t('appointments.bookType')}
+            value={booking.type}
+            onChange={(next) => { if (next) setBooking(prev => ({ ...prev, type: next })); }}
+            options={[
+              { value: 'consultation', label: t('appointments.typeConsultation') },
+              { value: 'follow-up', label: t('appointments.typeFollowUp') },
+              { value: 'routine', label: t('appointments.typeRoutine') },
+              { value: 'telehealth', label: t('appointments.typeTelehealth') },
+            ]}
+          />
 
           <label className="block">
             <span className="text-sm text-content-secondary">{t('appointments.bookReason')}</span>
@@ -603,15 +650,14 @@ export function AppointmentsPage() {
             </p>
           )}
 
-          <button
-            type="button"
-            onClick={() => void submitBooking()}
-            disabled={!bookingReady || bookingBusy}
-            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+          <button type="submit"
+            aria-disabled={bookingBusy || undefined}
+            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand"
           >
             {bookingBusy ? t('appointments.bookSubmitting') : t('appointments.bookSubmit')}
           </button>
         </div>
+        </form>
       )}
 
       {/* Upcoming Summary */}
@@ -786,6 +832,15 @@ export function AppointmentsPage() {
                   {t('appointments.cancelAppointment')}
                 </button>
               </div>
+            )}
+
+            {rateable?.id === appointment.id && (
+              <Link
+                to={`/survey?visit=${encodeURIComponent(appointment.id)}`}
+                className="mt-4 flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-border-strong text-sm font-medium text-brand hover:bg-surface-sunken"
+              >
+                {t('appointments.rateVisit')}
+              </Link>
             )}
 
             {appointment.type === 'telehealth' && appointment.status !== 'completed' && appointment.status !== 'cancelled' && (

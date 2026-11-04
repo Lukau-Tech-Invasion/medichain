@@ -3,7 +3,7 @@ import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog } from '@medichain/shared';
+import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog, ChoiceChips } from '@medichain/shared';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
@@ -222,6 +222,7 @@ const ToxicologyPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             {/* Patient & Exposure */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -273,34 +274,34 @@ const ToxicologyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="tox-route" className="text-sm text-content-muted">{t('docToxicology.route')}</label>
-                  <select
+                  <ChoiceChips
                     id="tox-route"
+                    label={t('docToxicology.route')}
                     value={route}
-                    onChange={e => setRoute(e.target.value as ExposureRoute)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="oral">{t('docToxicology.routeOral')}</option>
-                    <option value="inhalation">{t('docToxicology.routeInhalation')}</option>
-                    <option value="dermal">{t('docToxicology.routeDermal')}</option>
-                    <option value="injection">{t('docToxicology.routeInjection')}</option>
-                    <option value="ocular">{t('docToxicology.routeOcular')}</option>
-                    <option value="unknown">{t('docToxicology.routeUnknown')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setRoute(next as ExposureRoute); }}
+                    options={[
+                      { value: 'oral', label: t('docToxicology.routeOral') },
+                      { value: 'inhalation', label: t('docToxicology.routeInhalation') },
+                      { value: 'dermal', label: t('docToxicology.routeDermal') },
+                      { value: 'injection', label: t('docToxicology.routeInjection') },
+                      { value: 'ocular', label: t('docToxicology.routeOcular') },
+                      { value: 'unknown', label: t('docToxicology.routeUnknown') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="tox-severity" className="text-sm text-content-muted">{t('docToxicology.severity')}</label>
-                  <select
+                  <ChoiceChips
                     id="tox-severity"
+                    label={t('docToxicology.severity')}
                     value={severity}
-                    onChange={e => setSeverity(e.target.value as Severity)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="mild">{t('docToxicology.sevMild')}</option>
-                    <option value="moderate">{t('docToxicology.sevModerate')}</option>
-                    <option value="severe">{t('docToxicology.sevSevere')}</option>
-                    <option value="life-threatening">{t('docToxicology.sevLifeThreatening')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setSeverity(next as Severity); }}
+                    options={[
+                      { value: 'mild', label: t('docToxicology.sevMild') },
+                      { value: 'moderate', label: t('docToxicology.sevModerate') },
+                      { value: 'severe', label: t('docToxicology.sevSevere') },
+                      { value: 'life-threatening', label: t('docToxicology.sevLifeThreatening') },
+                    ]}
+                  />
                 </div>
               </div>
               <div className="mt-4">
@@ -394,7 +395,7 @@ const ToxicologyPage: React.FC = () => {
                     <span className="w-40 font-medium">{a.substance}:</span>
                     <span className="w-40 text-content-muted">{a.antidote}</span>
                     {a.doses.map(d => (
-                      <button
+                      <button type="button"
                         key={d}
                         onClick={() => addAntidote(a.antidote, d)}
                         className="px-2 py-1 bg-ok-subtle text-ok-subtle-fg rounded hover:bg-green-200 text-xs"
@@ -497,13 +498,13 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit} disabled={submitPending}
-              className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
+            <button type="submit" aria-disabled={submitPending || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
             >
               {t('docToxicology.save')}
             </button>
           </div>
+          </form>
         ) : (
           <div className="space-y-4">
             {historyError && <p role="alert">{t('common.dataUnavailable')}</p>}

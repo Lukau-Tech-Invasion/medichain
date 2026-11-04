@@ -3,7 +3,7 @@ import PatientSelect from '../components/PatientSelect';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import { createOrder, listOrders, updateOrderStatus, useTranslation, ModalPanel,
-  notifySuccess,
+  notifySuccess, submitForReply, useSubmission,
 } from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
@@ -50,6 +50,7 @@ function OrdersPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [orders, setOrders] = useState<PhysicianOrder[]>([]);
+  const orderSubmission = useSubmission('order');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewOrder, setShowNewOrder] = useState(false);
@@ -111,16 +112,17 @@ function OrdersPage() {
     if (!user) return;
     
     try {
-      const response = await createOrder({
+      const order = {
         patient_id: newOrder.patient_id,
         category: newOrder.order_type === 'lab' ? 'Laboratory' : newOrder.order_type,
         order_text: newOrder.order_details,
         priority: newOrder.priority,
         instructions: newOrder.notes || null,
-        cosign_required: false,
-      });
+      };
+      const outcome = await submitForReply(orderSubmission, order, () => createOrder(order));
+      if (outcome.kind === 'busy') return;
 
-      if (response.success) {
+      if (outcome.kind !== 'saved' || outcome.value.success) {
         await fetchOrders();
         setShowNewOrder(false);
         setNewOrder({
@@ -130,7 +132,8 @@ function OrdersPage() {
           priority: 'routine',
           notes: '',
         });
-        notifySuccess('Order placed.');
+        notifySuccess(outcome.kind === 'saved' ? 'Order placed.'
+          : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       } else {
         setError(t('docOrders.failCreate'));
       }

@@ -13,8 +13,7 @@ import {
   useTranslation,
   useValidatedForm,
   formatDateOnly,
-  notifySuccess,
-} from '@medichain/shared';
+  notifySuccess, submitOnce, useSubmission } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
   User, Activity, Stethoscope, Pill, Calendar
@@ -115,6 +114,7 @@ const ROUTE_KEYS: Record<string, string> = {
  */
 function SOAPNotePage() {
   const { t } = useTranslation();
+  const submission = useSubmission('soap');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const patientIdFromUrl = searchParams.get('patientId');
@@ -136,6 +136,7 @@ function SOAPNotePage() {
 
   // Existing SOAP notes
   const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}; [key: string]: unknown}>>([]);
+  const [notesError, setNotesError] = useState('');
   const [showNotesList, setShowNotesList] = useState(true);
 
   // --- Amending a note after the fact ----------------------------------------
@@ -208,8 +209,9 @@ function SOAPNotePage() {
         if (active) setExistingNotes(
           (await listPatientSoapNotes(selectedPatientId)) as unknown as typeof existingNotes
         );
-      } catch (err) {
-        console.error('Failed to fetch SOAP notes:', err);
+        if (active) setNotesError('');
+        } catch {
+          if (active) setNotesError(t('docSOAPNote.errorLoadNotes'));
       }
     };
     fetchNotes();
@@ -399,12 +401,17 @@ function SOAPNotePage() {
         },
       };
 
+      let outcome: Awaited<ReturnType<typeof submitOnce>>;
       try {
-        await createSoapNote(requestBody);
+        // One key per submission: a double tap, or a retry after a timeout that
+        // had in fact saved, is answered "already saved" instead of writing twice.
+        outcome = await submitOnce(submission, requestBody, () => createSoapNote(requestBody));
+        if (outcome === 'busy') return;
       } catch (err) {
         throw new Error(getApiErrorMessage(err, t('docSOAPNote.errorCreateFailed')));
       }
 
+      if (outcome === 'queued') notifySuccess(t('forms.queued'));
       setSuccess(true);
       
       setTimeout(() => {
@@ -459,6 +466,10 @@ function SOAPNotePage() {
             <p className="text-sm text-critical-subtle-fg">{error}</p>
           </div>
         </div>
+      )}
+
+      {notesError && (
+        <p role="alert" className="mb-6 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{notesError}</p>
       )}
 
       {/* Existing SOAP Notes */}
@@ -1148,8 +1159,8 @@ function SOAPNotePage() {
           </button>
           <button
             type="submit"
-            disabled={submitting || success}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+            aria-disabled={submitting || undefined}
+            className="aria-disabled:cursor-wait px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors flex items-center gap-2"
           >
             {submitting ? (
               <>

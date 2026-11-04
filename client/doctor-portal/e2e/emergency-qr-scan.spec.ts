@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { test, expect, chromium } from '@playwright/test';
 import { api, fixtureToken, readFixtures } from './identity';
-import { settle, signIn } from './support';
+import { settle, signIn, choose } from './support';
 import { clinicianWorkLocation, enrolDevice, revokeDevice } from './emergency-device';
 
 /**
@@ -73,7 +73,7 @@ test('a clinician scans the patient\'s Medical ID QR with the camera and reads t
     const clinician = await context.newPage();
     await signIn(clinician, 'Doctor', 0);
     await settle(clinician, '/emergency');
-    await clinician.locator('#approved-device').selectOption(deviceId);
+    await choose(clinician.locator('#approved-device'), deviceId);
     await clinician.getByRole('button', { name: /^qr code$/i }).click();
     await clinician.getByRole('button', { name: /scan qr code with camera/i }).click();
     await expect(clinician.getByTestId('qr-scanner')).toBeVisible();

@@ -253,12 +253,15 @@ function DenyForm({ busy, onCancel, onDeny }: { busy: boolean; onCancel: () => v
   const reasonId = useId();
   const [reason, setReason] = useState('');
   const tooShort = reason.trim().length < REFILL_DENIAL_REASON_MIN_CHARS;
+  const [showShort, setShowShort] = useState(false);
   return (
     <form
       className="mt-2 space-y-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!tooShort) onDeny(reason);
+        if (busy) return;
+        if (tooShort) { setShowShort(true); return; }
+        onDeny(reason);
       }}
     >
       <label htmlFor={reasonId} className="block text-sm font-medium text-content">
@@ -276,8 +279,13 @@ function DenyForm({ busy, onCancel, onDeny }: { busy: boolean; onCancel: () => v
       <p id={`${reasonId}-hint`} className="text-xs text-content-muted">
         {t('docEPrescribe.refillDenyReasonHint', { min: String(REFILL_DENIAL_REASON_MIN_CHARS) })}
       </p>
+      {showShort && tooShort && (
+        <p role="alert" className="text-sm text-critical-subtle-fg">
+          {t('docEPrescribe.refillDenyReasonHint', { min: String(REFILL_DENIAL_REASON_MIN_CHARS) })}
+        </p>
+      )}
       <div className="flex gap-2">
-        <button type="submit" disabled={busy || tooShort} className={`${BUTTON} bg-critical text-critical-fg`}>
+        <button type="submit" aria-disabled={busy || undefined} className={`${BUTTON} bg-critical text-critical-fg`}>
           {t('docEPrescribe.refillDenyConfirm')}
         </button>
         <button type="button" onClick={onCancel} className={`${BUTTON} text-content-secondary hover:bg-surface-sunken`}>

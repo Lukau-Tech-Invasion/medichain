@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import LabResultsPage from './LabResultsPage';
 import { useAuthStore } from '../store';
+import { fillField, fieldValue } from '../test/fields';
 
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
@@ -105,7 +106,7 @@ describe('LabResultsPage', () => {
     await waitFor(() => {
       expect(screen.queryByText('CBC')).not.toBeInTheDocument();
     });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by status' }), { target: { value: 'approved' } });
+    fillField('Filter by status', 'approved');
     expect(screen.getByText('CBC')).toBeInTheDocument();
   });
 
@@ -138,13 +139,12 @@ describe('LabResultsPage', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Enter Result' }));
     fireEvent.click(screen.getByRole('button', { name: 'Choose synthetic patient' }));
     await waitFor(() => expect(screen.getByRole('option', { name: /^CBC$/ })).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText('Panel *'), { target: { value: 'CBC' } });
-    fireEvent.change(screen.getByLabelText('Hemoglobin'), { target: { value: '13.1' } });
+    fillField('Panel *', 'CBC');
+    fillField('Hemoglobin', '13.1');
     fireEvent.click(screen.getByRole('button', { name: /Submit for review/i }));
     expect(screen.getByRole('alert')).toHaveTextContent('Select the reference group');
-    const reference = screen.getByLabelText(/Reference range group from/i);
-    expect(reference).toHaveValue('');
-    fireEvent.change(reference, { target: { value: 'female' } });
+    expect(fieldValue(/Reference range group from/i)).toBe('');
+    fillField(/Reference range group from/i, 'female');
     fireEvent.click(screen.getByRole('button', { name: /Submit for review/i }));
     await waitFor(() => {
       const call = vi.mocked(fetch).mock.calls.find(([url]) => String(url).endsWith('/api/lab/submit'));

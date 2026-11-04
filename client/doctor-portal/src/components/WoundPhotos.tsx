@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { downloadRecordContent, uploadMedicalRecord, useTranslation } from '@medichain/shared';
 
+// ux-allow(no-form): a file picker inside the wound form that uploads on choice; there is nothing of its own to submit.
+
 /** Read a bounded raster photograph as base64 for the encrypted document endpoint. */
 export async function uploadWoundPhoto(file: File, patientId: string): Promise<string> {
   if (!patientId || file.size > 1024 * 1024 || !['image/png', 'image/jpeg'].includes(file.type)) {

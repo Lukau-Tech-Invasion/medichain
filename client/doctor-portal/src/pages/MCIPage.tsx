@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { createMci, useTranslation, useScoringCatalog, localDateTimeInput } from '@medichain/shared';
+import { usePatientStore } from '../store/patientStore';
+import { createMci, useTranslation, useScoringCatalog, localDateTimeInput, NumberField, ChoiceChips } from '@medichain/shared';
 import {
   AlertTriangle,
   Users,
@@ -19,12 +19,17 @@ import {
   Radio,
   Truck
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 type TriageCategory = 'immediate' | 'delayed' | 'minor' | 'expectant' | 'deceased';
 
 interface MCIPatient {
   id: string;
   tagNumber: string;
+  /** The patient record, when the casualty's card was scanned (D4). */
+  patientId?: string;
+  /** Their name as the scan showed it; display only, never sent. */
+  scannedName?: string;
   category: TriageCategory;
   age: string;
   gender: string;
@@ -33,11 +38,12 @@ interface MCIPatient {
   vitals: {
     /** START's first question: did they walk to the collection point unaided? */
     ambulatory: boolean;
-    respiratoryRate: number;
+    /** Absent when not measured (rule 9): never a plausible default. */
+    respiratoryRate?: number;
     /** Radial pulse rate. 0 means no palpable radial pulse. */
-    pulse: number;
-    capRefill: number;
-    mentalStatus: string;
+    pulse?: number;
+    capRefill?: number;
+    mentalStatus?: string;
   };
   location: string;
   destination: string;
@@ -114,7 +120,7 @@ const INJURY_KEYS: Record<string, string> = {
 
 export default function MCIPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
   // the body claimed.
@@ -139,6 +145,10 @@ export default function MCIPage() {
   // MCI Patients
   const [patients, setPatients] = useState<MCIPatient[]>([]);
   const [showAddPatient, setShowAddPatient] = useState(false);
+  // A scanned card links the next casualty to the patient's record; the
+  // triage questions are still asked, so nothing about them is assumed.
+  const scanned = usePatientStore((state) => state.currentEmergency);
+  const [linkScanned, setLinkScanned] = useState<{ id: string; name?: string } | null>(null);
   const [tagCounter, setTagCounter] = useState(1);
   // START's thresholds come from the API, not from this file.
   const { catalog } = useScoringCatalog();
@@ -147,16 +157,14 @@ export default function MCIPage() {
   const [newPatient, setNewPatient] = useState<Partial<MCIPatient>>({
     category: 'immediate',
     age: '',
-    gender: 'unknown',
+    gender: '',
     chiefComplaint: '',
     injuries: [],
-    vitals: {
-      ambulatory: false,
-      respiratoryRate: 16,
-      pulse: 80,
-      capRefill: 2,
-      mentalStatus: 'alert'
-    },
+    // Only the START question that is a yes/no starts answered "no"; every
+    // measurement starts empty. It used to start at RR 16, pulse 80, cap
+    // refill 2, alert -- a normal casualty nobody had examined, which the
+    // server stored and scored as Delayed.
+    vitals: { ambulatory: false },
     location: '',
     destination: '',
     notes: ''
@@ -243,8 +251,8 @@ export default function MCIPage() {
 
     if (vitals.ambulatory) return 'minor';
     if (vitals.respiratoryRate === 0) return 'deceased';
-    if (vitals.respiratoryRate > respiratory_rate_immediate_above) return 'immediate';
-    if (vitals.capRefill > capillary_refill_immediate_above_secs) return 'immediate';
+    if (vitals.respiratoryRate !== undefined && vitals.respiratoryRate > respiratory_rate_immediate_above) return 'immediate';
+    if (vitals.capRefill !== undefined && vitals.capRefill > capillary_refill_immediate_above_secs) return 'immediate';
     if (vitals.pulse === 0) return 'immediate';
     if (vitals.mentalStatus !== 'alert') return 'immediate';
     return 'delayed';
@@ -261,9 +269,10 @@ export default function MCIPage() {
     const patient: MCIPatient = {
       id: `P-${Date.now()}`,
       tagNumber: tagNum,
+      ...(linkScanned ? { patientId: linkScanned.id, scannedName: linkScanned.name } : {}),
       category,
-      age: newPatient.age || 'Unknown',
-      gender: newPatient.gender || 'unknown',
+      age: newPatient.age ?? '',
+      gender: newPatient.gender ?? '',
       chiefComplaint: newPatient.chiefComplaint || '',
       injuries: newPatient.injuries || [],
       vitals: newPatient.vitals!,
@@ -276,13 +285,14 @@ export default function MCIPage() {
     setPatients(prev => [...prev, patient]);
     setTagCounter(prev => prev + 1);
     setShowAddPatient(false);
+    setLinkScanned(null);
     setNewPatient({
       category: 'immediate',
       age: '',
-      gender: 'unknown',
+      gender: '',
       chiefComplaint: '',
       injuries: [],
-      vitals: { ambulatory: false, respiratoryRate: 16, pulse: 80, capRefill: 2, mentalStatus: 'alert' },
+      vitals: { ambulatory: false },
       location: '',
       destination: '',
       notes: ''
@@ -321,8 +331,13 @@ export default function MCIPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!incident.incidentName) {
       setError(t('docMCI.errorIncidentName'));
+      return;
+    }
+    if (patients.length === 0) {
+      setError(t('docMCI.errorNoCasualties'));
       return;
     }
 
@@ -344,9 +359,10 @@ export default function MCIPage() {
         incident: { ...incident, startTime: incidentTimeInstant(incident.startTime) },
         patients: patients.map((p) => ({
           tagNumber: p.tagNumber,
-          age: p.age,
-          gender: p.gender,
-          chiefComplaint: p.chiefComplaint,
+          ...(p.patientId ? { patient_id: p.patientId } : {}),
+          ...(p.age ? { age: p.age } : {}),
+          ...(p.gender ? { gender: p.gender } : {}),
+          ...(p.chiefComplaint ? { chiefComplaint: p.chiefComplaint } : {}),
           injuries: p.injuries,
           vitals: p.vitals,
           location: p.location,
@@ -371,7 +387,7 @@ export default function MCIPage() {
         }),
       );
       setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docMCI.errorSave'));
       console.error('Failed to save MCI data', err);
@@ -465,6 +481,16 @@ export default function MCIPage() {
                     <UserPlus className="h-5 w-5" />
                     <span>{t('docMCI.addPatientButton')}</span>
                   </button>
+                  {scanned && !patients.some((p) => p.patientId === scanned.patientId) && (
+                    <button
+                      type="button"
+                      onClick={() => { setLinkScanned({ id: scanned.patientId, name: scanned.fullName }); setShowAddPatient(true); }}
+                      className="ml-2 flex items-center space-x-2 rounded-lg border-2 border-brand px-4 py-2 font-semibold text-content hover:bg-surface-sunken"
+                    >
+                      <Tag className="h-5 w-5" />
+                      <span>{t('docMCI.addScannedPatient', { name: scanned.fullName ?? t('docMCI.scannedCasualty') })}</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Add Patient Form */}
@@ -500,62 +526,31 @@ export default function MCIPage() {
                           />
                           {t('docMCI.ambulatoryLabel')}
                         </label>
-                        <div className="grid grid-cols-4 gap-4">
-                          <div>
-                            <label htmlFor="mci-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.respiratoryRateLabel')}</label>
-                            <input
-                              id="mci-respiratory-rate"
-                              type="number"
-                              value={newPatient.vitals?.respiratoryRate}
-                              onChange={(e) => setNewPatient({
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                          {([
+                            ['respiratoryRate', 'docMCI.respiratoryRateLabel'],
+                            ['pulse', 'docMCI.radialPulseLabel'],
+                            ['capRefill', 'docMCI.capRefillLabel'],
+                          ] as const).map(([field, label]) => (
+                            <NumberField
+                              key={field}
+                              integer
+                              label={t(label)}
+                              value={newPatient.vitals?.[field] === undefined ? '' : String(newPatient.vitals[field])}
+                              onChange={(text) => setNewPatient({
                                 ...newPatient,
-                                vitals: { ...newPatient.vitals!, respiratoryRate: parseInt(e.target.value) }
+                                vitals: { ...newPatient.vitals!, [field]: text === '' ? undefined : Number(text) },
                               })}
-                              className="w-full p-2 border rounded"
                             />
-                          </div>
-                          <div>
-                            <label htmlFor="mci-radial-pulse" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.radialPulseLabel')}</label>
-                            <input
-                              id="mci-radial-pulse"
-                              type="number"
-                              value={newPatient.vitals?.pulse}
-                              onChange={(e) => setNewPatient({
-                                ...newPatient,
-                                vitals: { ...newPatient.vitals!, pulse: parseInt(e.target.value) }
-                              })}
-                              className="w-full p-2 border rounded"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor="mci-cap-refill" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.capRefillLabel')}</label>
-                            <input
-                              id="mci-cap-refill"
-                              type="number"
-                              value={newPatient.vitals?.capRefill}
-                              onChange={(e) => setNewPatient({
-                                ...newPatient,
-                                vitals: { ...newPatient.vitals!, capRefill: parseInt(e.target.value) }
-                              })}
-                              className="w-full p-2 border rounded"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor="mci-mental-status" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.mentalStatusLabel')}</label>
-                            <select
-                              id="mci-mental-status"
-                              value={newPatient.vitals?.mentalStatus}
-                              onChange={(e) => setNewPatient({
-                                ...newPatient,
-                                vitals: { ...newPatient.vitals!, mentalStatus: e.target.value }
-                              })}
-                              className="w-full p-2 border rounded"
-                            >
-                              <option value="alert">{t('docMCI.mentalStatus_alert')}</option>
-                              <option value="confused">{t('docMCI.mentalStatus_confused')}</option>
-                              <option value="unresponsive">{t('docMCI.mentalStatus_unresponsive')}</option>
-                            </select>
-                          </div>
+                          ))}
+                        </div>
+                        <div className="mt-4">
+                          <ChoiceChips
+                            label={t('docMCI.mentalStatusLabel')}
+                            value={newPatient.vitals?.mentalStatus}
+                            onChange={(mentalStatus) => setNewPatient({ ...newPatient, vitals: { ...newPatient.vitals!, mentalStatus } })}
+                            options={(['alert', 'confused', 'unresponsive'] as const).map((m) => ({ value: m, label: t(`docMCI.mentalStatus_${m}`) }))}
+                          />
                         </div>
                       </div>
 
@@ -571,17 +566,12 @@ export default function MCIPage() {
                         />
                       </div>
                       <div>
-                        <label htmlFor="mci-gender" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.genderLabel')}</label>
-                        <select
-                          id="mci-gender"
-                          value={newPatient.gender}
-                          onChange={(e) => setNewPatient({ ...newPatient, gender: e.target.value })}
-                          className="w-full p-2 border rounded"
-                        >
-                          <option value="unknown">{t('docMCI.gender_unknown')}</option>
-                          <option value="male">{t('docMCI.gender_male')}</option>
-                          <option value="female">{t('docMCI.gender_female')}</option>
-                        </select>
+                        <ChoiceChips
+                          label={t('docMCI.genderLabel')}
+                          value={newPatient.gender || undefined}
+                          onChange={(gender) => setNewPatient({ ...newPatient, gender: gender ?? '' })}
+                          options={(['male', 'female', 'unknown'] as const).map((g) => ({ value: g, label: t(`docMCI.gender_${g}`) }))}
+                        />
                       </div>
                       <div>
                         <label htmlFor="mci-location-found" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.locationFoundLabel')}</label>
@@ -671,11 +661,17 @@ export default function MCIPage() {
                                 {patient.tagNumber}
                               </div>
                               <div>
+                                {patient.scannedName && <p className="font-semibold text-content">{patient.scannedName}</p>}
                                 <p className="font-medium">
                                   {patient.age} {patient.gender} - {patient.chiefComplaint || t('docMCI.unknownComplaint')}
                                 </p>
                                 <p className="text-sm text-content-muted">
-                                  {t('docMCI.vitalsLine', { rr: patient.vitals.respiratoryRate, pulse: patient.vitals.pulse, cap: patient.vitals.capRefill, mentalStatus: t(`docMCI.mentalStatus_${patient.vitals.mentalStatus}`) })}
+                                  {t('docMCI.vitalsLine', {
+                                    rr: patient.vitals.respiratoryRate ?? '—',
+                                    pulse: patient.vitals.pulse ?? '—',
+                                    cap: patient.vitals.capRefill ?? '—',
+                                    mentalStatus: patient.vitals.mentalStatus ? t(`docMCI.mentalStatus_${patient.vitals.mentalStatus}`) : t('docMCI.notAssessed'),
+                                  })}
                                 </p>
                                 {patient.location && (
                                   <p className="text-xs text-content-muted flex items-center mt-1">
@@ -902,15 +898,15 @@ export default function MCIPage() {
           <div className="mt-6 flex justify-end space-x-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => returnAfterSave()}
               className="px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
             >
               {t('docMCI.cancelButton')}
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || patients.length === 0}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
+              aria-disabled={isSubmitting || undefined}
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical flex items-center"
             >
               {isSubmitting ? (
                 <>

@@ -1,0 +1,93 @@
+/**
+ * A run's timeline, read the way a paramedic speaks a handover.
+ *
+ * The receiving team hears ATMIST — Age, Time, Mechanism, Injuries, Signs,
+ * Treatment — and structured handovers cut their questions and the handover's
+ * length (RCEM; IMIST-AMBO). Every reading and every medicine keeps its time,
+ * as EMS data standards record it, so the trend is visible: was the pressure
+ * recovering or falling when they left the road?
+ *
+ * Nothing is inferred: a section with nothing recorded says so (rule 12).
+ */
+import type { EmsRun, EmsRunEvent, EmsRunVitals } from '@medichain/shared';
+
+export interface TimedVitals extends EmsRunVitals {
+  at: string;
+}
+
+export interface TimedEntry {
+  at: string;
+  text: string;
+}
+
+export interface RunSummary {
+  /** Dispatch, scene, leaving and handover times, when recorded. */
+  times: { dispatched?: string; onScene?: string; leftScene?: string; handedOver?: string };
+  mechanism: string | null;
+  findings: TimedEntry[];
+  vitals: TimedVitals[];
+  treatments: TimedEntry[];
+  notes: TimedEntry[];
+}
+
+const VITAL_KEYS: Array<keyof EmsRunVitals> = [
+  'systolic_bp', 'diastolic_bp', 'heart_rate', 'respiratory_rate', 'spo2', 'gcs', 'temperature_c', 'glucose_mmol',
+];
+
+function str(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function vitalsOf(payload: Record<string, unknown> | null): EmsRunVitals {
+  const out: EmsRunVitals = {};
+  for (const key of VITAL_KEYS) {
+    const v = payload?.[key];
+    if (typeof v === 'number' && Number.isFinite(v)) out[key] = v;
+  }
+  return out;
+}
+
+/** "Sodium chloride 0.9% 500 mL IV" from a medicine payload. */
+export function medicineText(payload: Record<string, unknown> | null): string {
+  return [str(payload?.name), str(payload?.dose), str(payload?.route)].filter(Boolean).join(' ');
+}
+
+export function summariseRun(run: EmsRun, events: EmsRunEvent[]): RunSummary {
+  const ordered = [...events].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+  const first = (kind: EmsRunEvent['kind']) => ordered.find((e) => e.kind === kind)?.occurred_at;
+  const summary: RunSummary = {
+    times: {
+      dispatched: first('dispatched'),
+      onScene: first('on_scene'),
+      leftScene: first('left_scene'),
+      handedOver: first('handed_over'),
+    },
+    mechanism: run.chief_complaint ?? null,
+    findings: [],
+    vitals: [],
+    treatments: [],
+    notes: [],
+  };
+  for (const e of ordered) {
+    const p = e.payload;
+    if (e.kind === 'vitals') {
+      const v = vitalsOf(p);
+      if (Object.keys(v).length) summary.vitals.push({ at: e.occurred_at, ...v });
+    } else if (e.kind === 'treatment' && str(p?.name)) {
+      summary.treatments.push({ at: e.occurred_at, text: str(p?.name)! });
+    } else if (e.kind === 'medication' && medicineText(p)) {
+      summary.treatments.push({ at: e.occurred_at, text: medicineText(p) });
+    } else if (e.kind === 'on_scene' && str(p?.text)) {
+      summary.findings.push({ at: e.occurred_at, text: str(p?.text)! });
+    } else if (e.kind === 'note' && str(p?.text)) {
+      (p?.finding ? summary.findings : summary.notes).push({ at: e.occurred_at, text: str(p?.text)! });
+    }
+  }
+  return summary;
+}
+
+/** The latest reading of each vital, for pre-filling triage — with its time. */
+export function latestVitals(summary: RunSummary): (EmsRunVitals & { at: string }) | null {
+  if (!summary.vitals.length) return null;
+  return summary.vitals[summary.vitals.length - 1];
+}

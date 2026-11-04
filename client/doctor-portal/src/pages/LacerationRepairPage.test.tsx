@@ -4,6 +4,7 @@ import LacerationRepairPage from './LacerationRepairPage';
 import { patientFixture, selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { fillField } from '../test/fields';
 
 vi.mock('../store/authStore', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -70,7 +71,7 @@ describe('LacerationRepairPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /New Repair/i }));
     expect(screen.getByLabelText(/Length \(cm\)/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Location/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Depth/i)).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Depth/i })).toBeInTheDocument();
   });
 
   it('allows entering suture details', async () => {
@@ -105,13 +106,13 @@ describe('LacerationRepairPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /New Repair/i }));
     await selectPatient(/Patient/i, 'Test Patient');
-    fireEvent.change(screen.getByLabelText(/^Location/i), { target: { value: 'Left forearm' } });
+    fillField(/^Location/i, 'Left forearm');
     fireEvent.change(screen.getByLabelText(/Length \(cm\)/i), { target: { value: '3.5' } });
-    fireEvent.change(screen.getByLabelText(/^Count/i), { target: { value: '4' } });
+    fillField(/^Count/i, '4');
     vi.mocked(shared.uploadMedicalRecord).mockResolvedValue({ success: true, ipfs_hash: 'repair-photo' } as never);
     const photo = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'QA.png', { type: 'image/png' });
     fireEvent.change(screen.getByLabelText('Photo Upload'), { target: { files: [photo] } });
-    expect(screen.getByRole('button', { name: /Save Repair/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Save Repair/i })).toHaveAttribute('aria-disabled', 'true');
     await screen.findByText('Photo 1 attached');
 
     fireEvent.click(screen.getByRole('button', { name: /Save Repair/i }));
@@ -137,9 +138,9 @@ describe('LacerationRepairPage', () => {
   async function enterRepair() {
     fireEvent.click(await screen.findByRole('button', { name: /New Repair/i }));
     await selectPatient(/Patient/i, 'Test Patient');
-    fireEvent.change(screen.getByLabelText(/^Location/i), { target: { value: 'Fictional QA site' } });
+    fillField(/^Location/i, 'Fictional QA site');
     fireEvent.change(screen.getByLabelText(/Length \(cm\)/i), { target: { value: '2.5' } });
-    fireEvent.change(screen.getByLabelText(/^Notes/i), { target: { value: 'No treatment occurred' } });
+    fillField(/^Notes/i, 'No treatment occurred');
   }
 
   it('clears a confirmed write despite refresh failure and retries only the read', async () => {

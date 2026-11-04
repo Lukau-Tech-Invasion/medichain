@@ -21,7 +21,7 @@ import {
   useValidatedForm,
   progressNoteSchema,
   progressNoteDraftSchema, ModalPanel,
-  notifySuccess,
+  notifySuccess, submitOnce, useSubmission, ChoiceChips
 } from '@medichain/shared';
 import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -59,6 +59,7 @@ interface ProgressNote {
 
 const ProgressNotePage: React.FC = () => {
   const { t } = useTranslation();
+  const submission = useSubmission('progress-note');
   // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
@@ -217,7 +218,7 @@ const ProgressNotePage: React.FC = () => {
   const { validate: validateDraft } = useValidatedForm(progressNoteDraftSchema);
 
   const saveNote = async (status: 'draft' | 'signed') => {
-    if (!user) return;
+    if (!user || saving) return;
     // Two things were wrong here. The message said "patient required" whatever
     // was actually missing -- a clinician who left the plan blank was told to
     // pick a patient they had already picked. And the same requirement applied
@@ -251,7 +252,10 @@ const ProgressNotePage: React.FC = () => {
     };
 
     try {
-      await createProgressNote(payload);
+      // One key per submission: a double tap, or a retry after a timeout that
+      // had in fact saved, is answered "already saved" instead of writing twice.
+      const outcome = await submitOnce(submission, payload, () => createProgressNote(payload));
+      if (outcome === 'busy') return;
       setNotes(current => [{
         id: noteId, patientId: form.patientId, patientName: form.patientName,
         mrn: form.patientId, noteType: form.noteType, status,
@@ -262,7 +266,7 @@ const ProgressNotePage: React.FC = () => {
       }, ...current]);
       setForm({ patientId: '', patientName: '', noteType: 'daily', subjective: '', objective: '', assessment: '', plan: '' });
       setActiveTab('notes');
-      notifySuccess('Progress note saved.');
+      notifySuccess(outcome === 'queued' ? t('forms.queued') : 'Progress note saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docProgressNote.cannotConnect'));
     } finally {
@@ -414,6 +418,7 @@ const ProgressNotePage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docProgressNote.newNote')}</h2>
 
+            <form onSubmit={(event) => { event.preventDefault(); void saveNote('draft'); }} noValidate>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -422,16 +427,20 @@ const ProgressNotePage: React.FC = () => {
                     placeholder={t('docProgressNote.selectPatient')} required />
                 </div>
                 <div>
-                  <label htmlFor="progress-note-type" className="block text-sm font-medium mb-1">{t('docProgressNote.noteTypeRequired')}</label>
-                  <select id="progress-note-type" value={form.noteType}
-                    onChange={e => updateForm('noteType', e.target.value)} className="w-full border rounded-lg px-3 py-2">
-                    <option value="daily">{t('docProgressNote.typeDailyProgress')}</option>
-                    <option value="admission">{t('docProgressNote.typeAdmission')}</option>
-                    <option value="discharge">{t('docProgressNote.typeDischarge')}</option>
-                    <option value="procedure">{t('docProgressNote.typeProcedure')}</option>
-                    <option value="consultation">{t('docProgressNote.typeConsultation')}</option>
-                    <option value="transfer">{t('docProgressNote.typeTransfer')}</option>
-                  </select>
+                  <ChoiceChips
+                    id="progress-note-type"
+                    label={t('docProgressNote.noteTypeRequired')}
+                    value={form.noteType}
+                    onChange={(next) => { if (next === undefined) return; updateForm('noteType', next); }}
+                    options={[
+                      { value: 'daily', label: t('docProgressNote.typeDailyProgress') },
+                      { value: 'admission', label: t('docProgressNote.typeAdmission') },
+                      { value: 'discharge', label: t('docProgressNote.typeDischarge') },
+                      { value: 'procedure', label: t('docProgressNote.typeProcedure') },
+                      { value: 'consultation', label: t('docProgressNote.typeConsultation') },
+                      { value: 'transfer', label: t('docProgressNote.typeTransfer') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -484,16 +493,17 @@ const ProgressNotePage: React.FC = () => {
               />
 
               <div className="flex gap-2">
-                <button type="button" disabled={saving} onClick={() => saveNote('draft')}
-                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                <button type="submit" aria-disabled={saving || undefined}
+                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium aria-disabled:cursor-wait">
                   {t('docProgressNote.saveDraft')}
                 </button>
-                <button type="button" disabled={saving} onClick={() => saveNote('signed')}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                <button type="button" aria-disabled={saving || undefined} onClick={() => void saveNote('signed')}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 aria-disabled:cursor-wait">
                   <Edit className="w-5 h-5" /> {t('docProgressNote.signNote')}
                 </button>
               </div>
             </div>
+            </form>
           </div>
         </div>
       )}

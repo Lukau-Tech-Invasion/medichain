@@ -42,6 +42,7 @@ import { pharmacistJourney } from './journeys/pharmacist';
 import { adminJourney } from './journeys/admin';
 import { patientJourney } from './journeys/patient';
 import { reachabilityJourney } from './journeys/reachability';
+import { paramedicJourney } from './journeys/paramedic';
 
 const only = (process.argv.find((a) => a.startsWith('--only=')) ?? '').replace('--only=', '');
 const wanted = only ? new Set(only.split(',').map((s) => s.trim())) : null;
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
   const [pharm1, pharm2] = byRole('Pharmacist');
   const [lab1, lab2] = byRole('LabTechnician');
   const [admin1] = byRole('Admin');
+  const [medic1] = byRole('Paramedic');
   const needed: Array<[string, string]> = (
     [
       ['doctor', doctor1],
@@ -89,6 +91,7 @@ async function main(): Promise<void> {
       ['labtech', lab1],
       ['labtech2', lab2],
       ['admin', admin1],
+      ['paramedic', medic1],
     ] as Array<[string, string | undefined]>
   ).filter((pair): pair is [string, string] => {
     if (pair[1]) return true;
@@ -161,6 +164,14 @@ async function main(): Promise<void> {
       () => adminJourney(j, sessions.admin, sessions.labtech2, sessions.doctor, m),
     ],
   ];
+
+  // After the patient journey has signed the patient in, before the
+  // administrator changes any roles.
+  journeys.splice(5, 0, [
+    'paramedic',
+    ['paramedic', 'nurse'],
+    () => paramedicJourney(j, sessions.paramedic, sessions.nurse, sessions.patient, m),
+  ]);
 
   journeys.push([
     'reachability',

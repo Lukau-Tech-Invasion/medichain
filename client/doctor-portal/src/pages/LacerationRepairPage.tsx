@@ -22,7 +22,8 @@ import {
   getApiClient,
   getApiErrorMessage,
   useTranslation,
-  clickable, ModalPanel } from '@medichain/shared';
+  clickable, ModalPanel, ChoiceChips
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -263,6 +264,7 @@ const LacerationRepairPage: React.FC = () => {
    * `toLacerationRepair` reads them back out of.
    */
   const handleSaveRepair = async () => {
+    if (saving) return;
     if (!user || submissionPending.current || photoUploading) return;
     setSaveError(null);
     setSaved(null);
@@ -521,6 +523,7 @@ const LacerationRepairPage: React.FC = () => {
 
       {/* New Repair Form */}
       {activeTab === 'new' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSaveRepair(); }} noValidate>
         <div className="p-4">
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docLaceration.newRepair')}</h2>
@@ -538,19 +541,19 @@ const LacerationRepairPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="laceration-wound-type" className="block text-sm font-medium mb-1">{t('docLaceration.woundTypeReq')}</label>
-                  <select
+                  <ChoiceChips
                     id="laceration-wound-type"
+                    label={t('docLaceration.woundTypeReq')}
                     value={newRepair.woundType}
-                    onChange={(e) => setNewRepair({ ...newRepair, woundType: e.target.value as WoundType })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="laceration">{t('docLaceration.wtLaceration')}</option>
-                    <option value="abrasion">{t('docLaceration.wtAbrasion')}</option>
-                    <option value="puncture">{t('docLaceration.wtPuncture')}</option>
-                    <option value="avulsion">{t('docLaceration.wtAvulsion')}</option>
-                    <option value="incision">{t('docLaceration.wtIncision')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewRepair({ ...newRepair, woundType: next as WoundType }); }}
+                    options={[
+                      { value: 'laceration', label: t('docLaceration.wtLaceration') },
+                      { value: 'abrasion', label: t('docLaceration.wtAbrasion') },
+                      { value: 'puncture', label: t('docLaceration.wtPuncture') },
+                      { value: 'avulsion', label: t('docLaceration.wtAvulsion') },
+                      { value: 'incision', label: t('docLaceration.wtIncision') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="laceration-length" className="block text-sm font-medium mb-1">{t('docLaceration.lengthReq')}</label>
@@ -578,35 +581,35 @@ const LacerationRepairPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="laceration-depth" className="block text-sm font-medium mb-1">{t('docLaceration.depth')}</label>
-                <select
+                <ChoiceChips
                   id="laceration-depth"
+                  label={t('docLaceration.depth')}
                   value={newRepair.depth}
-                  onChange={(e) => setNewRepair({ ...newRepair, depth: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2"
-                >
-                  <option value="superficial">{t('docLaceration.depthSuperficial')}</option>
-                  <option value="partial thickness">{t('docLaceration.depthPartial')}</option>
-                  <option value="full thickness">{t('docLaceration.depthFull')}</option>
-                  <option value="deep structure">{t('docLaceration.depthDeep')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewRepair({ ...newRepair, depth: next }); }}
+                  options={[
+                    { value: 'superficial', label: t('docLaceration.depthSuperficial') },
+                    { value: 'partial thickness', label: t('docLaceration.depthPartial') },
+                    { value: 'full thickness', label: t('docLaceration.depthFull') },
+                    { value: 'deep structure', label: t('docLaceration.depthDeep') },
+                  ]}
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="laceration-closure-method" className="block text-sm font-medium mb-1">{t('docLaceration.closureReq')}</label>
-                  <select
+                  <ChoiceChips
                     id="laceration-closure-method"
+                    label={t('docLaceration.closureReq')}
                     value={newRepair.closureMethod}
-                    onChange={(e) => setNewRepair({ ...newRepair, closureMethod: e.target.value as ClosureMethod })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="sutures">{t('docLaceration.clSutures')}</option>
-                    <option value="staples">{t('docLaceration.clStaples')}</option>
-                    <option value="dermabond">{t('docLaceration.clDermabond')}</option>
-                    <option value="steri-strips">{t('docLaceration.clSteriStrips')}</option>
-                    <option value="combination">{t('docLaceration.clCombination')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewRepair({ ...newRepair, closureMethod: next as ClosureMethod }); }}
+                    options={[
+                      { value: 'sutures', label: t('docLaceration.clSutures') },
+                      { value: 'staples', label: t('docLaceration.clStaples') },
+                      { value: 'dermabond', label: t('docLaceration.clDermabond') },
+                      { value: 'steri-strips', label: t('docLaceration.clSteriStrips') },
+                      { value: 'combination', label: t('docLaceration.clCombination') },
+                    ]}
+                  />
                 </div>
                 {/* Suture material and gauge. `sutureType` was initialised to
                     '4-0 Nylon' and had no control, so every repair was filed as
@@ -696,11 +699,9 @@ const LacerationRepairPage: React.FC = () => {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={handleSaveRepair}
-                disabled={saving || photoUploading}
-                className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
+              <button type="submit"
+                aria-disabled={ photoUploading || undefined}
+                className="aria-disabled:cursor-wait w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 min-h-[24px]"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                 {saving ? t('docLaceration.saving') : t('docLaceration.saveRepair')}
@@ -708,6 +709,7 @@ const LacerationRepairPage: React.FC = () => {
             </fieldset>
           </div>
         </div>
+        </form>
       )}
 
       {/* Follow-up Tab */}

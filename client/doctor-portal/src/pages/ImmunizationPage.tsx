@@ -10,6 +10,7 @@ import {
   immunizationSchema,
   formatDateOnly,
   formatTimestamp,
+  ChoiceChips,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
@@ -29,6 +30,7 @@ import {
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 import StaffName from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 type VaccineType =
   | 'covid-19'
@@ -534,20 +536,20 @@ const ImmunizationPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label htmlFor="imm-status-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docImmunization.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="imm-status-filter"
+                  label={t('docImmunization.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as VaccinationStatus | 'all')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="all">{t('docImmunization.allStatuses')}</option>
-                  <option value="scheduled">{t('docImmunization.status_scheduled')}</option>
-                  <option value="administered">{t('docImmunization.status_administered')}</option>
-                  <option value="declined">{t('docImmunization.status_declined')}</option>
-                  <option value="deferred">{t('docImmunization.status_deferred')}</option>
-                  <option value="contraindicated">{t('docImmunization.status_contraindicated')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as VaccinationStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docImmunization.allStatuses') },
+                    { value: 'scheduled', label: t('docImmunization.status_scheduled') },
+                    { value: 'administered', label: t('docImmunization.status_administered') },
+                    { value: 'declined', label: t('docImmunization.status_declined') },
+                    { value: 'deferred', label: t('docImmunization.status_deferred') },
+                    { value: 'contraindicated', label: t('docImmunization.status_contraindicated') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -578,7 +580,7 @@ const ImmunizationPage: React.FC = () => {
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.patientLabel')}</p>
                     <p className="font-semibold text-content">{admin.patientName}</p>
-                    <p className="text-sm text-content-muted">{admin.patientId}</p>
+                    <p className="text-sm"><PatientName id={admin.patientId} dobOnly /></p>
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.vaccineLabel')}</p>
@@ -656,6 +658,7 @@ const ImmunizationPage: React.FC = () => {
       )}
 
       {activeTab === 'administer' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleAdminister(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Syringe className="w-5 h-5" />
@@ -786,40 +789,36 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="imm-route" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docImmunization.routeRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="imm-route"
+                  label={t('docImmunization.routeRequired')}
                   value={newVaccine.route}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, route: e.target.value as AdministrationRoute })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="intramuscular">{t('docImmunization.route_intramuscular')}</option>
-                  <option value="subcutaneous">{t('docImmunization.route_subcutaneous')}</option>
-                  <option value="intradermal">{t('docImmunization.route_intradermal')}</option>
-                  <option value="oral">{t('docImmunization.route_oral')}</option>
-                  <option value="intranasal">{t('docImmunization.route_intranasal')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewVaccine({ ...newVaccine, route: next as AdministrationRoute }); }}
+                  options={[
+                    { value: 'intramuscular', label: t('docImmunization.route_intramuscular') },
+                    { value: 'subcutaneous', label: t('docImmunization.route_subcutaneous') },
+                    { value: 'intradermal', label: t('docImmunization.route_intradermal') },
+                    { value: 'oral', label: t('docImmunization.route_oral') },
+                    { value: 'intranasal', label: t('docImmunization.route_intranasal') },
+                  ]}
+                />
               </div>
 
               <div>
-                <label htmlFor="imm-site" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docImmunization.siteRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="imm-site"
+                  label={t('docImmunization.siteRequired')}
                   value={newVaccine.site}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, site: e.target.value as AdministrationSite })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="left-deltoid">{t('docImmunization.site_left-deltoid')}</option>
-                  <option value="right-deltoid">{t('docImmunization.site_right-deltoid')}</option>
-                  <option value="left-thigh">{t('docImmunization.site_left-thigh')}</option>
-                  <option value="right-thigh">{t('docImmunization.site_right-thigh')}</option>
-                  <option value="oral">{t('docImmunization.site_oral')}</option>
-                  <option value="nasal">{t('docImmunization.site_nasal')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewVaccine({ ...newVaccine, site: next as AdministrationSite }); }}
+                  options={[
+                    { value: 'left-deltoid', label: t('docImmunization.site_left-deltoid') },
+                    { value: 'right-deltoid', label: t('docImmunization.site_right-deltoid') },
+                    { value: 'left-thigh', label: t('docImmunization.site_left-thigh') },
+                    { value: 'right-thigh', label: t('docImmunization.site_right-thigh') },
+                    { value: 'oral', label: t('docImmunization.site_oral') },
+                    { value: 'nasal', label: t('docImmunization.site_nasal') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -938,14 +937,14 @@ const ImmunizationPage: React.FC = () => {
             </ul>
           </div>
 
-          <button
-            onClick={handleAdminister} disabled={submitPending}
-            className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors font-semibold flex items-center justify-center gap-2"
+          <button type="submit" aria-disabled={submitPending || undefined}
+            className="aria-disabled:cursor-wait w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Syringe className="w-5 h-5" />
             {t('docImmunization.administerButton')}
           </button>
         </div>
+        </form>
       )}
 
       {activeTab === 'schedule' && (

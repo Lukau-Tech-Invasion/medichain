@@ -13,6 +13,7 @@ import type { GuardianRelationship, MedicalIdentitySummary } from '@medichain/sh
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { Users, Plus, UserPlus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface FamilyGroup {
   group_id: string;
@@ -139,7 +140,8 @@ export function FamilyGroupPage() {
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patient?.userId || !newGroupName.trim()) return;
+    if (!patient?.userId || isCreating) return;
+    if (!newGroupName.trim()) { showError(t('family.errGroupNameRequired')); return; }
     setIsCreating(true);
     try {
       await createFamilyGroup({
@@ -159,7 +161,8 @@ export function FamilyGroupPage() {
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addMemberGroupId || !newMemberUserId.trim()) return;
+    if (!addMemberGroupId || isAddingMember) return;
+    if (!newMemberUserId.trim()) { showError(t('family.errMemberRequired')); return; }
     setIsAddingMember(true);
     try {
       await addFamilyMember(addMemberGroupId, {
@@ -292,7 +295,7 @@ export function FamilyGroupPage() {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-content">{t('family.familyGroups')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('family.familyGroups')}</PageTitle>
         <p className="text-content-muted">{t('family.subtitle')}</p>
       </div>
 
@@ -323,8 +326,8 @@ export function FamilyGroupPage() {
           />
           <button
             type="submit"
-            disabled={isCreating || !newGroupName.trim()}
-            className="bg-primary-500 text-brand-fg px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-1"
+            aria-disabled={isCreating || undefined}
+            className="bg-primary-500 text-brand-fg px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand flex items-center gap-1"
           >
             {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             {t('family.create')}
@@ -437,8 +440,8 @@ export function FamilyGroupPage() {
                       <div className="flex gap-2">
                         <button
                           type="submit"
-                          disabled={isAddingMember || !newMemberUserId.trim()}
-                          className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-1"
+                          aria-disabled={isAddingMember || undefined}
+                          className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand flex items-center justify-center gap-1"
                         >
                           {isAddingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                           {t('common.add')}

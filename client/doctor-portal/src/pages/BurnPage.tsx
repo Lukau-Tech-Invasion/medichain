@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   createBurn,
   getBurnForPatient,
@@ -11,7 +11,8 @@ import {
   lundBrowderRegionPercent,
   lundBrowderTbsa,
   parklandPreview,
-  burnSeverityPreview,
+  burnSeverityPreview, ChoiceChips,
+  formatDateOnly
 } from '@medichain/shared';
 import type { BurnCreateResult, ParklandPreview } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
@@ -35,6 +36,7 @@ import {
   Ruler,
   RefreshCw
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 type BurnDepth = 'superficial' | 'partial-superficial' | 'partial-deep' | 'full-thickness';
 type BurnMechanism = 'thermal' | 'chemical' | 'electrical' | 'radiation' | 'friction' | 'frostbite';
@@ -48,7 +50,7 @@ interface BurnArea {
 
 export default function BurnPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const [searchParams] = useSearchParams();
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
@@ -263,6 +265,7 @@ export default function BurnPage() {
   };
 
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docBurn.errorSelectPatient'));
       return;
@@ -307,7 +310,7 @@ export default function BurnPage() {
       // holds, not the one this page arrived at.
       setSavedBurn(saved);
       setSuccess(t('docBurn.successSaved'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docBurn.errorSaveFailed'));
       console.error('Failed to save burn assessment', err);
@@ -334,7 +337,7 @@ export default function BurnPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && <p className="text-sm">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>}
               </div>
             )}
           </div>
@@ -429,6 +432,7 @@ export default function BurnPage() {
         </div>
 
         {activeTab === 'assessment' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Patient Selection & Info */}
             <div className="lg:col-span-1 space-y-4">
@@ -527,18 +531,18 @@ export default function BurnPage() {
               <div className="bg-surface rounded-lg shadow p-4">
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="burn-tetanus-status" className="block text-sm font-medium text-content-secondary mb-1">{t('docBurn.tetanusStatusLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="burn-tetanus-status"
+                      label={t('docBurn.tetanusStatusLabel')}
                       value={tetanusStatus}
-                      onChange={(e) => setTetanusStatus(e.target.value)}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="unknown">{t('docBurn.tetanus_unknown')}</option>
-                      <option value="current">{t('docBurn.tetanus_current')}</option>
-                      <option value="needs-booster">{t('docBurn.tetanus_needsBooster')}</option>
-                      <option value="needs-series">{t('docBurn.tetanus_needsSeries')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setTetanusStatus(next); }}
+                      options={[
+                        { value: 'unknown', label: t('docBurn.tetanus_unknown') },
+                        { value: 'current', label: t('docBurn.tetanus_current') },
+                        { value: 'needs-booster', label: t('docBurn.tetanus_needsBooster') },
+                        { value: 'needs-series', label: t('docBurn.tetanus_needsSeries') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label htmlFor="burn-pain-level" className="block text-sm font-medium text-content-secondary mb-1">
@@ -817,10 +821,9 @@ export default function BurnPage() {
 
               {/* Submit Button */}
               <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={isSubmitting || !selectedPatient}
-                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -837,6 +840,7 @@ export default function BurnPage() {
               </div>
             </div>
           </div>
+          </form>
         )}
 
         {activeTab === 'calculator' && (

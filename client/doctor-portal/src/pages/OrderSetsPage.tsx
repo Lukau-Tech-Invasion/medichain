@@ -11,7 +11,8 @@ import {
   Alert,
   LoadingSpinner,
   confirmDialog,
-  notifySuccess,
+  notifySuccess, ChoiceChips,
+  keepEnterInField,
 } from '@medichain/shared';
 import type { CreateOrderSetPayload } from '@medichain/shared';
 import {
@@ -672,6 +673,7 @@ const OrderSetsPage: React.FC = () => {
       )}
 
       {activeTab === 'new' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCreateOrderSet(); }} onKeyDown={keepEnterInField} noValidate>
         <div className="space-y-6">
           <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
             <h2 className="text-xl font-bold text-content mb-6">{t('docOrderSets.createNewOrderSetHeading')}</h2>
@@ -693,22 +695,20 @@ const OrderSetsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="orderset-type" className="block text-sm font-semibold text-content-secondary mb-2">
-                    {t('docOrderSets.typeRequired')} <span className="text-critical">*</span>
-                  </label>
-                  <select
+                  <ChoiceChips
                     id="orderset-type"
+                    label={t('docOrderSets.typeRequired')}
                     value={newOrderSet.type || 'admission'}
-                    onChange={(e) => setNewOrderSet({ ...newOrderSet, type: e.target.value as OrderSetType })}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  >
-                    <option value="admission">{t('docOrderSets.type_admission')}</option>
-                    <option value="discharge">{t('docOrderSets.type_discharge')}</option>
-                    <option value="procedure">{t('docOrderSets.type_procedure')}</option>
-                    <option value="protocol">{t('docOrderSets.type_protocol')}</option>
-                    <option value="emergency">{t('docOrderSets.type_emergency')}</option>
-                    <option value="specialty">{t('docOrderSets.type_specialty')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewOrderSet({ ...newOrderSet, type: next as OrderSetType }); }}
+                    options={[
+                      { value: 'admission', label: t('docOrderSets.type_admission') },
+                      { value: 'discharge', label: t('docOrderSets.type_discharge') },
+                      { value: 'procedure', label: t('docOrderSets.type_procedure') },
+                      { value: 'protocol', label: t('docOrderSets.type_protocol') },
+                      { value: 'emergency', label: t('docOrderSets.type_emergency') },
+                      { value: 'specialty', label: t('docOrderSets.type_specialty') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -789,7 +789,7 @@ const OrderSetsPage: React.FC = () => {
                           </div>
                           {order.instructions && <p className="text-sm text-content-muted">{order.instructions}</p>}
                         </div>
-                        <button
+                        <button type="button"
                           onClick={() => handleDeleteOrder(order.orderId)}
                           className="text-critical hover:text-critical-subtle-fg"
                         >
@@ -821,18 +821,18 @@ const OrderSetsPage: React.FC = () => {
                       </select>
                     </div>
                     <div>
-                      <label htmlFor="orderset-priority" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.priorityLabel')}</label>
-                      <select
+                      <ChoiceChips
                         id="orderset-priority"
+                        label={t('docOrderSets.priorityLabel')}
                         value={newOrder.priority || 'routine'}
-                        onChange={(e) => setNewOrder({ ...newOrder, priority: e.target.value as OrderPriority })}
-                        className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                      >
-                        <option value="stat">{t('docOrderSets.priority_stat')}</option>
-                        <option value="urgent">{t('docOrderSets.priority_urgent')}</option>
-                        <option value="routine">{t('docOrderSets.priority_routine')}</option>
-                        <option value="prn">{t('docOrderSets.priority_prn')}</option>
-                      </select>
+                        onChange={(next) => { if (next === undefined) return; setNewOrder({ ...newOrder, priority: next as OrderPriority }); }}
+                        options={[
+                          { value: 'stat', label: t('docOrderSets.priority_stat') },
+                          { value: 'urgent', label: t('docOrderSets.priority_urgent') },
+                          { value: 'routine', label: t('docOrderSets.priority_routine') },
+                          { value: 'prn', label: t('docOrderSets.priority_prn') },
+                        ]}
+                      />
                     </div>
                   </div>
 
@@ -896,7 +896,7 @@ const OrderSetsPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
+                  <button type="button"
                     onClick={handleAddOrderToNewSet}
                     className="w-full bg-teal-700 hover:bg-teal-800 text-white font-semibold py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
                   >
@@ -906,8 +906,7 @@ const OrderSetsPage: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={handleCreateOrderSet}
+              <button type="submit"
                 className="w-full bg-teal-700 hover:bg-teal-800 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" />
@@ -916,6 +915,7 @@ const OrderSetsPage: React.FC = () => {
             </div>
           </div>
         </div>
+        </form>
       )}
 
       {activeTab === 'templates' && (

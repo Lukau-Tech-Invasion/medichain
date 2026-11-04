@@ -142,6 +142,7 @@ export function useSSE(): UseSSEReturn {
                 setEvents(prev => [data, ...prev].slice(0, 50)); // Keep last 50 events
                 debugLog('useSSE', `Received ${data.event_type} event`);
               } catch (e) {
+                // ux-allow(console-catch): a malformed server event; nothing the user did failed.
                 console.error('Failed to parse SSE data:', e, part);
               }
             }

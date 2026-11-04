@@ -9,7 +9,7 @@ import {
   getTelehealthJoinQr,
   listMyTelehealthSessions,
   useTranslation,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2, QrCode } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
@@ -449,20 +449,20 @@ export default function TelehealthPage() {
               />
             </div>
             <div>
-              <label htmlFor="telehealth-session-type" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.sessionType')}</label>
-              <select
+              <ChoiceChips
                 id="telehealth-session-type"
+                label={t('docTelehealth.sessionType')}
                 value={formData.session_type}
-                onChange={e => setFormData(current => ({ ...current, session_type: e.target.value }))}
-                className="w-full border rounded-lg px-3 py-2"
-              >
-                <option value="VideoVisit">{t('docTelehealth.typeVideo')}</option>
-                <option value="PhoneCall">{t('docTelehealth.typePhone')}</option>
-                <option value="SecureMessage">{t('docTelehealth.typeMessage')}</option>
-                <option value="AsyncVideo">{t('docTelehealth.typeAsyncVideo')}</option>
-                <option value="RemoteMonitoring">{t('docTelehealth.typeMonitoring')}</option>
-                <option value="VirtualGroupVisit">{t('docTelehealth.typeGroup')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setFormData(current => ({ ...current, session_type: next })); }}
+                options={[
+                  { value: 'VideoVisit', label: t('docTelehealth.typeVideo') },
+                  { value: 'PhoneCall', label: t('docTelehealth.typePhone') },
+                  { value: 'SecureMessage', label: t('docTelehealth.typeMessage') },
+                  { value: 'AsyncVideo', label: t('docTelehealth.typeAsyncVideo') },
+                  { value: 'RemoteMonitoring', label: t('docTelehealth.typeMonitoring') },
+                  { value: 'VirtualGroupVisit', label: t('docTelehealth.typeGroup') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -528,6 +528,7 @@ export default function TelehealthPage() {
 
       {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
       {!activeCall && activeCallUrl && (
+        // ux-allow(overlay): the full-screen call itself, not a dialog; Escape must not end a consultation.
         <div role="dialog" aria-modal="true" aria-label={t('docTelehealth.videoCall')} className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-gray-900 text-white">
             <span className="flex items-center gap-2 font-medium">

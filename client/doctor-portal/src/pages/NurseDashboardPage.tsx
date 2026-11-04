@@ -5,6 +5,7 @@ import { useTranslation, type NurseDashboardResponse, type NursingOrderTask } fr
 import { StatCard, CriticalAlertsBanner, QuickActionsPanel, PatientListPanel, type CriticalAlert, type QuickAction } from '../components/dashboard';
 import { useAuthStore } from '../store';
 import { useNurseDashboardReads, type NurseRead } from '../hooks/useNurseDashboardReads';
+import MyWardPanel from '../components/MyWardPanel';
 
 type DashboardRead = NurseRead<NurseDashboardResponse>;
 
@@ -22,9 +23,13 @@ export default function NurseDashboardPage() {
     {dashboard.data && <NurseMedications data={dashboard.data} />}
     <NurseStats resource={dashboard} />
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 [&>*]:min-w-0">
-      <NursePatients resource={dashboard} />
+      <MyWardPanel />
       <NurseTasks dashboard={dashboard} orders={orders} />
     </div>
+    {/* The roster above is "my patients". This list is the facility's most
+        recently registered patients, labelled as such: it used to be titled
+        "My Patients" and was the first 15 rows of the patients table. */}
+    <NursePatients resource={dashboard} />
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 [&>*]:min-w-0"><NurseQuickActions /><NurseIo resource={dashboard} /></div>
   </div>;
 }
@@ -79,7 +84,7 @@ function NurseStats({ resource }: { resource: DashboardRead }) {
   const navigate = useNavigate();
   const data = resource.data;
   const cards = [
-    { label: 'statMyPatients', value: data?.patients.total, icon: Users, color: 'bg-ok-subtle', iconColor: 'text-ok-subtle-fg', path: '/patients' },
+    { label: 'statRecentPatients', value: data?.patients.total, icon: Users, color: 'bg-ok-subtle', iconColor: 'text-ok-subtle-fg', path: '/patients' },
     { label: 'statVitalsDue', value: data?.tasks.vitals_due, icon: Activity, color: 'bg-caution-subtle', iconColor: 'text-caution-subtle-fg', path: '/vitals' },
     { label: 'statFallRisk', value: data?.fall_risk_patients.length, icon: AlertTriangle, color: 'bg-critical-subtle', iconColor: 'text-critical-subtle-fg' },
     { label: 'statIvChecks', value: data?.tasks.ivs_to_check, icon: Droplets, color: 'bg-notice-subtle', iconColor: 'text-notice-subtle-fg', path: '/iv-site' },
@@ -99,9 +104,9 @@ function NursePatients({ resource }: { resource: DashboardRead }) {
     flags: { fall_risk: patient.fall_risk, iv_site: patient.iv_site, wound_care: patient.wound_care_due },
   })) ?? [];
   if (resource.status === 'failed') return <section className="bg-surface rounded-lg shadow p-4 border border-border">
-    <h3 className="font-semibold">{t('docNurseDashboard.statMyPatients')}</h3><p>{t('docNurseDashboard.unavailable')}</p>
+    <h3 className="font-semibold">{t('docNurseDashboard.recentPatients')}</h3><p>{t('docNurseDashboard.unavailable')}</p>
   </section>;
-  return <PatientListPanel patients={patients} title={t('docNurseDashboard.statMyPatients')} loading={resource.status === 'loading'} />;
+  return <PatientListPanel patients={patients} title={t('docNurseDashboard.recentPatients')} loading={resource.status === 'loading'} />;
 }
 
 /** Combine known observations/orders, but claim no outstanding work only when both reads succeeded. */

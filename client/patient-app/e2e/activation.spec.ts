@@ -54,8 +54,9 @@ test('the form checks the password and the code before anything is sent', async 
   await page.goto(portalPath('/activate'));
   await expect(page.locator('#activate-identifier')).toBeVisible({ timeout: 20000 });
 
-  // The submit button waits for every field.
-  await expect(submit(page)).toBeDisabled();
+  // Pressed too early, the button names what is missing instead of being greyed out.
+  await submit(page).click();
+  await expect(page.getByRole('alert')).toContainText(/fill in: patient id, activation code/i);
 
   // The code is normalised as it is typed: upper case, look-alikes folded, grouped.
   await page.locator('#activate-code').fill('abcdefgh1234');
@@ -241,7 +242,9 @@ test.describe('activation and first sign-in', () => {
     // Neither refusal spent B's code: a good username still activates.
     await fillActivation(page, { username: `e2e.free.${stamp()}`, password: PASSWORD, confirm: PASSWORD });
     await submit(page).click();
-    await page.locator('main').first().waitFor({ state: 'visible', timeout: 45000 });
-    await expect(page).toHaveURL(/\/dashboard/);
+    // The activation page has a <main> too, so waiting for one waited for
+    // nothing. Redemption hashes the password (Argon2id): 9-15 s on a debug
+    // build, which the default 5 s assertion timeout did not allow.
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 45000 });
   });
 });

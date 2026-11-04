@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { ChartAccessPrompt, applyAccess, declaredAccessFor } from './ChartAccess';
+import { useClinicianOffline } from '../offline/ClinicianOffline';
 import type { DeclaredAccess } from './ChartAccess';
 
 interface AccessReasonGateProps {
@@ -39,7 +40,13 @@ export function AccessReasonGate({ patientId, children }: AccessReasonGateProps)
     return () => getApiClient().setPatientAccessContext(undefined);
   }, [patientId, currentAccess]);
 
-  if (!patientId || currentAccess) {
+  // No signal: the prompt cannot reach the server, and nothing will be read
+  // from it. A patient on the day kept on this device was downloaded under the
+  // clinician's authority, and the download is on the patient's access history.
+  const { online, roster } = useClinicianOffline();
+  const onDevice = !online && roster?.patients.some((p) => p.patient_id === patientId);
+
+  if (!patientId || currentAccess || onDevice) {
     return <>{children}</>;
   }
   return <ChartAccessPrompt key={patientId} patientId={patientId} title={t('accessReason.title')} onReady={setAccess} />;

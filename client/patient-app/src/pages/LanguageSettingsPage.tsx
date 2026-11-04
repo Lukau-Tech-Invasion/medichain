@@ -6,6 +6,7 @@ import {
   saveUserSettings,
   setLanguagePreference,
   useTranslation,
+  ChoiceChips,
 } from '@medichain/shared';
 import type { SupportedLocale } from '@medichain/shared';
 import {
@@ -21,6 +22,9 @@ import {
   RefreshCw,
   Info
 } from 'lucide-react';
+import { PageBanner, useEmbedded } from '../components/MergedScreen';
+
+// ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
 
 /**
  * LanguageSettingsPage
@@ -107,6 +111,7 @@ const languageBadge = (code: string): string =>
 
 const LanguageSettingsPage: React.FC = () => {
   const { t, locale, setLocale } = useTranslation();
+  const embedded = useEmbedded();
   const regionLabel = (region: string) =>
     ({
       Americas: t('languageSettings.regionAmericas'),
@@ -241,16 +246,11 @@ const LanguageSettingsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Globe className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">{t('languageSettings.title')}</h1>
-        </div>
-        <p className="text-white">{t('languageSettings.subtitle')}</p>
-      </div>
+      <PageBanner title={t('languageSettings.title')} subtitle={t('languageSettings.subtitle')}
+        icon={<Globe className="w-8 h-8" />} gradient="from-indigo-700 to-violet-800" />
 
       {/* Current Selection */}
-      <div className="p-4 -mt-4">
+      <div className={embedded ? 'p-4' : 'p-4 -mt-4'}>
         <div className="bg-surface rounded-lg shadow p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -419,19 +419,17 @@ const LanguageSettingsPage: React.FC = () => {
 
             {/* First Day of Week */}
             <div>
-              <label htmlFor="lang-first-day" className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2">
-                <Calendar className="w-4 h-4" /> {t('languageSettings.firstDayOfWeek')}
-              </label>
-              <select
+              <ChoiceChips<typeof regionalSettings.firstDayOfWeek>
                 id="lang-first-day"
+                label={t('languageSettings.firstDayOfWeek')}
                 value={regionalSettings.firstDayOfWeek}
-                onChange={(e) => setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: e.target.value as typeof regionalSettings.firstDayOfWeek }))}
-                className="w-full border border-border-interactive rounded-lg px-3 py-2"
-              >
-                <option value="sunday">{t('languageSettings.sunday')}</option>
-                <option value="monday">{t('languageSettings.monday')}</option>
-                <option value="saturday">{t('languageSettings.saturday')}</option>
-              </select>
+                onChange={(next) => { if (next) setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: next })); }}
+                options={[
+                  { value: 'sunday', label: t('languageSettings.sunday') },
+                  { value: 'monday', label: t('languageSettings.monday') },
+                  { value: 'saturday', label: t('languageSettings.saturday') },
+                ]}
+              />
             </div>
 
             {/* Temperature Unit */}

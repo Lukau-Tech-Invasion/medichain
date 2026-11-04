@@ -3,7 +3,8 @@
 //!
 //! The rule, in order: the patient themselves; their guardian (or an
 //! administrator, as before); a clinician the patient granted access to; a
-//! clinician in an active care relationship with the patient; or a clinician
+//! clinician in an active care relationship with the patient; a clinician
+//! rostered now on the ward the patient is admitted to; or a clinician
 //! who broke the glass (reason required, time-limited, patient told at once).
 //! Holding a clinical role is no longer enough on its own.
 //!
@@ -41,6 +42,11 @@ pub enum ChartAuthority {
         source: String,
     },
     BreakGlass(String),
+    /// Admitted to a ward the clinician is rostered on now (UX plan Phase 5).
+    WardAssignment {
+        admission_id: String,
+        assignment_id: String,
+    },
     Denied,
 }
 
@@ -59,6 +65,7 @@ impl ChartAuthority {
             Self::PatientGrant(_) => Some("patient_grant"),
             Self::CareRelationship { .. } => Some("care_relationship"),
             Self::BreakGlass(_) => Some("break_glass"),
+            Self::WardAssignment { .. } => Some("ward_assignment"),
             Self::Denied => None,
         }
     }
@@ -68,6 +75,11 @@ impl ChartAuthority {
         match self {
             Self::Guardian(id) | Self::PatientGrant(id) | Self::BreakGlass(id) => Some(id.clone()),
             Self::CareRelationship { id, .. } => Some(id.clone()),
+            // Both ids: the audit row must say which admission and which shift.
+            Self::WardAssignment {
+                admission_id,
+                assignment_id,
+            } => Some(format!("{admission_id}/{assignment_id}")),
             _ => None,
         }
     }
@@ -119,6 +131,18 @@ async fn clinician_authority(
         return Ok(ChartAuthority::CareRelationship {
             id: row.id,
             source: row.source,
+        });
+    }
+    if let Some(ward) = data
+        .repositories
+        .wards
+        .ward_authority(patient_id, user_id, now)
+        .await
+        .map_err(unavailable)?
+    {
+        return Ok(ChartAuthority::WardAssignment {
+            admission_id: ward.admission_id,
+            assignment_id: ward.assignment_id,
         });
     }
     Ok(
@@ -182,6 +206,7 @@ pub async fn treats_patient(
         resolve_chart_access(data, caller, patient_id).await?,
         ChartAuthority::PatientGrant(_)
             | ChartAuthority::CareRelationship { .. }
+            | ChartAuthority::WardAssignment { .. }
             | ChartAuthority::BreakGlass(_)
     ))
 }

@@ -24,7 +24,8 @@ import {
   Input,
   Textarea,
   useValidatedForm,
-  incidentReportSchema, ModalPanel } from '@medichain/shared';
+  incidentReportSchema, ModalPanel, ChoiceChips
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
@@ -179,6 +180,7 @@ const IncidentReportPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(incidentReportSchema);
 
   const handleSubmitReport = async () => {
+    if (isSubmitting) return;
     // Was a toast naming three fields at once, which is the least useful place
     // to put an error: it is not attached to any control, and this form is a
     // three-step wizard, so the offending field may not even be on screen.
@@ -413,17 +415,18 @@ const IncidentReportPage: React.FC = () => {
               <option value="behavioral">{t('docIncidentReport.typeOption_behavioral')}</option>
               <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
             </select>
-            <select aria-label={t('common.filterByStatus')}
+            <ChoiceChips
+              label={t('common.filterByStatus')}
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="px-4 py-2 border rounded-lg"
-            >
-              <option value="all">{t('docIncidentReport.allStatuses')}</option>
-              <option value="open">{t('docIncidentReport.status_open')}</option>
-              <option value="under-investigation">{t('docIncidentReport.status_under-investigation')}</option>
-              <option value="pending-review">{t('docIncidentReport.status_pending-review')}</option>
-              <option value="closed">{t('docIncidentReport.status_closed')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setStatusFilter(next as typeof statusFilter); }}
+              options={[
+                { value: 'all', label: t('docIncidentReport.allStatuses') },
+                { value: 'open', label: t('docIncidentReport.status_open') },
+                { value: 'under-investigation', label: t('docIncidentReport.status_under-investigation') },
+                { value: 'pending-review', label: t('docIncidentReport.status_pending-review') },
+                { value: 'closed', label: t('docIncidentReport.status_closed') },
+              ]}
+            />
           </div>
 
           <div className="space-y-4">
@@ -490,6 +493,7 @@ const IncidentReportPage: React.FC = () => {
       {/* New Incident Tab */}
       {activeTab === 'new' && (
         <div className="p-6">
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmitReport(); }} noValidate>
           <div className="bg-surface rounded-lg shadow p-6 max-w-3xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">{t('docIncidentReport.reportNewIncidentHeading')}</h2>
@@ -529,19 +533,19 @@ const IncidentReportPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="inc-severity" className="block text-sm font-medium mb-1">{t('docIncidentReport.severityRequired')} *</label>
-                    <select
+                    <ChoiceChips
                       id="inc-severity"
+                      label={t('docIncidentReport.severityRequired')}
                       value={formData.severity}
-                      onChange={(e) => setFormData({ ...formData, severity: e.target.value as IncidentSeverity })}
-                      className="w-full border rounded-lg px-3 py-2"
-                    >
-                      <option value="near-miss">{t('docIncidentReport.severityOption_near-miss')}</option>
-                      <option value="minor">{t('docIncidentReport.severityOption_minor')}</option>
-                      <option value="moderate">{t('docIncidentReport.severityOption_moderate')}</option>
-                      <option value="major">{t('docIncidentReport.severityOption_major')}</option>
-                      <option value="sentinel">{t('docIncidentReport.severityOption_sentinel')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setFormData({ ...formData, severity: next as IncidentSeverity }); }}
+                      options={[
+                        { value: 'near-miss', label: t('docIncidentReport.severityOption_near-miss') },
+                        { value: 'minor', label: t('docIncidentReport.severityOption_minor') },
+                        { value: 'moderate', label: t('docIncidentReport.severityOption_moderate') },
+                        { value: 'major', label: t('docIncidentReport.severityOption_major') },
+                        { value: 'sentinel', label: t('docIncidentReport.severityOption_sentinel') },
+                      ]}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -556,16 +560,19 @@ const IncidentReportPage: React.FC = () => {
                     required
                   />
                   <div>
-                    <label htmlFor="inc-department" className="block text-sm font-medium mb-1">{t('docIncidentReport.departmentRequired')} *</label>
-                    <select id="inc-department" className="w-full border rounded-lg px-3 py-2"
+                    <ChoiceChips
+                      id="inc-department"
+                      label={t('docIncidentReport.departmentRequired')}
                       value={formData.department}
-                      onChange={(e) => setFormData(f => ({ ...f, department: e.target.value }))}>
-                      <option value="emergency">{t('docIncidentReport.dept_emergency')}</option>
-                      <option value="med-surg">{t('docIncidentReport.dept_medSurg')}</option>
-                      <option value="icu">{t('docIncidentReport.dept_icu')}</option>
-                      <option value="pharmacy">{t('docIncidentReport.dept_pharmacy')}</option>
-                      <option value="radiology">{t('docIncidentReport.dept_radiology')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setFormData(f => ({ ...f, department: next })); }}
+                      options={[
+                        { value: 'emergency', label: t('docIncidentReport.dept_emergency') },
+                        { value: 'med-surg', label: t('docIncidentReport.dept_medSurg') },
+                        { value: 'icu', label: t('docIncidentReport.dept_icu') },
+                        { value: 'pharmacy', label: t('docIncidentReport.dept_pharmacy') },
+                        { value: 'radiology', label: t('docIncidentReport.dept_radiology') },
+                      ]}
+                    />
                   </div>
                 </div>
                 <Input
@@ -652,21 +659,20 @@ const IncidentReportPage: React.FC = () => {
             )}
 
             <div className="flex justify-between mt-6 pt-6 border-t">
-              <button
+              <button type="button"
                 onClick={() => setFormStep(Math.max(1, formStep - 1))}
                 className={`px-4 py-2 border rounded-lg ${formStep === 1 ? 'invisible' : ''}`}
               >
                 {t('docIncidentReport.backButton')}
               </button>
               {formStep < 3 ? (
-                <button onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium">
+                <button type="button" onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium">
                   {t('docIncidentReport.continueButton')}
                 </button>
               ) : (
-                <button
-                  onClick={handleSubmitReport}
-                  disabled={isSubmitting}
-                  className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium flex items-center gap-2"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium flex items-center gap-2"
                 >
                   {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   {t('docIncidentReport.submitReportButton')}
@@ -674,6 +680,7 @@ const IncidentReportPage: React.FC = () => {
               )}
             </div>
           </div>
+          </form>
         </div>
       )}
 

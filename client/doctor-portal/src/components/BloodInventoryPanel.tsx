@@ -8,6 +8,7 @@ import {
   releaseBloodUnit,
   reserveBloodUnit,
   useTranslation,
+  ChoiceChips,
 } from '@medichain/shared';
 import type { BloodProductCode, BloodStockSummary, BloodUnit } from '@medichain/shared';
 
@@ -130,6 +131,7 @@ function ReceiveForm({ onReceived }: { onReceived: () => void }) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError('');
     try {
@@ -159,12 +161,16 @@ function ReceiveForm({ onReceived }: { onReceived: () => void }) {
           {GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
       </label>
-      <label className="text-sm text-content-secondary" htmlFor={`${id}-rh`}>{t('docBloodInventory.rh')}
-        <select id={`${id}-rh`} value={form.rh} onChange={set('rh')} className={INPUT}>
-          <option value="negative">{t('docBloodInventory.rhNegative')}</option>
-          <option value="positive">{t('docBloodInventory.rhPositive')}</option>
-        </select>
-      </label>
+      <ChoiceChips
+        id={`${id}-rh`}
+        label={t('docBloodInventory.rh')}
+        value={form.rh}
+        onChange={(next) => { if (next) setForm((prev) => ({ ...prev, rh: next })); }}
+        options={[
+          { value: 'negative', label: t('docBloodInventory.rhNegative') },
+          { value: 'positive', label: t('docBloodInventory.rhPositive') },
+        ]}
+      />
       <label className="text-sm text-content-secondary" htmlFor={`${id}-collected`}>{t('docBloodInventory.collectedOn')}
         <input id={`${id}-collected`} type="date" required value={form.collected_on} onChange={set('collected_on')} className={INPUT} />
       </label>
@@ -176,7 +182,7 @@ function ReceiveForm({ onReceived }: { onReceived: () => void }) {
       </label>
       {error && <p role="alert" className="md:col-span-4 text-sm text-critical-subtle-fg">{error}</p>}
       <div className="md:col-span-4">
-        <button type="submit" disabled={busy} className={`${BUTTON} bg-brand text-brand-fg`}>{t('docBloodInventory.receive')}</button>
+        <button type="submit" aria-disabled={busy || undefined} className={`${BUTTON} bg-brand text-brand-fg`}>{t('docBloodInventory.receive')}</button>
       </div>
     </form>
   );
@@ -212,6 +218,7 @@ function UnitRow({ unit, expiringSoon, canManage, onChanged }: { unit: BloodUnit
   const [error, setError] = useState('');
 
   const run = async (call: () => Promise<unknown>) => {
+    if (busy) return;
     setBusy(true);
     setError('');
     try {
@@ -266,7 +273,7 @@ function UnitActions({ unit, action, busy, onAction, onRun }: UnitActionsProps) 
     <div className="flex flex-wrap gap-2">
       {unit.status === 'available' && <button type="button" className={button} onClick={() => onAction('reserve')}>{t('docBloodInventory.reserve')}</button>}
       {unit.status === 'reserved' && <button type="button" className={button} onClick={() => onAction('issue')}>{t('docBloodInventory.issue')}</button>}
-      {unit.status === 'reserved' && <button type="button" className={button} disabled={busy} onClick={() => onRun(() => releaseBloodUnit(unit.id))}>{t('docBloodInventory.release')}</button>}
+      {unit.status === 'reserved' && <button type="button" className={button} aria-disabled={busy || undefined} onClick={() => onRun(() => releaseBloodUnit(unit.id))}>{t('docBloodInventory.release')}</button>}
       {['available', 'reserved', 'expired'].includes(unit.status) && <button type="button" className={button} onClick={() => onAction('discard')}>{t('docBloodInventory.discard')}</button>}
     </div>
   );
@@ -291,6 +298,7 @@ function TwoFieldForm({ first, second, busy, onCancel, onSubmit }: TwoFieldFormP
       className="flex flex-wrap items-end gap-2"
       onSubmit={(event) => {
         event.preventDefault();
+        if (busy) return;
         onSubmit(a, b);
       }}
     >
@@ -302,7 +310,7 @@ function TwoFieldForm({ first, second, busy, onCancel, onSubmit }: TwoFieldFormP
           <input id={`${id}-b`} required value={b} onChange={(e) => setB(e.target.value)} className={INPUT} />
         </label>
       )}
-      <button type="submit" disabled={busy} className={`${BUTTON} bg-brand text-brand-fg`}>{t('docBloodInventory.confirm')}</button>
+      <button type="submit" aria-disabled={busy || undefined} className={`${BUTTON} bg-brand text-brand-fg`}>{t('docBloodInventory.confirm')}</button>
       <button type="button" onClick={onCancel} className={`${BUTTON} text-content-secondary hover:bg-surface-sunken`}>{t('docBloodInventory.cancel')}</button>
     </form>
   );

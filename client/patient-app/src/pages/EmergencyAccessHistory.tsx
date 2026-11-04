@@ -15,7 +15,13 @@ export function EmergencyAccessHistory({ patientId, entries }: { patientId: stri
     }).catch(() => { if (active) setStatus('failed'); });
     return () => { active = false; };
   }, [patientId, retry]);
-  return <section aria-label="Emergency summary access" className="my-4">
+  // Opened from Me's "Emergency access history" row: bring this list into view.
+  useEffect(() => {
+    if (status === 'ready' && window.location.hash === '#emergency-access') {
+      document.getElementById('emergency-access')?.scrollIntoView({ block: 'start' });
+    }
+  }, [status]);
+  return <section id="emergency-access" aria-label="Emergency summary access" className="my-4 scroll-mt-20">
     <h2 className="text-lg font-semibold">Emergency summary access</h2>
     {status === 'loading' && <p role="status">Loading emergency access history...</p>}
     {status === 'failed' && <div role="alert">Emergency access history could not be loaded.

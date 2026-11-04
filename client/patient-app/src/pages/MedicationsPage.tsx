@@ -11,7 +11,7 @@ import {
   useTranslation,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PharmacyDecision, RefillRequest } from '@medichain/shared';
+import type { PharmacyDecision, RefillRequest, MedicationReminder as StoredReminder } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { RefillRequestPanel, type RefillLoadState } from '../components/RefillRequestPanel';
 import {
@@ -27,6 +27,8 @@ import {
   WifiOff,
   RefreshCw,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
+import { MedicineReminders, reminderMatches, type DoseToday } from '../components/MedicineReminders';
 
 interface Medication {
   id: string;
@@ -191,6 +193,8 @@ export function MedicationsPage() {
   const [medications, setMedications] = useState<Medication[]>([]);
   const [profileMedicines, setProfileMedicines] = useState<string[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
+  // The reminders as stored, so each medicine can show and stop its own.
+  const [storedReminders, setStoredReminders] = useState<StoredReminder[]>([]);
   // A pharmacist's decision about this patient's medicine -- why something
   // they were prescribed did not arrive. Recorded on the pharmacy side and,
   // until this, readable only by clinical staff.
@@ -212,6 +216,51 @@ export function MedicationsPage() {
       navigate('/login');
     }
   }, [isAuthenticated, patient, navigate]);
+
+  /** Today's doses from the stored reminders, ticked from today's adherence log. */
+  const applyReminders = useCallback((
+    remindersData: Awaited<ReturnType<typeof getPatientReminders>>,
+    adherenceData: Awaited<ReturnType<typeof getPatientAdherence>>,
+  ) => {
+    setStoredReminders(remindersData.reminders ?? []);
+        const today = new Date().toISOString().slice(0, 10);
+        const dosesTakenToday = new Map(
+          (adherenceData.logs ?? [])
+            .filter((log) =>
+              (log.action_taken === 'taken' || log.action_taken === 'taken_late') &&
+              log.actual_time?.slice(0, 10) === today &&
+              log.reminder_id
+            )
+            .map((log) => [log.reminder_id as string, log.actual_time as string])
+        );
+        const apiReminders: MedicationReminder[] = (remindersData.reminders ?? []).flatMap((reminder) =>
+          reminder.reminder_times.map((scheduledTime) => {
+            const takenAt = dosesTakenToday.get(reminder.reminder_id);
+            return {
+              id: `${reminder.reminder_id}:${scheduledTime}`,
+              medicationId: reminder.reminder_id,
+              medicationName: reminder.medication_name,
+              dosage: reminder.dosage,
+              scheduledTime,
+              taken: Boolean(takenAt),
+              takenAt: takenAt
+                ? formatTimestamp(takenAt, { hour: '2-digit', minute: '2-digit' })
+                : undefined,
+            };
+          })
+        );
+      setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
+  }, []);
+
+  /** Reload reminders alone: adding or stopping one must not blank the page. */
+  const reloadReminders = useCallback(async () => {
+    if (!patient) return;
+    const [remindersData, adherenceData] = await Promise.all([
+      getPatientReminders(patient.healthId),
+      getPatientAdherence(patient.healthId),
+    ]);
+    applyReminders(remindersData, adherenceData);
+  }, [patient, applyReminders]);
 
   const loadMedications = useCallback(async () => {
     if (!patient) return;
@@ -256,33 +305,7 @@ export function MedicationsPage() {
           setProfileMedicines([]);
         });
         
-        const today = new Date().toISOString().slice(0, 10);
-        const dosesTakenToday = new Map(
-          (adherenceData.logs ?? [])
-            .filter((log) =>
-              (log.action_taken === 'taken' || log.action_taken === 'taken_late') &&
-              log.actual_time?.slice(0, 10) === today &&
-              log.reminder_id
-            )
-            .map((log) => [log.reminder_id as string, log.actual_time as string])
-        );
-        const apiReminders: MedicationReminder[] = (remindersData.reminders ?? []).flatMap((reminder) =>
-          reminder.reminder_times.map((scheduledTime) => {
-            const takenAt = dosesTakenToday.get(reminder.reminder_id);
-            return {
-              id: `${reminder.reminder_id}:${scheduledTime}`,
-              medicationId: reminder.reminder_id,
-              medicationName: reminder.medication_name,
-              dosage: reminder.dosage,
-              scheduledTime,
-              taken: Boolean(takenAt),
-              takenAt: takenAt
-                ? formatTimestamp(takenAt, { hour: '2-digit', minute: '2-digit' })
-                : undefined,
-            };
-          })
-        );
-      setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
+      applyReminders(remindersData, adherenceData);
     } catch (error) {
       console.error('Error loading medications:', error);
       setApiConnected(false);
@@ -290,7 +313,7 @@ export function MedicationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [patient]);
+  }, [patient, applyReminders]);
 
   useEffect(() => {
     if (patient) {
@@ -298,8 +321,12 @@ export function MedicationsPage() {
     }
   }, [patient, loadMedications]);
 
-  const markAsTaken = async (reminderId: string) => {
+  const markAsTaken = async (doseId: string) => {
     if (!patient) return;
+    // A dose's id is `<reminder_id>:<time>`; the endpoint wants the reminder's
+    // own id. Sending the per-time key named a reminder that does not exist.
+    const reminderId = reminders.find((r) => r.id === doseId)?.medicationId;
+    if (!reminderId) return;
 
     try {
       // `{ reminder_id, action }` is what the endpoint reads. This used to send
@@ -319,7 +346,7 @@ export function MedicationsPage() {
     // dose" and "we drew a tick".
     const takenAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     setReminders(prev => prev.map(r =>
-      r.id === reminderId
+      r.id === doseId
         ? { ...r, taken: true, takenAt }
         : r
     ));
@@ -330,6 +357,27 @@ export function MedicationsPage() {
   const upsertRefillRequest = (request: RefillRequest) => {
     setRefillRequests((prev) => [request, ...prev.filter((existing) => existing.id !== request.id)]);
   };
+
+  const dosesOf = (matched: StoredReminder[]): DoseToday[] => reminders
+    .filter((dose) => matched.some((m) => m.reminder_id === dose.medicationId))
+    .map((dose) => ({ id: dose.id, reminderId: dose.medicationId, scheduledTime: dose.scheduledTime, taken: dose.taken, takenAt: dose.takenAt }));
+  const remindersFor = (name: string) => storedReminders.filter((r) => reminderMatches(r.medication_name, name));
+  const medicineNames = [...medications.map((m) => m.name), ...profileMedicines];
+  // Reminders for no listed medicine are shown on their own, grouped by name.
+  const otherReminderNames = [...new Set(storedReminders
+    .filter((r) => !medicineNames.some((name) => reminderMatches(r.medication_name, name)))
+    .map((r) => r.medication_name))];
+  const remindersBlock = (name: string, dosage?: string, matched = remindersFor(name)) => patient && (
+    <MedicineReminders
+      medicine={name}
+      dosage={dosage}
+      reminders={matched}
+      doses={dosesOf(matched)}
+      patientId={patient.healthId}
+      onChanged={reloadReminders}
+      onTaken={(dose) => void markAsTaken(dose.id)}
+    />
+  );
 
   const pendingReminders = reminders.filter(r => !r.taken);
   const completedReminders = reminders.filter(r => r.taken);
@@ -347,7 +395,7 @@ export function MedicationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('medications.pageTitle')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('medications.pageTitle')}</PageTitle>
           <p className="text-content-muted">{t('medications.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -565,6 +613,8 @@ export function MedicationsPage() {
                 loadState={refillLoad}
                 onChanged={upsertRefillRequest}
               />
+
+              {remindersBlock(med.name, med.dosage)}
             </div>
           ))}
 
@@ -574,14 +624,30 @@ export function MedicationsPage() {
               <p className="text-sm text-content-muted mb-3">{t('medications.profileNote')}</p>
               <ul className="space-y-2">
                 {profileMedicines.map((entry) => (
-                  <li key={entry} className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-brand-subtle rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Pill className="w-5 h-5 text-brand" />
+                  <li key={entry}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-brand-subtle rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Pill className="w-5 h-5 text-brand" />
+                      </div>
+                      <span className="text-sm font-medium text-content">{entry}</span>
                     </div>
-                    <span className="text-sm font-medium text-content">{entry}</span>
+                    {remindersBlock(entry)}
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {otherReminderNames.length > 0 && (
+            <section className="patient-card" data-testid="other-reminders">
+              <h3 className="font-semibold text-content">{t('medications.otherReminders')}</h3>
+              <p className="text-sm text-content-muted">{t('medications.otherRemindersNote')}</p>
+              {otherReminderNames.map((name) => (
+                <div key={name} className="mt-3">
+                  <p className="text-sm font-medium text-content">{name}</p>
+                  {remindersBlock(name, undefined, storedReminders.filter((r) => r.medication_name === name))}
+                </div>
+              ))}
             </section>
           )}
 

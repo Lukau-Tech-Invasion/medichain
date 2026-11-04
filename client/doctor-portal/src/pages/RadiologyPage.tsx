@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { listRadiology, createRadiologyReport, getApiErrorMessage, useTranslation, Alert, LoadingSpinner } from '@medichain/shared';
+import { listRadiology, createRadiologyReport, getApiErrorMessage, useTranslation, Alert, LoadingSpinner, ChoiceChips } from '@medichain/shared';
 import { StoredValue } from '../components/StoredSoapDetails';
+import { PatientName } from '../components/PatientName';
 
 type ReportStatus = 'pending' | 'in-progress' | 'preliminary' | 'final' | 'addendum';
 
@@ -225,6 +226,7 @@ const RadiologyPage: React.FC = () => {
   const showReportError = (message: string) => { setSaveError(message); showError(message); };
 
   const saveReport = async (asFinal: boolean) => {
+    if (isSaving) return;
     if (savePending.current || !selectedStudy) return;
     const studyType = studyTypeFor(selectedStudy.modality);
     if (!studyType) { showReportError(t('docRadiology.unsupportedModality')); return; }
@@ -368,7 +370,9 @@ const RadiologyPage: React.FC = () => {
   })();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    // `dark`: the reading room is dark in either theme, so the shared controls
+    // inside it take their dark-theme tokens rather than light text on near-black.
+    <div className="dark min-h-screen bg-gray-900 text-white">
       {/* Header */}
       <div className="bg-gray-800 p-4 border-b border-gray-700">
         <div className="flex items-center justify-between">
@@ -445,30 +449,30 @@ const RadiologyPage: React.FC = () => {
                   className="flex-1 bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
                 />
               </div>
-              <select
-                aria-label={t('docRadiology.orderStatus')}
+              <ChoiceChips
+                label={t('docRadiology.orderStatus')}
                 value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
-              >
-                <option value="all">{t('docRadiology.allStatus')}</option>
-                <option value="pending">{t('docRadiology.filterPending')}</option>
-                <option value="in-progress">{t('docRadiology.filterInProgress')}</option>
-                <option value="preliminary">{t('docRadiology.filterPreliminary')}</option>
-                <option value="final">{t('docRadiology.filterFinal')}</option>
-              </select>
-              <select
-                aria-label={t('docRadiology.modality')}
+                onChange={(next) => { if (next === undefined) return; setFilterStatus(next); }}
+                options={[
+                  { value: 'all', label: t('docRadiology.allStatus') },
+                  { value: 'pending', label: t('docRadiology.filterPending') },
+                  { value: 'in-progress', label: t('docRadiology.filterInProgress') },
+                  { value: 'preliminary', label: t('docRadiology.filterPreliminary') },
+                  { value: 'final', label: t('docRadiology.filterFinal') },
+                ]}
+              />
+              <ChoiceChips
+                label={t('docRadiology.modality')}
                 value={filterModality}
-                onChange={e => setFilterModality(e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded p-2 text-white placeholder:text-gray-400"
-              >
-                <option value="all">{t('docRadiology.allModalities')}</option>
-                <option value="CT">CT</option>
-                <option value="MRI">MRI</option>
-                <option value="XR">{t('docRadiology.modalityXray')}</option>
-                <option value="US">{t('docRadiology.modalityUltrasound')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setFilterModality(next); }}
+                options={[
+                  { value: 'all', label: t('docRadiology.allModalities') },
+                  { value: 'CT', label: 'CT' },
+                  { value: 'MRI', label: 'MRI' },
+                  { value: 'XR', label: t('docRadiology.modalityXray') },
+                  { value: 'US', label: t('docRadiology.modalityUltrasound') },
+                ]}
+              />
             </div>
 
             {/* Studies Table */}
@@ -553,6 +557,7 @@ const RadiologyPage: React.FC = () => {
         )}
 
         {activeTab === 'report' && selectedStudy && (
+          <form onSubmit={(event) => { event.preventDefault(); void saveReport(false); }} noValidate>
           <div className="grid md:grid-cols-2 gap-4">
             {/* Study Info */}
             <div className="bg-gray-800 rounded-lg p-4">
@@ -655,14 +660,13 @@ const RadiologyPage: React.FC = () => {
 
               {/* Actions */}
               <div className="flex gap-3">
-                <button
-                  onClick={() => saveReport(false)}
-                  disabled={isSaving}
-                  className="flex-1 py-2 bg-orange-700 text-white rounded hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                <button type="submit"
+                  aria-disabled={isSaving || undefined}
+                  className="aria-disabled:cursor-wait flex-1 py-2 bg-orange-700 text-white rounded hover:bg-orange-800"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.savePreliminary')}
                 </button>
-                <button
+                <button type="button"
                   onClick={() => saveReport(true)}
                   disabled={isSaving}
                   className="flex-1 py-2 bg-ok text-ok-fg rounded hover:bg-green-500 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
@@ -672,6 +676,7 @@ const RadiologyPage: React.FC = () => {
               </div>
             </fieldset>
           </div>
+          </form>
         )}
 
         {activeTab === 'report' && !selectedStudy && (
@@ -715,7 +720,7 @@ const RadiologyPage: React.FC = () => {
                           {r.bodyPart || r.accessionNumber || r.id}
                         </p>
                         <p className="text-sm text-gray-300 truncate">
-                          {r.patientId} · {r.accessionNumber}
+                          <PatientName id={r.patientId} inherit /> · {r.accessionNumber}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">

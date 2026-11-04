@@ -1,5 +1,5 @@
 import { getEmergencyNumber, ModalPanel } from '@medichain/shared';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogOut,
   FileText,
@@ -31,6 +31,10 @@ import {
   getPatients,
   listDischarges,
   useTranslation,
+  contentFingerprint,
+  submitForReply,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
@@ -179,6 +183,9 @@ function DischargePage() {
   const [discharges, setDischarges] = useState<DischargeSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const summarySubmission = useSubmission('discharge-summary');
+  const instructionsSubmission = useSubmission('discharge-instructions');
+  const filedSummary = useRef<{ fingerprint: string; summaryId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [apiConnected, setApiConnected] = useState(false);
@@ -324,14 +331,32 @@ function DischargePage() {
         prepared_by: user.userId,
       };
 
+      // The summary is filed once per submission. When the take-home
+      // instructions failed after it, Save again files only the instructions,
+      // against the summary already on record, instead of a second summary.
+      const fingerprint = contentFingerprint(payload);
       let created: { summary_id?: string };
-      try {
-        created = await createDischargeSummary(payload);
-      } catch (err) {
-        // A failure used to be written into the SUCCESS banner, so a discharge
-        // that was never filed appeared in green.
-        setError(getApiErrorMessage(err, t('docDischarge.errorCreateFailed')));
-        return;
+      if (filedSummary.current?.fingerprint === fingerprint) {
+        created = { summary_id: filedSummary.current.summaryId };
+      } else {
+        try {
+          const outcome = await submitForReply(summarySubmission, payload, () => createDischargeSummary(payload));
+          if (outcome.kind === 'busy') return;
+          if (outcome.kind !== 'saved') {
+            // An earlier attempt filed this summary and its answer never
+            // arrived, so there is no id to attach the instructions to.
+            setError(t('docDischarge.errorSummaryAlreadyFiled'));
+            fetchDischarges();
+            return;
+          }
+          created = outcome.value;
+          filedSummary.current = { fingerprint, summaryId: created.summary_id };
+        } catch (err) {
+          // A failure used to be written into the SUCCESS banner, so a discharge
+          // that was never filed appeared in green.
+          setError(getApiErrorMessage(err, t('docDischarge.errorCreateFailed')));
+          return;
+        }
       }
 
       // The take-home document, as its own record.
@@ -348,9 +373,9 @@ function DischargePage() {
       // Filed after the summary and linked to it, so the two cannot disagree
       // about which admission they describe.
       try {
-        // The client mints this mutation its own Idempotency-Key, so it is not
-        // refused as a replay of the summary it follows.
-        await createDischargeInstructions({
+        // Its own submission, so it is not refused as a replay of the summary
+        // it follows, and a retry of it cannot file the instructions twice.
+        const instructionsBody = {
           patient_id: selectedPatient,
           discharge_summary_id: created.summary_id ?? null,
           visit_date: payload.discharge_date,
@@ -361,7 +386,9 @@ function DischargePage() {
           follow_up_appointments: followUps,
           return_precautions: payload.warning_signs,
           emergency_instructions: formData.emergency_instructions,
-        });
+        };
+        const sent = await submitOnce(instructionsSubmission, instructionsBody, () => createDischargeInstructions(instructionsBody));
+        if (sent === 'busy') return;
       } catch (err) {
         // Say which half failed. The summary is filed; the patient's copy is
         // not, and a clinician who is told only "saved" will not go back for it.
@@ -370,6 +397,7 @@ function DischargePage() {
         return;
       }
 
+      filedSummary.current = null;
       setSuccess(t('docDischarge.successCreated'));
       setShowForm(false);
       fetchDischarges();
@@ -438,8 +466,8 @@ function DischargePage() {
           },
         ].filter(section => section.lines.length > 0),
       });
-    } catch (err) {
-      console.error('Failed to export discharge summary PDF:', err);
+    } catch {
+      setError(t('docDischarge.errorExportPdf'));
     } finally {
       setExportingId(null);
     }
@@ -998,8 +1026,8 @@ function DischargePage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+                  aria-disabled={submitting || undefined}
+                  className="aria-disabled:cursor-wait px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
                   {t('docDischarge.createSummaryBtn')}

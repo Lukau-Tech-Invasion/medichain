@@ -8,7 +8,7 @@ import {
   useTranslation,
   formatTimestamp as formatStamp,
   SealStatusBadge,
-  csvRow,
+  csvRow, ChoiceChips
 } from '@medichain/shared';
 import type { EmergencyAccessGrant, SealStatus } from '@medichain/shared';
 import { 
@@ -26,6 +26,9 @@ import {
   Download
 } from 'lucide-react';
 import StaffName, { useStaffDirectory } from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
+
+// ux-allow(no-form): the only field is a search box that filters the log as it is typed; there is nothing to submit.
 
 interface AccessLog {
   access_id: string;
@@ -298,7 +301,7 @@ function AccessLogsPage() {
                     const open = grant.status === 'Active' || grant.status === 'active';
                     return (
                       <tr key={grant.id} className="border-t border-border">
-                        <td className="py-2 pr-4 text-content">{grant.patient_id}</td>
+                        <td className="py-2 pr-4 text-content"><PatientName id={grant.patient_id} /></td>
                         <td className="py-2 pr-4 text-content-secondary break-all">
                           {grant.requesting_person_id}
                         </td>
@@ -420,16 +423,16 @@ function AccessLogsPage() {
           
           <div className="flex items-center gap-2">
             <Filter size={18} className="text-content-muted" />
-            <select
-              aria-label={t('docAccessLogs.filterLabel')}
+            <ChoiceChips
+              label={t('docAccessLogs.filterLabel')}
               value={filterType}
-              onChange={(e) => { setFilterType(e.target.value as typeof filterType); setCurrentPage(1); }}
-              className="px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-            >
-              <option value="all">{t('docAccessLogs.filterAll')}</option>
-              <option value="emergency">{t('docAccessLogs.filterEmergency')}</option>
-              <option value="regular">{t('docAccessLogs.filterRegular')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setFilterType(next as typeof filterType); setCurrentPage(1); }}
+              options={[
+                { value: 'all', label: t('docAccessLogs.filterAll') },
+                { value: 'emergency', label: t('docAccessLogs.filterEmergency') },
+                { value: 'regular', label: t('docAccessLogs.filterRegular') },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -490,7 +493,7 @@ function AccessLogsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-mono text-content">{log.patient_id}</span>
+                          <span className="text-sm"><PatientName id={log.patient_id} /></span>
                         </td>
                         <td className="px-6 py-4">
                           <div>

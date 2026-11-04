@@ -140,6 +140,18 @@ jobs:
             - name: No client calls a native browser dialog
               run: python scripts/check-native-dialogs.py
 
+            # A patient session is refused on any route the patient surface
+            # does not list; a route the patient app newly calls must be added.
+            - name: Every patient-app call is on the patient surface
+              run: python scripts/check-patient-surface.py
+
+            # Seven interface defect classes (hand-rolled overlays, short
+            # selects, raw patient ids, inputs outside a form, console-only
+            # catches, unexplained disabled submits, runtime colour classes),
+            # ratcheted per file from the 2026-10-30 counts.
+            - name: UX patterns do not regress
+              run: python scripts/check-ux-patterns.py
+
             # 38 forms saved and showed nothing, so a save looked like a dead
             # click. Every saving handler gives a visible success signal.
             - name: No form saves silently

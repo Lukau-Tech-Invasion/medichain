@@ -200,7 +200,9 @@ pub async fn add_vital_signs(
     // Create vital signs reading
     let reading = VitalSignsReading {
         reading_id: reading_id.clone(),
-        timestamp: Utc::now().timestamp(),
+        // When it was measured: a reading sent late from a device without
+        // signal keeps the time it was taken.
+        timestamp: crate::support::clinical_time(&http_req).timestamp(),
         heart_rate: req.heart_rate,
         systolic_bp: req.systolic_bp,
         diastolic_bp: req.diastolic_bp,

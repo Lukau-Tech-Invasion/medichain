@@ -14,7 +14,7 @@ import {
   stamp,
   type Throwaway,
 } from './identity';
-import { answerPasswordConfirmation, answerStepUp, expectSignedOut, settle, signInWithCredentials, signOut, skipFirstVisitReload } from './support';
+import { answerPasswordConfirmation, answerStepUp, expectSignedOut, settle, signInWithCredentials, signOut, skipFirstVisitReload, choose } from './support';
 
 /**
  * An administrator's control of other people's accounts, through the screen an
@@ -109,7 +109,7 @@ test('an administrator creates staff; the code is shown once; the person activat
   await adminPage.getByRole('button', { name: /^new user$/i }).click();
   await adminPage.locator('#new-user-login-id').fill(loginId);
   await adminPage.locator('#new-user-name').fill(name);
-  await adminPage.locator('#new-user-role').selectOption('doctor');
+  await choose(adminPage.locator('#new-user-role'), 'doctor');
   await adminPage.locator('#new-user-email').fill(`${loginId}@example.test`);
   await adminPage.getByRole('button', { name: /^create user$/i }).click();
   await answerStepUp(adminPage, adminCode, 6000);

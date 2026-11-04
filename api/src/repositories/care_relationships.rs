@@ -107,6 +107,15 @@ pub trait CareRelationshipRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<Option<CareRelationshipEntity>>;
     /// One relationship by id.
     async fn get_relationship(&self, id: &str) -> RepositoryResult<Option<CareRelationshipEntity>>;
+    /// The clinician's own active relationships, newest first, at most `limit`
+    /// (one per patient). Facility-wide relationships are not "my patients"
+    /// and are excluded.
+    async fn active_of_clinician(
+        &self,
+        clinician_id: &str,
+        now: DateTime<Utc>,
+        limit: u32,
+    ) -> RepositoryResult<Vec<CareRelationshipEntity>>;
     /// Store a new break-glass grant.
     async fn create_break_glass(
         &self,
@@ -202,6 +211,25 @@ impl CareRelationshipRepository for MemoryCareRelationshipRepository {
             .filter(|r| concerns(r, patient_id, clinician_id, facility_id) && r.is_active(now))
             .max_by_key(|r| r.starts_at)
             .cloned())
+    }
+
+    async fn active_of_clinician(
+        &self,
+        clinician_id: &str,
+        now: DateTime<Utc>,
+        limit: u32,
+    ) -> RepositoryResult<Vec<CareRelationshipEntity>> {
+        let rows = self.relationships.read().map_err(lock_error)?;
+        let mut mine: Vec<CareRelationshipEntity> = rows
+            .values()
+            .filter(|r| r.clinician_id.as_deref() == Some(clinician_id) && r.is_active(now))
+            .cloned()
+            .collect();
+        mine.sort_by_key(|r| std::cmp::Reverse(r.starts_at));
+        let mut seen = std::collections::HashSet::new();
+        mine.retain(|r| seen.insert(r.patient_id.clone()));
+        mine.truncate(limit as usize);
+        Ok(mine)
     }
 
     async fn get_relationship(&self, id: &str) -> RepositoryResult<Option<CareRelationshipEntity>> {
@@ -372,6 +400,28 @@ pub(crate) mod pg {
                 .bind(facility_id)
                 .bind(now)
                 .fetch_optional(&self.pool)
+                .await?)
+        }
+
+        async fn active_of_clinician(
+            &self,
+            clinician_id: &str,
+            now: DateTime<Utc>,
+            limit: u32,
+        ) -> RepositoryResult<Vec<CareRelationshipEntity>> {
+            let sql = format!(
+                "SELECT {RELATIONSHIP_COLUMNS} FROM (
+                    SELECT DISTINCT ON (patient_id) {RELATIONSHIP_COLUMNS} FROM care_relationships
+                    WHERE clinician_id = $1
+                      AND starts_at <= $2 AND (ends_at IS NULL OR ends_at > $2)
+                    ORDER BY patient_id, starts_at DESC
+                 ) latest ORDER BY starts_at DESC LIMIT $3"
+            );
+            Ok(sqlx::query_as::<_, CareRelationshipEntity>(&sql)
+                .bind(clinician_id)
+                .bind(now)
+                .bind(i64::from(limit))
+                .fetch_all(&self.pool)
                 .await?)
         }
 

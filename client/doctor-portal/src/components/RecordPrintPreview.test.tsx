@@ -11,7 +11,7 @@ describe('RecordPrintPreview', () => {
         collectedAt: new Date('2026-10-09T10:00:00Z'), observations: {},
         narrative: '<script>unsafe()</script>' }} onClose={close} /></>);
     const document = screen.getByRole('dialog', { name: 'Print QA result' });
-    expect(document.parentElement).toBe(window.document.body);
+    expect(document.closest('.record-print-root')?.parentElement).toBe(window.document.body);
     expect(within(document).queryByText('Unrelated application screen')).not.toBeInTheDocument();
     expect(within(document).getByText('g/dL')).toBeInTheDocument();
     expect(within(document).getByText('Not recorded')).toBeInTheDocument();

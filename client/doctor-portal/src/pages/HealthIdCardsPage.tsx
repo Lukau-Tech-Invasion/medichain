@@ -14,6 +14,7 @@ import type { NFCCardInfo } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
 
 /**
  * HealthIdCardsPage
@@ -412,7 +413,7 @@ const HealthIdCardsPage: React.FC = () => {
                 <tbody>
                   {cards.map((card) => (
                     <tr key={card.card_id} className="border-t border-border">
-                      <td className="py-2 pr-4 font-mono break-all">{card.patient_id}</td>
+                      <td className="py-2 pr-4"><PatientName id={card.patient_id} /></td>
                       <td className="py-2 pr-4 font-mono break-all">{card.card_id}</td>
                       <td className="py-2 pr-4">{card.national_id_type}</td>
                       <td className="py-2 pr-4">{statusBadge(card.status)}</td>

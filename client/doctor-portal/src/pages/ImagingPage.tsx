@@ -11,7 +11,7 @@ import {
   Textarea,
   useValidatedForm,
   imagingRequestSchema,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
@@ -194,6 +194,7 @@ const ImagingPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(imagingRequestSchema);
   const handleSubmit = async () => {
+    if (submitting) return;
     // The indication is what the radiologist reports against: "CT abdomen"
     // with none produces a description of an abdomen, with one it produces an
     // answer. Selecting a patient stays a toast; the indication is a field.
@@ -314,18 +315,19 @@ const ImagingPage: React.FC = () => {
                   className="flex-1 border rounded p-2"
                 />
               </div>
-              <select aria-label={t('common.filterByStatus')}
+              <ChoiceChips
+                label={t('common.filterByStatus')}
                 value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="border rounded p-2"
-              >
-                <option value="all">{t('docImaging.allStatus')}</option>
-                <option value="ordered">{t('docImaging.stOrdered')}</option>
-                <option value="scheduled">{t('docImaging.stScheduled')}</option>
-                <option value="in-progress">{t('docImaging.stInProgress')}</option>
-                <option value="prelim">{t('docImaging.stPrelim')}</option>
-                <option value="final">{t('docImaging.stFinal')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setFilterStatus(next); }}
+                options={[
+                  { value: 'all', label: t('docImaging.allStatus') },
+                  { value: 'ordered', label: t('docImaging.stOrdered') },
+                  { value: 'scheduled', label: t('docImaging.stScheduled') },
+                  { value: 'in-progress', label: t('docImaging.stInProgress') },
+                  { value: 'prelim', label: t('docImaging.stPrelim') },
+                  { value: 'final', label: t('docImaging.stFinal') },
+                ]}
+              />
               <select aria-label={t('common.filterByModality')}
                 value={filterModality}
                 onChange={e => setFilterModality(e.target.value)}
@@ -382,6 +384,7 @@ const ImagingPage: React.FC = () => {
         )}
 
         {activeTab === 'new' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -421,31 +424,31 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-laterality" className="text-sm text-content-muted">{t('docImaging.laterality')}</label>
-                  <select
+                  <ChoiceChips
                     id="imaging-laterality"
+                    label={t('docImaging.laterality')}
                     value={laterality}
-                    onChange={e => setLaterality(e.target.value as 'left' | 'right' | 'bilateral' | 'na')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="na">{t('docImaging.latNa')}</option>
-                    <option value="left">{t('docImaging.latLeft')}</option>
-                    <option value="right">{t('docImaging.latRight')}</option>
-                    <option value="bilateral">{t('docImaging.latBilateral')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setLaterality(next as 'left' | 'right' | 'bilateral' | 'na'); }}
+                    options={[
+                      { value: 'na', label: t('docImaging.latNa') },
+                      { value: 'left', label: t('docImaging.latLeft') },
+                      { value: 'right', label: t('docImaging.latRight') },
+                      { value: 'bilateral', label: t('docImaging.latBilateral') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="imaging-priority" className="text-sm text-content-muted">{t('docImaging.priority')}</label>
-                  <select
+                  <ChoiceChips
                     id="imaging-priority"
+                    label={t('docImaging.priority')}
                     value={priority}
-                    onChange={e => setPriority(e.target.value as ImagingPriority)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="routine">{t('docImaging.optRoutine')}</option>
-                    <option value="urgent">{t('docImaging.optUrgent')}</option>
-                    <option value="stat">{t('docImaging.optStat')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setPriority(next as ImagingPriority); }}
+                    options={[
+                      { value: 'routine', label: t('docImaging.optRoutine') },
+                      { value: 'urgent', label: t('docImaging.optUrgent') },
+                      { value: 'stat', label: t('docImaging.optStat') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="imaging-study-name" className="text-sm text-content-muted">{t('docImaging.studyName')}</label>
@@ -512,30 +515,29 @@ const ImagingPage: React.FC = () => {
                   </div>
                 )}
                 <div>
-                  <label htmlFor="imaging-pregnancy-status" className="text-sm text-content-muted">{t('docImaging.pregnancyStatus')}</label>
-                  <select
+                  <ChoiceChips
                     id="imaging-pregnancy-status"
-                    value={pregnant}
-                    onChange={e => setPregnant(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docImaging.pregNa')}</option>
-                    <option value="no">{t('docImaging.pregNo')}</option>
-                    <option value="yes">{t('docImaging.pregYes')}</option>
-                    <option value="unknown">{t('docImaging.pregUnknown')}</option>
-                  </select>
+                    label={t('docImaging.pregnancyStatus')}
+                    value={(pregnant) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setPregnant(next); }}
+                    options={[
+                      { value: 'no', label: t('docImaging.pregNo') },
+                      { value: 'yes', label: t('docImaging.pregYes') },
+                      { value: 'unknown', label: t('docImaging.pregUnknown') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800"
+            <button type="submit"
+              aria-disabled={submitting || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800"
             >
               {t('docImaging.submitOrder')}
             </button>
           </div>
+          </form>
         )}
 
         {activeTab === 'results' && (

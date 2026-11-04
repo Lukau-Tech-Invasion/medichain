@@ -33,6 +33,7 @@ import {
   setProviderSchedule,
   useTranslation,
   formatTimestamp,
+  keepEnterInField,
 } from '@medichain/shared';
 import type { ProviderBlockedTime, ProviderWorkingDay } from '@medichain/shared';
 import { CalendarClock, Clock, Plus, Save, Trash2 } from 'lucide-react';
@@ -244,6 +245,7 @@ const ProviderSchedulePage: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
     const payload = buildPayload();
     const enabled = WEEKDAYS.filter(({ weekday }) => week[weekday].enabled).map(d => d.weekday);
 
@@ -339,6 +341,7 @@ const ProviderSchedulePage: React.FC = () => {
             </Alert>
           )}
 
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} onKeyDown={keepEnterInField} className="space-y-6" noValidate>
           <Card>
             <CardHeader>
               <CardTitle>{t('docProviderSchedule.weeklyHeading')}</CardTitle>
@@ -480,7 +483,7 @@ const ProviderSchedulePage: React.FC = () => {
           </Card>
 
           <div className="flex items-center gap-4">
-            <Button onClick={handleSave} isLoading={isSaving} leftIcon={<Save size={16} />}>
+            <Button type="submit" isLoading={isSaving} leftIcon={<Save size={16} />}>
               {isSaving ? t('docProviderSchedule.saving') : t('docProviderSchedule.save')}
             </Button>
             {updatedAt && (
@@ -492,6 +495,7 @@ const ProviderSchedulePage: React.FC = () => {
               </span>
             )}
           </div>
+          </form>
 
           <Card>
             <CardHeader>

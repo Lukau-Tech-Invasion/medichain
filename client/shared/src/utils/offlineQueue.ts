@@ -151,6 +151,7 @@ export class OfflineQueue {
       try {
         this.storage.setItem(this.config.storageKey, JSON.stringify(this.queue));
       } catch (error) {
+        // ux-allow(console-catch): legacy queue nothing enqueues into since utils/indexedDB replaced it (debt register).
         console.error('[OfflineQueue] Failed to persist:', error);
       }
     }
@@ -168,6 +169,7 @@ export class OfflineQueue {
           console.log(`[OfflineQueue] Loaded ${this.queue.length} operations from storage`);
         }
       } catch (error) {
+        // ux-allow(console-catch): legacy queue nothing enqueues into since utils/indexedDB replaced it (debt register).
         console.error('[OfflineQueue] Failed to load from storage:', error);
       }
     }
@@ -194,6 +196,7 @@ export class OfflineQueue {
         failed.push(op);
         this.storage.setItem(failedKey, JSON.stringify(failed));
       } catch (error) {
+        // ux-allow(console-catch): legacy queue nothing enqueues into since utils/indexedDB replaced it (debt register).
         console.error('[OfflineQueue] Failed to store failed operation:', error);
       }
     }

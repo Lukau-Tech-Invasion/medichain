@@ -14,6 +14,7 @@ import {
   WifiOff,
   ExternalLink,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
 interface JitsiCredentials {
@@ -169,7 +170,7 @@ export function TelehealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('telehealth.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('telehealth.title')}</PageTitle>
           <p className="text-content-muted">{t('telehealth.subtitle')}</p>
         </div>
         <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
@@ -292,6 +293,7 @@ export function TelehealthPage() {
 
       {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
       {!activeCall && activeCallUrl && (
+        // ux-allow(overlay): the full-screen call itself, not a dialog; Escape must not end a consultation.
         <div role="dialog" aria-modal="true" aria-label={t('telehealth.videoCallTitle')} className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-neutral-900 text-white">
             <span className="flex items-center gap-2 font-medium">

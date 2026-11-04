@@ -99,7 +99,7 @@ describe('IncidentReportPage', () => {
 
     expect(screen.getByText(/Incident Details/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Incident Type/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Severity/i)).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /Severity/i })).toBeInTheDocument();
   });
 
   it('allows entering incident description', async () => {

@@ -94,6 +94,8 @@ function ProposeForm({ onProposed }: { onProposed: () => void }) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
+    if (length < MIN_PURPOSE_CHARS) { setError(t('docResearch.purposeTooShort', { min: String(MIN_PURPOSE_CHARS) })); return; }
     setBusy(true);
     setError('');
     try {
@@ -122,8 +124,8 @@ function ProposeForm({ onProposed }: { onProposed: () => void }) {
       {error && <p role="alert" className="text-sm text-critical-subtle-fg">{error}</p>}
       <button
         type="submit"
-        disabled={busy || length < MIN_PURPOSE_CHARS}
-        className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+        aria-disabled={busy || undefined}
+        className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
       >
         {t('docResearch.propose')}
       </button>

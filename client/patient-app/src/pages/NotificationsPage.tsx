@@ -22,6 +22,7 @@ import {
   Clock,
   X,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface Notification {
   notification_id?: string;
@@ -174,7 +175,7 @@ function NotificationHeader(model: NotificationModel) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('notifications.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('notifications.title')}</PageTitle>
           <p className="text-content-muted">
             {inbox.status !== 'ready' ? t('common.dataUnavailable') : unreadCount > 0 ? t('notifications.unread', { count: unreadCount }) : t('notifications.allCaughtUp')}
             {highAlerts > 0 ? ` • ${t('notifications.highPriorityCount', { count: highAlerts })}` : ''}

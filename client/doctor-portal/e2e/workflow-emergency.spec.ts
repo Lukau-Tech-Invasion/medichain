@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFixtures } from './identity';
-import { pickPatientById, settle, signIn } from './support';
+import { pickPatientById, settle, signIn, choose } from './support';
 
 /**
  * Workflow 4 — emergency: a resuscitation is run, finalised, reviewed by a
@@ -40,11 +40,16 @@ test('a code blue is finalised with a chosen outcome, seen by a colleague, and r
   await first.locator('#code-blue-location').fill(location);
 
   const finalize = first.getByRole('button', { name: /finalize record/i });
-  await expect(finalize, 'a record can be finalised with no outcome chosen').toBeDisabled();
-  await first.locator('#code-blue-outcome').selectOption('rosc');
-  await expect(finalize).toBeEnabled();
+  // Pressed with no outcome, the record is refused in words rather than by a
+  // button that silently does nothing.
   await finalize.click();
-  await expect(first).toHaveURL(/\/dashboard/, { timeout: 30000 });
+  await expect(first.getByText('Choose the outcome', { exact: false }).first(), 'a record can be finalised with no outcome chosen').toBeVisible();
+  await expect(first).toHaveURL(/\/code-blue/);
+  await choose(first.locator('#code-blue-outcome'), 'rosc');
+  await finalize.click();
+  // Finished, it returns to the patient's chart when opened in the patient's
+  // workspace, and to the dashboard otherwise.
+  await expect(first).toHaveURL(/\/(dashboard|patients\/)/, { timeout: 30000 });
   await first.close();
 
   // A colleague reads it in the patient's protocol history.

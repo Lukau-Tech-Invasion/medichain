@@ -6,6 +6,7 @@ import { usePatientAuthStore } from '../store/authStore';
 import { authorityLabelKey, groupAccessSessions, sealStateOf } from './accessHistoryGrouping';
 import type { AccessSession } from './accessHistoryGrouping';
 import { EmergencyAccessHistory } from './EmergencyAccessHistory';
+import { PageTitle } from '../components/MergedScreen';
 
 /** Rows fetched per request; the API caps page size at 100. */
 const PAGE_SIZE = 100;
@@ -86,7 +87,7 @@ function PatientAccessHistory({ patientId }: { patientId: string }) {
 
   return (
     <div className="max-w-3xl mx-auto p-4">
-      <h1 className="text-2xl font-bold text-content">{t('accessHistory.title')}</h1>
+      <PageTitle className="text-2xl font-bold text-content">{t('accessHistory.title')}</PageTitle>
       <p className="text-sm text-content-muted mt-1 mb-4">{t('accessHistory.subtitle')}</p>
       {sessions.some((session) => sealStateOf(session) !== null) && (
         <p className="text-xs text-content-muted mb-4">{t('accessHistory.sealExplainer')}</p>

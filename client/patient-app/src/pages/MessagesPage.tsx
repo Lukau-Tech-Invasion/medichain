@@ -26,6 +26,7 @@ import {
   WifiOff,
   Plus,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface Message {
   id: string;
@@ -278,10 +279,11 @@ export function MessagesPage() {
   // Conversation Detail View
   if (selectedConversation) {
     return (
+      <form onSubmit={(event) => { event.preventDefault(); void sendMessage(); }} noValidate>
       <div className="flex flex-col h-[calc(100vh-80px)]">
         {/* Header */}
         <div className="bg-surface border-b border-border p-4 flex items-center gap-4">
-          <button
+          <button type="button"
             onClick={() => setSelectedConversation(null)}
             className="p-2 hover:bg-surface-sunken rounded-lg"
           >
@@ -348,8 +350,8 @@ export function MessagesPage() {
               placeholder={t('messages.typePlaceholder')}
               className="flex-1 px-4 py-2 border border-border-interactive rounded-full focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
-            <button
-              onClick={() => void sendMessage()}
+            {/* ux-allow(disabled-submit): a chat send button with nothing typed; the empty box is the reason. */}
+            <button type="submit"
               disabled={!newMessage.trim() || sending}
               aria-label={t('messages.send')}
               className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
@@ -359,6 +361,7 @@ export function MessagesPage() {
           </div>
         </div>
       </div>
+      </form>
     );
   }
 
@@ -368,7 +371,7 @@ export function MessagesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('messages.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('messages.title')}</PageTitle>
           <p className="text-content-muted">
             {totalUnread > 0 ? t('messages.unreadCount', { count: totalUnread }) : t('messages.allCaughtUp')}
           </p>

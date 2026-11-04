@@ -126,7 +126,8 @@ describe('IVSitePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add New Site' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add IV Site' }));
     fireEvent.click(screen.getByRole('button', { name: 'Assess Site' }));
-    expect(screen.getByLabelText('Dressing Type')).toHaveValue('');
+    // Nothing chosen for the dressing: no chip is selected.
+    expect(screen.getByRole('group', { name: 'Dressing Type' }).querySelector('input:checked')).toBeNull();
     expect(screen.getAllByText('Not recorded').length).toBeGreaterThan(0);
     expect(screen.queryByText('Continue monitoring')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Redness/Erythema' }));

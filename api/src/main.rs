@@ -549,6 +549,11 @@ async fn main() -> std::io::Result<()> {
                     // Sent by the client on every mutation; without it here a
                     // cross-origin write fails its preflight in production.
                     actix_web::http::header::HeaderName::from_static("idempotency-key"),
+                    // When a record replayed from a device without signal was
+                    // written (`support::clinical_time`).
+                    actix_web::http::header::HeaderName::from_static(
+                        crate::support::OFFLINE_RECORDED_AT_HEADER,
+                    ),
                 ])
                 // The HttpOnly refresh cookie (WP12) crosses origins only with
                 // credentials allowed. Safe here: origins are listed exactly,
@@ -583,6 +588,9 @@ async fn main() -> std::io::Result<()> {
             // Innermost on purpose: it must see the matched route and the
             // handler's final status, and its 503 must still get CORS headers.
             .wrap(crate::middleware::phi_access_audit::PhiAccessAuditMiddleware)
+            // A patient session reaches only the patient surface. Inside CORS so
+            // a refusal is readable; after the /api/v1 rewrite so both match.
+            .wrap(crate::middleware::patient_surface::PatientSurfaceMiddleware)
             .wrap(cors)
             // Security/HSTS headers on every response (Phase 6.2).
             .wrap(SecurityHeadersMiddleware)

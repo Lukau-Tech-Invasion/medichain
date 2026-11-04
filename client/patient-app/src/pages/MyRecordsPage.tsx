@@ -23,6 +23,24 @@ import {
 import { usePatientAuthStore } from '../store/authStore';
 import { RecordModal } from '../components/RecordModal';
 
+// ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
+
+const MONTH_LABEL = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
+
+/** Records newest first, in calendar-month groups; undated ones last. */
+export function groupByMonth<R extends { date: string }>(records: R[]): Array<{ key: string; label: string | null; records: R[] }> {
+  const groups = new Map<string, { key: string; label: string | null; records: R[] }>();
+  const sorted = [...records].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  for (const record of sorted) {
+    const at = Date.parse(record.date);
+    const key = Number.isNaN(at) ? 'undated' : record.date.slice(0, 7);
+    const label = Number.isNaN(at) ? null : MONTH_LABEL.format(new Date(at));
+    if (!groups.has(key)) groups.set(key, { key, label, records: [] });
+    groups.get(key)!.records.push(record);
+  }
+  return [...groups.values()];
+}
+
 interface MedicalRecord {
   id: string;
   type: 'lab_result' | 'imaging' | 'prescription' | 'consultation' | 'procedure' | 'discharge_summary' | 'vaccination' | 'vital_signs' | 'assessment' | 'other';
@@ -876,6 +894,10 @@ export function MyRecordsPage() {
     return matchesSearch && matchesFilter;
   });
 
+  // Newest first, grouped by month (UX plan Phase 8, mockup p3): a patient
+  // looks for "the visit in March", not for record number 37 of 80.
+  const byMonth = groupByMonth(filteredRecords);
+
   const recordTypes = ['all', 'lab_result', 'imaging', 'prescription', 'consultation', 'procedure', 'discharge_summary', 'vaccination', 'vital_signs', 'assessment', 'other'];
 
   if (isLoading) {
@@ -949,7 +971,12 @@ export function MyRecordsPage() {
 
       {/* Records List */}
       <div className="space-y-3">
-        {filteredRecords.map(record => (
+        {byMonth.map((group) => (
+          <section key={group.key} aria-labelledby={`records-${group.key}`} className="space-y-3">
+            <h2 id={`records-${group.key}`} className="sticky top-0 z-10 bg-surface py-1 text-sm font-semibold text-content-secondary">
+              {group.label ?? t('records.undated')}
+            </h2>
+            {group.records.map(record => (
           <div
             key={record.id}
             className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
@@ -979,6 +1006,8 @@ export function MyRecordsPage() {
               <ChevronRight className="w-5 h-5 text-content-muted flex-shrink-0" />
             </div>
           </div>
+        ))}
+          </section>
         ))}
 
         {filteredRecords.length === 0 && (

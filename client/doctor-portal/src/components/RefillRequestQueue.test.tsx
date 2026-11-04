@@ -97,7 +97,10 @@ describe('RefillRequestQueue', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Deny$/ }));
     const reason = screen.getByLabelText(/Reason for the patient/i);
     fireEvent.change(reason, { target: { value: 'no' } });
-    expect(screen.getByRole('button', { name: /Deny refill/i })).toBeDisabled();
+    // Too short: refused in words, and nothing is sent.
+    fireEvent.click(screen.getByRole('button', { name: /Deny refill/i }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(shared.denyRefillRequest).not.toHaveBeenCalled();
 
     fireEvent.change(reason, { target: { value: 'Blood pressure review first.' } });
     fireEvent.click(screen.getByRole('button', { name: /Deny refill/i }));

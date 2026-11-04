@@ -33,9 +33,13 @@ import {
   formatTimestamp,
   ModalPanel,
   notifySuccess,
+  ChoiceChips,
 } from '@medichain/shared';
 import type { PatientAccessGrant, PatientAccessRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { PageTitle } from '../components/MergedScreen';
+
+// ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
 
 type AccessGrant = PatientAccessGrant;
 type AccessRequest = PatientAccessRequest;
@@ -183,8 +187,8 @@ export function ConsentManagementPage() {
           display_name: type.display_name || type.name || type.type_id || '',
           description: type.description,
         })).filter(type => Boolean(type.consent_type)));
-      } catch (err) {
-        console.warn('Could not load consent forms:', err);
+      } catch {
+        setLoadError(t('kit.listLoadFailed'));
       }
     } catch (error) {
       console.error('Failed to load consent data:', error);
@@ -342,7 +346,7 @@ export function ConsentManagementPage() {
   if (accessLoadFailed) {
     return (
       <div className="p-4 md:p-5 space-y-4 pb-6">
-        <h1 className="text-2xl font-bold text-content">{t('consent.accessControl')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('consent.accessControl')}</PageTitle>
         <div role="alert" className="p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
           <p>{loadError}</p>
           <button type="button" onClick={() => void loadData()}
@@ -358,7 +362,7 @@ export function ConsentManagementPage() {
     <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-content">{t('consent.accessControl')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('consent.accessControl')}</PageTitle>
         <p className="text-content-muted">{t('consent.subtitle')}</p>
       </div>
 
@@ -628,18 +632,18 @@ export function ConsentManagementPage() {
                   </p>
                 </div>
 
+                <ChoiceChips
+                  id={`access-expiry-${request.id}`}
+                  label="Access duration"
+                  value={String(approvalDays[request.id] ?? 7)}
+                  onChange={(next) => { if (next) setApprovalDays((current) => ({ ...current, [request.id]: Number(next) })); }}
+                  options={[
+                    { value: '1', label: '1 day' },
+                    { value: '7', label: '7 days' },
+                    { value: '30', label: '30 days' },
+                  ]}
+                />
                 <div className="flex gap-3">
-                  <label className="sr-only" htmlFor={`access-expiry-${request.id}`}>Access duration</label>
-                  <select
-                    id={`access-expiry-${request.id}`}
-                    value={approvalDays[request.id] ?? 7}
-                    onChange={(event) => setApprovalDays((current) => ({ ...current, [request.id]: Number(event.target.value) }))}
-                    className="rounded-xl border border-border bg-surface px-3 text-sm text-content"
-                  >
-                    <option value={1}>1 day</option>
-                    <option value={7}>7 days</option>
-                    <option value={30}>30 days</option>
-                  </select>
                   <button
                     onClick={() => handleApproveRequest(request.id)}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"

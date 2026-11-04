@@ -26,7 +26,8 @@ import {
   Input,
   useValidatedForm,
   intakeOutputSchema,
-  getPatients, ModalPanel } from '@medichain/shared';
+  getPatients, ModalPanel, submitOnce, useSubmission, ChoiceChips
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -134,6 +135,7 @@ export function toPatientIO(
 const IntakeOutputPage: React.FC = () => {
   const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
+  const submission = useSubmission('intake-output');
   const { catalog } = useScoringCatalog();
   const [activeTab, setActiveTab] = useState<'patients' | 'entry' | 'trends'>('patients');
   const [patients, setPatients] = useState<PatientIO[]>([]);
@@ -322,7 +324,16 @@ const IntakeOutputPage: React.FC = () => {
         recordedBy: user?.username || 'Healthcare Provider'
       };
 
-      await createIntakeOutput(payload);
+      // One key per submission: a double tap, or a retry after a timeout that
+      // had in fact saved, is answered "already saved" instead of writing twice.
+      const outcome = await submitOnce(submission, payload, () => createIntakeOutput(payload));
+      if (outcome === 'busy') return;
+      if (outcome === 'queued') {
+        // Kept on this device; the totals cannot include it until it is sent.
+        showSuccess(t('forms.queued'));
+        setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
+        return;
+      }
       showSuccess(t('docIntakeOutput.recordedSuccess', { type: t(`docIntakeOutput.typeLabel_${newEntry.type}`) }));
       
       // Reuse the persisted-row mapping used on initial load; raw rows are
@@ -490,6 +501,7 @@ const IntakeOutputPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6 max-w-lg mx-auto">
             <h2 className="text-lg font-semibold mb-4">{t('docIntakeOutput.quickEntryHeading')}</h2>
 
+            <form onSubmit={(event) => { event.preventDefault(); void handleAddEntry(); }} noValidate>
             <div className="space-y-4">
               <div>
                 <PatientSelect
@@ -504,7 +516,7 @@ const IntakeOutputPage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">{t('docIntakeOutput.typeRequired')} *</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
+                  <button type="button"
                     onClick={() => { setEntryType('intake'); setNewEntry({ ...newEntry, type: 'intake', category: 'oral' }); }}
                     className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 ${
                       entryType === 'intake' ? 'border-blue-500 bg-notice-subtle text-notice-subtle-fg' : 'border-border'
@@ -513,7 +525,7 @@ const IntakeOutputPage: React.FC = () => {
                     <ArrowDown className="w-5 h-5" />
                     {t('docIntakeOutput.intakeLabel')}
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => { setEntryType('output'); setNewEntry({ ...newEntry, type: 'output', category: 'urine' }); }}
                     className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 ${
                       entryType === 'output' ? 'border-amber-500 bg-caution-subtle text-caution-subtle-fg' : 'border-border'
@@ -555,17 +567,17 @@ const IntakeOutputPage: React.FC = () => {
                   required
                 />
                 <div>
-                  <label htmlFor="io-unit" className="block text-sm font-medium mb-1">{t('docIntakeOutput.unitLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="io-unit"
+                    label={t('docIntakeOutput.unitLabel')}
                     value={newEntry.unit}
-                    onChange={(e) => setNewEntry({ ...newEntry, unit: e.target.value as typeof newEntry.unit })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="ml">ml</option>
-                    <option value="cc">cc</option>
-                    <option value="oz">oz</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewEntry({ ...newEntry, unit: next as typeof newEntry.unit }); }}
+                    options={[
+                      { value: 'ml', label: 'ml' },
+                      { value: 'cc', label: 'cc' },
+                      { value: 'oz', label: 'oz' },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -595,9 +607,8 @@ const IntakeOutputPage: React.FC = () => {
                 />
               </div>
 
-              <button
-                onClick={handleAddEntry}
-                disabled={isSubmitting}
+              <button type="submit"
+                aria-disabled={isSubmitting || undefined}
                 className={`w-full py-3 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
                   isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-700 hover:bg-cyan-800'
                 }`}
@@ -606,6 +617,7 @@ const IntakeOutputPage: React.FC = () => {
                 {t('docIntakeOutput.recordEntryButton')}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

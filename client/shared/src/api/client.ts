@@ -12,6 +12,7 @@
  * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
+import { offlineIntentFor, type OfflineRoute } from '../utils/offlinePolicy';
 import type { ApiError } from '../types';
 import { API_CONFIG, debugLog, sleep, calculateBackoff } from '../config';
 import { OfflineQueue } from '../utils/offlineQueue';
@@ -57,10 +58,14 @@ export interface RequestOptions {
    * a false success. Replay is safe because the queue item's id becomes the
    * `Idempotency-Key`; see `utils/syncQueue.ts`.
    */
+  /** Internal: a replay of a queued item, which must never queue again. */
+  noOfflineQueue?: boolean;
   queueWhenOffline?: {
     category: 'medical-records' | 'appointments' | 'medications' | 'lab-results' | 'documents' | 'images';
     description: string;
     patientId?: string;
+    /** Not sent after this long (ms); absent = no limit. */
+    expiresInMs?: number;
   };
 }
 
@@ -226,6 +231,8 @@ export class ApiClient {
    */
   private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
+  /** Set when the last refresh could not reach the server at all. */
+  private refreshUnreachable = false;
   // A response from an older login must not undo logout or replace a new login.
   private sessionGeneration = 0;
   /**
@@ -236,6 +243,11 @@ export class ApiClient {
   private patientAccessContext?: PatientAccessContext;
   /** Stated once for this portal session before any directory rows load. */
   private directoryPurpose?: string;
+  /**
+   * Writes this portal keeps on the device when there is no signal
+   * (`utils/offlinePolicy.ts`). Empty unless the portal opts in.
+   */
+  private offlineRoutes: readonly OfflineRoute[] = [];
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -254,6 +266,11 @@ export class ApiClient {
    * can tell whose events to show. It is never sent as a credential: the API
    * derives identity from the verified bearer token alone.
    */
+  /** Opt this portal's listed writes in to the offline queue. */
+  setOfflineRoutes(routes: readonly OfflineRoute[]): void {
+    this.offlineRoutes = routes;
+  }
+
   setUserId(userId: string | undefined): void {
     this.userId = userId;
     debugLog('ApiClient', `User ID ${userId ? 'set' : 'cleared'}`);
@@ -335,6 +352,18 @@ export class ApiClient {
   }
 
   /**
+   * `restoreSession`, saying *why* it failed. `unreachable` means the server
+   * could not be asked — no signal — and the session may well still be valid;
+   * only `ended` means the server refused it. A clinician who reopens the app
+   * on a ward with no signal must not be treated as signed out.
+   */
+  async restoreSessionOutcome(): Promise<'restored' | 'ended' | 'unreachable'> {
+    this.refreshUnreachable = false;
+    if (await this.refreshAccessToken()) return 'restored';
+    return this.refreshUnreachable ? 'unreachable' : 'ended';
+  }
+
+  /**
    * Get the current access token, if any.
    */
   getAccessToken(): string | undefined {
@@ -384,6 +413,10 @@ export class ApiClient {
     const generation = this.sessionGeneration;
     const expectedUserId = this.userId;
     this.refreshPromise = (async () => {
+      // Whether the server answered the refresh at all. Only a refresh that
+      // never reached it is "unreachable"; once a token has been issued, a
+      // failure to verify whose it is still clears the session (below).
+      let answered = false;
       try {
         // The refresh token travels as the HttpOnly cookie (WP12).
         const resp = await fetch(`${this.baseUrl}/api/auth/jwt/refresh`, {
@@ -391,6 +424,7 @@ export class ApiClient {
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
         });
+        answered = true;
         if (generation !== this.sessionGeneration) return false;
         if (!resp.ok) {
           this.clearTokens();
@@ -412,7 +446,14 @@ export class ApiClient {
         this.clearTokens();
         return false;
       } catch {
-        if (generation === this.sessionGeneration) this.clearTokens();
+        // The server could not be reached, so it has not said the session is
+        // over. Clearing the tokens here latched `sessionEnded`, and the
+        // clinician who lost signal mid-shift was signed out the moment it
+        // came back. Leave the session as it is and try again later.
+        if (generation === this.sessionGeneration) {
+          if (answered) this.clearTokens();
+          else this.refreshUnreachable = true;
+        }
         return false;
       } finally {
         this.refreshPromise = null;
@@ -567,6 +608,76 @@ export class ApiClient {
       : { 'X-Access-Reason': context.reason };
   }
 
+  private mutationListeners = new Set<(mutation: { method: string; path: string }) => void>();
+
+  /**
+   * Be told about every mutation the server accepted (2xx).
+   *
+   * The patient workspace uses this to list what was saved during a visit
+   * without each of the 58 forms reporting it: whichever form is open when a
+   * write succeeds is the form that wrote it. Returns an unsubscribe function.
+   */
+  onMutationSucceeded(listener: (mutation: { method: string; path: string }) => void): () => void {
+    this.mutationListeners.add(listener);
+    return () => {
+      this.mutationListeners.delete(listener);
+    };
+  }
+
+  private announceMutation(method: string, path: string): void {
+    const mutation = { method: method.toUpperCase(), path: path.split('?')[0] };
+    this.mutationListeners.forEach((listener) => {
+      try {
+        listener(mutation);
+      } catch {
+        // A listener's failure must never turn a successful save into an error.
+      }
+    });
+  }
+
+  /**
+   * The submission whose mutations are in flight, if one is (see
+   * `withOperationScope`).
+   */
+  private operationScope?: { base: string; counts: Map<string, number> };
+
+  /**
+   * Run `send` so that every mutation it issues carries an idempotency key
+   * derived from `base`: `<base>:<METHOD> <path>#<n>`, n counting per path.
+   *
+   * # Why
+   *
+   * Keys used to be fresh per request, so a double tap -- or Save pressed again
+   * after a timeout that had in fact succeeded -- reached the server as two
+   * different operations and wrote the record twice. A form now derives `base`
+   * from the content it submits: the same content re-sent reuses the same keys
+   * and the server answers `409 IDEMPOTENCY_DUPLICATE` instead of writing again
+   * (end-to-end operation identifiers make a retry idempotent; Kleppmann,
+   * *DDIA* p.566). Counting per path keeps the keys stable even if an unrelated
+   * mutation elsewhere in the page interleaves with this submission.
+   *
+   * Scopes do not nest; a second concurrent scope replaces the first, which a
+   * single form never does because it refuses to submit while saving.
+   */
+  async withOperationScope<T>(base: string, send: () => Promise<T>): Promise<T> {
+    this.operationScope = { base, counts: new Map() };
+    try {
+      return await send();
+    } finally {
+      this.operationScope = undefined;
+    }
+  }
+
+  private scopedOperationKey(method: string, path: string): string | undefined {
+    const scope = this.operationScope;
+    if (!scope) return undefined;
+    const slot = `${method.toUpperCase()} ${path.split('?')[0]}`;
+    const n = scope.counts.get(slot) ?? 0;
+    scope.counts.set(slot, n + 1);
+    // The server column is varchar(256); a long path must not push a key past it.
+    return `${scope.base}:${n}:${slot}`.slice(0, 240);
+  }
+
   private transactionAuthorizer: TransactionAuthorizer | null = null;
 
   /**
@@ -632,7 +743,7 @@ export class ApiClient {
     // server-side deduplication that makes replay safe at all.
     const callerKey = options?.headers?.['Idempotency-Key'];
     const idempotencyKey = isMutationMethod(method)
-      ? (callerKey ?? createOperationKey())
+      ? (callerKey ?? this.scopedOperationKey(method, path) ?? createOperationKey())
       : undefined;
     const reasonHeaders = this.accessReasonHeaders(method, path, options?.patientId);
     let requestHeaders: Record<string, string> = idempotencyKey
@@ -690,13 +801,17 @@ export class ApiClient {
             // restart — so a queued item replayed twice executes once. What
             // remains deliberate is that a caller has to *ask*: see
             // `queueWhenOffline`.
-            if (isMutationMethod(method) && options?.queueWhenOffline) {
+            const offlineIntent = options?.noOfflineQueue
+              ? undefined
+              : (options?.queueWhenOffline ?? offlineIntentFor(this.offlineRoutes, method, path, body));
+            if (isMutationMethod(method) && offlineIntent) {
               const queued = await queueOfflineMutation(
                 method as 'POST' | 'PUT' | 'DELETE',
                 path,
                 body,
-                options.queueWhenOffline,
+                offlineIntent,
                 requestOwnerUserId,
+                idempotencyKey,
               );
               if (queued) {
                 throw queued;
@@ -801,6 +916,7 @@ export class ApiClient {
           );
         }
         // Return empty object for successful non-JSON responses
+        if (isMutationMethod(method)) this.announceMutation(method, path);
         return {} as T;
       }
 
@@ -817,6 +933,8 @@ export class ApiClient {
           details && typeof details === 'object' ? (details as Record<string, unknown>) : undefined,
         );
       }
+
+      if (isMutationMethod(method)) this.announceMutation(method, path);
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
       if (!mode.keepEnvelope && data && typeof data === 'object' && !Array.isArray(data)) {
@@ -958,11 +1076,16 @@ export class ApiClient {
     method: 'POST' | 'PUT' | 'DELETE',
     path: string,
     body: unknown,
-    idempotencyKey: string
+    idempotencyKey: string,
+    /** When the item was written; the server keeps it as the record's time. */
+    recordedAt?: number,
   ): Promise<T> {
+    const headers: Record<string, string> = { 'Idempotency-Key': idempotencyKey };
+    if (recordedAt !== undefined) headers['X-Offline-Recorded-At'] = new Date(recordedAt).toISOString();
     return this.request<T>(method, path, body, {
       noRetry: true,
-      headers: { 'Idempotency-Key': idempotencyKey },
+      noOfflineQueue: true,
+      headers,
     });
   }
 
@@ -994,9 +1117,12 @@ function createOperationKey(): string {
  */
 export class OfflineQueuedError extends Error {
   public readonly queueItemId: string;
+  public readonly endpoint: string;
 
   constructor(queueItemId: string, endpoint: string) {
-    super(`This device is offline. "${endpoint}" is queued and will be sent when it reconnects.`);
+    // Plain words: this reaches a clinician, and a route path means nothing to them.
+    super('No signal — saved on this device and sent when it reconnects.');
+    this.endpoint = endpoint;
     this.name = 'OfflineQueuedError';
     this.queueItemId = queueItemId;
   }
@@ -1013,6 +1139,7 @@ async function queueOfflineMutation(
   body: unknown,
   intent: NonNullable<RequestOptions['queueWhenOffline']>,
   ownerUserId?: string,
+  operationKey?: string,
 ): Promise<OfflineQueuedError | null> {
   try {
     const { enqueueSyncItem } = await import('../utils/indexedDB');
@@ -1026,8 +1153,11 @@ async function queueOfflineMutation(
       description: intent.description,
       priority: 'medium',
       patientId: intent.patientId,
-    });
+      ...(intent.expiresInMs ? { expiresAt: Date.now() + intent.expiresInMs } : {}),
+    }, operationKey);
     debugLog('ApiClient', `Queued ${method} ${path} for replay as ${id}`);
+    // Lets a portal's unsent counter update at once rather than on its next poll.
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('medichain:offline-queued'));
     return new OfflineQueuedError(id, path);
   } catch (error) {
     debugLog('ApiClient', `Could not queue ${method} ${path}: ${String(error)}`);

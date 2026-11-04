@@ -13,11 +13,12 @@ import {
   LoadingSpinner,
   Input,
   useValidatedForm,
-  pathologyRequestSchema,
+  pathologyRequestSchema, ChoiceChips
 } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
+import { PatientName } from '../components/PatientName';
 
 /**
  * PathologyPage
@@ -160,6 +161,7 @@ const PathologyPage: React.FC = () => {
   const [selectedSpecimen, setSelectedSpecimen] = useState<PathologySpecimen | null>(null);
   const [slideImages, setSlideImages] = useState<SlideImage[]>([]);
   const [slideImagesLoading, setSlideImagesLoading] = useState(false);
+  const [slideImagesError, setSlideImagesError] = useState('');
   const [slideUploading, setSlideUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -316,8 +318,8 @@ const PathologyPage: React.FC = () => {
         }
       }
       setSlideImages(found);
-    } catch (err) {
-      console.error('Failed to load slide images:', err);
+    } catch {
+      setSlideImagesError(t('docPathology.errorLoadSlides'));
     } finally {
       setSlideImagesLoading(false);
     }
@@ -577,36 +579,36 @@ const PathologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="path-status-filter" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-status-filter"
+                  label={t('docPathology.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="all">{t('docPathology.allStatuses')}</option>
-                  <option value="received">{t('docPathology.status_received')}</option>
-                  <option value="grossing">{t('docPathology.status_grossing')}</option>
-                  <option value="processing">{t('docPathology.status_processing')}</option>
-                  <option value="prelim">{t('docPathology.status_prelim')}</option>
-                  <option value="final">{t('docPathology.status_final')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next); }}
+                  options={[
+                    { value: 'all', label: t('docPathology.allStatuses') },
+                    { value: 'received', label: t('docPathology.status_received') },
+                    { value: 'grossing', label: t('docPathology.status_grossing') },
+                    { value: 'processing', label: t('docPathology.status_processing') },
+                    { value: 'prelim', label: t('docPathology.status_prelim') },
+                    { value: 'final', label: t('docPathology.status_final') },
+                  ]}
+                />
               </div>
               <div>
-                <label htmlFor="path-type-filter" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.typeLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-type-filter"
+                  label={t('docPathology.typeLabel')}
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="all">{t('docPathology.allTypes')}</option>
-                  <option value="surgical">{t('docPathology.specimenType_surgical')}</option>
-                  <option value="biopsy">{t('docPathology.specimenType_biopsy')}</option>
-                  <option value="cytology">{t('docPathology.specimenType_cytology')}</option>
-                  <option value="bone-marrow">{t('docPathology.specimenType_bone-marrow')}</option>
-                  <option value="autopsy">{t('docPathology.specimenType_autopsy')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setTypeFilter(next); }}
+                  options={[
+                    { value: 'all', label: t('docPathology.allTypes') },
+                    { value: 'surgical', label: t('docPathology.specimenType_surgical') },
+                    { value: 'biopsy', label: t('docPathology.specimenType_biopsy') },
+                    { value: 'cytology', label: t('docPathology.specimenType_cytology') },
+                    { value: 'bone-marrow', label: t('docPathology.specimenType_bone-marrow') },
+                    { value: 'autopsy', label: t('docPathology.specimenType_autopsy') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -648,7 +650,7 @@ const PathologyPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-content">{specimen.patientName}</div>
-                        <div className="text-xs text-content-muted">{specimen.patientId}</div>
+                        <div className="text-xs"><PatientName id={specimen.patientId} dobOnly /></div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm">
@@ -708,22 +710,19 @@ const PathologyPage: React.FC = () => {
 
               {/* Specimen Type */}
               <div>
-                <label htmlFor="path-specimen-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.specimenTypeRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="path-specimen-type"
+                  label={t('docPathology.specimenTypeRequired')}
                   value={specimenType}
-                  onChange={(e) => setSpecimenType(e.target.value as typeof specimenType)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="surgical">{t('docPathology.specimenType_surgical')}</option>
-                  <option value="biopsy">{t('docPathology.specimenType_biopsy')}</option>
-                  <option value="cytology">{t('docPathology.specimenType_cytology')}</option>
-                  <option value="bone-marrow">{t('docPathology.specimenType_bone-marrow')}</option>
-                  <option value="autopsy">{t('docPathology.specimenType_autopsy')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setSpecimenType(next as typeof specimenType); }}
+                  options={[
+                    { value: 'surgical', label: t('docPathology.specimenType_surgical') },
+                    { value: 'biopsy', label: t('docPathology.specimenType_biopsy') },
+                    { value: 'cytology', label: t('docPathology.specimenType_cytology') },
+                    { value: 'bone-marrow', label: t('docPathology.specimenType_bone-marrow') },
+                    { value: 'autopsy', label: t('docPathology.specimenType_autopsy') },
+                  ]}
+                />
               </div>
 
               {/* Collection Date/Time */}
@@ -772,18 +771,18 @@ const PathologyPage: React.FC = () => {
 
               {/* Laterality */}
               <div>
-                <label htmlFor="path-laterality" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.lateralityLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-laterality"
+                  label={t('docPathology.lateralityLabel')}
                   value={laterality}
-                  onChange={(e) => setLaterality(e.target.value as typeof laterality)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="n/a">{t('docPathology.laterality_na')}</option>
-                  <option value="left">{t('docPathology.laterality_left')}</option>
-                  <option value="right">{t('docPathology.laterality_right')}</option>
-                  <option value="bilateral">{t('docPathology.laterality_bilateral')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setLaterality(next as typeof laterality); }}
+                  options={[
+                    { value: 'n/a', label: t('docPathology.laterality_na') },
+                    { value: 'left', label: t('docPathology.laterality_left') },
+                    { value: 'right', label: t('docPathology.laterality_right') },
+                    { value: 'bilateral', label: t('docPathology.laterality_bilateral') },
+                  ]}
+                />
               </div>
 
               {/* Clinician */}
@@ -805,17 +804,17 @@ const PathologyPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label htmlFor="path-priority" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.priorityLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-priority"
+                  label={t('docPathology.priorityLabel')}
                   value={priority}
-                  onChange={(e) => setPriority(e.target.value as typeof priority)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="routine">{t('docPathology.priority_routine')}</option>
-                  <option value="urgent">{t('docPathology.priority_urgent')}</option>
-                  <option value="stat">{t('docPathology.priority_stat')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setPriority(next as typeof priority); }}
+                  options={[
+                    { value: 'routine', label: t('docPathology.priority_routine') },
+                    { value: 'urgent', label: t('docPathology.priority_urgent') },
+                    { value: 'stat', label: t('docPathology.priority_stat') },
+                  ]}
+                />
               </div>
 
               {/* Container */}
@@ -833,19 +832,19 @@ const PathologyPage: React.FC = () => {
 
               {/* Fixative */}
               <div>
-                <label htmlFor="path-fixative" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.fixativeLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-fixative"
+                  label={t('docPathology.fixativeLabel')}
                   value={fixative}
-                  onChange={(e) => setFixative(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="10% formalin">{t('docPathology.fixative_formalin')}</option>
-                  <option value="95% alcohol">{t('docPathology.fixative_alcohol')}</option>
-                  <option value="CytoLyt">{t('docPathology.fixative_cytolyt')}</option>
-                  <option value="RPMI">{t('docPathology.fixative_rpmi')}</option>
-                  <option value="none">{t('docPathology.fixative_none')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setFixative(next); }}
+                  options={[
+                    { value: '10% formalin', label: t('docPathology.fixative_formalin') },
+                    { value: '95% alcohol', label: t('docPathology.fixative_alcohol') },
+                    { value: 'CytoLyt', label: t('docPathology.fixative_cytolyt') },
+                    { value: 'RPMI', label: t('docPathology.fixative_rpmi') },
+                    { value: 'none', label: t('docPathology.fixative_none') },
+                  ]}
+                />
               </div>
 
               {/* Clinical History */}
@@ -986,6 +985,8 @@ const PathologyPage: React.FC = () => {
               <p className="text-sm text-content-muted py-6 text-center">
                 {t('docPathology.slidesLoading')}
               </p>
+            ) : slideImagesError ? (
+              <p role="alert" className="text-sm text-critical-subtle-fg py-6 text-center">{slideImagesError}</p>
             ) : slideImages.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {slideImages.map(image => (

@@ -13,7 +13,7 @@ import {
   useValidatedForm,
   consultRequestSchema,
   consultResponseSchema,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
@@ -34,6 +34,7 @@ import {
 import StaffName from '../components/StaffName';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
 
 type ConsultSpecialty =
   | 'cardiology'
@@ -562,7 +563,7 @@ const ConsultPage: React.FC = () => {
                             WCAG AA's 4.5:1. The token that pairs with this
                             background is the one the sibling labels already
                             use. */}
-                        <p className="text-sm text-notice-subtle-fg">{consult.patientId}</p>
+                        <p className="text-sm text-notice-subtle-fg"><PatientName id={consult.patientId} dobOnly inherit /></p>
                       </div>
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblSpecialty')}</p>
@@ -787,6 +788,7 @@ const ConsultPage: React.FC = () => {
       )}
 
       {activeTab === 'new-request' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleRequestConsult(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
@@ -841,20 +843,18 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="consult-urgency" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docConsult.urgencyLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="consult-urgency"
+                  label={t('docConsult.urgencyLabel')}
                   value={newConsult.urgency}
-                  onChange={(e) => setNewConsult({ ...newConsult, urgency: e.target.value as ConsultUrgency })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="routine">{t('docConsult.urgency_routine')}</option>
-                  <option value="urgent">{t('docConsult.urgency_urgent')}</option>
-                  <option value="emergent">{t('docConsult.urgency_emergent')}</option>
-                  <option value="stat">{t('docConsult.urgency_stat')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewConsult({ ...newConsult, urgency: next as ConsultUrgency }); }}
+                  options={[
+                    { value: 'routine', label: t('docConsult.urgency_routine') },
+                    { value: 'urgent', label: t('docConsult.urgency_urgent') },
+                    { value: 'emergent', label: t('docConsult.urgency_emergent') },
+                    { value: 'stat', label: t('docConsult.urgency_stat') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -977,14 +977,14 @@ const ConsultPage: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={handleRequestConsult} disabled={submitPending}
-            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold mt-6 flex items-center justify-center gap-2"
+          <button type="submit" aria-disabled={submitPending || undefined}
+            className="aria-disabled:cursor-wait w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold mt-6 flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />
             {t('docConsult.submitRequestBtn')}
           </button>
         </div>
+        </form>
       )}
     </div>
   );

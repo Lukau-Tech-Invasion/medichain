@@ -72,9 +72,10 @@ describe('CodeBluePage', () => {
     fireEvent.click(screen.getByText(/Stop Code/i));
 
     const finalize = screen.getByRole('button', { name: /Finalize Record/i });
-    expect(finalize).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Outcome/i), { target: { value: 'rosc' } });
-    expect(finalize).toBeEnabled();
+    // Pressed before an outcome is chosen, nothing is filed.
+    fireEvent.click(finalize);
+    await waitFor(() => expect(shared.createCodeBlue).not.toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('radio', { name: /ROSC/i }));
     fireEvent.click(finalize);
 
     await waitFor(() => expect(shared.createCodeBlue).toHaveBeenCalled());

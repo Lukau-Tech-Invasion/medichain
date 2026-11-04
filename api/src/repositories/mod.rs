@@ -45,6 +45,7 @@ pub mod patient_search;
 pub mod refill_requests;
 pub mod telehealth_recordings;
 pub mod traits;
+pub mod wards;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -119,6 +120,7 @@ pub struct RepositoryContainer {
     pub eob_documents: Arc<dyn eob_documents::EobDocumentRepository>,
     /// Care relationships and break-glass grants (WP9).
     pub care_relationships: Arc<dyn care_relationships::CareRelationshipRepository>,
+    pub wards: Arc<dyn wards::WardRepository>,
     /// Consultation recordings (WP7.6).
     pub telehealth_recordings: Arc<dyn telehealth_recordings::TelehealthRecordingRepository>,
     /// Attachments on secure messages (WP7.2).
@@ -241,6 +243,11 @@ pub struct RepositoryContainer {
     pub insurance_cards: Arc<dyn JsonRecordRepository>,
     pub autopsy_reports: Arc<dyn JsonRecordRepository>,
     pub sync_queue_items: Arc<dyn JsonRecordRepository>,
+    /// Ambulance runs: one per patient a crew attends, owned by the crew member
+    /// who started it; status moves only through `replace_if_field_eq`.
+    pub ems_runs: Arc<dyn JsonRecordRepository>,
+    /// The append-only timeline of each run, owned by the run id.
+    pub ems_run_events: Arc<dyn JsonRecordRepository>,
 
     // Round 5: wearables + telehealth legacy shapes (JSON-record backed)
     pub wearable_device_records: Arc<dyn JsonRecordRepository>,
@@ -619,6 +626,7 @@ impl RepositoryContainer {
             care_relationships: Arc::new(
                 care_relationships::MemoryCareRelationshipRepository::new(),
             ),
+            wards: Arc::new(wards::MemoryWardRepository::new()),
             blood_units: Arc::new(blood_units::MemoryBloodUnitRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
@@ -716,6 +724,8 @@ impl RepositoryContainer {
             // Phase 7 (Round 4): generic JSON-record feature domains (memory)
             language_preferences: Arc::new(memory::MemoryJsonRecordRepository::new()),
             provider_schedules: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            ems_runs: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            ems_run_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
             eligibility_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
             satisfaction_surveys: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_sessions: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -1297,6 +1307,7 @@ impl RepositoryContainer {
             care_relationships: Arc::new(care_relationships::PgCareRelationshipRepository::new(
                 pool.clone(),
             )),
+            wards: Arc::new(wards::PgWardRepository::new(pool.clone())),
             blood_units: Arc::new(blood_units::PgBloodUnitRepository::new(pool.clone())),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),
@@ -1430,6 +1441,8 @@ impl RepositoryContainer {
 
             // Phase 7 (Round 4): generic JSON-record feature domains (PostgreSQL)
             provider_schedules: Arc::new(postgres::PgProviderScheduleRepository::new(pool.clone())),
+            ems_runs: Arc::new(postgres::PgEmsRunRepository::new(pool.clone())),
+            ems_run_events: Arc::new(postgres::PgEmsRunEventRepository::new(pool.clone())),
             language_preferences: Arc::new(postgres::PgLanguagePreferenceRepository::new(
                 pool.clone(),
             )),

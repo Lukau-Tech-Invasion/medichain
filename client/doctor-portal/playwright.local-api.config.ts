@@ -17,6 +17,11 @@ import { defineConfig, devices } from '@playwright/test';
  */
 const PORT = Number(process.env.E2E_PORT || 5199);
 const API = process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8090';
+// The cross-role workflows end by reading the record as the patient. That
+// read must hit the same API, so the patient app is served here too; left
+// at its default the specs read from the Docker stack, a different database.
+const PATIENT_PORT = Number(process.env.E2E_PATIENT_PORT || 5198);
+process.env.PATIENT_APP_URL ??= `http://localhost:${PATIENT_PORT}`;
 
 export default defineConfig({
   testDir: './e2e',
@@ -41,7 +46,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
+  webServer: [{
     // VITE_DEV_PORT as well as --port: the HMR WebSocket's port comes from the
     // config, and a mismatch puts Vite's client into a reload loop that makes
     // sign-in impossible. See the comment on DEV_PORT in vite.config.ts.
@@ -52,5 +57,12 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
     env: { VITE_API_PROXY_TARGET: API, VITE_DEV_PORT: String(PORT) },
-  },
+  }, {
+    command: `npx vite --port ${PATIENT_PORT} --strictPort`,
+    cwd: '../patient-app',
+    url: `http://localhost:${PATIENT_PORT}`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: { VITE_API_PROXY_TARGET: API, VITE_DEV_PORT: String(PATIENT_PORT) },
+  }],
 });

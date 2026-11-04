@@ -10,7 +10,8 @@ import {
   chainOfCustodySchema,
   custodyHandoverSchema,
   transferChainOfCustody,
-  getApiErrorMessage,
+  getApiErrorMessage, ChoiceChips,
+  keepEnterInField,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -31,6 +32,7 @@ import {
 import { useStaffDirectory } from '../components/StaffName';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
 
 type SpecimenType = 'blood' | 'urine' | 'other-fluid' | 'tissue' | 'swab' | 'evidence';
 type SpecimenStatus = 'collected' | 'in-transit' | 'received' | 'analyzed' | 'stored' | 'released' | 'destroyed';
@@ -481,7 +483,7 @@ const ChainOfCustodyPage: React.FC = () => {
                     <div>
                       <p className="text-sm text-content-muted mb-1">{t('docChainOfCustody.lblPatient')}</p>
                       <p className="font-semibold text-content">{record.patientName}</p>
-                      <p className="text-sm text-content-muted">{record.patientId}</p>
+                      <p className="text-sm"><PatientName id={record.patientId} dobOnly /></p>
                     </div>
                     <div>
                       <p className="text-sm text-content-muted mb-1">{t('docChainOfCustody.lblSpecimen')}</p>
@@ -555,6 +557,7 @@ const ChainOfCustodyPage: React.FC = () => {
       )}
 
       {activeTab === 'new-collection' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCreateCustody(); }} onKeyDown={keepEnterInField} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
@@ -573,22 +576,20 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="coc-specimen-type" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docChainOfCustody.specimenTypeLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="coc-specimen-type"
+                  label={t('docChainOfCustody.specimenTypeLabel')}
                   value={newCollection.specimenType}
-                  onChange={(e) => setNewCollection({ ...newCollection, specimenType: e.target.value as SpecimenType })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="blood">{t('docChainOfCustody.type_blood')}</option>
-                  <option value="urine">{t('docChainOfCustody.type_urine')}</option>
-                  <option value="other-fluid">{t('docChainOfCustody.type_other-fluid')}</option>
-                  <option value="tissue">{t('docChainOfCustody.type_tissue')}</option>
-                  <option value="swab">{t('docChainOfCustody.type_swab')}</option>
-                  <option value="evidence">{t('docChainOfCustody.type_evidence')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewCollection({ ...newCollection, specimenType: next as SpecimenType }); }}
+                  options={[
+                    { value: 'blood', label: t('docChainOfCustody.type_blood') },
+                    { value: 'urine', label: t('docChainOfCustody.type_urine') },
+                    { value: 'other-fluid', label: t('docChainOfCustody.type_other-fluid') },
+                    { value: 'tissue', label: t('docChainOfCustody.type_tissue') },
+                    { value: 'swab', label: t('docChainOfCustody.type_swab') },
+                    { value: 'evidence', label: t('docChainOfCustody.type_evidence') },
+                  ]}
+                />
               </div>
 
               <div className="col-span-2">
@@ -648,22 +649,20 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="coc-purpose" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docChainOfCustody.purposeLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="coc-purpose"
+                  label={t('docChainOfCustody.purposeLabel')}
                   value={newCollection.purpose}
-                  onChange={(e) => setNewCollection({ ...newCollection, purpose: e.target.value as CustodyPurpose })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="legal">{t('docChainOfCustody.purpose_legal')}</option>
-                  <option value="toxicology">{t('docChainOfCustody.purpose_toxicology')}</option>
-                  <option value="dna">{t('docChainOfCustody.purpose_dna')}</option>
-                  <option value="sexual-assault">{t('docChainOfCustody.purpose_sexual-assault')}</option>
-                  <option value="criminal">{t('docChainOfCustody.purpose_criminal')}</option>
-                  <option value="workplace">{t('docChainOfCustody.purpose_workplace')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewCollection({ ...newCollection, purpose: next as CustodyPurpose }); }}
+                  options={[
+                    { value: 'legal', label: t('docChainOfCustody.purpose_legal') },
+                    { value: 'toxicology', label: t('docChainOfCustody.purpose_toxicology') },
+                    { value: 'dna', label: t('docChainOfCustody.purpose_dna') },
+                    { value: 'sexual-assault', label: t('docChainOfCustody.purpose_sexual-assault') },
+                    { value: 'criminal', label: t('docChainOfCustody.purpose_criminal') },
+                    { value: 'workplace', label: t('docChainOfCustody.purpose_workplace') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -785,14 +784,14 @@ const ChainOfCustodyPage: React.FC = () => {
             </ul>
           </div>
 
-          <button
-            onClick={() => void handleCreateCustody()}
-            disabled={submitPending}
-            className="w-full disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 bg-gray-700 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
+          <button type="submit"
+            aria-disabled={submitPending || undefined}
+            className="aria-disabled:cursor-wait w-full bg-gray-700 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
           >
             {t('docChainOfCustody.createRecordBtn')}
           </button>
         </div>
+        </form>
       )}
 
       {activeTab === 'transfer' && (
@@ -1013,7 +1012,7 @@ const ChainOfCustodyPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-content">{record.patientName}</p>
-                      <p className="text-xs text-content-muted">{record.patientId}</p>
+                      <p className="text-xs"><PatientName id={record.patientId} dobOnly /></p>
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-sm text-content">{record.specimenDescription}</p>

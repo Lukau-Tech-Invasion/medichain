@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import HistoryAndPhysicalPage, { normalizeHistoryPhysical } from './HistoryAndPhysicalPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { fillField, fieldValue } from '../test/fields';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -98,11 +99,11 @@ describe('HistoryAndPhysicalPage', () => {
     fireEvent.click(screen.getAllByText(/New H&P/i)[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Medical History' }));
     for (const label of ['Tobacco Use', 'Alcohol Use', 'Illicit Drugs']) {
-      expect(screen.getByRole('combobox', { name: label })).toHaveValue('');
+      expect(fieldValue(label)).toBe('');
     }
-    fireEvent.change(screen.getByRole('combobox', { name: 'Tobacco Use' }), { target: { value: 'former' } });
-    expect(screen.getByRole('combobox', { name: 'Tobacco Use' })).toHaveValue('former');
-    expect(screen.getByRole('combobox', { name: 'Alcohol Use' })).toHaveValue('');
+    fillField('Tobacco Use', 'former');
+    expect(fieldValue('Tobacco Use')).toBe('former');
+    expect(fieldValue('Alcohol Use')).toBe('');
   });
 
   it('reads back the saved histories, examination and unknown observations in View', async () => {
@@ -142,7 +143,7 @@ describe('HistoryAndPhysicalPage', () => {
     render(<HistoryAndPhysicalPage />);
     fireEvent.click((await screen.findAllByTitle('Print'))[0]);
     const document = screen.getByRole('dialog');
-    expect(document.parentElement).toBe(window.document.body);
+    expect(document.closest('.hp-record-document')?.parentElement).toBe(window.document.body);
     expect(within(document).getByText('First saved narrative')).toBeInTheDocument();
     expect(within(document).queryByText('Other confidential narrative')).not.toBeInTheDocument();
     expect(within(document).queryByText('Other QA Patient')).not.toBeInTheDocument();

@@ -8,7 +8,7 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -201,6 +201,7 @@ const IntubationPage: React.FC = () => {
 
   const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (submissionPending.current) return;
     if (!selectedPatient || !formData.indication) {
       showError(t('docIntubation.errorSelectPatientIndication'));
@@ -283,6 +284,7 @@ const IntubationPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient Selection */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -346,31 +348,31 @@ const IntubationPage: React.FC = () => {
                   <p className="text-xs text-content-muted">{t('docIntubation.thyromentalHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-neck-mobility" className="text-sm text-content-muted">{t('docIntubation.neckMobilityLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intubation-neck-mobility"
+                    label={t('docIntubation.neckMobilityLabel')}
                     value={airway.neckMobility}
-                    onChange={e => setAirway({ ...airway, neckMobility: e.target.value as 'full' | 'limited' | 'immobile' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="full">{t('docIntubation.neckMobility_full')}</option>
-                    <option value="limited">{t('docIntubation.neckMobility_limited')}</option>
-                    <option value="immobile">{t('docIntubation.neckMobility_immobile')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setAirway({ ...airway, neckMobility: next as 'full' | 'limited' | 'immobile' }); }}
+                    options={[
+                      { value: 'full', label: t('docIntubation.neckMobility_full') },
+                      { value: 'limited', label: t('docIntubation.neckMobility_limited') },
+                      { value: 'immobile', label: t('docIntubation.neckMobility_immobile') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="intubation-dentition" className="text-sm text-content-muted">{t('docIntubation.dentitionLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intubation-dentition"
+                    label={t('docIntubation.dentitionLabel')}
                     value={airway.dentition}
-                    onChange={e => setAirway({ ...airway, dentition: e.target.value as 'normal' | 'loose' | 'dentures' | 'edentulous' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="normal">{t('docIntubation.dentition_normal')}</option>
-                    <option value="loose">{t('docIntubation.dentition_loose')}</option>
-                    <option value="dentures">{t('docIntubation.dentition_dentures')}</option>
-                    <option value="edentulous">{t('docIntubation.dentition_edentulous')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setAirway({ ...airway, dentition: next as 'normal' | 'loose' | 'dentures' | 'edentulous' }); }}
+                    options={[
+                      { value: 'normal', label: t('docIntubation.dentition_normal') },
+                      { value: 'loose', label: t('docIntubation.dentition_loose') },
+                      { value: 'dentures', label: t('docIntubation.dentition_dentures') },
+                      { value: 'edentulous', label: t('docIntubation.dentition_edentulous') },
+                    ]}
+                  />
                 </div>
                 <div className="flex items-center gap-4 col-span-2">
                   <label htmlFor="intub-beard-present" className="flex items-center gap-2">
@@ -420,32 +422,32 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-method" className="text-sm text-content-muted">{t('docIntubation.methodLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intub-method"
+                    label={t('docIntubation.methodLabel')}
                     value={formData.method}
-                    onChange={e => setFormData({ ...formData, method: e.target.value as IntubationMethod })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="oral">{t('docIntubation.method_oral')}</option>
-                    <option value="nasal">{t('docIntubation.method_nasal')}</option>
-                    <option value="video">{t('docIntubation.method_video')}</option>
-                    <option value="surgical">{t('docIntubation.method_surgical')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFormData({ ...formData, method: next as IntubationMethod }); }}
+                    options={[
+                      { value: 'oral', label: t('docIntubation.method_oral') },
+                      { value: 'nasal', label: t('docIntubation.method_nasal') },
+                      { value: 'video', label: t('docIntubation.method_video') },
+                      { value: 'surgical', label: t('docIntubation.method_surgical') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-type" className="text-sm text-content-muted">{t('docIntubation.bladeTypeLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intub-blade-type"
+                    label={t('docIntubation.bladeTypeLabel')}
                     value={formData.bladeType}
-                    onChange={e => setFormData({ ...formData, bladeType: e.target.value as BladeType })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="mac">{t('docIntubation.bladeType_mac')}</option>
-                    <option value="miller">{t('docIntubation.bladeType_miller')}</option>
-                    <option value="video">{t('docIntubation.bladeType_video')}</option>
-                    <option value="glidescope">{t('docIntubation.bladeType_glidescope')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFormData({ ...formData, bladeType: next as BladeType }); }}
+                    options={[
+                      { value: 'mac', label: t('docIntubation.bladeType_mac') },
+                      { value: 'miller', label: t('docIntubation.bladeType_miller') },
+                      { value: 'video', label: t('docIntubation.bladeType_video') },
+                      { value: 'glidescope', label: t('docIntubation.bladeType_glidescope') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="intub-blade-size" className="text-sm text-content-muted">{t('docIntubation.bladeSizeLabel')}</label>
@@ -538,7 +540,7 @@ const IntubationPage: React.FC = () => {
                     <div key={med.name} className="flex items-center gap-1">
                       <span className="text-sm font-medium">{med.name}:</span>
                       {med.doses.map(dose => (
-                        <button
+                        <button type="button"
                           key={dose}
                           onClick={() => addMedication(med.name, dose)}
                           className="px-2 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-cyan-200"
@@ -631,15 +633,15 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
               aria-busy={isSubmitting}
-              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
+              className="aria-disabled:cursor-wait w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>
           </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (

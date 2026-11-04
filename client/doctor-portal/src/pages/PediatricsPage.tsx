@@ -25,7 +25,7 @@ import {
   useValidatedForm,
   pediatricAssessmentSchema,
   ApiClientError,
-  CARE_RELATIONSHIP_REQUIRED,
+  CARE_RELATIONSHIP_REQUIRED, ChoiceChips
 } from '@medichain/shared';
 
 /**
@@ -326,6 +326,7 @@ const PediatricsPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(pediatricAssessmentSchema);
   const handleSubmitAssessment = async () => {
+    if (saving) return;
     if (savePending.current || saveConfirmed.current) return;
     // Weight is bounded as well as required: paediatric dosing is per
     // kilogram, so a weight in pounds entered as kilograms roughly doubles
@@ -584,6 +585,7 @@ const PediatricsPage: React.FC = () => {
 
       {/* Assessment Tab */}
       {activeTab === 'assessment' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSubmitAssessment(); }} noValidate>
         <div className="p-4">
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docPediatrics.newAssessmentHeading')}</h2>
@@ -673,42 +675,39 @@ const PediatricsPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.appearanceLabel')}</label>
-                    <select
-                      aria-label={t('docPediatrics.appearanceLabel')}
-                      value={assessmentForm.patAppearance}
-                      onChange={(e) => setAssessmentForm({ ...assessmentForm, patAppearance: e.target.value })}
-                      className="w-full border rounded-lg px-2 py-1 text-sm"
-                    >
-                      <option value="">Not assessed</option>
-                      <option value="normal">{t('docPediatrics.normalOption')}</option>
-                      <option value="abnormal">{t('docPediatrics.abnormalOption')}</option>
-                    </select>
+                    <ChoiceChips
+                      label={t('docPediatrics.appearanceLabel')}
+                      value={(assessmentForm.patAppearance) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setAssessmentForm({ ...assessmentForm, patAppearance: next }); }}
+                      options={[
+                        { value: 'normal', label: t('docPediatrics.normalOption') },
+                        { value: 'abnormal', label: t('docPediatrics.abnormalOption') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.workOfBreathingLabel')}</label>
-                    <select
-                      aria-label={t('docPediatrics.workOfBreathingLabel')}
-                      value={assessmentForm.patWorkOfBreathing}
-                      onChange={(e) => setAssessmentForm({ ...assessmentForm, patWorkOfBreathing: e.target.value })}
-                      className="w-full border rounded-lg px-2 py-1 text-sm"
-                    >
-                      <option value="">Not assessed</option>
-                      <option value="normal">{t('docPediatrics.normalOption')}</option>
-                      <option value="abnormal">{t('docPediatrics.abnormalOption')}</option>
-                    </select>
+                    <ChoiceChips
+                      label={t('docPediatrics.workOfBreathingLabel')}
+                      value={(assessmentForm.patWorkOfBreathing) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setAssessmentForm({ ...assessmentForm, patWorkOfBreathing: next }); }}
+                      options={[
+                        { value: 'normal', label: t('docPediatrics.normalOption') },
+                        { value: 'abnormal', label: t('docPediatrics.abnormalOption') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.circulationLabel')}</label>
-                    <select
-                      aria-label={t('docPediatrics.circulationLabel')}
-                      value={assessmentForm.patCirculation}
-                      onChange={(e) => setAssessmentForm({ ...assessmentForm, patCirculation: e.target.value })}
-                      className="w-full border rounded-lg px-2 py-1 text-sm"
-                    >
-                      <option value="">Not assessed</option>
-                      <option value="normal">{t('docPediatrics.normalOption')}</option>
-                      <option value="abnormal">{t('docPediatrics.abnormalOption')}</option>
-                    </select>
+                    <ChoiceChips
+                      label={t('docPediatrics.circulationLabel')}
+                      value={(assessmentForm.patCirculation) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setAssessmentForm({ ...assessmentForm, patCirculation: next }); }}
+                      options={[
+                        { value: 'normal', label: t('docPediatrics.normalOption') },
+                        { value: 'abnormal', label: t('docPediatrics.abnormalOption') },
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
@@ -749,17 +748,16 @@ const PediatricsPage: React.FC = () => {
               </div>
 
               <div className="flex gap-3">
-                <button
+                <button type="button"
                   onClick={() => setActiveTab('patients')}
                   className="flex-1 py-3 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docPediatrics.cancelButton')}
                 </button>
-                <button
-                  onClick={handleSubmitAssessment}
-                  disabled={saving}
+                <button type="submit"
+                  aria-disabled={saving || undefined}
                   aria-busy={saving}
-                  className="flex-[2] py-3 bg-slate-800 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-slate-900"
+                  className="aria-disabled:cursor-wait flex-[2] py-3 bg-slate-800 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-slate-900"
                 >
                   <FileSignature className="w-5 h-5" /> {t('docPediatrics.signSubmitButton')}
                 </button>
@@ -767,6 +765,7 @@ const PediatricsPage: React.FC = () => {
             </fieldset>
           </div>
         </div>
+        </form>
       )}
 
       {/* Growth Charts Tab */}
@@ -797,6 +796,7 @@ const PediatricsPage: React.FC = () => {
       {selectedPatient && (
         <dialog ref={growthDialog} aria-labelledby="pediatric-growth-title"
           onCancel={event => { event.preventDefault(); setSelectedPatient(null); }}
+          // ux-allow(overlay): a native <dialog> opened with showModal(); the browser traps focus and Escape fires onCancel.
           className="fixed inset-0 m-0 w-full max-w-none h-full max-h-none border-0 bg-transparent text-inherit flex items-center justify-center p-4 backdrop:bg-black/50">
           <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">

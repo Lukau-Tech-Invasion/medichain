@@ -40,7 +40,9 @@ test('signing out in one tab ends the session in the other', async ({ browser })
 
   await signOutFromSettings(first);
 
-  await second.reload();
+  // The second tab may already be moving to sign-in on its own; a reload
+  // racing that navigation detaches the page, which is not a failure.
+  await second.reload().catch(() => undefined);
   await expect(second, 'the second tab still shows records after sign-out').toHaveURL(/\/login/, { timeout: 30000 });
   await context.close();
 });
@@ -48,7 +50,7 @@ test('signing out in one tab ends the session in the other', async ({ browser })
 test('the offline medical ID is deleted from the device on sign-out', async ({ page }) => {
   test.setTimeout(120_000);
   await signInAsFixturePatient(page);
-  await page.goto(portalPath('/medical-id'));
+  await page.goto(portalPath('/emergency-card?view=medical-id'));
   await expect(page.locator('main').first()).toBeVisible({ timeout: 30000 });
 
   const dataCaches = () =>
@@ -75,6 +77,13 @@ test.describe('after a deployment', () => {
 
     // From now on the first lazily loaded chunk is "gone", as after a deploy.
     let failed = false;
+    // `vite:preloadError`, which the recovery listens for, is fired only by a
+    // production build's chunk loader; the dev server serves modules from
+    // /src and never fires it. Under the dev server this proved nothing and
+    // passed or failed by test order, so it says so instead.
+    const built = await page.evaluate(() =>
+      Array.from(document.scripts).some((script) => /\/assets\/[^/]+\.js$/.test(script.src)));
+    test.skip(!built, 'needs a production build (vite preview or the Docker stack); the dev server never fires vite:preloadError');
     await page.route('**/assets/*.js', async (route) => {
       if (!failed) {
         failed = true;
@@ -89,7 +98,7 @@ test.describe('after a deployment', () => {
     await page.evaluate((path) => {
       window.history.pushState({}, '', path);
       window.dispatchEvent(new PopStateEvent('popstate'));
-    }, portalPath('/lab-trends'));
+    }, portalPath('/medical-history'));
     await reloaded;
 
     await expect(page.locator('main').first()).toBeVisible({ timeout: 30000 });

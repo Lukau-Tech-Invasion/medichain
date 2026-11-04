@@ -500,6 +500,75 @@ pub async fn list_patient_ems_handoffs(
     section_response(&data, &patient_id, RecordSection::EmsHandoffs).await
 }
 
+/// The ambulance runs recorded about this patient, each with its timeline:
+/// when the crew arrived, what they found, what they gave and when (rule 10).
+#[get("/api/clinical/patient/{patient_id}/ems-runs")]
+pub async fn list_patient_ems_runs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match super::runs_for_patient(&data, &patient_id).await {
+        Ok(runs) => HttpResponse::Ok().json(serde_json::json!({ "runs": runs })),
+        Err(e) => {
+            log::error!("patient ambulance runs could not be read: {e}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Ambulance records could not be read".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
+    }
+}
+
+/// The patient's admissions: which ward, which bed, when admitted and
+/// discharged, and by whom (rule 10). Who is rostered on the ward is not
+/// included -- that is staff information, not the patient's record.
+#[get("/api/clinical/patient/{patient_id}/admissions")]
+pub async fn list_patient_admissions(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    let admissions = match data
+        .repositories
+        .wards
+        .admissions_of_patient(&patient_id)
+        .await
+    {
+        Ok(list) => list,
+        Err(e) => {
+            log::error!("patient admissions could not be read: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Admissions could not be read".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            });
+        }
+    };
+    let mut named = Vec::with_capacity(admissions.len());
+    for admission in admissions {
+        let ward = data
+            .repositories
+            .wards
+            .get_ward(&admission.ward_id)
+            .await
+            .ok()
+            .flatten();
+        named.push(serde_json::json!({
+            "admission": admission,
+            "ward_name": ward.map(|w| w.name),
+        }));
+    }
+    HttpResponse::Ok().json(serde_json::json!({ "admissions": named }))
+}
+
 #[cfg(test)]
 mod patient_document_access_tests {
     use crate::{AppState, Role, User};
@@ -521,6 +590,8 @@ mod patient_document_access_tests {
         "intake-output",
         "pharmacy-decisions",
         "ems-handoffs",
+        "ems-runs",
+        "admissions",
         "medication-administrations",
         "emergency-care",
     ];
@@ -574,6 +645,8 @@ mod patient_document_access_tests {
                 .service(super::list_patient_intake_output)
                 .service(super::list_patient_pharmacy_decisions)
                 .service(super::list_patient_ems_handoffs)
+                .service(super::list_patient_ems_runs)
+                .service(super::list_patient_admissions)
                 .service(super::list_patient_medication_administrations)
                 .service(super::list_patient_emergency_care),
         )

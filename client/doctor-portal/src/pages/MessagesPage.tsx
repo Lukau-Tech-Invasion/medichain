@@ -123,9 +123,11 @@ export default function MessagesPage() {
 
   const handleSend = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user) return;
+    if (!user || sendLoading) return;
     const recipientId = selectedConversation?.providerId || sendForm.recipient_id;
-    if (!recipientId || !sendForm.body.trim()) return;
+    // Said in words: the button is no longer greyed out to mean "not yet".
+    if (!recipientId) { setError(t('docMessages.errorNoRecipient')); return; }
+    if (!sendForm.body.trim()) { setError(t('docMessages.errorEmptyBody')); return; }
     setSendLoading(true);
     setError('');
     setSuccess('');
@@ -344,8 +346,8 @@ export default function MessagesPage() {
                 <AttachmentPicker files={files} onChange={setFiles} disabled={sendLoading} />
                 <button
                   type="submit"
-                  disabled={sendLoading || !sendForm.body.trim()}
-                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                  aria-disabled={sendLoading || undefined}
+                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 aria-disabled:cursor-wait"
                 >
                   {sendLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   {t('docMessages.send')}
@@ -437,7 +439,7 @@ function ComposeForm({
         </div>
         <AttachmentPicker files={files} onChange={onFilesChange} disabled={loading} />
         <div className="flex gap-2">
-          <button type="submit" disabled={loading || !form.recipient_id || !form.body.trim()} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+          <button type="submit" aria-disabled={loading || undefined} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 aria-disabled:cursor-wait">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {t('docMessages.send')}
           </button>

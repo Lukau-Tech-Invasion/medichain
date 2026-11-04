@@ -84,7 +84,7 @@ describe('LoginPage', () => {
   it('asks for an employee identifier and password', () => {
     renderPage();
 
-    expect(screen.getByLabelText(/Employee ID or work email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Employee ID or username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Sign in$/i })).toBeInTheDocument();
   });
@@ -112,7 +112,7 @@ describe('LoginPage', () => {
     mockLoginWithCredentials.mockResolvedValue(true);
     renderPage();
 
-    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), { target: { value: 'dr.mbeki' } });
+    fireEvent.change(screen.getByLabelText(/Employee ID or username/i), { target: { value: 'dr.mbeki' } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a-real-password' } });
     fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '123456' } });
     fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
@@ -126,7 +126,7 @@ describe('LoginPage', () => {
     mockLoginWithCredentials.mockResolvedValue(true);
     renderPage();
 
-    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), {
+    fireEvent.change(screen.getByLabelText(/Employee ID or username/i), {
       target: { value: 'dr.mbeki' },
     });
     fireEvent.change(screen.getByLabelText(/^Password$/i), {
@@ -144,7 +144,7 @@ describe('LoginPage', () => {
     mockLoginWithCredentials.mockResolvedValue(true);
     renderPage('/soap');
 
-    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), { target: { value: 'dr.mbeki' } });
+    fireEvent.change(screen.getByLabelText(/Employee ID or username/i), { target: { value: 'dr.mbeki' } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a-real-password' } });
     fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
 
@@ -157,7 +157,7 @@ describe('LoginPage', () => {
     signedInRole = 'Doctor';
     renderPage('/user-management');
 
-    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), { target: { value: 'dr.mbeki' } });
+    fireEvent.change(screen.getByLabelText(/Employee ID or username/i), { target: { value: 'dr.mbeki' } });
     fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a-real-password' } });
     fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
 
@@ -168,7 +168,7 @@ describe('LoginPage', () => {
     mockLoginWithCredentials.mockResolvedValue(false);
     renderPage();
 
-    fireEvent.change(screen.getByLabelText(/Employee ID or work email/i), {
+    fireEvent.change(screen.getByLabelText(/Employee ID or username/i), {
       target: { value: 'dr.mbeki' },
     });
     const password = screen.getByLabelText(/^Password$/i) as HTMLInputElement;
@@ -188,11 +188,11 @@ describe('LoginPage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/was not recognised/i);
   });
 
-  it('disables the submit button while signing in', () => {
+  it('marks the submit button busy while signing in', () => {
     mockStore({ isLoading: true });
     renderPage();
 
-    expect(screen.getByRole('button', { name: /Signing in/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Signing in/i })).toHaveAttribute('aria-disabled', 'true');
   });
 
   /**
@@ -244,7 +244,7 @@ describe('LoginPage', () => {
 
       await waitFor(() => expect(warn).toHaveBeenCalled());
       expect(screen.queryByText(/Demo accounts — disabled in production/i)).not.toBeInTheDocument();
-      expect(screen.getByLabelText(/Employee ID or work email/i)).toBeEnabled();
+      expect(screen.getByLabelText(/Employee ID or username/i)).toBeEnabled();
       warn.mockRestore();
     });
   });

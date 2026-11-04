@@ -22,6 +22,7 @@ import {
   Zap,
   X,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface SymptomEntry {
   id: string;
@@ -166,7 +167,10 @@ export function SymptomTrackerPage() {
   }, [patient, loadEntries]);
 
   const addEntry = async () => {
-    if (!newEntry.symptom || !newEntry.category || !categories.find(category => category.id === newEntry.category)?.symptoms.includes(newEntry.symptom)) return;
+    if (!newEntry.symptom || !newEntry.category || !categories.find(category => category.id === newEntry.category)?.symptoms.includes(newEntry.symptom)) {
+      setSaveError(t('symptomTracker.errChooseSymptom'));
+      return;
+    }
 
     const entry: SymptomEntry = {
       id: `SYM-${Date.now()}`,
@@ -317,11 +321,12 @@ export function SymptomTrackerPage() {
   }
 
   return (
+    <form onSubmit={(event) => { event.preventDefault(); void addEntry(); }} noValidate>
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('symptomTracker.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('symptomTracker.title')}</PageTitle>
           <p className="text-content-muted">{t('symptomTracker.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -362,7 +367,7 @@ export function SymptomTrackerPage() {
       )}
 
       {/* Add New Button */}
-      <button
+      <button type="button"
         onClick={() => setShowAddModal(true)}
         className="w-full bg-gradient-to-r from-primary-700 to-primary-800 text-white rounded-2xl p-6 flex items-center justify-center gap-3 hover:from-primary-800 hover:to-primary-900 transition-all"
       >
@@ -394,7 +399,7 @@ export function SymptomTrackerPage() {
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getSeverityColor(entry.severity)}`}>
                     {getSeverityLabel(entry.severity)}
                   </span>
-                  <button
+                  <button type="button"
                     onClick={() => deleteEntry(entry.id)}
                     className="p-1 text-content-muted hover:text-red-500 transition-colors"
                     aria-label={t('symptomTracker.retractEntry')}
@@ -484,7 +489,7 @@ export function SymptomTrackerPage() {
             <div className="sticky top-0 bg-surface p-4 border-b border-border">
               <div className="flex items-center justify-between">
                 <h2 id="symptom-tracker-dialog-title" className="text-lg font-semibold text-content">{t('symptomTracker.logSymptom')}</h2>
-                <button
+                <button type="button"
                   onClick={() => {
                     setShowAddModal(false);
                     setSelectedCategory(null);
@@ -503,7 +508,7 @@ export function SymptomTrackerPage() {
               {!selectedCategory ? (
                 <div className="grid grid-cols-2 gap-3">
                   {categories.map(category => (
-                    <button
+                    <button type="button"
                       key={category.id}
                       onClick={() => {
                         setSelectedCategory(category.id);
@@ -527,7 +532,7 @@ export function SymptomTrackerPage() {
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       {categories.find(c => c.id === selectedCategory)?.symptoms.map(symptom => (
-                        <button
+                        <button type="button"
                           key={symptom}
                           onClick={() => setNewEntry(prev => ({ ...prev, symptom }))}
                           className={`p-3 border-2 rounded-lg text-sm font-medium transition-colors ${
@@ -549,7 +554,7 @@ export function SymptomTrackerPage() {
                     </label>
                     <div className="flex gap-2">
                       {[1, 2, 3, 4, 5].map(level => (
-                        <button
+                        <button type="button"
                           key={level}
                           onClick={() => setNewEntry(prev => ({ ...prev, severity: level }))}
                           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
@@ -596,16 +601,15 @@ export function SymptomTrackerPage() {
 
                   {/* Actions */}
                   <div className="flex gap-3 pt-2">
-                    <button
+                    <button type="button"
                       onClick={() => setSelectedCategory(null)}
                       className="flex-1 py-3 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken"
                     >
                       {t('common.back')}
                     </button>
-                    <button
-                      onClick={addEntry}
-                      disabled={!newEntry.symptom}
-                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                    <button type="submit"
+                     
+                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand"
                     >
                       {t('symptomTracker.saveEntry')}
                     </button>
@@ -616,5 +620,6 @@ export function SymptomTrackerPage() {
           </ModalPanel>
       )}
     </div>
+    </form>
   );
 }

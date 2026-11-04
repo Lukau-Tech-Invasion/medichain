@@ -12,6 +12,51 @@ use sha3::{Digest, Sha3_256};
 // Helper Functions
 // ============================================================================
 
+/// Header a device sends when replaying a record written without signal: the
+/// moment it was written, as RFC 3339.
+pub const OFFLINE_RECORDED_AT_HEADER: &str = "x-offline-recorded-at";
+
+/// Longest a record may wait on a device and still keep its written time.
+const OFFLINE_RECORDED_AT_MAX_HOURS: i64 = 72;
+
+/// Clock skew tolerated between a device and the server.
+const OFFLINE_RECORDED_AT_SKEW_MINUTES: i64 = 5;
+
+/// When the clinical event a request records happened.
+///
+/// A blood pressure taken at 09:10 without signal and sent at 12:40 happened at
+/// 09:10; stamping it 12:40 puts it after the medicine given at 11:00 and the
+/// flowsheet then tells the wrong story. A replayed request therefore names its
+/// written time in [`OFFLINE_RECORDED_AT_HEADER`].
+///
+/// The header is honoured only inside a window — not in the future beyond clock
+/// skew, not older than 72 hours — so it cannot be used to backdate a record
+/// freely. Anything else is ignored and the server's own time is used. The
+/// audit trail is untouched: access-log rows always carry the server's time, so
+/// when the record reached the server stays provable.
+pub fn clinical_time(req: &HttpRequest) -> chrono::DateTime<Utc> {
+    let now = Utc::now();
+    let claimed = req
+        .headers()
+        .get(OFFLINE_RECORDED_AT_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+        .map(|time| time.with_timezone(&Utc));
+    match claimed {
+        Some(time)
+            if time <= now + chrono::Duration::minutes(OFFLINE_RECORDED_AT_SKEW_MINUTES)
+                && time >= now - chrono::Duration::hours(OFFLINE_RECORDED_AT_MAX_HOURS) =>
+        {
+            time.min(now)
+        }
+        Some(_) => {
+            log::warn!("offline recorded-at outside the accepted window; server time used");
+            now
+        }
+        None => now,
+    }
+}
+
 /// Persist an audit record required before a handler may report success or
 /// release protected health information.
 ///
@@ -1278,5 +1323,47 @@ mod access_alert_rule_tests {
         let mut e = entry("download_record", false, "5Doctor");
         e.patient_id = None;
         assert!(access_alert_for(&e, false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod clinical_time_tests {
+    //! A record replayed from a device keeps its written time, inside a window.
+    use super::{clinical_time, OFFLINE_RECORDED_AT_HEADER};
+    use actix_web::test::TestRequest;
+    use chrono::{Duration, Utc};
+
+    fn at(claimed: &str) -> chrono::DateTime<Utc> {
+        clinical_time(
+            &TestRequest::default()
+                .insert_header((OFFLINE_RECORDED_AT_HEADER, claimed))
+                .to_http_request(),
+        )
+    }
+
+    #[test]
+    fn a_reading_written_hours_ago_keeps_that_time() {
+        let written = Utc::now() - Duration::hours(3);
+        assert_eq!(at(&written.to_rfc3339()).timestamp(), written.timestamp());
+    }
+
+    #[test]
+    fn the_header_cannot_backdate_past_the_window_or_postdate() {
+        let now = Utc::now();
+        let too_old = at(&(now - Duration::hours(73)).to_rfc3339());
+        let future = at(&(now + Duration::hours(2)).to_rfc3339());
+        let garbage = at("yesterday afternoon");
+        for time in [too_old, future, garbage] {
+            assert!(
+                (time - now).num_seconds().abs() < 5,
+                "server time used, got {time}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_the_header_it_is_now() {
+        let time = clinical_time(&TestRequest::default().to_http_request());
+        assert!((time - Utc::now()).num_seconds().abs() < 5);
     }
 }

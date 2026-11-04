@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, useTranslation, type TraumaListRow } from '@medichain/shared';
+import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, notifySuccess, useTranslation, type TraumaListRow, ChoiceChips, submitOnce, useSubmission } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   AlertCircle,
@@ -12,11 +11,12 @@ import {
   History
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 
 export default function TraumaPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
   // The roster this page fetched existed only to fill a patient dropdown.
@@ -27,6 +27,8 @@ export default function TraumaPage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<TraumaListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const submission = useSubmission('trauma');
   
   // Trauma Form State
   const [traumaType, setTraumaType] = useState('blunt');
@@ -51,6 +53,7 @@ export default function TraumaPage() {
     try {
       await getPatients();
     } catch (error) {
+      // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
       console.error('Failed to load patients', error);
     }
   };
@@ -58,10 +61,13 @@ export default function TraumaPage() {
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
       setEmergencyHistory(await getPatientTraumas(patientId));
-    } catch (e) {
-      console.error('Failed to fetch emergency history', e);
+    } catch {
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docTrauma.errorLoadHistory'));
     } finally {
       setHistoryLoading(false);
     }
@@ -69,7 +75,8 @@ export default function TraumaPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatient) return;
+    // Said in words; the button is no longer greyed out to mean "choose a patient".
+    if (!selectedPatient) { showError(t('docTrauma.errorSelectPatient')); return; }
 
     try {
       const traumaData = {
@@ -95,8 +102,11 @@ export default function TraumaPage() {
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
-      await createTrauma(traumaData);
-      navigate('/dashboard');
+      // One record per event: a double click or a retry is the same submission.
+      const saved = await submitOnce(submission, traumaData, () => createTrauma(traumaData));
+      if (saved === 'busy') return;
+      notifySuccess(t(saved === 'saved' ? 'forms.saved' : saved === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
+      returnAfterSave();
     } catch (error) {
       console.error('Failed to save trauma assessment', error);
       showError(t('docTrauma.saveFailed'));
@@ -143,6 +153,8 @@ export default function TraumaPage() {
             </h3>
             {historyLoading ? (
               <p className="text-content-muted text-sm">{t('docTrauma.loadingHistory')}</p>
+            ) : historyError ? (
+              <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
             ) : emergencyHistory.length === 0 ? (
               <p className="text-content-muted text-sm italic">{t('docTrauma.noEvents')}</p>
             ) : (
@@ -180,18 +192,18 @@ export default function TraumaPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="trauma-type" className="block text-sm font-medium text-content-secondary">{t('docTrauma.traumaType')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-type"
-                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                label={t('docTrauma.traumaType')}
                 value={traumaType}
-                onChange={(e) => setTraumaType(e.target.value)}
-              >
-                <option value="blunt">{t('docTrauma.typeBlunt')}</option>
-                <option value="penetrating">{t('docTrauma.typePenetrating')}</option>
-                <option value="burn">{t('docTrauma.typeBurn')}</option>
-                <option value="blast">{t('docTrauma.typeBlast')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setTraumaType(next); }}
+                options={[
+                  { value: 'blunt', label: t('docTrauma.typeBlunt') },
+                  { value: 'penetrating', label: t('docTrauma.typePenetrating') },
+                  { value: 'burn', label: t('docTrauma.typeBurn') },
+                  { value: 'blast', label: t('docTrauma.typeBlast') },
+                ]}
+              />
             </div>
             <div>
               <label htmlFor="trauma-mechanism" className="block text-sm font-medium text-content-secondary">{t('docTrauma.mechanism')}</label>
@@ -240,78 +252,78 @@ export default function TraumaPage() {
           </h3>
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-airway" className="font-medium text-content-secondary">{t('docTrauma.airway')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-airway"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                label={t('docTrauma.airway')}
                 value={airway}
-                onChange={(e) => setAirway(e.target.value)}
-              >
-                <option value="patent">{t('docTrauma.airwayPatent')}</option>
-                <option value="obstructed">{t('docTrauma.airwayObstructed')}</option>
-                <option value="intubated">{t('docTrauma.airwayIntubated')}</option>
-                <option value="c-spine">{t('docTrauma.airwayCSpine')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setAirway(next); }}
+                options={[
+                  { value: 'patent', label: t('docTrauma.airwayPatent') },
+                  { value: 'obstructed', label: t('docTrauma.airwayObstructed') },
+                  { value: 'intubated', label: t('docTrauma.airwayIntubated') },
+                  { value: 'c-spine', label: t('docTrauma.airwayCSpine') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-breathing" className="font-medium text-content-secondary">{t('docTrauma.breathing')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-breathing"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                label={t('docTrauma.breathing')}
                 value={breathing}
-                onChange={(e) => setBreathing(e.target.value)}
-              >
-                <option value="spontaneous">{t('docTrauma.breathingSpontaneous')}</option>
-                <option value="labored">{t('docTrauma.breathingLabored')}</option>
-                <option value="absent">{t('docTrauma.breathingAbsent')}</option>
-                <option value="ventilated">{t('docTrauma.breathingVentilated')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setBreathing(next); }}
+                options={[
+                  { value: 'spontaneous', label: t('docTrauma.breathingSpontaneous') },
+                  { value: 'labored', label: t('docTrauma.breathingLabored') },
+                  { value: 'absent', label: t('docTrauma.breathingAbsent') },
+                  { value: 'ventilated', label: t('docTrauma.breathingVentilated') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-circulation" className="font-medium text-content-secondary">{t('docTrauma.circulation')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-circulation"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                label={t('docTrauma.circulation')}
                 value={circulation}
-                onChange={(e) => setCirculation(e.target.value)}
-              >
-                <option value="stable">{t('docTrauma.circStable')}</option>
-                <option value="tachycardic">{t('docTrauma.circTachycardic')}</option>
-                <option value="weak">{t('docTrauma.circWeak')}</option>
-                <option value="absent">{t('docTrauma.circAbsent')}</option>
-                <option value="hemorrhage">{t('docTrauma.circHemorrhage')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setCirculation(next); }}
+                options={[
+                  { value: 'stable', label: t('docTrauma.circStable') },
+                  { value: 'tachycardic', label: t('docTrauma.circTachycardic') },
+                  { value: 'weak', label: t('docTrauma.circWeak') },
+                  { value: 'absent', label: t('docTrauma.circAbsent') },
+                  { value: 'hemorrhage', label: t('docTrauma.circHemorrhage') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-disability" className="font-medium text-content-secondary">{t('docTrauma.disability')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-disability"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                label={t('docTrauma.disability')}
                 value={disability}
-                onChange={(e) => setDisability(e.target.value)}
-              >
-                <option value="alert">{t('docTrauma.disAlert')}</option>
-                <option value="voice">{t('docTrauma.disVoice')}</option>
-                <option value="pain">{t('docTrauma.disPain')}</option>
-                <option value="unresponsive">{t('docTrauma.disUnresponsive')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setDisability(next); }}
+                options={[
+                  { value: 'alert', label: t('docTrauma.disAlert') },
+                  { value: 'voice', label: t('docTrauma.disVoice') },
+                  { value: 'pain', label: t('docTrauma.disPain') },
+                  { value: 'unresponsive', label: t('docTrauma.disUnresponsive') },
+                ]}
+              />
             </div>
             {/* E — Exposure. A, B, C and D each had a control; this did not, so
                 every primary survey narrative recorded "E: none" regardless of
                 what was found. */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-exposure" className="font-medium text-content-secondary">{t('docTrauma.exposure')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-exposure"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                label={t('docTrauma.exposure')}
                 value={exposure}
-                onChange={(e) => setExposure(e.target.value)}
-              >
-                <option value="none">{t('docTrauma.expNone')}</option>
-                <option value="log-rolled">{t('docTrauma.expLogRolled')}</option>
-                <option value="fully-exposed">{t('docTrauma.expFullyExposed')}</option>
-                <option value="hypothermia-risk">{t('docTrauma.expHypothermia')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setExposure(next); }}
+                options={[
+                  { value: 'none', label: t('docTrauma.expNone') },
+                  { value: 'log-rolled', label: t('docTrauma.expLogRolled') },
+                  { value: 'fully-exposed', label: t('docTrauma.expFullyExposed') },
+                  { value: 'hypothermia-risk', label: t('docTrauma.expHypothermia') },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -331,8 +343,8 @@ export default function TraumaPage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={!selectedPatient}
-            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
+            aria-disabled={submission.status === 'saving' || undefined}
+            className="aria-disabled:cursor-wait flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
           >
             <Save className="h-5 w-5 mr-2" />
             {t('docTrauma.saveAssessment')}

@@ -16,7 +16,8 @@ import {
   formatTimestamp,
   notifySuccess,
   updateNoteTemplate,
-  copyTextToClipboard,
+  copyTextToClipboard, ChoiceChips,
+  keepEnterInField
 } from '@medichain/shared';
 import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw, Pencil, ClipboardCopy, FilePlus } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
@@ -682,6 +683,7 @@ const NoteTemplatesPage: React.FC = () => {
         <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold text-content mb-6">{t('docNoteTemplates.createNewTemplateHeading')}</h2>
 
+          <form onSubmit={(event) => { event.preventDefault(); void handleCreateTemplate(); }} onKeyDown={keepEnterInField} noValidate>
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -720,22 +722,20 @@ const NoteTemplatesPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="notetmpl-category" className="block text-sm font-medium text-content-secondary mb-2">
-                  {t('docNoteTemplates.categoryRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="notetmpl-category"
+                  label={t('docNoteTemplates.categoryRequired')}
                   value={newTemplate.category}
-                  onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value as TemplateCategory })}
-                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
-                  <option value="general">{t('docNoteTemplates.category_general')}</option>
-                  <option value="emergency">{t('docNoteTemplates.category_emergency')}</option>
-                  <option value="surgery">{t('docNoteTemplates.category_surgery')}</option>
-                  <option value="medicine">{t('docNoteTemplates.category_medicine')}</option>
-                  <option value="pediatrics">{t('docNoteTemplates.category_pediatrics')}</option>
-                  <option value="psychiatry">{t('docNoteTemplates.category_psychiatry')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewTemplate({ ...newTemplate, category: next as TemplateCategory }); }}
+                  options={[
+                    { value: 'general', label: t('docNoteTemplates.category_general') },
+                    { value: 'emergency', label: t('docNoteTemplates.category_emergency') },
+                    { value: 'surgery', label: t('docNoteTemplates.category_surgery') },
+                    { value: 'medicine', label: t('docNoteTemplates.category_medicine') },
+                    { value: 'pediatrics', label: t('docNoteTemplates.category_pediatrics') },
+                    { value: 'psychiatry', label: t('docNoteTemplates.category_psychiatry') },
+                  ]}
+                />
               </div>
               <div>
                 <label htmlFor="notetmpl-tags" className="block text-sm font-medium text-content-secondary mb-2">{t('docNoteTemplates.tagsFieldLabel')}</label>
@@ -836,7 +836,7 @@ const NoteTemplatesPage: React.FC = () => {
                       className="w-full px-3 py-2 border border-border-interactive rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm"
                     />
                   </div>
-                  <button
+                  <button type="button"
                     onClick={handleAddSectionToTemplate}
                     className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                   >
@@ -848,8 +848,7 @@ const NoteTemplatesPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end pt-4 border-t border-border">
-              <button
-                onClick={handleCreateTemplate}
+              <button type="submit"
                 className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-semibold flex items-center gap-2"
               >
                 <Plus className="w-5 h-5" />
@@ -857,6 +856,7 @@ const NoteTemplatesPage: React.FC = () => {
               </button>
             </div>
           </div>
+          </form>
         </div>
       )}
 

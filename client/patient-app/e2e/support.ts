@@ -217,13 +217,13 @@ export const ROUTES = [
   // product: it is read by a stranger, in a hurry, on someone else's phone,
   // about a patient who may be unconscious.
   { path: '/emergency-card', name: 'Emergency card' },
-  { path: '/medical-id', name: 'Medical ID' },
+  { path: '/emergency-card?view=medical-id', name: 'Medical ID' },
   { path: '/medications', name: 'Medications' },
   { path: '/lab-results', name: 'Lab results' },
   { path: '/vitals', name: 'Vitals' },
   { path: '/dashboard', name: 'Dashboard' },
   { path: '/records', name: 'My records' },
-  { path: '/consent', name: 'Consent' },
+  { path: '/privacy', name: 'Consent' },
   { path: '/appointments', name: 'Appointments' },
   { path: '/settings', name: 'Settings' },
 ];

@@ -46,6 +46,7 @@ import {
   Save,
   CheckCircle,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface NotificationSettings {
   emailNotifications: boolean;
@@ -230,6 +231,8 @@ export function SettingsPage() {
   };
 
   const confirmMfaEnrollment = async () => {
+    if (mfaBusy) return;
+    if (!mfaCode.trim()) { setMfaError(t('settings.errCodeRequired')); return; }
     setMfaError(null);
     setMfaNotice(null);
     setMfaBusy(true);
@@ -392,7 +395,7 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('settings.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('settings.title')}</PageTitle>
           <p className="text-content-muted">{t('settings.subtitle')}</p>
         </div>
         <button
@@ -478,6 +481,7 @@ export function SettingsPage() {
             )}
 
             {mfaSecret && (
+              <form onSubmit={(event) => { event.preventDefault(); void confirmMfaEnrollment(); }} noValidate>
               <div className="mt-3 space-y-3">
                 <p className="text-sm text-content-secondary">{t('settings.mfaScanInstruction')}</p>
                 {mfaQr && <img src={`data:image/png;base64,${mfaQr}`} alt={t('settings.mfaQrAlt')} className="h-40 w-40 rounded-lg border border-border bg-surface" />}
@@ -486,10 +490,11 @@ export function SettingsPage() {
                   <label htmlFor="mfa-enrollment-code" className="mb-1 block text-sm font-medium text-content">{t('settings.mfaCodeLabel')}</label>
                   <input id="mfa-enrollment-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} className="w-40 rounded-lg border border-border-interactive px-3 py-2" />
                 </div>
-                <button type="button" onClick={confirmMfaEnrollment} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                <button type="submit" aria-disabled={mfaBusy || undefined} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg">
                   {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaConfirm')}
                 </button>
               </div>
+              </form>
             )}
 
             {mfaEnrolled === true && (

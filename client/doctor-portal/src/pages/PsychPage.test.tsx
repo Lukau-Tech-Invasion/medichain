@@ -5,6 +5,7 @@ import PsychPage from './PsychPage';
 import { selectPatient } from '../test/selectPatient';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { fillField, fieldValue } from '../test/fields';
 
 const notices = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock('../components/Toast', () => ({ useToastActions: () => notices }));
@@ -79,7 +80,7 @@ describe('PsychPage', () => {
     vi.mocked(shared.createPsych).mockResolvedValue({ success: true } as never);
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Prior attempts:' }), { target: { value: String(count) } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     expect(shared.createPsych).not.toHaveBeenCalled();
@@ -92,7 +93,7 @@ describe('PsychPage', () => {
     vi.mocked(shared.createPsych).mockResolvedValue({ success: true } as never);
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Frequency 1' }), { target: { value: 'Synthetic unspecified' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
@@ -105,13 +106,13 @@ describe('PsychPage', () => {
     vi.mocked(shared.getPatients).mockResolvedValue([patientProfile({ full_name: 'Stored Patient' })]);
     vi.mocked(shared.createPsych).mockResolvedValue({ success: true } as never);
     render(<PsychPage />);
-    expect(screen.getByRole('combobox', { name: 'Suicidal ideation' })).toHaveValue('');
-    expect(screen.getByRole('combobox', { name: 'Legal Status' })).toHaveValue('');
+    expect(fieldValue('Suicidal ideation')).toBe('');
+    expect(fieldValue('Legal Status')).toBe('');
     expect(screen.getByRole('spinbutton', { name: 'Prior attempts:' })).toHaveValue(null);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Suicidal ideation' }), { target: { value: 'false' } });
+    fillField('Suicidal ideation', 'false');
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Prior attempts:' }), { target: { value: '0' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     await waitFor(() => expect(shared.createPsych).toHaveBeenCalled());
     expect(shared.createPsych).toHaveBeenCalledWith(expect.objectContaining({
@@ -128,7 +129,7 @@ describe('PsychPage', () => {
     vi.mocked(shared.createPsych).mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     const save = screen.getByRole('button', { name: 'Save Assessment' });
     try {
       act(() => { fireEvent.click(save); fireEvent.click(save); });
@@ -145,8 +146,8 @@ describe('PsychPage', () => {
     expect(shared.createPsych).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'New assessment' }));
     expect(save).toBeEnabled();
-    expect(screen.getByRole('combobox', { name: 'Disposition' })).toHaveValue('');
-    expect(screen.getByRole('combobox', { name: 'Suicidal ideation' })).toHaveValue('');
+    expect(fieldValue('Disposition')).toBe('');
+    expect(fieldValue('Suicidal ideation')).toBe('');
   });
 
   it('reuses the complete payload and operation key when retrying an unchanged failed draft', async () => {
@@ -155,7 +156,7 @@ describe('PsychPage', () => {
       .mockResolvedValueOnce({ success: true } as never);
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Your draft is retained');
     const original = vi.mocked(shared.createPsych).mock.calls[0];
@@ -179,7 +180,7 @@ describe('PsychPage', () => {
     });
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Save could not be confirmed');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
@@ -200,7 +201,7 @@ describe('PsychPage', () => {
     });
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Save could not be confirmed');
     expect(screen.queryByRole('button', { name: 'New assessment' })).not.toBeInTheDocument();
@@ -215,7 +216,7 @@ describe('PsychPage', () => {
     });
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     await waitFor(() => expect(notices.showError).toHaveBeenCalledWith(expect.stringContaining('was saved, but history')));
     expect(screen.getByRole('alert')).toHaveTextContent('was saved, but history');
@@ -234,7 +235,7 @@ describe('PsychPage', () => {
     vi.mocked(shared.createPsych).mockRejectedValue(new Error('Synthetic save refusal'));
     render(<PsychPage />);
     await selectPatient(/Patient/i, 'Stored Patient', 'psych-patient');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.change(screen.getByRole('textbox', { name: 'Chief Complaint' }), { target: { value: 'Fictional retained draft' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Your draft is retained');
@@ -336,7 +337,7 @@ describe('PsychPage', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Substance 1' }), { target: { value: 'Fictional caffeine' } });
     fireEvent.click(screen.getByRole('checkbox', { name: 'Generalized Anxiety Disorder' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Follow-up appointment scheduled' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Disposition' }), { target: { value: 'outpatient' } });
+    fillField('Disposition', 'outpatient');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
     await waitFor(() => expect(shared.createPsych).toHaveBeenCalled());
     expect(stored).toEqual(expect.objectContaining({

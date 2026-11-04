@@ -141,8 +141,8 @@ test('telehealth offers the session types the API accepts', async ({ page }) => 
   // one fell through to a video visit and the list then rendered the stored
   // `VideoVisit` as a raw enum name. These are the API's own spellings.
   const values = await select
-    .locator('option')
-    .evaluateAll((options) => options.map((o) => (o as HTMLOptionElement).value));
+    .locator('option, input[type=radio]')
+    .evaluateAll((options) => options.map((o) => (o as HTMLInputElement).value));
   expect(values).toContain('VideoVisit');
   expect(values).toContain('PhoneCall');
   expect(

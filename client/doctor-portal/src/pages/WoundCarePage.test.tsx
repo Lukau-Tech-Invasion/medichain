@@ -146,7 +146,7 @@ describe('WoundCarePage', () => {
 
     const select = await screen.findByLabelText(/Wound Type/i);
     expect(select).toHaveValue('');
-    expect(screen.getByLabelText('Exudate')).toHaveValue('');
+    expect(screen.getByRole('group', { name: 'Exudate' }).querySelector('input:checked')).toBeNull();
     fireEvent.change(select, { target: { value: 'pressure-ulcer' } });
     expect(select).toHaveValue('pressure-ulcer');
   });

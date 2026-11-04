@@ -123,6 +123,8 @@ pub(crate) struct FluidEvent<'a> {
     pub label: Option<&'a str>,
     pub notes: Option<&'a str>,
     pub amount_ml: i32,
+    /// When the fluid was given or measured (`support::clinical_time`).
+    pub recorded_at: chrono::DateTime<Utc>,
 }
 
 /// Which column a fluid belongs in, and whether it is an output.
@@ -164,6 +166,7 @@ pub(crate) async fn append_io_event(
         label,
         notes,
         amount_ml,
+        recorded_at,
     } = fluid;
 
     // Strip a legacy `intake:`/`output:` prefix rather than failing to match it.
@@ -175,7 +178,9 @@ pub(crate) async fn append_io_event(
     };
     let stated = direction.or(prefix);
 
-    let today = Utc::now().date_naive();
+    // The day the fluid belongs to is the day it was given, which for a
+    // record sent late from a device without signal is not the day it arrived.
+    let today = recorded_at.date_naive();
     let now = Utc::now();
     let event = serde_json::json!({
         "category": bare,
@@ -183,7 +188,7 @@ pub(crate) async fn append_io_event(
         "notes": notes,
         "amount_ml": amount_ml,
         "recorded_by": recorded_by,
-        "recorded_at": now.to_rfc3339(),
+        "recorded_at": recorded_at.to_rfc3339(),
     });
 
     let existing = data

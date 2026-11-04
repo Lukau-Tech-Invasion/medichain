@@ -233,6 +233,7 @@ export default function AppointmentSchedulerPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     try {
       // No provider_id: the server derives it from the session. Sending one
@@ -388,8 +389,8 @@ export default function AppointmentSchedulerPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={submitting}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+                aria-disabled={submitting || undefined}
+                className="aria-disabled:cursor-wait bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center gap-2"
               >
                 {submitting && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
                 {t('docAppointments.book')}

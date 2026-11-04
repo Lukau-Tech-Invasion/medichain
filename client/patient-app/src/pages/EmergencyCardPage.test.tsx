@@ -16,13 +16,7 @@ vi.mock('../store/authStore', () => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getEmergencyCapsuleAccessLog: vi.fn(),
-}));
-
-// Generate a deterministic data URL so the QR <img> renders predictably.
-vi.mock('qrcode', () => ({
-  default: {
-    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QRMOCK'),
-  },
+  getMedicalIdQr: vi.fn(),
 }));
 
 // Mock fetch
@@ -53,6 +47,7 @@ const storeState = {
 describe('EmergencyCardPage (Patient)', () => {
 
   beforeEach(() => {
+    vi.mocked(shared.getMedicalIdQr).mockResolvedValue({ qr_image_base64: 'QRMOCK' });
     vi.mocked(shared.getEmergencyCapsuleAccessLog).mockResolvedValue({
       success: true,
       patient_id: mockPatientId,
@@ -124,13 +119,26 @@ describe('EmergencyCardPage (Patient)', () => {
       .toBeInTheDocument();
   });
 
-  it('renders a real scannable QR code image', async () => {
+  it('shows the Medical ID code the paramedic scanner reads, for this patient', async () => {
+    // This page used to draw its own code, which the scanner refused as "not a
+    // MediChain code". The one shown now is the server's Medical ID code.
     renderPage();
 
     await waitFor(() => {
       const img = screen.getByRole('img', { name: /emergency medical qr code/i });
       expect(img).toHaveAttribute('src', 'data:image/png;base64,QRMOCK');
     });
+    expect(shared.getMedicalIdQr).toHaveBeenCalledWith(mockPatientId);
+  });
+
+  it('downloads that same code', async () => {
+    renderPage();
+    const button = await screen.findByRole('button', { name: /Download QR Code/i });
+    await waitFor(() => expect(button).toBeEnabled());
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    button.click();
+    expect(download).toHaveBeenCalledOnce();
+    download.mockRestore();
   });
 
   it('shows critical medical info including allergies', async () => {

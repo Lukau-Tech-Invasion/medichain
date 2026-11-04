@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Scale,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 type VitalReading = PatientVitalReading;
 
@@ -182,7 +183,7 @@ export function VitalsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('vitals.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('vitals.title')}</PageTitle>
           <p className="text-content-muted">{t('vitals.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">

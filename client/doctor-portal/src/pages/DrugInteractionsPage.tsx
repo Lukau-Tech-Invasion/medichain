@@ -7,7 +7,8 @@ import {
   LoadingSpinner,
   formatTimestamp,
   checkDrugInteractions,
-  getDrugInteractionHistory,
+  getDrugInteractionHistory, ChoiceChips,
+  keepEnterInField,
 } from '@medichain/shared';
 import {
   AlertTriangle,
@@ -240,6 +241,7 @@ const DrugInteractionsPage: React.FC = () => {
 
   // Interaction Database - fetched from API
   const [interactionDatabase, setInteractionDatabase] = useState<Interaction[]>([]);
+  const [databaseError, setDatabaseError] = useState('');
 
   // Load interaction database from API
   useEffect(() => {
@@ -253,8 +255,8 @@ const DrugInteractionsPage: React.FC = () => {
         if (data.success && data.interactions) {
           setInteractionDatabase(data.interactions);
         }
-      } catch (err) {
-        console.error('Failed to load interaction database:', err);
+      } catch {
+        setDatabaseError(t('docDrugInteractions.errorLoadDatabase'));
       }
     };
     
@@ -293,6 +295,7 @@ const DrugInteractionsPage: React.FC = () => {
   };
 
   const handleCheckInteractions = async () => {
+    if (isChecking) return;
     if (!user?.userId) return;
     
     setIsChecking(true);
@@ -542,6 +545,7 @@ const DrugInteractionsPage: React.FC = () => {
 
       {/* Checker Tab */}
       {activeTab === 'checker' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCheckInteractions(); }} onKeyDown={keepEnterInField} noValidate>
         <div className="space-y-6">
           {/* Drug Selection */}
           <div className="bg-surface rounded-lg shadow p-6">
@@ -562,7 +566,7 @@ const DrugInteractionsPage: React.FC = () => {
               {searchResults.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-surface border border-border-strong rounded-lg shadow-lg max-h-64 overflow-y-auto">
                   {searchResults.map((drug) => (
-                    <button
+                    <button type="button"
                       key={drug.drugId}
                       onClick={() => handleAddDrug(drug)}
                       className="w-full text-left px-4 py-3 hover:bg-surface-sunken transition-colors border-b last:border-b-0"
@@ -599,7 +603,7 @@ const DrugInteractionsPage: React.FC = () => {
                           <div className="text-sm text-content-muted">{drug.drugClass}</div>
                         </div>
                       </div>
-                      <button
+                      <button type="button"
                         onClick={() => handleRemoveDrug(drug.drugId)}
                         className="p-1 text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
                         aria-label={`Remove ${drug.name}`}
@@ -621,10 +625,9 @@ const DrugInteractionsPage: React.FC = () => {
             {/* Action Buttons */}
             {selectedDrugs.length >= 2 && (
               <div className="flex gap-3 mt-6">
-                <button
-                  onClick={handleCheckInteractions}
-                  disabled={isChecking}
-                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                <button type="submit"
+                  aria-disabled={isChecking || undefined}
+                  className="aria-disabled:cursor-wait flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   {isChecking ? (
                     <>
@@ -638,7 +641,7 @@ const DrugInteractionsPage: React.FC = () => {
                     </>
                   )}
                 </button>
-                <button
+                <button type="button"
                   onClick={handleClearDrugs}
                   className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                 >
@@ -713,29 +716,31 @@ const DrugInteractionsPage: React.FC = () => {
                 </h2>
                 {interactions.length > 0 && (
                   <div className="flex gap-2">
-                    <select aria-label={t('common.filterBySeverity')}
+                    <ChoiceChips
+                      label={t('common.filterBySeverity')}
                       value={severityFilter}
-                      onChange={(e) => setSeverityFilter(e.target.value as InteractionSeverity | 'all')}
-                      className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                    >
-                      <option value="all">{t('docDrugInteractions.filterAllSeverities')}</option>
-                      <option value="contraindicated">{t('docDrugInteractions.severity_contraindicated')}</option>
-                      <option value="major">{t('docDrugInteractions.severity_major')}</option>
-                      <option value="moderate">{t('docDrugInteractions.severity_moderate')}</option>
-                      <option value="minor">{t('docDrugInteractions.severity_minor')}</option>
-                    </select>
-                    <select aria-label={t('common.filterByType')}
+                      onChange={(next) => { if (next === undefined) return; setSeverityFilter(next as InteractionSeverity | 'all'); }}
+                      options={[
+                        { value: 'all', label: t('docDrugInteractions.filterAllSeverities') },
+                        { value: 'contraindicated', label: t('docDrugInteractions.severity_contraindicated') },
+                        { value: 'major', label: t('docDrugInteractions.severity_major') },
+                        { value: 'moderate', label: t('docDrugInteractions.severity_moderate') },
+                        { value: 'minor', label: t('docDrugInteractions.severity_minor') },
+                      ]}
+                    />
+                    <ChoiceChips
+                      label={t('common.filterByType')}
                       value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value as InteractionType | 'all')}
-                      className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                    >
-                      <option value="all">{t('docDrugInteractions.filterAllTypes')}</option>
-                      <option value="drug-drug">{t('docDrugInteractions.type_drug-drug')}</option>
-                      <option value="drug-allergy">{t('docDrugInteractions.type_drug-allergy')}</option>
-                      <option value="drug-condition">{t('docDrugInteractions.type_drug-condition')}</option>
-                      <option value="drug-food">{t('docDrugInteractions.type_drug-food')}</option>
-                      <option value="drug-lab">{t('docDrugInteractions.type_drug-lab')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setTypeFilter(next as InteractionType | 'all'); }}
+                      options={[
+                        { value: 'all', label: t('docDrugInteractions.filterAllTypes') },
+                        { value: 'drug-drug', label: t('docDrugInteractions.type_drug-drug') },
+                        { value: 'drug-allergy', label: t('docDrugInteractions.type_drug-allergy') },
+                        { value: 'drug-condition', label: t('docDrugInteractions.type_drug-condition') },
+                        { value: 'drug-food', label: t('docDrugInteractions.type_drug-food') },
+                        { value: 'drug-lab', label: t('docDrugInteractions.type_drug-lab') },
+                      ]}
+                    />
                   </div>
                 )}
               </div>
@@ -798,7 +803,7 @@ const DrugInteractionsPage: React.FC = () => {
                             </div>
                             <p className="text-content-secondary mb-2">{interaction.description}</p>
                           </div>
-                          <button
+                          <button type="button"
                             onClick={() => toggleInteractionExpansion(interaction.interactionId)}
                             className="ml-4 p-2 text-content-muted hover:bg-surface rounded-lg transition-colors"
                           >
@@ -914,6 +919,7 @@ const DrugInteractionsPage: React.FC = () => {
             </div>
           )}
         </div>
+        </form>
       )}
 
       {/* History Tab */}
@@ -1005,6 +1011,9 @@ const DrugInteractionsPage: React.FC = () => {
             <p className="text-content-muted mb-4">
               {t('docDrugInteractions.databaseSubtitle')}
             </p>
+            {databaseError && (
+              <p role="alert" className="mb-4 text-sm text-critical-subtle-fg">{databaseError}</p>
+            )}
 
             <div className="space-y-3">
               {interactionDatabase.map((interaction) => (

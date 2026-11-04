@@ -46,6 +46,13 @@ export interface PromptDialogOptions {
   defaultValue?: string;
   /** Refuse to submit an empty or whitespace-only answer. */
   required?: boolean;
+  /**
+   * The usual answers, offered as one-tap choices above the text box, which
+   * stays for anything else. A reason with a known short list should not be
+   * typed every time (ONC pick-list report); the free text keeps the rare one
+   * possible. The answer is the chosen text, so callers do not change.
+   */
+  choices?: readonly string[];
 }
 
 type DialogRequest = { id: number } & (
@@ -117,12 +124,19 @@ function ActiveDialog({ request }: { request: DialogRequest }) {
   const destructive = !isPrompt && (options as ConfirmDialogOptions).destructive === true;
   const [value, setValue] = useState(promptOptions?.defaultValue ?? '');
   const blocked = Boolean(promptOptions?.required) && value.trim() === '';
+  const [showRequired, setShowRequired] = useState(false);
+  const requiredId = useId();
 
   const initialFocus = isPrompt ? inputRef : destructive ? cancelRef : confirmRef;
 
   const cancel = () => settle(request, isPrompt ? null : false);
   const submit = () => {
-    if (blocked) return;
+    if (blocked) {
+      // Said in words; a greyed-out OK could not say why it refused.
+      setShowRequired(true);
+      inputRef.current?.focus();
+      return;
+    }
     settle(request, isPrompt ? value : true);
   };
 
@@ -151,6 +165,24 @@ function ActiveDialog({ request }: { request: DialogRequest }) {
         {isPrompt ? (
           <label id={messageId} className="block text-sm text-content-secondary">
             {options.message}
+            {promptOptions?.choices && promptOptions.choices.length > 0 && (
+              <span role="group" aria-label={options.message} className="mt-2 flex flex-wrap gap-2">
+                {promptOptions.choices.map((choice) => (
+                  <button
+                    key={choice}
+                    type="button"
+                    aria-pressed={value === choice}
+                    onClick={() => setValue(value === choice ? '' : choice)}
+                    className="min-h-[44px] rounded-lg border border-border-interactive px-3 text-sm text-content hover:bg-surface-sunken aria-pressed:border-brand aria-pressed:bg-selected aria-pressed:text-selected-fg"
+                  >
+                    {choice}
+                  </button>
+                ))}
+              </span>
+            )}
+            {promptOptions?.choices && promptOptions.choices.length > 0 && (
+              <span className="mt-3 block text-sm text-content-muted">{t('kit.otherReason')}</span>
+            )}
             <input
               ref={inputRef}
               type={promptOptions?.inputType ?? 'text'}
@@ -158,8 +190,15 @@ function ActiveDialog({ request }: { request: DialogRequest }) {
               value={value}
               onChange={(event) => setValue(event.target.value)}
               required={promptOptions?.required}
+              aria-invalid={(showRequired && blocked) || undefined}
+              aria-describedby={showRequired && blocked ? requiredId : undefined}
               className="mt-2 w-full rounded-lg border px-3 py-2"
             />
+            {showRequired && blocked && (
+              <span id={requiredId} role="alert" className="mt-1 block text-sm text-critical-subtle-fg">
+                {t('kit.answerRequired')}
+              </span>
+            )}
           </label>
         ) : (
           <p id={messageId} className="text-sm text-content-secondary">
@@ -178,11 +217,10 @@ function ActiveDialog({ request }: { request: DialogRequest }) {
           <button
             ref={confirmRef}
             type="submit"
-            disabled={blocked}
             className={
               destructive
-                ? 'rounded-lg bg-critical px-4 py-2 text-sm font-medium text-critical-fg disabled:bg-disabled disabled:text-disabled-fg'
-                : 'rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-fg disabled:bg-disabled disabled:text-disabled-fg'
+                ? 'rounded-lg bg-critical px-4 py-2 text-sm font-medium text-critical-fg'
+                : 'rounded-lg bg-brand px-4 py-2 text-sm font-medium text-brand-fg'
             }
           >
             {options.confirmLabel ?? (isPrompt ? t('common.ok') : t('common.confirm'))}

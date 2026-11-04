@@ -69,6 +69,7 @@ function LoginPage() {
     return role && rolesOwningRoute(role, pathname).length === 0 ? destination : '/dashboard';
   };
   const { loginWithCredentials, isLoading, error, mfaRequired, clearError } = useAuthStore();
+  const [formError, setFormError] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
@@ -82,10 +83,13 @@ function LoginPage() {
    */
   const handleCredentialLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     clearError();
-    if (!identifier.trim() || !password) return;
+    setFormError('');
+    if (!identifier.trim()) { setFormError(t('docLogin.errMissingIdentifier')); return; }
+    if (!password) { setFormError(t('docLogin.errMissingPassword')); return; }
     const code = mfaRequired ? totpCode.trim() : undefined;
-    if (mfaRequired && !code) return;
+    if (mfaRequired && !code) { setFormError(t('docLogin.errMissingCode')); return; }
     const result = await loginWithCredentials(identifier.trim(), password, code);
     setTotpCode('');
     // Keep the password only while the account is waiting for its code: the
@@ -213,20 +217,20 @@ function LoginPage() {
             </div>
           )}
 
-          {error && (
+          {(formError || error) && (
             <div
               role="alert"
               className="mb-4 p-3 bg-critical-subtle border border-critical rounded-lg flex items-center gap-2 text-critical-subtle-fg"
             >
               <AlertCircle size={18} aria-hidden="true" />
-              <span className="text-sm">{error}</span>
+              <span className="text-sm">{formError || error}</span>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={isLoading || !identifier.trim() || !password || (mfaRequired && !totpCode.trim())}
-            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
+            aria-disabled={isLoading || undefined}
+            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors flex items-center justify-center gap-2 mb-4"
           >
             {isLoading ? (
               <>

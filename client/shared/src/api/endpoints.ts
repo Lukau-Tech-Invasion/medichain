@@ -5617,6 +5617,140 @@ export async function listRecentEmsHandoffs(
   return getApiClient().get(`/api/emergency/ems-handoffs${query}`);
 }
 
+// ---------------------------------------------------------------------------
+// Ambulance run record (api/src/handlers/ems_runs.rs)
+//
+// A run is one patient a crew attends; its timeline is appended tap by tap.
+// Leaving the scene with a destination is the pre-alert; "handed_over" is the
+// one-button handover; the hospital's `receiveEmsRun` closes it.
+// ---------------------------------------------------------------------------
+
+export type EmsRunStatus = 'in_progress' | 'en_route' | 'arrived' | 'received' | 'cancelled' | 'no_transport';
+
+export type EmsRunEventKind =
+  | 'dispatched' | 'on_scene' | 'patient_contact' | 'identified' | 'vitals' | 'treatment'
+  | 'medication' | 'note' | 'left_scene' | 'destination_changed' | 'handed_over'
+  | 'received' | 'cancelled' | 'no_transport';
+
+export interface EmsRun {
+  id: string;
+  status: EmsRunStatus;
+  created_by: string;
+  crew: string[];
+  unit_number?: string | null;
+  ems_agency?: string | null;
+  patient_id?: string | null;
+  unidentified_description?: string | null;
+  chief_complaint?: string | null;
+  incident_id?: string | null;
+  destination_facility_id?: string | null;
+  destination_name?: string | null;
+  eta?: string | null;
+  received_by?: string | null;
+  received_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Vitals as the crew records them; every reading optional (rule 12). */
+export interface EmsRunVitals {
+  systolic_bp?: number;
+  diastolic_bp?: number;
+  heart_rate?: number;
+  respiratory_rate?: number;
+  spo2?: number;
+  gcs?: number;
+  temperature_c?: number;
+  glucose_mmol?: number;
+}
+
+export interface EmsRunEvent {
+  id: string;
+  run_id: string;
+  kind: EmsRunEventKind;
+  occurred_at: string;
+  recorded_by: string;
+  /** Vitals readings, a treatment `{ name }`, a medicine `{ name, dose, route }`, or a note `{ text }`. */
+  payload: Record<string, unknown> | null;
+}
+
+export interface EmsRunWithEvents extends EmsRun {
+  events: EmsRunEvent[];
+}
+
+export interface CreateEmsRunBody {
+  /** `RUN-` + 32 hex, chosen on the device so a run can start with no signal. */
+  id?: string;
+  unit_number?: string;
+  ems_agency?: string;
+  crew?: string[];
+  patient_id?: string;
+  unidentified_description?: string;
+  chief_complaint?: string;
+  incident_id?: string;
+}
+
+export interface AddEmsRunEventBody {
+  kind: EmsRunEventKind;
+  occurred_at?: string;
+  payload?: Record<string, unknown>;
+  destination_facility_id?: string;
+  eta_minutes?: number;
+  patient_id?: string;
+  chief_complaint?: string;
+}
+
+/**
+ * A handover queued without signal is no longer a handover a day later; it is
+ * kept sealed on the device for 24 hours, then marked expired instead of sent.
+ */
+export const EMS_OFFLINE_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+export async function createEmsRun(body: CreateEmsRunBody): Promise<EmsRunWithEvents> {
+  return getApiClient().post('/api/ems/runs', body, {
+    queueWhenOffline: { category: 'medical-records', description: 'Ambulance run started', expiresInMs: EMS_OFFLINE_LIFETIME_MS },
+  });
+}
+
+/** The signed-in crew member's runs, newest first. */
+export async function listOwnEmsRuns(): Promise<{ runs: EmsRun[] }> {
+  return getApiClient().get('/api/ems/runs');
+}
+
+export async function getEmsRun(runId: string): Promise<EmsRunWithEvents> {
+  return getApiClient().get(`/api/ems/runs/${encodeURIComponent(runId)}`);
+}
+
+/** One tap on the timeline; some also move the run (leaving, handing over). */
+export async function addEmsRunEvent(
+  runId: string,
+  body: AddEmsRunEventBody,
+): Promise<{ run: EmsRun; event: EmsRunEvent }> {
+  return getApiClient().post(`/api/ems/runs/${encodeURIComponent(runId)}/events`, body, {
+    queueWhenOffline: { category: 'medical-records', description: `Ambulance run entry: ${body.kind}`, expiresInMs: EMS_OFFLINE_LIFETIME_MS },
+  });
+}
+
+/** Facilities a crew can take a patient to. */
+export async function listEmsDestinations(): Promise<{ facilities: Array<{ id: string; name: string }> }> {
+  return getApiClient().get('/api/ems/destinations');
+}
+
+/** Ambulances coming to the caller's own facility: the incoming board. */
+export async function listIncomingEmsRuns(): Promise<{ facility_id: string | null; runs: EmsRunWithEvents[] }> {
+  return getApiClient().get('/api/ems/incoming');
+}
+
+/** The receiving clinician's one tap; it also lets them open the chart. */
+export async function receiveEmsRun(runId: string): Promise<{ run: EmsRun }> {
+  return getApiClient().post(`/api/ems/runs/${encodeURIComponent(runId)}/receive`, {});
+}
+
+/** The ambulance runs recorded about one patient (their team, or themselves). */
+export async function getPatientEmsRuns(patientId: string): Promise<{ runs: EmsRunWithEvents[] }> {
+  return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/ems-runs`);
+}
+
 /** The ambulance handovers recorded about one patient (their team, or themselves). */
 export async function getPatientEmsHandoffs(
   patientId: string
@@ -5624,3 +5758,178 @@ export async function getPatientEmsHandoffs(
   return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/ems-handoffs`);
 }
 
+
+// ============================================================================
+// Doctor "Today" (UX plan WP 3.1): everything waiting on the caller.
+// ============================================================================
+
+export type TodayUrgency = 'critical' | 'urgent' | 'routine';
+
+export interface TodayItem {
+  id: string;
+  patient_id: string;
+  title: string;
+  detail: string | null;
+  at: string;
+  urgency: TodayUrgency;
+}
+
+export interface TodayPatient {
+  patient_id: string;
+  full_name: string;
+  date_of_birth: string;
+  content_available: boolean;
+}
+
+export interface DoctorToday {
+  date: string;
+  patients: TodayPatient[];
+  appointments: TodayItem[];
+  consults: TodayItem[];
+  refills: TodayItem[];
+  results_to_review: TodayItem[];
+  critical_values: TodayItem[];
+  /** Sources that failed to load: an empty list there is not "nothing waiting". */
+  unavailable: string[];
+}
+
+export async function getDoctorToday(): Promise<{ today: DoctorToday; names: TodayPatient[] }> {
+  return getApiClient().get('/api/dashboard/doctor/today');
+}
+
+/** One patient on a clinician's day, as kept on the device for offline use. */
+export interface OfflinePatient {
+  patient_id: string;
+  full_name: string;
+  date_of_birth: string;
+  gender: string | null;
+  blood_type: string | null;
+  allergies: Array<{ name: string; severity?: string; reaction?: string | null }>;
+  current_medications: string[];
+  chronic_conditions: string[];
+  emergency_contacts: Array<{ name?: string; phone?: string; relationship?: string }>;
+  dnr_status: boolean;
+  languages: string[];
+  last_updated: string;
+  listed_for: Array<{ kind: 'care' | 'appointment' | 'ward'; at: string | null; detail: string | null }>;
+}
+
+export interface OfflineBundle {
+  generated_at: string;
+  expires_at: string;
+  patients: OfflinePatient[];
+  /** Listed, but the record could not be read or its download not recorded. */
+  withheld: number;
+  /** Listed, but the caller holds no authority to take this chart offline. */
+  not_permitted: number;
+}
+
+/** The caller's day, for use without signal. Each patient's download is logged. */
+export async function getClinicianOfflineBundle(): Promise<OfflineBundle> {
+  // `patients` beside the expiry: the default unwrap would drop the envelope.
+  return getApiClient().get('/api/clinician/offline-bundle', { keepEnvelope: true });
+}
+
+// ============================================================================
+// Wards, roster and admissions (UX plan Phase 5). Creating a ward and changing
+// the roster are Class C: the client confirms them through the transaction
+// authorizer automatically.
+// ============================================================================
+
+export type WardKind = 'general' | 'emergency' | 'icu' | 'maternity' | 'paediatric' | 'surgical' | 'other';
+
+export interface Ward {
+  id: string;
+  facility_id: string;
+  name: string;
+  kind: WardKind;
+  created_by: string;
+  created_at: string;
+  retired_at: string | null;
+}
+
+export interface WardShift {
+  id: string;
+  ward_id: string;
+  clinician_id: string;
+  starts_at: string;
+  ends_at: string;
+  assigned_by: string;
+  created_at: string;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+}
+
+export interface Admission {
+  id: string;
+  patient_id: string;
+  ward_id: string;
+  bed_label: string | null;
+  admitted_at: string;
+  admitted_by: string;
+  discharged_at: string | null;
+  discharged_by: string | null;
+}
+
+export async function listWards(): Promise<{ facility_id: string | null; wards: Ward[] }> {
+  return getApiClient().get('/api/wards');
+}
+
+export async function createWard(body: { name: string; kind: WardKind; facility_id?: string }): Promise<{ ward: Ward }> {
+  return getApiClient().post('/api/wards', body);
+}
+
+export async function listWardShifts(wardId: string): Promise<{ shifts: Array<{ shift: WardShift; clinician_name: string | null }> }> {
+  return getApiClient().get(`/api/wards/${encodeURIComponent(wardId)}/shifts`);
+}
+
+export async function assignWardShift(wardId: string, body: { clinician_id: string; starts_at: string; ends_at: string }): Promise<{ shift: WardShift }> {
+  return getApiClient().post(`/api/wards/${encodeURIComponent(wardId)}/shifts`, body);
+}
+
+export async function cancelWardShift(shiftId: string): Promise<{ shift: WardShift }> {
+  return getApiClient().post(`/api/wards/shifts/${encodeURIComponent(shiftId)}/cancel`, {});
+}
+
+export async function admitPatient(body: { patient_id: string; ward_id: string; bed_label?: string }): Promise<{ admission: Admission }> {
+  return getApiClient().post('/api/admissions', body);
+}
+
+export async function dischargeAdmission(admissionId: string): Promise<{ admission: Admission }> {
+  return getApiClient().post(`/api/admissions/${encodeURIComponent(admissionId)}/discharge`, {});
+}
+
+export interface MyWardPatient {
+  admission: Admission;
+  full_name: string | null;
+  date_of_birth: string | null;
+  content_available: boolean;
+}
+
+/** Patients on the wards the caller is rostered on right now. */
+export async function getMyWard(): Promise<{ shifts: WardShift[]; wards: Ward[]; patients: MyWardPatient[] }> {
+  // Three lists side by side: the default unwrap would hand back `patients`
+  // alone, and the panel read every reply as a failure.
+  return getApiClient().get('/api/nursing/my-ward', { keepEnvelope: true });
+}
+
+/** The patient's own admissions (rule 10). */
+export async function getPatientAdmissions(patientId: string): Promise<{ admissions: Array<{ admission: Admission; ward_name: string | null }> }> {
+  return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/admissions`);
+}
+
+/** What the caller recorded per patient since `since`, plus their ward roster (UX plan WP 5.6). */
+export interface HandoffDraftPatient {
+  patient_id: string;
+  full_name: string | null;
+  date_of_birth: string | null;
+  bed_label: string | null;
+  recorded: Array<{ resource_type: string; count: number; last_at: string | null }>;
+}
+
+export async function getShiftHandoffDraft(since?: string): Promise<{ since: string; patients: HandoffDraftPatient[] }> {
+  const suffix = since ? `?since=${encodeURIComponent(since)}` : '';
+  // `since` beside `patients`: the default unwrap returned the bare list, so
+  // `.patients` was undefined and every draft read as empty.
+  return getApiClient().get(`/api/shift-handoff/draft${suffix}`, { keepEnvelope: true });
+}

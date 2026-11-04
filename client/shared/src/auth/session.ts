@@ -10,6 +10,8 @@
  * a failed sign-in, never a quiet downgrade.
  */
 
+import { clearAllDrafts } from '../forms/drafts';
+import { clearUnsavedForms } from '../forms/unsavedChanges';
 import { getApiClient, ApiClientError } from '../api/client';
 import { login, redeemCredential } from '../api/endpoints';
 import type { LoginResponse, SignedInUser } from '../api/endpoints';
@@ -120,6 +122,10 @@ export async function activateWithCode(input: {
 
 /** Forget in-memory sign-in state. The stores call this on sign-out. */
 export function clearSessionMemory(): void {
+  // Drafts can hold clinical findings and are keyed by this account; they end
+  // with the session, as does any pending "unsaved changes" warning.
+  clearAllDrafts();
+  clearUnsavedForms();
   forgetLoginId();
   getApiClient().setUserId(undefined);
   void clearOfflineRecordCache();

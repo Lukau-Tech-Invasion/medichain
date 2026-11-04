@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getApiClient, useTranslation, formatDateOnly } from '@medichain/shared';
+import { createPreOp, getApiClient, useTranslation, formatDateOnly, ChoiceChips } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import { StoredValue } from '../components/StoredSoapDetails';
@@ -274,6 +274,7 @@ export default function PreOpPage() {
 
   /** Save one assessment at a time; refused writes retain the draft for correction. */
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (submissionPending.current) return;
     if (!selectedPatient) {
       setError(t('docPreOp.errorSelectPatient'));
@@ -343,7 +344,7 @@ export default function PreOpPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && <p className="text-sm opacity-75">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>}
                 {activeTab !== 'history' && asaClass && (
                   <span className={`inline-block mt-1 px-3 py-1 rounded-full text-sm font-bold ${getAsaColor(asaClass)}`}>
                     {t('docPreOp.asaClassBadge', { class: asaClass, suffix: asaEmergency ? 'E' : '' })}
@@ -425,6 +426,7 @@ export default function PreOpPage() {
         </div>
 
         {activeTab === 'assessment' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Column - Patient & Surgery Info */}
             <div className="lg:col-span-1 space-y-4">
@@ -536,20 +538,19 @@ export default function PreOpPage() {
                       className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
-                  <label htmlFor="preop-npo-compliant" className="block text-sm font-medium text-content-secondary">
-                    {t('docPreOp.npoComplianceLabel')}
-                    <select
-                      id="preop-npo-compliant"
-                      value={npoStatus.compliant === undefined ? '' : String(npoStatus.compliant)}
-                      onChange={event => setNpoStatus(prev => ({ ...prev,
-                        compliant: event.target.value === '' ? undefined : event.target.value === 'true' }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="">{t('docPreOp.npoNotRecorded')}</option>
-                      <option value="true">{t('docPreOp.npoCompliant')}</option>
-                      <option value="false">{t('docPreOp.npoNotCompliant')}</option>
-                    </select>
-                  </label>
+                  {/* Unchosen is "not recorded"; tapping the chosen chip again clears it. */}
+                  <ChoiceChips
+                    id="preop-npo-compliant"
+                    label={t('docPreOp.npoComplianceLabel')}
+                    hint={t('docPreOp.npoNotRecorded')}
+                    value={npoStatus.compliant === undefined ? undefined : String(npoStatus.compliant)}
+                    onChange={(next) => setNpoStatus(prev => ({ ...prev,
+                      compliant: next === undefined ? undefined : next === 'true' }))}
+                    options={[
+                      { value: 'true', label: t('docPreOp.npoCompliant') },
+                      { value: 'false', label: t('docPreOp.npoNotCompliant') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -563,7 +564,7 @@ export default function PreOpPage() {
                   {t('docPreOp.asaHeading')}
                 </h2>
                 {/* ASA physical status is a single mutually-exclusive choice, so
-                    it is a radio group. As bare <button>s, assistive tech was told
+                    it is a radio group. As bare <button type="button">s, assistive tech was told
                     neither that the options are alternatives nor which one is
                     selected — the selection was conveyed only by colour and a
                     check glyph. */}
@@ -633,57 +634,57 @@ export default function PreOpPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.mouthOpeningLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-mouth-opening"
+                      label={t('docPreOp.mouthOpeningLabel')}
                       value={airwayAssessment.mouthOpening}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value=">3cm">{t('docPreOp.mouthOpening_normal')}</option>
-                      <option value="2-3cm">{t('docPreOp.mouthOpening_limited')}</option>
-                      <option value="<2cm">{t('docPreOp.mouthOpening_restricted')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, mouthOpening: next })); }}
+                      options={[
+                        { value: '>3cm', label: t('docPreOp.mouthOpening_normal') },
+                        { value: '2-3cm', label: t('docPreOp.mouthOpening_limited') },
+                        { value: '<2cm', label: t('docPreOp.mouthOpening_restricted') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.thyromentalLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-thyromental-distance"
+                      label={t('docPreOp.thyromentalLabel')}
                       value={airwayAssessment.thyromental}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, thyromental: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value=">6cm">{t('docPreOp.thyromental_normal')}</option>
-                      <option value="6-6.5cm">{t('docPreOp.thyromental_borderline')}</option>
-                      <option value="<6cm">{t('docPreOp.thyromental_short')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, thyromental: next })); }}
+                      options={[
+                        { value: '>6cm', label: t('docPreOp.thyromental_normal') },
+                        { value: '6-6.5cm', label: t('docPreOp.thyromental_borderline') },
+                        { value: '<6cm', label: t('docPreOp.thyromental_short') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.neckMobilityLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-neck-mobility"
+                      label={t('docPreOp.neckMobilityLabel')}
                       value={airwayAssessment.neckMobility}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, neckMobility: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="full">{t('docPreOp.neckMobility_full')}</option>
-                      <option value="limited">{t('docPreOp.neckMobility_limited')}</option>
-                      <option value="fixed">{t('docPreOp.neckMobility_fixed')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, neckMobility: next })); }}
+                      options={[
+                        { value: 'full', label: t('docPreOp.neckMobility_full') },
+                        { value: 'limited', label: t('docPreOp.neckMobility_limited') },
+                        { value: 'fixed', label: t('docPreOp.neckMobility_fixed') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.dentitionLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-dentition"
+                      label={t('docPreOp.dentitionLabel')}
                       value={airwayAssessment.dentition}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, dentition: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="intact">{t('docPreOp.dentition_intact')}</option>
-                      <option value="loose">{t('docPreOp.dentition_loose')}</option>
-                      <option value="dentures">{t('docPreOp.dentition_dentures')}</option>
-                      <option value="edentulous">{t('docPreOp.dentition_edentulous')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, dentition: next })); }}
+                      options={[
+                        { value: 'intact', label: t('docPreOp.dentition_intact') },
+                        { value: 'loose', label: t('docPreOp.dentition_loose') },
+                        { value: 'dentures', label: t('docPreOp.dentition_dentures') },
+                        { value: 'edentulous', label: t('docPreOp.dentition_edentulous') },
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -926,10 +927,9 @@ export default function PreOpPage() {
 
               {/* Submit Button */}
               <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={isSubmitting || !selectedPatient}
-                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -946,6 +946,7 @@ export default function PreOpPage() {
               </div>
             </div>
           </div>
+          </form>
         )}
 
         {activeTab === 'checklist' && (

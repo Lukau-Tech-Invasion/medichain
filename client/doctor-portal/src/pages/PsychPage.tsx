@@ -3,7 +3,7 @@ import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError } from '@medichain/shared';
+import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError, ChoiceChips } from '@medichain/shared';
 
 type RiskLevel = 'unknown' | 'none' | 'low' | 'moderate' | 'high' | 'imminent';
 type LegalStatus = '' | 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
@@ -103,12 +103,15 @@ function ObservationSelect({ label, value, onChange }: {
   const { t } = useTranslation();
   return <label className="flex items-center justify-between gap-2">
     {label}
-    <select aria-label={label} className="border rounded p-1" value={value === null ? '' : String(value)}
-      onChange={event => onChange(event.target.value === '' ? null : event.target.value === 'true')}>
-      <option value="">{t('docPsych.notAssessed')}</option>
-      <option value="true">{t('docPsych.observationYes')}</option>
-      <option value="false">{t('docPsych.observationNo')}</option>
-    </select>
+    <ChoiceChips
+      label={label}
+      value={(value === null ? '' : String(value)) || undefined}
+      onChange={(chosen) => { const next = chosen ?? ''; onChange(next === '' ? null : next === 'true'); }}
+      options={[
+        { value: 'true', label: t('docPsych.observationYes') },
+        { value: 'false', label: t('docPsych.observationNo') },
+      ]}
+    />
   </label>;
 }
 
@@ -425,6 +428,7 @@ const PsychPage: React.FC = () => {
 
   const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (saving) return;
     if (savePending.current || saveCommitted.current) return;
     if (!selectedPatient) {
       setSaveError(t('docPsych.errorSelectPatient'));
@@ -621,6 +625,7 @@ const PsychPage: React.FC = () => {
             <p>Assessment saved. Start a new assessment to document another encounter.</p>
             <button onClick={startNewAssessment} className="mt-2 border rounded px-3 py-2">New assessment</button>
           </div>}
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <fieldset disabled={saving || saved} className="space-y-6" aria-busy={saving}>
             {saveError && <p role="alert" className="bg-critical-subtle text-critical-subtle-fg border border-critical rounded p-3">{saveError}</p>}
             {/* Patient Selection */}
@@ -796,7 +801,7 @@ const PsychPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="font-semibold">{t('docPsych.substanceTitle')}</h2>
-                <button onClick={addSubstance} disabled={substances.length >= MAX_SUBSTANCE_ROWS}
+                <button type="button" onClick={addSubstance} disabled={substances.length >= MAX_SUBSTANCE_ROWS}
                   className="text-content-secondary hover:text-content-secondary flex items-center gap-1">
                   <Plus className="w-4 h-4" /> {t('docPsych.addBtn')}
                 </button>
@@ -827,7 +832,7 @@ const PsychPage: React.FC = () => {
                     className="border rounded p-2"
                     placeholder={t('docPsych.phLastUse')}
                   />
-                  <button onClick={() => setSubstances(previous => previous.filter((_, index) => index !== i))}
+                  <button type="button" onClick={() => setSubstances(previous => previous.filter((_, index) => index !== i))}
                     aria-label={t('docPsych.removeSubstance', { row: i + 1 })} className="text-content-secondary underline">
                     {t('docPsych.removeSubstance', { row: i + 1 })}
                   </button>
@@ -862,20 +867,19 @@ const PsychPage: React.FC = () => {
             {/* Legal Status & Disposition */}
             <div className="grid md:grid-cols-2 gap-6">
               <div className="bg-surface rounded-lg shadow p-4">
-                <label htmlFor="psych-legal-status" className="font-semibold mb-3 block">{t('docPsych.legalStatus')}</label>
-                <select
+                <ChoiceChips
                   id="psych-legal-status"
-                  value={legalStatus}
-                  onChange={e => setLegalStatus(e.target.value as LegalStatus)}
-                  className="w-full border rounded p-2"
-                >
-                  <option value="">{t('docPsych.notAssessed')}</option>
-                  <option value="voluntary">{t('docPsych.legal_voluntary')}</option>
-                  <option value="involuntary">{t('docPsych.legal_involuntary')}</option>
-                  <option value="5150">{t('docPsych.legal_5150')}</option>
-                  <option value="5250">{t('docPsych.legal_5250')}</option>
-                  <option value="conservatorship">{t('docPsych.legal_conservatorship')}</option>
-                </select>
+                  label={t('docPsych.legalStatus')}
+                  value={(legalStatus) || undefined}
+                  onChange={(chosen) => { const next = chosen ?? ''; setLegalStatus(next as LegalStatus); }}
+                  options={[
+                    { value: 'voluntary', label: t('docPsych.legal_voluntary') },
+                    { value: 'involuntary', label: t('docPsych.legal_involuntary') },
+                    { value: '5150', label: t('docPsych.legal_5150') },
+                    { value: '5250', label: t('docPsych.legal_5250') },
+                    { value: 'conservatorship', label: t('docPsych.legal_conservatorship') },
+                  ]}
+                />
               </div>
               <div className="bg-surface rounded-lg shadow p-4">
                 <label htmlFor="psych-disposition" className="font-semibold mb-3 block">{t('docPsych.disposition')}</label>
@@ -933,15 +937,15 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={saving || saved}
+            <button type="submit"
+              aria-disabled={saving || undefined}
               aria-busy={saving}
-              className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
+              className="aria-disabled:cursor-wait w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
             >
               {t('docPsych.save')}
             </button>
           </fieldset>
+          </form>
           </div>
         ) : (
           <div className="space-y-4">

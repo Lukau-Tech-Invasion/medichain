@@ -64,6 +64,10 @@ export { lookupOr, componentOr } from './utils/enumLookup';
 export * from './utils/indexedDB';
 export * from './utils/syncQueue';
 export * from './utils/offlineQueue';
+export * from './utils/offlineSeal';
+export * from './utils/offlinePolicy';
+export * from './utils/offlineRoster';
+export * from './utils/healthId';
 export * from './utils/validation';
 export * from './utils/sealStatus';
 
@@ -98,3 +102,19 @@ export { nfcSupported, nfcErrorMessage, readNfcCardOnce, writeNfcCard, textOfRec
 export type { OfflineEmergencySummary, ScannedEmergencyCode } from './utils/emergencyQr';
 
 export { getEmergencyNumber } from './utils/emergencyNumber';
+
+// Form engine: one status per submission, duplicate-safe saves, drafts and the
+// unsaved-changes guard (docs/UX_IMPLEMENTATION_PLAN_2026-10-30.md Phase 1.1).
+export * from './forms/submission';
+export * from './forms/unsavedChanges';
+export * from './forms/drafts';
+export * from './forms/signOutGuard';
+export * from './forms/enterKey';
+export * from './components/ErrorSummary';
+export * from './components/SubmitButton';
+export * from './components/Sheet';
+export * from './components/ChoiceChips';
+export * from './components/ClinicalFields';
+export * from './components/StatusBanner';
+export * from './components/WorkQueueItem';
+export * from './motion/useMotionNavigate';

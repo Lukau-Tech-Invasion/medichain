@@ -14,7 +14,9 @@ import {
   criticalValueAckSchema,
   criticalValueReportSchema,
   confirmDialog,
-  promptDialog, ModalPanel } from '@medichain/shared';
+  promptDialog, ModalPanel, ChoiceChips
+} from '@medichain/shared';
+import { useLocation } from 'react-router-dom';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -33,6 +35,7 @@ import {
 import StaffName from '../components/StaffName';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
 
 /**
  * CriticalValuePage
@@ -105,7 +108,13 @@ const CriticalValuePage: React.FC = () => {
   // One save at a time: a second press while a write is in flight used to send it twice.
   const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [notifications, setNotifications] = useState<CriticalValueNotification[]>([]);
-  const [activeTab, setActiveTab] = useState<'pending' | 'report-new' | 'history' | 'thresholds'>('pending');
+  // Opened from a result flagged critical: the result travels with it, so the
+  // technician confirms rather than retypes (UX plan WP 4.2).
+  const location = useLocation();
+  const prefill = (location.state as { criticalPrefill?: { analyte?: string; value?: string; unit?: string } } | null)?.criticalPrefill;
+  const [activeTab, setActiveTab] = useState<'pending' | 'report-new' | 'history' | 'thresholds'>(
+    prefill ? 'report-new' : 'pending',
+  );
   const [selectedNotification, setSelectedNotification] = useState<CriticalValueNotification | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<NotificationStatus | 'all'>('all');
@@ -115,9 +124,9 @@ const CriticalValuePage: React.FC = () => {
   // Form state for reporting new critical value
   const [newCritical, setNewCritical] = useState({
     patientId: '',
-    analyte: '',
-    value: '',
-    unit: '',
+    analyte: prefill?.analyte ?? '',
+    value: prefill?.value ?? '',
+    unit: prefill?.unit ?? '',
     orderingProvider: '',
   });
 
@@ -575,7 +584,7 @@ const CriticalValuePage: React.FC = () => {
                       <p className="font-semibold text-content">
                         {notification.patientName}
                       </p>
-                      <p className="text-sm text-content-muted">{notification.patientId}</p>
+                      <p className="text-sm"><PatientName id={notification.patientId} dobOnly /></p>
                     </div>
                     <div>
                       <p className="text-sm text-content-muted mb-1">{t('docCriticalValue.lblCriticalResult')}</p>
@@ -698,25 +707,21 @@ const CriticalValuePage: React.FC = () => {
 
                   {/* Notification Method */}
                   <div>
-                    <label htmlFor="critval-notification-method" className="block text-sm font-semibold text-content-secondary mb-2">
-                      {t('docCriticalValue.notificationMethodLabel')} <span className="text-critical-subtle-fg">*</span>
-                    </label>
-                    <select
+                    <ChoiceChips
                       id="critval-notification-method"
+                      label={t('docCriticalValue.notificationMethodLabel')}
                       value={acknowledgment.notificationMethod}
-                      onChange={(e) =>
-                        setAcknowledgment({
+                      onChange={(next) => { if (next === undefined) return; setAcknowledgment({
                           ...acknowledgment,
-                          notificationMethod: e.target.value as NotificationMethod,
-                        })
-                      }
-                      className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                    >
-                      <option value="phone">{t('docCriticalValue.method_phone')}</option>
-                      <option value="in-person">{t('docCriticalValue.method_in-person')}</option>
-                      <option value="secure-message">{t('docCriticalValue.method_secure-message')}</option>
-                      <option value="page">{t('docCriticalValue.method_page')}</option>
-                    </select>
+                          notificationMethod: next as NotificationMethod,
+                        }); }}
+                      options={[
+                        { value: 'phone', label: t('docCriticalValue.method_phone') },
+                        { value: 'in-person', label: t('docCriticalValue.method_in-person') },
+                        { value: 'secure-message', label: t('docCriticalValue.method_secure-message') },
+                        { value: 'page', label: t('docCriticalValue.method_page') },
+                      ]}
+                    />
                   </div>
 
                   {/* Notified Provider */}
@@ -812,6 +817,7 @@ const CriticalValuePage: React.FC = () => {
 
       {/* Report New Critical Value Tab */}
       {activeTab === 'report-new' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleReportCriticalValue(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
@@ -961,14 +967,14 @@ const CriticalValuePage: React.FC = () => {
             </ul>
           </div>
 
-          <button
-            onClick={handleReportCriticalValue} disabled={submitPending}
-            className="w-full bg-brand text-brand-fg px-6 py-3 rounded-lg hover:bg-brand-hover transition-colors font-semibold flex items-center justify-center gap-2"
+          <button type="submit" aria-disabled={submitPending || undefined}
+            className="aria-disabled:cursor-wait w-full bg-brand text-brand-fg px-6 py-3 rounded-lg hover:bg-brand-hover transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Bell className="w-5 h-5" />
             {t('docCriticalValue.createNotificationBtn')}
           </button>
         </div>
+        </form>
       )}
 
       {/* History Tab */}
@@ -992,20 +998,20 @@ const CriticalValuePage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label htmlFor="critval-status" className="block text-sm font-semibold text-content-secondary mb-2">{t('docCriticalValue.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="critval-status"
+                  label={t('docCriticalValue.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as NotificationStatus | 'all')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="all">{t('docCriticalValue.filterAllStatuses')}</option>
-                  <option value="pending">{t('docCriticalValue.filterStatus_pending')}</option>
-                  <option value="in-progress">{t('docCriticalValue.filterStatus_in-progress')}</option>
-                  <option value="acknowledged">{t('docCriticalValue.filterStatus_acknowledged')}</option>
-                  <option value="escalated">{t('docCriticalValue.filterStatus_escalated')}</option>
-                  <option value="cancelled">{t('docCriticalValue.filterStatus_cancelled')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as NotificationStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docCriticalValue.filterAllStatuses') },
+                    { value: 'pending', label: t('docCriticalValue.filterStatus_pending') },
+                    { value: 'in-progress', label: t('docCriticalValue.filterStatus_in-progress') },
+                    { value: 'acknowledged', label: t('docCriticalValue.filterStatus_acknowledged') },
+                    { value: 'escalated', label: t('docCriticalValue.filterStatus_escalated') },
+                    { value: 'cancelled', label: t('docCriticalValue.filterStatus_cancelled') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -1058,7 +1064,7 @@ const CriticalValuePage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-content">{notification.patientName}</p>
-                      <p className="text-sm text-content-muted">{notification.patientId}</p>
+                      <p className="text-sm"><PatientName id={notification.patientId} dobOnly /></p>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-bold text-critical-subtle-fg">

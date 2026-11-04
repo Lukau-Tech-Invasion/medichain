@@ -138,6 +138,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   }, [deviceId, setEmergencyAccess, navigate, onEmergencyAccess, isParamedic]);
 
   const simulateTap = (tagId: string) => {
+    if (tapState === 'waiting') return;
     if (!tagId.trim()) {
       setTapState('error');
       setError('Please enter an NFC tag ID');
@@ -205,6 +206,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   };
 
   return (
+    <form onSubmit={(event) => { event.preventDefault(); void simulateTap(nfcTagId); }} noValidate>
     <div className="bg-surface rounded-xl shadow-lg p-6 max-w-md mx-auto">
       {/* Header */}
       <div className="text-center mb-6">
@@ -277,7 +279,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       </div>
 
       <div className="flex gap-2 mb-6">
-        <button
+        <button type="button"
           onClick={() => setMode('nfc')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'nfc'
@@ -288,7 +290,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           <Smartphone size={16} className="inline mr-2" />
           NFC Card
         </button>
-        <button
+        <button type="button"
           onClick={() => setMode('qr')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'qr'
@@ -299,7 +301,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           <QrCode size={16} className="inline mr-2" />
           QR Code
         </button>
-        <button
+        <button type="button"
           onClick={() => setMode('manual')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'manual'
@@ -345,11 +347,9 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => simulateTap(nfcTagId)}
-            disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-critical text-critical-fg font-semibold rounded-lg hover:bg-critical transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed emergency-pulse"
+          <button type="submit"
+            aria-disabled={tapState === 'waiting' || undefined}
+            className="aria-disabled:cursor-wait w-full py-3 bg-critical text-critical-fg font-semibold rounded-lg hover:bg-critical transition-colors emergency-pulse"
           >
             {tapState === 'waiting' ? 'Opening...' : (
               <span className="inline-flex items-center justify-center gap-2"><Wifi size={18} aria-hidden="true" /> Open emergency summary</span>
@@ -425,7 +425,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
       {/* Reset button */}
       {(tapState === 'success' || tapState === 'error') && (
-        <button
+        <button type="button"
           onClick={() => {
             setTapState('idle');
             setError(null);
@@ -436,6 +436,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         </button>
       )}
     </div>
+    </form>
   );
 }
 

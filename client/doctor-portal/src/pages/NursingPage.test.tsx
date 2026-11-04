@@ -93,10 +93,10 @@ describe('NursingPage', () => {
     render(<NursingPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Intake/Output' }));
     fireEvent.change(await screen.findByRole('combobox', { name: 'Fluid Type' }), { target: { value: 'Oral' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Entry Type' }), { target: { value: 'output' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Output/i }));
     expect(screen.getByRole('combobox', { name: 'Fluid Type' })).toHaveValue('');
     fireEvent.change(screen.getByRole('combobox', { name: 'Fluid Type' }), { target: { value: 'Urine' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Entry Type' }), { target: { value: 'intake' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Intake/i }));
     expect(screen.getByRole('combobox', { name: 'Fluid Type' })).toHaveValue('');
   });
 });

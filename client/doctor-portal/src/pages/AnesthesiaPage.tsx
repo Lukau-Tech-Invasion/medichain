@@ -188,6 +188,7 @@ const AnesthesiaPage: React.FC = () => {
 
   const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (submissionPending.current) return;
     // Selecting a patient is a precondition for the record, so it keeps its
     // toast. The procedure is a field error and now says so on the field: an
@@ -283,6 +284,7 @@ const AnesthesiaPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'record' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             {/* Patient & Case Info */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -634,7 +636,7 @@ const AnesthesiaPage: React.FC = () => {
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
-                <button onClick={addVital} className="bg-cyan-700 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
+                <button type="button" onClick={addVital} className="bg-cyan-700 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
               </div>
             </div>
 
@@ -675,13 +677,13 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
+            <button type="submit"
               className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800"
             >
               {isSubmitting ? t('common.saving') : t('docAnesthesia.save')}
             </button>
           </div>
+          </form>
         ) : (
           <div className="space-y-4">
             {historyLoading ? <p role="status">{t('common.loading')}</p> : historyFailed ? (

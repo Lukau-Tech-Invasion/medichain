@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { ModalPanel } from '@medichain/shared';
 import { StoredValue } from './StoredSoapDetails';
 
 /** Preview a saved record independently of the application before printing it. */
@@ -7,7 +8,12 @@ export default function RecordPrintPreview({ title, record, onClose }: {
 }) {
   if (record == null) return null;
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={`Print ${title}`} className="record-print-root fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+    <ModalPanel
+      label={`Print ${title}`}
+      onClose={onClose}
+      overlayClassName="record-print-root fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4"
+      className="w-full max-w-4xl"
+    >
       <article className="hp-record-paper bg-surface rounded-xl max-w-4xl w-full max-h-[90vh] overflow-auto p-6 text-content">
         <header className="mb-5 border-b border-border-interactive pb-3">
           <h1 className="text-xl font-semibold">MediChain — {title}</h1>
@@ -18,6 +24,6 @@ export default function RecordPrintPreview({ title, record, onClose }: {
         </header>
         <StoredValue value={record} />
       </article>
-    </div>, document.body,
+    </ModalPanel>, document.body,
   );
 }

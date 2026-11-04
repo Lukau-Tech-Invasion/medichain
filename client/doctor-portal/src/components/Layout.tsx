@@ -1,14 +1,17 @@
+import { OfflineStatusBar } from '../offline/OfflineStatusBar';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import {
   useSidebarData,
   useSSE,
-  useApiStatus,
   useTranslation,
   RestrictedSection,
   refreshNotificationBadges,
+  NavigationGuard,
+  confirmSignOutWithUnsent,
 } from '@medichain/shared';
+import { clearLocalRuns } from '../ems/runStore';
 import {
   LogOut,
   Shield,
@@ -19,8 +22,6 @@ import {
   X,
   ChevronLeft,
   Bell,
-  RefreshCw,
-  WifiOff,
 } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import { useToastActions } from './Toast';
@@ -119,6 +120,17 @@ const BADGE_MAPPINGS: Record<string, string> = {
 // Navigation Item Component
 // =============================================================================
 
+/** Priority dot and active-item border for each role theme's background. */
+const NAV_ACCENT: Record<string, { dot: string; border: string }> = {
+  'bg-brand': { dot: 'bg-brand', border: 'border-brand' },
+  'bg-caution': { dot: 'bg-caution', border: 'border-caution' },
+  'bg-ok': { dot: 'bg-ok', border: 'border-ok' },
+  'bg-pink-700': { dot: 'bg-pink-500', border: 'border-pink-500' },
+  'bg-purple-700': { dot: 'bg-purple-500', border: 'border-purple-500' },
+  'bg-teal-700': { dot: 'bg-teal-500', border: 'border-teal-500' },
+  default: { dot: 'bg-content-muted', border: 'border-border-strong' },
+};
+
 function NavItemComponent({
   item,
   theme,
@@ -127,15 +139,10 @@ function NavItemComponent({
   onMobileClose,
 }: NavItemProps) {
   const ItemIcon = item.icon;
-  const baseColor = (() => {
-    try {
-      return theme.bg.replace(/^bg-/, '').replace(/-\d+$/, '');
-    } catch {
-      return 'gray';
-    }
-  })();
-
-  const priorityDotClass = `w-2 h-2 rounded-full bg-${baseColor}-500`;
+  // Written out in full: a class name assembled from a colour at runtime is
+  // invisible to Tailwind's compiler and shipped as no colour at all.
+  const accent = NAV_ACCENT[theme.bg] ?? NAV_ACCENT.default;
+  const priorityDotClass = `w-2 h-2 rounded-full ${accent.dot}`;
   
   return (
     <li>
@@ -146,7 +153,7 @@ function NavItemComponent({
         className={({ isActive }) =>
           `flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 text-sm group relative ${
             isActive
-              ? `${theme.activeBg} ${theme.activeText} font-medium border-l-4 border-${baseColor}-500 pl-2`
+              ? `${theme.activeBg} ${theme.activeText} font-medium border-l-4 ${accent.border} pl-2`
               : 'text-content-muted hover:bg-surface-sunken hover:text-content'
           } ${isCollapsed ? 'justify-center' : ''}`
         }
@@ -315,8 +322,6 @@ function Layout() {
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
   const { showInfo, showWarning, showSuccess } = useToastActions();
-  // Connectivity status (offline banner + pending-write count)
-  const { isOnline, queueSize, checkConnection } = useApiStatus();
   const lastProcessedEventRef = useRef<number>(0);
 
   // Rendering still needs a stable navigation shape while auth initializes,
@@ -470,7 +475,15 @@ function Layout() {
 
   
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const proceed = await confirmSignOutWithUnsent({
+      title: t('forms.unsentTitle'),
+      message: (n) => t('forms.unsentMessage', { n: String(n) }),
+      confirm: t('forms.unsentConfirm'),
+      cancel: t('forms.unsentCancel'),
+    });
+    if (!proceed) return;
+    clearLocalRuns();
     logout();
     navigate('/login');
   };
@@ -714,6 +727,7 @@ function Layout() {
 
   return (
     <div className="flex h-screen bg-surface-sunken">
+      <NavigationGuard />
       {/*
         The skip link is the FIRST focusable element in the document, and that
         placement is the whole feature. It previously lived inside the sidebar,
@@ -764,6 +778,7 @@ function Layout() {
       {/* Mobile Overlay */}
       {isMobileOpen && (
         <div
+          // ux-allow(overlay): the backdrop behind the mobile navigation drawer; a click on it closes the drawer.
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={closeMobileMenu}
           aria-hidden="true"
@@ -794,25 +809,7 @@ function Layout() {
 
       {/* Main content */}
       <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken">
-        {/* Offline indicator — writes are queued locally and synced on reconnect */}
-        {!isOnline && (
-          <div className="flex items-center gap-2 bg-caution text-caution-fg text-sm px-4 py-2">
-            <WifiOff className="w-4 h-4" />
-            <span>You're offline. Changes are saved locally and will sync when the connection returns.</span>
-            {queueSize > 0 && (
-              <span className="ml-1 px-2 py-0.5 bg-amber-700 rounded-full text-xs font-medium">
-                {queueSize} pending
-              </span>
-            )}
-            <button
-              onClick={() => checkConnection()}
-              className="ml-auto inline-flex items-center gap-1.5 min-h-[24px] underline hover:no-underline"
-            >
-              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-              Retry
-            </button>
-          </div>
-        )}
+        <OfflineStatusBar />
         {paramedicRestricted ? (
           <RestrictedSection
             title="This screen"

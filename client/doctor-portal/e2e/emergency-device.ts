@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { api, fixtureToken, readFixtures } from './identity';
-import { answerPasswordConfirmation, settle } from './support';
+import { answerPasswordConfirmation, settle, choose } from './support';
 
 /**
  * An approved device for emergency access, enrolled through the admin screen
@@ -17,8 +17,8 @@ export async function enrolDevice(
 ): Promise<string> {
   await settle(admin, '/devices');
   await expect(admin.getByRole('heading', { name: /approved devices/i })).toBeVisible({ timeout: 20000 });
-  await admin.locator('#device-org').selectOption(workLocation.organization_id);
-  await admin.locator('#device-facility').selectOption(workLocation.facility_id);
+  await choose(admin.locator('#device-org'), workLocation.organization_id);
+  await choose(admin.locator('#device-facility'), workLocation.facility_id);
   await admin.locator('#device-name').fill(name);
   await admin.locator('#device-fingerprint').fill(`e2e-emergency-${Date.now()}`);
   await admin.getByRole('button', { name: /enrol device/i }).click();

@@ -50,6 +50,7 @@ export function ChangePasswordDialog({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
     setError('');
 
     if (!identifier.trim()) {
@@ -213,8 +214,8 @@ export function ChangePasswordDialog({
               </button>
               <button
                 type="submit"
-                disabled={busy}
-                className="flex-1 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-disabled disabled:text-disabled-fg flex items-center justify-center gap-2"
+                aria-disabled={busy || undefined}
+                className="flex-1 px-4 py-2 bg-brand text-brand-fg rounded-lg aria-disabled:cursor-wait flex items-center justify-center gap-2"
               >
                 {busy && <Loader2 size={16} className="animate-spin" />}
                 {t('docSettings.pwSubmit')}

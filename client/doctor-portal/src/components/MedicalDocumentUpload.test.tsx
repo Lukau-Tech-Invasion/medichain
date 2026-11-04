@@ -40,7 +40,7 @@ describe('MedicalDocumentUpload', () => {
     }));
     const refreshed = vi.fn();
     render(<MedicalDocumentUpload patientId="PAT-QA" disabled={false} onUploaded={refreshed} />);
-    expect(screen.getByText('PAT-QA')).toBeVisible();
+    expect(screen.getByText(/PAT-QA/)).toBeVisible();
     fireEvent.change(screen.getByLabelText('Document file'), { target: { files: [pdf()] } });
     fireEvent.submit(screen.getByRole('form'));
     fireEvent.submit(screen.getByRole('form'));
@@ -50,7 +50,9 @@ describe('MedicalDocumentUpload', () => {
     await act(async () => finish());
     expect(refreshed).toHaveBeenCalledOnce();
     expect(screen.getByRole('status')).toHaveTextContent('Document uploaded');
-    expect(screen.getByRole('button', { name: 'Upload document' })).toBeDisabled();
+    // The file was consumed: pressing again asks for one rather than re-uploading.
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+    expect(await screen.findByText('Choose a file first.')).toBeInTheDocument();
   });
 
   it('retains the key for an unchanged uncertain retry and does not refresh on failure', async () => {
@@ -92,7 +94,7 @@ describe('MedicalDocumentUpload', () => {
       view.rerender(<MedicalDocumentUpload key="PAT-B" patientId="PAT-B" disabled={false} onUploaded={vi.fn()} />);
       await act(async () => finish());
       expect(shared.uploadMedicalRecord).not.toHaveBeenCalled();
-      expect(screen.getByText('PAT-B')).toBeVisible();
+      expect(screen.getByText(/PAT-B/)).toBeVisible();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
     } finally { prepare.mockRestore(); }
   });

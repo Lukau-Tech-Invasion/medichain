@@ -60,6 +60,23 @@ MIGRATIONS = ROOT / "api" / "migrations"
 # actually following the value to every caller.
 # ---------------------------------------------------------------------------
 RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
+    # `audit` in the ambulance run record takes the action as a parameter.
+    # Followed to every call site in the same file: creating a run and adding
+    # an event write "create_ems_handoff", the hospital's receipt writes
+    # "Update", and reads by anyone but the crew member write "view".
+    'api/src/handlers/ems_runs.rs::action.to_string()': [
+        "create_ems_handoff",
+        "Update",
+        "view",
+    ],
+    # `audit` in wards.rs takes the action as a parameter. Followed to every
+    # call site in the same file: admitting writes "create", discharging
+    # writes "Update", and listing a nurse's ward writes "view" per patient.
+    'api/src/handlers/wards.rs::action.to_string()': [
+        "create",
+        "Update",
+        "view",
+    ],
     # `action` is validated to exactly "approve" or "reject" before the audit
     # row is built, so the format string has exactly two expansions.
     # `audit_recollection` takes the action as a parameter. Followed to all

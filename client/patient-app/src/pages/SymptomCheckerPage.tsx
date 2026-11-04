@@ -23,6 +23,7 @@ import { analyzeSymptoms as analyzeSymptomAPI, useTranslation,
   startSymptomCheck,
   submitSymptomAnswers,
 } from '@medichain/shared';
+import { PageBanner } from '../components/MergedScreen';
 
 /**
  * SymptomCheckerPage
@@ -426,15 +427,11 @@ const SymptomCheckerPage: React.FC = () => {
   };
 
   return (
+    <form onSubmit={(event) => { event.preventDefault(); void handleSendMessage(); }} noValidate>
     <div className="min-h-screen bg-surface-sunken flex flex-col">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-700 to-indigo-800 text-white p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Stethoscope className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">{t('symptomChecker.title')}</h1>
-        </div>
-        <p className="text-white">{t('symptomChecker.subtitle')}</p>
-      </div>
+      <PageBanner title={t('symptomChecker.title')} subtitle={t('symptomChecker.subtitle')}
+        icon={<Stethoscope className="w-8 h-8" />} gradient="from-purple-700 to-indigo-800" />
 
       {/* Intro Screen */}
       {step === 'intro' && (
@@ -467,7 +464,7 @@ const SymptomCheckerPage: React.FC = () => {
                 <label id="symptom-checker-gender-label" className="block text-sm font-medium text-content-secondary mb-1">{t('symptomChecker.genderLabel')}</label>
                 <div className="flex gap-3" role="group" aria-labelledby="symptom-checker-gender-label">
                   {(['male', 'female', 'other'] as const).map(g => (
-                    <button
+                    <button type="button"
                       key={g}
                       onClick={() => setGender(g)}
                       className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
@@ -483,7 +480,7 @@ const SymptomCheckerPage: React.FC = () => {
               </div>
             </div>
 
-            <button
+            <button type="button"
               onClick={startAssessment}
               disabled={!age || !gender}
               className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
@@ -525,7 +522,7 @@ const SymptomCheckerPage: React.FC = () => {
                     className="inline-flex items-center gap-1 bg-surface-sunken text-content-secondary text-xs px-2 py-1 rounded-full"
                   >
                     {symptomLabel(s)}
-                    <button onClick={() => handleSymptomSelect(s)} aria-label={`Remove ${symptomLabel(s)}`}>
+                    <button type="button" onClick={() => handleSymptomSelect(s)} aria-label={`Remove ${symptomLabel(s)}`}>
                       <X className="w-3 h-3" />
                     </button>
                   </span>
@@ -586,7 +583,7 @@ const SymptomCheckerPage: React.FC = () => {
             <p className="text-xs text-content-muted mb-2">{t('symptomChecker.commonSymptoms')}</p>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {commonSymptoms.slice(0, 8).map(symptom => (
-                <button
+                <button type="button"
                   key={symptom.id}
                   onClick={() => handleSymptomSelect(symptom)}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-all ${
@@ -613,17 +610,17 @@ const SymptomCheckerPage: React.FC = () => {
                 placeholder={t('symptomChecker.inputPlaceholder')}
                 className="flex-1 border border-border-interactive rounded-full px-4 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
               />
-              <button
+              {/* ux-allow(disabled-submit): a chat send button with nothing typed; the empty box is the reason. */}
+              <button type="submit"
                 aria-label="Send symptom message"
                 disabled={!inputValue.trim()}
-                onClick={handleSendMessage}
                 className="p-2 bg-purple-600 text-white rounded-full hover:bg-purple-700"
               >
                 <Send className="w-5 h-5" />
               </button>
             </div>
             {selectedSymptoms.length > 0 && (
-              <button
+              <button type="button"
                 onClick={analyzeSymptoms}
                 className="w-full mt-3 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
               >
@@ -729,7 +726,7 @@ const SymptomCheckerPage: React.FC = () => {
             <p id="nearby-care-unavailable" className="text-sm text-content-muted">
               Nearby provider search is not available. Use Schedule Appointment to choose a listed provider.
             </p>
-            <button
+            <button type="button"
               onClick={() => {
                 setStep('intro');
                 setSelectedSymptoms([]);
@@ -744,6 +741,7 @@ const SymptomCheckerPage: React.FC = () => {
         </div>
       )}
     </div>
+    </form>
   );
 };
 

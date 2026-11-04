@@ -14,7 +14,7 @@ import {
   getUserAvatar,
   getRememberedLoginId,
   useTranslation,
-  ChangePasswordDialog,
+  ChangePasswordDialog, ChoiceChips
 } from '@medichain/shared';
 import { ClinicianContactDetails } from '../components/ClinicianContactDetails';
 import { 
@@ -273,7 +273,7 @@ function SettingsPage() {
   }, [user?.userId]);
 
   const handleSave = async () => {
-    if (!user) return;
+    if (!user || isSaving) return;
 
     setIsSaving(true);
     setSettingsError(null);
@@ -319,6 +319,7 @@ function SettingsPage() {
 
   return (
     <div className="p-8">
+      <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -333,10 +334,9 @@ function SettingsPage() {
           </p>
         </div>
         
-        {activeTab !== 'profile' && <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+        {activeTab !== 'profile' && <button type="submit"
+          aria-disabled={isSaving || undefined}
+          className="aria-disabled:cursor-wait flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors"
         >
           {saved ? (
             <>
@@ -363,7 +363,7 @@ function SettingsPage() {
         <div className="w-full lg:w-64 lg:shrink-0 bg-surface rounded-xl shadow p-4">
           <nav className="space-y-1">
             {tabs.map((tab) => (
-              <button
+              <button type="button"
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
@@ -693,17 +693,17 @@ function SettingsPage() {
                       <p className="text-sm text-content-muted">{t('docSettings.sessionTimeoutDesc')}</p>
                     </div>
                   </div>
-                  <select
-                    value={settings.security.sessionTimeout}
-                    aria-label={t('docSettings.sessionTimeout')}
-                    onChange={(e) => updateSecurity('sessionTimeout', Number(e.target.value))}
-                    className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  >
-                    <option value={15}>{t('docSettings.min15')}</option>
-                    <option value={30}>{t('docSettings.min30')}</option>
-                    <option value={60}>{t('docSettings.hour1')}</option>
-                    <option value={120}>{t('docSettings.hour2')}</option>
-                  </select>
+                  <ChoiceChips
+                    label={t('docSettings.sessionTimeout')}
+                    value={String(settings.security.sessionTimeout)}
+                    onChange={(next) => { if (next !== undefined) updateSecurity('sessionTimeout', Number(next)); }}
+                    options={[
+                      { value: '15', label: t('docSettings.min15') },
+                      { value: '30', label: t('docSettings.min30') },
+                      { value: '60', label: t('docSettings.hour1') },
+                      { value: '120', label: t('docSettings.hour2') },
+                    ]}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between py-3 border-b border-border">
@@ -759,7 +759,7 @@ function SettingsPage() {
                       { value: 'dark', label: t('docSettings.themeDark'), icon: Moon },
                       { value: 'system', label: t('docSettings.themeSystem'), icon: Monitor }
                     ].map(({ value, label, icon: Icon }) => (
-                      <button
+                      <button type="button"
                         key={value}
                         onClick={() => {
                           setTheme(value as 'light' | 'dark' | 'system');
@@ -795,19 +795,19 @@ function SettingsPage() {
                       <p className="text-sm text-content-muted">{t('docSettings.languageDesc')}</p>
                     </div>
                   </div>
-                  <select
+                  <ChoiceChips
+                    label={t('docSettings.language')}
                     value={settings.display.language}
-                    aria-label={t('docSettings.language')}
-                    onChange={(e) => updateDisplay('language', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  >
-                    <option value="en">{t('docSettings.langEnglish')}</option>
-                    <option value="fr">{t('docSettings.langFrench')}</option>
-                    <option value="sw">{t('docSettings.langSwahili')}</option>
-                    <option value="ha">{t('docSettings.langHausa')}</option>
-                    <option value="yo">{t('docSettings.langYoruba')}</option>
-                    <option value="am">{t('docSettings.langAmharic')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; updateDisplay('language', next); }}
+                    options={[
+                      { value: 'en', label: t('docSettings.langEnglish') },
+                      { value: 'fr', label: t('docSettings.langFrench') },
+                      { value: 'sw', label: t('docSettings.langSwahili') },
+                      { value: 'ha', label: t('docSettings.langHausa') },
+                      { value: 'yo', label: t('docSettings.langYoruba') },
+                      { value: 'am', label: t('docSettings.langAmharic') },
+                    ]}
+                  />
                 </div>
 
                 <div className="py-3 border-b border-border">
@@ -818,16 +818,16 @@ function SettingsPage() {
                       <p className="text-sm text-content-muted">{t('docSettings.dateFormatDesc')}</p>
                     </div>
                   </div>
-                  <select
+                  <ChoiceChips
+                    label={t('docSettings.dateFormat')}
                     value={settings.display.dateFormat}
-                    aria-label={t('docSettings.dateFormat')}
-                    onChange={(e) => updateDisplay('dateFormat', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  >
-                    <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                    <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                    <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; updateDisplay('dateFormat', next); }}
+                    options={[
+                      { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' },
+                      { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' },
+                      { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' },
+                    ]}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between py-3">
@@ -851,6 +851,7 @@ function SettingsPage() {
           )}
         </div>
       </div>
+      </form>
 
       {showPasswordDialog && (
         <ChangePasswordDialog

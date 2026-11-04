@@ -103,7 +103,9 @@ describe('SymptomTrackerPage (Patient)', () => {
     expect(screen.getByRole('button', { name: 'Save Entry' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     fireEvent.click(screen.getByRole('button', { name: 'Respiratory' }));
-    expect(screen.getByRole('button', { name: 'Save Entry' })).toBeDisabled();
+    // The old symptom is gone: saving now asks for one instead of sending it.
+    fireEvent.click(screen.getByRole('button', { name: 'Save Entry' }));
+    expect(await screen.findByText(/Choose a category and a symptom first/i)).toBeInTheDocument();
     expect(shared.logSymptom).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Cough' }));
     expect(screen.getByRole('button', { name: 'Save Entry' })).toBeEnabled();

@@ -301,6 +301,7 @@ pub async fn nursing_record_fluid(
             label: fluid_label.as_deref(),
             notes: body.get("notes").and_then(|v| v.as_str()),
             amount_ml,
+            recorded_at: crate::support::clinical_time(&req),
         },
     )
     .await

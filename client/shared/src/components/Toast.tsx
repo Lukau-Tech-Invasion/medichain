@@ -25,7 +25,18 @@ interface ToastContextType {
 
 const ToastContext = createContext<ToastContextType | null>(null);
 
-const TOAST_DURATION = 5000; // Auto-dismiss after 5 seconds
+/**
+ * How long each kind stays. An error stays until it is dismissed: a failure
+ * that vanishes while the clinician is looking at the patient is a failure
+ * nobody saw (WCAG 2.2.1 Timing Adjustable). A warning gets longer than a
+ * confirmation. Any toast holds still while the pointer or focus is on it.
+ */
+const TOAST_DURATION: Record<ToastType, number | null> = {
+  success: 5000,
+  info: 5000,
+  warning: 10000,
+  error: null,
+};
 
 /**
  * Toast styling, in semantic tokens rather than raw palette scales.
@@ -75,16 +86,24 @@ const toastStyles: Record<
 function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) => void }) {
   const style = toastStyles[toast.type];
 
+  const [held, setHeld] = useState(false);
+  const duration = TOAST_DURATION[toast.type];
+
   useEffect(() => {
-    const timer = setTimeout(() => onRemove(toast.id), TOAST_DURATION);
+    if (duration === null || held) return undefined;
+    const timer = setTimeout(() => onRemove(toast.id), duration);
     return () => clearTimeout(timer);
-  }, [toast.id, onRemove]);
+  }, [toast.id, onRemove, duration, held]);
 
   return (
     <div
       className={`flex items-start gap-3 p-4 rounded-lg shadow-lg border ${style.bg} ${style.border} animate-slide-in`}
-      role="alert"
-      aria-live="polite"
+      role={toast.type === 'error' ? 'alert' : 'status'}
+      aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
+      onMouseEnter={() => setHeld(true)}
+      onMouseLeave={() => setHeld(false)}
+      onFocus={() => setHeld(true)}
+      onBlur={() => setHeld(false)}
     >
       <div className={`flex-shrink-0 p-1 rounded-full ${style.iconBg}`}>
         {style.icon}
@@ -96,8 +115,9 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
         <p className={`text-sm ${style.fg}`}>{toast.message}</p>
       </div>
       <button
+        type="button"
         onClick={() => onRemove(toast.id)}
-        className="flex-shrink-0 p-1 rounded hover:opacity-70 transition-opacity"
+        className="flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center rounded hover:opacity-70 transition-opacity"
         aria-label="Dismiss notification"
       >
         <X size={16} className={style.fg} />
@@ -107,6 +127,21 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
 }
 
 function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: string) => void }) {
+  // An error stays until it is dealt with, and it sits where most forms keep
+  // their Save button. Changing a field is dealing with it: the refusal said
+  // what to fix, and leaving it up would cover the button that saves the fix.
+  const errorIds = toasts.filter((toast) => toast.type === 'error').map((toast) => toast.id).join('|');
+  useEffect(() => {
+    if (!errorIds) return undefined;
+    const clear = () => errorIds.split('|').forEach(onRemove);
+    document.addEventListener('input', clear, true);
+    document.addEventListener('change', clear, true);
+    return () => {
+      document.removeEventListener('input', clear, true);
+      document.removeEventListener('change', clear, true);
+    };
+  }, [errorIds, onRemove]);
+
   if (toasts.length === 0) return null;
 
   return (

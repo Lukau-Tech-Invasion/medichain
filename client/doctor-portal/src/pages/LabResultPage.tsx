@@ -15,9 +15,11 @@ import {
   Printer,
   RefreshCw
 } from 'lucide-react';
-import { getAllLabSubmissions, useTranslation, clickable, Alert, LoadingSpinner, ModalPanel } from '@medichain/shared';
+import { getAllLabSubmissions, useTranslation, clickable, Alert, LoadingSpinner, ModalPanel, ChoiceChips } from '@medichain/shared';
 
 import StaffName from '../components/StaffName';
+
+// ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
 /**
  * LabResultPage
  * 
@@ -281,18 +283,18 @@ const LabResultPage: React.FC = () => {
             className="w-full pl-10 pr-4 py-2 border rounded-lg"
           />
         </div>
-        <label htmlFor="labresult-status-filter" className="sr-only">{t('docLabResult.filterLabel')}</label>
-        <select
+        <ChoiceChips
           id="labresult-status-filter"
+          label={t('docLabResult.filterLabel')}
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-          className="border rounded-lg px-3 py-2"
-        >
-          <option value="all">{t('docLabResult.statusAll')}</option>
-          <option value="pending">{t('docLabResult.statusPending')}</option>
-          <option value="in-progress">{t('docLabResult.statusInProgress')}</option>
-          <option value="completed">{t('docLabResult.statusCompleted')}</option>
-        </select>
+          onChange={(next) => { if (next === undefined) return; setStatusFilter(next as typeof statusFilter); }}
+          options={[
+            { value: 'all', label: t('docLabResult.statusAll') },
+            { value: 'pending', label: t('docLabResult.statusPending') },
+            { value: 'in-progress', label: t('docLabResult.statusInProgress') },
+            { value: 'completed', label: t('docLabResult.statusCompleted') },
+          ]}
+        />
       </div>
 
       {/* Results List */}

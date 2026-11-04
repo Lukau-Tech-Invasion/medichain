@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp } from '@medichain/shared';
+import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
 import {
   Thermometer,
@@ -21,6 +20,7 @@ import {
   History
 } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 interface BundleItem {
   id: string;
@@ -52,7 +52,7 @@ const INFECTION_SOURCE_KEYS: Record<string, string> = {
 
 
 export default function SepsisPage() {
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const [selectedPatient, setSelectedPatient] = useState<string>('');
@@ -65,6 +65,7 @@ export default function SepsisPage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<SepsisListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [sepsisStartTime, setSepsisStartTime] = useState<Date | null>(null);
   const [elapsedMinutes, setElapsedMinutes] = useState(0);
 
@@ -149,10 +150,13 @@ export default function SepsisPage() {
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
       setEmergencyHistory(await getPatientSepsisAssessments(patientId));
-    } catch (e) {
-      console.error(e);
+    } catch {
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docSepsis.errorLoadHistory'));
     } finally {
       setHistoryLoading(false);
     }
@@ -226,6 +230,7 @@ export default function SepsisPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docSepsis.errorSelectPatient'));
       return;
@@ -294,7 +299,7 @@ export default function SepsisPage() {
       // clinical pictures.
       setSavedScores(saved);
       setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docSepsis.errorSaveFailed'));
       console.error('Failed to save sepsis data', err);
@@ -411,6 +416,8 @@ export default function SepsisPage() {
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docSepsis.loading')}</p>
+                    ) : historyError ? (
+                      <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
                     ) : emergencyHistory.length === 0 ? (
                       <p className="text-content-muted text-xs italic">{t('docSepsis.noPriorEvents')}</p>
                     ) : (
@@ -807,27 +814,22 @@ export default function SepsisPage() {
                     )}
                   </div>
                   <div>
-                    <label htmlFor="sepsis-vasopressor" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docSepsis.vasopressorLabel')}
-                    </label>
-                    <select
+                    <ChoiceChips
                       id="sepsis-vasopressor"
-                      value={vasopressorType}
-                      onChange={(e) => {
-                        setVasopressorType(e.target.value);
-                        if (e.target.value) {
+                      label={t('docSepsis.vasopressorLabel')}
+                      value={(vasopressorType) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setVasopressorType(next);
+                        if (next) {
                           toggleBundleItem('hour1', 'vasopressors');
-                        }
-                      }}
-                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="">{t('docSepsis.none')}</option>
-                      <option value="norepinephrine">Norepinephrine (1st line)</option>
-                      <option value="vasopressin">Vasopressin</option>
-                      <option value="epinephrine">Epinephrine</option>
-                      <option value="dopamine">Dopamine</option>
-                      <option value="phenylephrine">Phenylephrine</option>
-                    </select>
+                        } }}
+                      options={[
+                        { value: 'norepinephrine', label: 'Norepinephrine (1st line)' },
+                        { value: 'vasopressin', label: 'Vasopressin' },
+                        { value: 'epinephrine', label: 'Epinephrine' },
+                        { value: 'dopamine', label: 'Dopamine' },
+                        { value: 'phenylephrine', label: 'Phenylephrine' },
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
@@ -889,15 +891,15 @@ export default function SepsisPage() {
           <div className="mt-6 flex justify-end space-x-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => returnAfterSave()}
               className="px-6 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
             >
               {t('docSepsis.cancel')}
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 flex items-center"
             >
               {isSubmitting ? (
                 <>

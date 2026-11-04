@@ -203,6 +203,7 @@ export default function AdminDashboardPage() {
       const response = await getAdminDashboard();
       setData(response as unknown as AdminDashboardData);
     } catch (error) {
+      // ux-allow(console-catch): with no data the page renders docAdmin.loadError instead of the dashboard.
       console.error('Failed to load admin dashboard:', error);
     } finally {
       setLoading(false);
@@ -268,6 +269,8 @@ export default function AdminDashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-sunken">
         <div className="text-center">
+          {/* The page names itself while it loads and when it fails, not only once it has data. */}
+          <h1 className="sr-only">{t('docAdmin.title')}</h1>
           <Loader2 className="mx-auto animate-spin text-content-secondary" size={48} />
           <p className="mt-4 text-content-muted">{t('docAdmin.loading')}</p>
         </div>
@@ -278,7 +281,8 @@ export default function AdminDashboardPage() {
   if (!data) {
     return (
       <div className="p-6 bg-surface-sunken min-h-screen">
-        <div className="bg-critical-subtle border border-critical rounded-lg p-4 text-critical-subtle-fg">
+        <h1 className="text-2xl font-bold text-content mb-4">{t('docAdmin.title')}</h1>
+        <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-4 text-critical-subtle-fg">
           {t('docAdmin.loadError')}
         </div>
       </div>

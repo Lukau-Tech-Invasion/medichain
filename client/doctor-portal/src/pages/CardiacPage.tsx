@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
+import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp, ChoiceChips } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 import type { TimiCriteriaInput } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
@@ -17,6 +16,7 @@ import {
   Plus,
   History
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 interface CardiacEvent {
   time: string;
@@ -56,7 +56,7 @@ const TIMI_CRITERIA_FIELDS: ReadonlyArray<{
 
 export default function CardiacPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   // The chosen directory entry, as the server's search returned it.
@@ -69,6 +69,7 @@ export default function CardiacPage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<CardiacEventListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   // Cardiac Event Form State
   const [eventType, setEventType] = useState<string>('stemi');
@@ -130,10 +131,13 @@ export default function CardiacPage() {
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
       setEmergencyHistory(await getPatientCardiacEvents(patientId));
-    } catch (e) {
-      console.error(e);
+    } catch {
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docCardiac.errorLoadHistory'));
     } finally {
       setHistoryLoading(false);
     }
@@ -165,6 +169,7 @@ export default function CardiacPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docCardiac.errorSelectPatient'));
       return;
@@ -209,7 +214,7 @@ export default function CardiacPage() {
       const saved = await createCardiac(cardiacData);
       setSavedTimi({ timi_score: saved.timi_score, timi_band: saved.timi_band });
       setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docCardiac.errorSaveFailed'));
       console.error('Failed to save cardiac event', err);
@@ -309,6 +314,8 @@ export default function CardiacPage() {
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docCardiac.loadingHistory')}</p>
+                    ) : historyError ? (
+                      <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
                     ) : emergencyHistory.length === 0 ? (
                       <p className="text-content-muted text-xs italic">{t('docCardiac.noPriorEvents')}</p>
                     ) : (
@@ -355,17 +362,17 @@ export default function CardiacPage() {
               {/* Killip Classification */}
               <div className="bg-surface rounded-lg shadow p-6">
                 <h2 id="cardiac-killip-heading" className="text-lg font-semibold text-content mb-4">{t('docCardiac.killipTitle')}</h2>
-                <select
-                  aria-labelledby="cardiac-killip-heading"
-                  value={killipClass}
-                  onChange={(e) => setKillipClass(e.target.value)}
-                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
-                >
-                  <option value="1">{t('docCardiac.killip_1')}</option>
-                  <option value="2">{t('docCardiac.killip_2')}</option>
-                  <option value="3">{t('docCardiac.killip_3')}</option>
-                  <option value="4">{t('docCardiac.killip_4')}</option>
-                </select>
+                <ChoiceChips
+                  label={t('docCardiac.killipTitle')}
+                  value={killipClass || undefined}
+                  onChange={(next) => setKillipClass(next ?? '')}
+                  options={[
+                    { value: '1', label: t('docCardiac.killip_1') },
+                    { value: '2', label: t('docCardiac.killip_2') },
+                    { value: '3', label: t('docCardiac.killip_3') },
+                    { value: '4', label: t('docCardiac.killip_4') },
+                  ]}
+                />
                 {/* TIMI criteria.
 
                     These used to be inferred from unrelated controls behind a
@@ -446,20 +453,19 @@ export default function CardiacPage() {
                     />
                   </div>
                   <div>
-                    <label htmlFor="cardiac-chest-pain-character" className="block text-sm font-medium text-content-secondary mb-1">{t('docCardiac.chestPainCharacterLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="cardiac-chest-pain-character"
-                      value={chestPainCharacter}
-                      onChange={(e) => setChestPainCharacter(e.target.value)}
-                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
-                    >
-                      <option value="">{t('docCardiac.selectCharacter')}</option>
-                      <option value="crushing">{t('docCardiac.painChar_crushing')}</option>
-                      <option value="sharp">{t('docCardiac.painChar_sharp')}</option>
-                      <option value="burning">{t('docCardiac.painChar_burning')}</option>
-                      <option value="aching">{t('docCardiac.painChar_aching')}</option>
-                      <option value="squeezing">{t('docCardiac.painChar_squeezing')}</option>
-                    </select>
+                      label={t('docCardiac.chestPainCharacterLabel')}
+                      value={(chestPainCharacter) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setChestPainCharacter(next); }}
+                      options={[
+                        { value: 'crushing', label: t('docCardiac.painChar_crushing') },
+                        { value: 'sharp', label: t('docCardiac.painChar_sharp') },
+                        { value: 'burning', label: t('docCardiac.painChar_burning') },
+                        { value: 'aching', label: t('docCardiac.painChar_aching') },
+                        { value: 'squeezing', label: t('docCardiac.painChar_squeezing') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-content-secondary mb-2">{t('docCardiac.painRadiationLabel')}</label>
@@ -791,15 +797,15 @@ export default function CardiacPage() {
           <div className="mt-6 flex justify-end space-x-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => returnAfterSave()}
               className="px-6 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
             >
               {t('docCardiac.cancelBtn')}
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical flex items-center"
             >
               {isSubmitting ? (
                 <>

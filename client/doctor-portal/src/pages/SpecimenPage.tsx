@@ -25,12 +25,13 @@ import {
   rejectSpecimen,
   getApiErrorMessage,
   formatTimestamp, ModalPanel,
-  notifySuccess,
+  notifySuccess, ChoiceChips
 } from '@medichain/shared';
 import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 import StaffName from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
 /**
  * SpecimenPage
  * 
@@ -142,6 +143,7 @@ const SpecimenPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(specimenSchema);
 
   const submitRejection = async (specimenId: string) => {
+    if (rejecting) return;
     if (!rejectCategory || !rejectReason.trim()) {
       setRejectMessage(t('docSpecimen.rejectIncomplete'));
       return;
@@ -396,10 +398,13 @@ const SpecimenPage: React.FC = () => {
 
           {/* Tabs */}
           <div className="bg-surface border-b">
-            <div className="flex">
+            <div className="flex" role="tablist">
               {(['specimens', 'add', 'tracking'] as const).map(tab => (
                 <button
                   key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium ${
                     activeTab === tab ? 'text-content-secondary border-b-2 border-teal-700' : 'text-content-muted'
@@ -425,18 +430,19 @@ const SpecimenPage: React.FC = () => {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg"
                   />
             </div>
-            <select aria-label={t('common.filterByStatus')}
+            <ChoiceChips
+              label={t('common.filterByStatus')}
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as CollectionStatus | 'all')}
-              className="border rounded-lg px-3 py-2"
-            >
-              <option value="all">{t('docSpecimen.allStatus')}</option>
-              <option value="pending">{t('docSpecimen.filterPending')}</option>
-              <option value="collected">{t('docSpecimen.filterCollected')}</option>
-              <option value="rejected">{t('docSpecimen.stRejected')}</option>
-              <option value="processing">{t('docSpecimen.filterProcessing')}</option>
-              <option value="completed">{t('docSpecimen.filterCompleted')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setFilterStatus(next as CollectionStatus | 'all'); }}
+              options={[
+                { value: 'all', label: t('docSpecimen.allStatus') },
+                { value: 'pending', label: t('docSpecimen.filterPending') },
+                { value: 'collected', label: t('docSpecimen.filterCollected') },
+                { value: 'rejected', label: t('docSpecimen.stRejected') },
+                { value: 'processing', label: t('docSpecimen.filterProcessing') },
+                { value: 'completed', label: t('docSpecimen.filterCompleted') },
+              ]}
+            />
           </div>
 
           <div className="space-y-3">
@@ -522,13 +528,17 @@ const SpecimenPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="specimen-priority" className="block text-sm font-medium mb-1">{t('docSpecimen.priorityRequired')}</label>
-                  <select id="specimen-priority" className="w-full border rounded-lg px-3 py-2"
-                    value={form.priority} onChange={(e) => setForm(f => ({ ...f, priority: e.target.value }))}>
-                    <option value="routine">{t('docSpecimen.optRoutine')}</option>
-                    <option value="urgent">{t('docSpecimen.optUrgent')}</option>
-                    <option value="stat">{t('docSpecimen.optStat')}</option>
-                  </select>
+                  <ChoiceChips
+                    id="specimen-priority"
+                    label={t('docSpecimen.priorityRequired')}
+                    value={form.priority}
+                    onChange={(next) => { if (next === undefined) return; setForm(f => ({ ...f, priority: next })); }}
+                    options={[
+                      { value: 'routine', label: t('docSpecimen.optRoutine') },
+                      { value: 'urgent', label: t('docSpecimen.optUrgent') },
+                      { value: 'stat', label: t('docSpecimen.optStat') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -657,7 +667,7 @@ const SpecimenPage: React.FC = () => {
 
               <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.patientInfo')}</h3>
-                <p><strong>{t('docSpecimen.patientIdLabel')}</strong> {selectedSpecimen.patientId}</p>
+                <p><PatientName id={selectedSpecimen.patientId} inherit /></p>
               </div>
 
               <div className="bg-surface-sunken rounded-lg p-4">
@@ -743,8 +753,8 @@ const SpecimenPage: React.FC = () => {
                 )}
                 <button
                   type="submit"
-                  disabled={rejecting}
-                  className="w-full py-2 rounded-lg font-medium bg-critical text-critical-fg disabled:opacity-60"
+                  aria-disabled={rejecting || undefined}
+                  className="w-full py-2 rounded-lg font-medium bg-critical text-critical-fg"
                 >
                   {rejecting ? t('docSpecimen.rejectSubmitting') : t('docSpecimen.rejectSubmit')}
                 </button>

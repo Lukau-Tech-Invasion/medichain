@@ -9,7 +9,8 @@ import {
   assessFamilyHistory,
   useValidatedForm,
   familyHistoryMemberSchema,
-  formatDateOnly,
+  formatDateOnly, ChoiceChips,
+  keepEnterInField,
 } from '@medichain/shared';
 import type {
   FamilyMedicalHistory,
@@ -40,6 +41,7 @@ import {
 import StaffName from '../components/StaffName';
 import PatientSelect from '../components/PatientSelect';
 import type { Patient } from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
 
 type RelationshipType =
   | 'mother'
@@ -697,7 +699,7 @@ const FamilyHistoryPage: React.FC = () => {
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.patientLabel')}</p>
                     <p className="font-semibold text-content">{member.patientName}</p>
-                    <p className="text-sm text-content-muted">{member.patientId}</p>
+                    <p className="text-sm"><PatientName id={member.patientId} dobOnly /></p>
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.familyMemberLabel')}</p>
@@ -781,6 +783,7 @@ const FamilyHistoryPage: React.FC = () => {
       )}
 
       {activeTab === 'add-member' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleAddMember(); }} onKeyDown={keepEnterInField} noValidate>
         <fieldset disabled={isLoading} className="min-w-0 bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
@@ -841,19 +844,17 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="famhx-vital-status" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docFamilyHistory.vitalStatusRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="famhx-vital-status"
+                  label={t('docFamilyHistory.vitalStatusRequired')}
                   value={newMember.vitalStatus}
-                  onChange={(e) => setNewMember({ ...newMember, vitalStatus: e.target.value as VitalStatus })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="alive">{t('docFamilyHistory.vitalStatus_alive')}</option>
-                  <option value="deceased">{t('docFamilyHistory.vitalStatus_deceased')}</option>
-                  <option value="unknown">{t('docFamilyHistory.vitalStatus_unknown')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewMember({ ...newMember, vitalStatus: next as VitalStatus }); }}
+                  options={[
+                    { value: 'alive', label: t('docFamilyHistory.vitalStatus_alive') },
+                    { value: 'deceased', label: t('docFamilyHistory.vitalStatus_deceased') },
+                    { value: 'unknown', label: t('docFamilyHistory.vitalStatus_unknown') },
+                  ]}
+                />
               </div>
 
               {newMember.vitalStatus === 'alive' && (
@@ -979,18 +980,17 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="famhx-severity" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.severityLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="famhx-severity"
-                    value={newCondition.severity}
-                    onChange={(e) => setNewCondition({ ...newCondition, severity: e.target.value as 'mild' | 'moderate' | 'severe' })}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  >
-                    <option value="">{t('docFamilyHistory.notRecorded')}</option>
-                    <option value="mild">{t('docFamilyHistory.severity_mild')}</option>
-                    <option value="moderate">{t('docFamilyHistory.severity_moderate')}</option>
-                    <option value="severe">{t('docFamilyHistory.severity_severe')}</option>
-                  </select>
+                    label={t('docFamilyHistory.severityLabel')}
+                    value={(newCondition.severity) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setNewCondition({ ...newCondition, severity: next as 'mild' | 'moderate' | 'severe' }); }}
+                    options={[
+                      { value: 'mild', label: t('docFamilyHistory.severity_mild') },
+                      { value: 'moderate', label: t('docFamilyHistory.severity_moderate') },
+                      { value: 'severe', label: t('docFamilyHistory.severity_severe') },
+                    ]}
+                  />
                 </div>
 
                 <div className="col-span-2">
@@ -1006,7 +1006,7 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
               </div>
 
-              <button
+              <button type="button"
                 onClick={handleAddCondition}
                 className="w-full bg-surface-sunken text-content-secondary px-4 py-2 rounded-lg hover:bg-pink-200 transition-colors font-semibold flex items-center justify-center gap-2 mb-4"
               >
@@ -1026,7 +1026,7 @@ const FamilyHistoryPage: React.FC = () => {
                           {condition.ageOfOnset !== undefined && t('docFamilyHistory.onsetYearsSuffix', { age: condition.ageOfOnset })}
                         </p>
                       </div>
-                      <button
+                      <button type="button"
                         onClick={() => handleRemoveCondition(idx)}
                         aria-label={t('docFamilyHistory.removeCondition', { condition: condition.conditionName })}
                         className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
@@ -1040,13 +1040,13 @@ const FamilyHistoryPage: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={handleAddMember}
+          <button type="submit"
             className="w-full bg-pink-600 text-white px-6 py-3 rounded-lg hover:bg-pink-700 transition-colors font-semibold mt-6"
           >
             {t('docFamilyHistory.addFamilyMember')}
           </button>
         </fieldset>
+        </form>
       )}
 
       {activeTab === 'risk-assessment' && (

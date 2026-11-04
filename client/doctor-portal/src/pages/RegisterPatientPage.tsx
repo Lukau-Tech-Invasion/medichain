@@ -8,6 +8,7 @@ import {
   Input,
   useValidatedForm,
   patientRegistrationSchema,
+  ChoiceChips,
 } from '@medichain/shared';
 import { 
   UserPlus, 
@@ -143,6 +144,7 @@ function RegisterPatientPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError(null);
 
     // Validate the whole form, not just the one field somebody remembered.
@@ -212,6 +214,7 @@ function RegisterPatientPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-content-muted">{t('docRegisterPatient.patientId')}</p>
+                {/* ux-allow(raw-patient-id): the new record's number, shown once so the clinician can note it. */}
                 <p className="font-mono font-medium">{success.patientId}</p>
               </div>
               <div>
@@ -367,22 +370,20 @@ function RegisterPatientPage() {
                 placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label htmlFor="register-id-country" className="sr-only">
-                  {t('docRegisterPatient.idCountry')}
-                </label>
-                <select
+                <ChoiceChips
                   id="register-id-country"
-                  value={idCountry}
-                  onChange={(e) => setIdCountry(e.target.value)}
-                  className="px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
-                >
-                  <option value="">{t('docRegisterPatient.idCountryPrompt')}</option>
-                  <option value="south_africa">{t('docRegisterPatient.idCountryZA')}</option>
-                  <option value="kenya">{t('docRegisterPatient.idCountryKE')}</option>
-                  <option value="nigeria">{t('docRegisterPatient.idCountryNG')}</option>
-                  <option value="ghana">{t('docRegisterPatient.idCountryGH')}</option>
-                  <option value="ethiopia">{t('docRegisterPatient.idCountryET')}</option>
-                </select>
+                  label={t('docRegisterPatient.idCountry')}
+                  hint={t('docRegisterPatient.idCountryPrompt')}
+                  value={idCountry || undefined}
+                  onChange={(value) => setIdCountry(value ?? '')}
+                  options={[
+                    { value: 'south_africa', label: t('docRegisterPatient.idCountryZA') },
+                    { value: 'kenya', label: t('docRegisterPatient.idCountryKE') },
+                    { value: 'nigeria', label: t('docRegisterPatient.idCountryNG') },
+                    { value: 'ghana', label: t('docRegisterPatient.idCountryGH') },
+                    { value: 'ethiopia', label: t('docRegisterPatient.idCountryET') },
+                  ]}
+                />
                 <button
                   type="button"
                   onClick={() => void checkNationalId()}
@@ -588,8 +589,8 @@ function RegisterPatientPage() {
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+            aria-disabled={isSubmitting || undefined}
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors aria-disabled:cursor-wait flex items-center gap-2"
           >
             {isSubmitting ? (
               <>

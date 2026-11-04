@@ -64,7 +64,7 @@ describe('DashboardPage (Patient)', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Hello, Test/i)).toBeInTheDocument();
-      expect(screen.getByText(/HEALTH123/i)).toBeInTheDocument();
+      expect(screen.getByText('HEAL TH12 3')).toBeInTheDocument();
       expect(screen.getByText(/O\+/i)).toBeInTheDocument();
     });
   });
@@ -93,7 +93,7 @@ describe('DashboardPage (Patient)', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/My Records/i).closest('a')).toHaveAttribute('href', '/records');
-      expect(screen.getByText(/Manage Consent/i).closest('a')).toHaveAttribute('href', '/consent');
+      expect(screen.getByText(/Manage Consent/i).closest('a')).toHaveAttribute('href', '/privacy');
       expect(screen.getByText(/Emergency Card/i).closest('a')).toHaveAttribute('href', '/emergency-card');
     });
   });

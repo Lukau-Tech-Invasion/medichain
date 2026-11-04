@@ -115,6 +115,9 @@ const BarcodePage: React.FC = () => {
   const [settingsNotice, setSettingsNotice] = useState('');
   const [scanMode, setScanMode] = useState<ScanMode>('patient');
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [historyError, setHistoryError] = useState('');
+
   const [flashOn, setFlashOn] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [scanHistory, setScanHistory] = useState<ScannedItem[]>([]);
@@ -136,8 +139,8 @@ const BarcodePage: React.FC = () => {
     try {
       const history = await getMyBarcodeScans();
       setScanHistory(history.map((item) => mapPersistedScan(item as PersistedBarcodeScan)));
-    } catch (error) {
-      console.error('Barcode scan history could not be loaded:', error);
+    } catch {
+      setHistoryError(t('docBarcode.errorLoadHistory'));
     }
   };
 
@@ -215,8 +218,8 @@ const BarcodePage: React.FC = () => {
         videoRef.current.srcObject = stream;
         setIsCameraActive(true);
       }
-    } catch (err) {
-      console.error('Camera access denied:', err);
+    } catch {
+      setCameraError(t('docBarcode.errorCamera'));
     }
   };
 
@@ -420,6 +423,7 @@ const BarcodePage: React.FC = () => {
 
       {/* Scan Tab */}
       {activeTab === 'scan' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleManualEntry(); }} noValidate>
         <div className="flex-1 flex flex-col">
           {/* Camera View */}
           <div className="relative flex-1 bg-black min-h-[300px]">
@@ -447,7 +451,8 @@ const BarcodePage: React.FC = () => {
               <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300">
                 <CameraOff className="w-16 h-16 mb-4" />
                 <p>{t('docBarcode.cameraNotActive')}</p>
-                <button
+                {cameraError && <p role="alert" className="mt-2 max-w-sm text-center text-sm text-white">{cameraError}</p>}
+                <button type="button"
                   onClick={startCamera}
                   className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg font-medium"
                 >
@@ -477,13 +482,13 @@ const BarcodePage: React.FC = () => {
 
                 {/* Camera Controls */}
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-4">
-                  <button
+                  <button type="button"
                     onClick={() => setFlashOn(!flashOn)}
                     className="p-3 bg-black/50 rounded-full text-white"
                   >
                     {flashOn ? <Flashlight className="w-6 h-6" /> : <FlashlightOff className="w-6 h-6" />}
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => void scanCamera()}
                     disabled={isScanning}
                     className={`px-8 py-3 rounded-full font-semibold ${
@@ -494,7 +499,7 @@ const BarcodePage: React.FC = () => {
                   >
                     {isScanning ? t('docBarcode.scanning') : t('docBarcode.scan')}
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => {
                       setFacingMode(f => f === 'environment' ? 'user' : 'environment');
                     }}
@@ -505,7 +510,7 @@ const BarcodePage: React.FC = () => {
                 </div>
 
                 {/* Stop Camera */}
-                <button
+                <button type="button"
                   onClick={stopCamera}
                   className="absolute top-4 right-4 p-2 bg-black/50 rounded-full text-white"
                 >
@@ -530,8 +535,7 @@ const BarcodePage: React.FC = () => {
                 />
                 <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               </div>
-              <button
-                onClick={handleManualEntry}
+              <button type="submit"
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium"
               >
                 {t('docBarcode.submit')}
@@ -574,12 +578,16 @@ const BarcodePage: React.FC = () => {
             </div>
           )}
         </div>
+        </form>
       )}
 
       {/* History Tab */}
       {activeTab === 'history' && (
         <div className="flex-1 bg-surface-sunken p-4 space-y-3">
-          {scanHistory.length === 0 ? (
+          {historyError && (
+            <p role="alert" className="rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{historyError}</p>
+          )}
+          {scanHistory.length === 0 && !historyError ? (
             <EmptyState
               icon={<History className="w-12 h-12" />}
               title={t('docBarcode.noHistoryTitle')}

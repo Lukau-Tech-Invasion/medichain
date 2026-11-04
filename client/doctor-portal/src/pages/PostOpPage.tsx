@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
+import { createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor, ChoiceChips } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
 
@@ -187,6 +187,7 @@ const PostOpPage: React.FC = () => {
   /** Submit one draft at a time, retaining all entries if the server refuses the write. */
   const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (submissionPending.current) return;
     if (!selectedPatient) {
       showError(t('docPostOp.errorSelectPatient'));
@@ -277,6 +278,7 @@ const PostOpPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'assessment' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient & Procedure Info */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -347,7 +349,7 @@ const PostOpPage: React.FC = () => {
                     <span className="w-40 font-medium">{t(`docPostOp.crit_${key}`)}</span>
                     <div className="flex gap-2">
                       {[0, 1, 2].map(val => (
-                        <button
+                        <button type="button"
                           key={val}
                           onClick={() => setAldrete({ ...aldrete, [key]: val as 0 | 1 | 2 })}
                           className={`px-4 py-2 rounded border ${aldrete[key] === val
@@ -436,50 +438,45 @@ const PostOpPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-4 gap-4 mt-4">
                 <div>
-                  <label htmlFor="postop-pain-score" className="text-sm text-content-muted">{t('docPostOp.painScore')}</label>
-                  {/* A select rather than a slider: a slider always has a value,
-                      so "not asked" could not be told from the 3 it started on. */}
-                  <select
+                  {/* Chips rather than a slider: a slider always has a value, so
+                      "not asked" could not be told from the 3 it started on.
+                      Nothing chosen is "not assessed". */}
+                  <ChoiceChips
                     id="postop-pain-score"
-                    value={painScore === null ? '' : String(painScore)}
-                    onChange={e => setPainScore(e.target.value === '' ? null : Number(e.target.value))}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.notAssessed')}</option>
-                    {Array.from({ length: 11 }, (_, n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
+                    label={t('docPostOp.painScore')}
+                    hint={t('docPostOp.notAssessed')}
+                    value={painScore === null ? undefined : String(painScore)}
+                    onChange={(next) => setPainScore(next === undefined ? null : Number(next))}
+                    options={Array.from({ length: 11 }, (_, n) => ({ value: String(n), label: String(n) }))}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="postop-nausea" className="text-sm text-content-muted">{t('docPostOp.nausea')}</label>
-                  <select
+                  <ChoiceChips
                     id="postop-nausea"
-                    value={nauseaVomiting}
-                    onChange={e => setNauseaVomiting(e.target.value as Nausea | '')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.notAssessed')}</option>
-                    <option value="none">{t('docPostOp.nauseaNone')}</option>
-                    <option value="mild">{t('docPostOp.nauseaMild')}</option>
-                    <option value="moderate">{t('docPostOp.nauseaModerate')}</option>
-                    <option value="severe">{t('docPostOp.nauseaSevere')}</option>
-                  </select>
+                    label={t('docPostOp.nausea')}
+                    value={(nauseaVomiting) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setNauseaVomiting(next as Nausea | ''); }}
+                    options={[
+                      { value: 'none', label: t('docPostOp.nauseaNone') },
+                      { value: 'mild', label: t('docPostOp.nauseaMild') },
+                      { value: 'moderate', label: t('docPostOp.nauseaModerate') },
+                      { value: 'severe', label: t('docPostOp.nauseaSevere') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="postop-bleeding" className="text-sm text-content-muted">{t('docPostOp.bleeding')}</label>
-                  <select
+                  <ChoiceChips
                     id="postop-bleeding"
-                    value={bleeding}
-                    onChange={e => setBleeding(e.target.value as Bleeding | '')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.notAssessed')}</option>
-                    <option value="none">{t('docPostOp.bleedNone')}</option>
-                    <option value="minimal">{t('docPostOp.bleedMinimal')}</option>
-                    <option value="moderate">{t('docPostOp.bleedModerate')}</option>
-                    <option value="significant">{t('docPostOp.bleedSignificant')}</option>
-                  </select>
+                    label={t('docPostOp.bleeding')}
+                    value={(bleeding) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setBleeding(next as Bleeding | ''); }}
+                    options={[
+                      { value: 'none', label: t('docPostOp.bleedNone') },
+                      { value: 'minimal', label: t('docPostOp.bleedMinimal') },
+                      { value: 'moderate', label: t('docPostOp.bleedModerate') },
+                      { value: 'significant', label: t('docPostOp.bleedSignificant') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -640,14 +637,14 @@ const PostOpPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
             >
               {isSubmitting ? t('common.saving') : t('docPostOp.save')}
             </button>
           </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
             {!selectedPatient ? (

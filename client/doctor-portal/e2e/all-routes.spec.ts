@@ -32,7 +32,7 @@ import {
  * ticked where both have passed.
  */
 
-/** The 90 clinician and staff entries in the remaining-browser-tests ledger. */
+/** The clinician and staff entries in the remaining-browser-tests ledger (90, plus the six the redesign added). */
 const LEDGER_ROUTES = [
   '/dashboard', '/settings', '/notifications', '/dashboard/doctor', '/dashboard/nurse',
   '/dashboard/lab', '/dashboard/pharmacist', '/dashboard/admin', '/patients', '/patients/:patientId',
@@ -48,6 +48,7 @@ const LEDGER_ROUTES = [
   '/pathology', '/immunization', '/family-history', '/death-certificate', '/health-id-cards', '/autopsy',
   '/admin', '/user-management', '/claims-eob', '/research-exports', '/order-sets', '/note-templates',
   '/barcode', '/analytics', '/cds-alerts', '/appointments', '/working-hours', '/telehealth', '/messages',
+  '/ems-run', '/ems-run/:runId', '/ems-incoming', '/today', '/wards', '/patients/:patientId/:form',
 ] as const;
 
 /** Public entries, checked signed out. */
@@ -68,11 +69,11 @@ const OWN_DASHBOARD: Record<RoleName, string[]> = {
 
 /**
  * Routes the router deliberately sends elsewhere for some accounts: a
- * paramedic's dashboard is the EMS handover board, and `/admin` is the
+ * paramedic's dashboard is the ambulance run screen, and `/admin` is the
  * administrator's dashboard under its own name.
  */
 const REDIRECTS: Record<string, string> = {
-  '/dashboard': '/ems-handoff',
+  '/dashboard': '/ems-run',
   '/admin': '/dashboard/admin',
 };
 
@@ -172,6 +173,9 @@ async function pushRoute(page: Page, path: string) {
 /** A concrete URL for a parameterised ledger entry. */
 async function concrete(page: Page, route: string): Promise<string> {
   if (route === '/patients/:patientId') return `/patients/${fixturePatientId()}`;
+  if (route === '/patients/:patientId/:form') return `/patients/${fixturePatientId()}/vitals`;
+  // Runs live on the device that recorded them; an unknown one must still render an answer.
+  if (route === '/ems-run/:runId') return '/ems-run/unknown-run';
   if (route === '/lab-result/:resultId') {
     const href = await page
       .locator('a[href*="/lab-result/"]')
@@ -286,7 +290,7 @@ test.describe('public routes', () => {
 /** Sign in on the login page already open, keeping its router state. */
 async function signInHere(page: Page, role: RoleName) {
   const fixture = getStaffFixture(role, STAFF_INDEX);
-  await page.getByRole('textbox', { name: 'Employee ID or work email' }).fill(fixture.login_id);
+  await page.getByRole('textbox', { name: 'Employee ID or username' }).fill(fixture.login_id);
   await page.getByRole('textbox', { name: 'Password' }).fill(fixture.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
@@ -332,7 +336,7 @@ for (const role of ROLES_UNDER_TEST) {
         await pace();
         const target = await concrete(page, route);
         await checkOwnedRoute(page, target, previous, findings);
-        // Where the route actually settled: `/dashboard` is `/ems-handoff` for a paramedic.
+        // Where the route actually settled: `/dashboard` is `/ems-run` for a paramedic.
         previous = routeOf(page.url());
       }
 

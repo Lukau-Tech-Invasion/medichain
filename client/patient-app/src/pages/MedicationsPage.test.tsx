@@ -120,9 +120,62 @@ describe('MedicationsPage (Patient)', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText(/Medications/i).length).toBeGreaterThan(0);
-      expect(screen.getByText(/Aspirin/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Aspirin' })).toBeInTheDocument();
       expect(screen.getByText(/Take with food/i)).toBeInTheDocument();
     });
+  });
+
+  /** Answer the reminders read with `reminders`; everything else as set up. */
+  function remindersAnswer(reminders: unknown[]) {
+    const fallback = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/api/reminders/medication/')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ reminders }),
+        });
+      }
+      return fallback?.(url, init);
+    });
+  }
+
+  const reminder = (id: string, name: string, times: string[]) => ({
+    reminder_id: id, patient_id: 'HEALTH123', medication_name: name, dosage: '100 mg',
+    frequency: 'daily', reminder_times: times, start_date: '2026-11-01', active: true,
+  });
+
+  it('shows the reminders of a medicine on that medicine, and the rest on their own', async () => {
+    remindersAnswer([reminder('R-ASP', 'aspirin', ['08:00', '20:00']), reminder('R-VIT', 'Vitamin D', ['09:00'])]);
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    const aspirin = await screen.findByRole('region', { name: 'Reminders for Aspirin' });
+    expect(aspirin).toHaveTextContent('08:00');
+    expect(aspirin).toHaveTextContent('20:00');
+    expect(aspirin).not.toHaveTextContent('09:00');
+    // Not hidden for having no medicine on the list.
+    expect(screen.getByTestId('other-reminders')).toHaveTextContent('Vitamin D');
+    expect(screen.getByRole('button', { name: 'Add a reminder for Aspirin' })).toBeInTheDocument();
+  });
+
+  it('records a dose against the id of the reminder, not the per-time key', async () => {
+    remindersAnswer([reminder('R-ASP', 'Aspirin', ['08:00'])]);
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark Aspirin taken, 08:00 dose' }));
+    await waitFor(() => {
+      const logged = mockFetch.mock.calls.find(([url, init]) =>
+        String(url).includes('/api/reminders/adherence') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(logged, 'no dose was logged').toBeTruthy();
+      expect(JSON.parse(String((logged![1] as RequestInit).body))).toMatchObject({ reminder_id: 'R-ASP', action: 'taken' });
+    });
+  });
+
+  it('opens the reminder form filled in with the medicine and its dose', async () => {
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a reminder for Aspirin' }));
+    expect(document.getElementById('reminder-aspirin-medication')).toHaveValue('Aspirin');
+    expect(document.getElementById('reminder-aspirin-dosage')).toHaveValue('100 mg tablet');
   });
 
   /** Answer the refill-requests read with `status` and `body`; everything else as set up. */

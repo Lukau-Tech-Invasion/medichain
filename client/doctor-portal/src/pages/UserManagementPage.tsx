@@ -19,7 +19,8 @@ import {
   useValidatedForm,
   newUserSchema,
   confirmDialog,
-  formatTimestamp, ModalPanel } from '@medichain/shared';
+  formatTimestamp, ModalPanel, ChoiceChips,
+} from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { OneTimeCodePanel } from '../components/OneTimeCodePanel';
 
@@ -71,6 +72,8 @@ function normalizeUserRole(role?: string): UserRole {
   }
 }
 
+const USERS_PER_PAGE = 20;
+
 const UserManagementPage: React.FC = () => {
   // This section is administrator-only server-side; without this the page
   // received a correct 403 and then rendered nothing, which reads as a fault
@@ -95,6 +98,9 @@ const UserManagementPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<UserStatus | 'all'>('all');
+  const [userPage, setUserPage] = useState(0);
+  // A new search or filter starts at the first page.
+  useEffect(() => setUserPage(0), [searchTerm, roleFilter, statusFilter]);
   const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -404,6 +410,11 @@ const UserManagementPage: React.FC = () => {
     return matchesSearch && matchesRole && matchesStatus;
   });
 
+  // 20 per page (UX plan Phase 7): the full list was 51 screens on a phone.
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
+  const currentPage = Math.min(userPage, pageCount - 1);
+  const pageUsers = filteredUsers.slice(currentPage * USERS_PER_PAGE, (currentPage + 1) * USERS_PER_PAGE);
+
   const getRolePermissions = (role: UserRole): Permission[] => {
     const rolePermissionIds: { [key in UserRole]: string[] } = {
       admin: ['view_patients', 'edit_patients', 'manage_users', 'manage_roles', 'view_audit_logs', 'manage_settings', 'system_admin'],
@@ -560,25 +571,25 @@ const UserManagementPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label htmlFor="user-status-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="user-status-filter"
+                  label={t('docUserManagement.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as UserStatus | 'all')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="all">{t('docUserManagement.allStatuses')}</option>
-                  <option value="active">{t('docUserManagement.status_active')}</option>
-                  <option value="inactive">{t('docUserManagement.status_inactive')}</option>
-                  <option value="suspended">{t('docUserManagement.status_suspended')}</option>
-                  <option value="pending">{t('docUserManagement.status_pending')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as UserStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docUserManagement.allStatuses') },
+                    { value: 'active', label: t('docUserManagement.status_active') },
+                    { value: 'inactive', label: t('docUserManagement.status_inactive') },
+                    { value: 'suspended', label: t('docUserManagement.status_suspended') },
+                    { value: 'pending', label: t('docUserManagement.status_pending') },
+                  ]}
+                />
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {filteredUsers.map((systemUser) => (
+            {pageUsers.map((systemUser) => (
               <div key={systemUser.userId} className="border border-border-strong rounded-lg shadow-sm bg-surface p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-4">
@@ -775,6 +786,22 @@ const UserManagementPage: React.FC = () => {
               </div>
             ))}
 
+            {pageCount > 1 && (
+              <nav aria-label={t('docUserManagement.pagesLabel')} className="flex flex-wrap items-center justify-between gap-2">
+                <button type="button" onClick={() => currentPage > 0 && setUserPage(currentPage - 1)} aria-disabled={currentPage === 0 || undefined}
+                  className="min-h-[44px] rounded-lg border border-border-interactive px-4 text-content hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:text-content-muted aria-disabled:hover:bg-transparent">
+                  {t('docUserManagement.previousPage')}
+                </button>
+                <span className="text-sm text-content-secondary" aria-live="polite">
+                  {t('docUserManagement.pageOf', { page: currentPage + 1, pages: pageCount, total: filteredUsers.length })}
+                </span>
+                <button type="button" onClick={() => currentPage < pageCount - 1 && setUserPage(currentPage + 1)} aria-disabled={currentPage >= pageCount - 1 || undefined}
+                  className="min-h-[44px] rounded-lg border border-border-interactive px-4 text-content hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:text-content-muted aria-disabled:hover:bg-transparent">
+                  {t('docUserManagement.nextPage')}
+                </button>
+              </nav>
+            )}
+
             {!error && !isLoading && filteredUsers.length === 0 && (
               <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
                 <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
@@ -786,6 +813,7 @@ const UserManagementPage: React.FC = () => {
       )}
 
       {activeTab === 'new-user' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCreateUser(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold text-content mb-6">{t('docUserManagement.createNewUserTitle')}</h2>
 
@@ -825,22 +853,19 @@ const UserManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="new-user-role" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docUserManagement.roleLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="new-user-role"
+                  label={t('docUserManagement.roleLabel')}
                   value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  required
-                >
-                  <option value="doctor">{t('docUserManagement.role_doctor')}</option>
-                  <option value="nurse">{t('docUserManagement.role_nurse')}</option>
-                  <option value="paramedic">{t('docUserManagement.role_paramedic')}</option>
-                  <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
-                  <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewUser({ ...newUser, role: next as UserRole }); }}
+                  options={[
+                    { value: 'doctor', label: t('docUserManagement.role_doctor') },
+                    { value: 'nurse', label: t('docUserManagement.role_nurse') },
+                    { value: 'paramedic', label: t('docUserManagement.role_paramedic') },
+                    { value: 'lab-technician', label: t('docUserManagement.role_lab-technician') },
+                    { value: 'pharmacist', label: t('docUserManagement.role_pharmacist') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -942,8 +967,7 @@ const UserManagementPage: React.FC = () => {
               <p id="new-user-notes-unavailable" className="text-sm text-content-muted mt-1">{t('docUserManagement.staffNotesUnavailable')}</p>
             </div>
 
-            <button
-              onClick={handleCreateUser}
+            <button type="submit"
               className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
@@ -951,6 +975,7 @@ const UserManagementPage: React.FC = () => {
             </button>
           </div>
         </div>
+        </form>
       )}
       {activeTab === 'roles' && (
         <div className="space-y-6">
@@ -1057,20 +1082,20 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="usermgmt-role" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.roleLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="usermgmt-role"
+                    label={t('docUserManagement.roleLabel')}
                     value={selectedUser.role}
-                    onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  >
-                    <option value="admin">{t('docUserManagement.role_admin')}</option>
-                    <option value="doctor">{t('docUserManagement.role_doctor')}</option>
-                    <option value="nurse">{t('docUserManagement.role_nurse')}</option>
-                    <option value="paramedic">{t('docUserManagement.role_paramedic')}</option>
-                    <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
-                    <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setSelectedUser({ ...selectedUser, role: next as UserRole }); }}
+                    options={[
+                      { value: 'admin', label: t('docUserManagement.role_admin') },
+                      { value: 'doctor', label: t('docUserManagement.role_doctor') },
+                      { value: 'nurse', label: t('docUserManagement.role_nurse') },
+                      { value: 'paramedic', label: t('docUserManagement.role_paramedic') },
+                      { value: 'lab-technician', label: t('docUserManagement.role_lab-technician') },
+                      { value: 'pharmacist', label: t('docUserManagement.role_pharmacist') },
+                    ]}
+                  />
                 </div>
               </div>
 

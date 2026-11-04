@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fixtureToken, readFixtures } from './identity';
-import { settle, signIn, answerPasswordConfirmation } from './support';
+import { settle, signIn, answerPasswordConfirmation, choose } from './support';
 import { clinicianWorkLocation, enrolDevice, revokeDevice } from './emergency-device';
 
 /**
@@ -63,7 +63,7 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     const picker = clinician.locator('#approved-device');
     await expect(picker).toBeVisible({ timeout: 20000 });
     await expect(picker.locator(`option[value="${deviceId}"]`)).toHaveCount(1, { timeout: 20000 });
-    await picker.selectOption(deviceId);
+    await choose(picker, deviceId);
 
     await clinician.locator('#nfc-tag').fill(nfcTag as string);
     await clinician.getByRole('button', { name: /open emergency summary/i }).click();
@@ -74,7 +74,10 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     await expect(clinician.getByText('Access Granted!')).toBeVisible({ timeout: 30000 });
     const card = clinician.getByText('Emergency Access Active');
     await expect(card).toBeVisible({ timeout: 10000 });
-    await expect(clinician.locator('main')).toContainText(patient.linked_patient_id);
+    // The card names the patient and their date of birth; a paramedic cannot
+    // check a PAT- id against the person in front of them.
+    await expect(clinician.locator('main')).toContainText(/\S+ · born [A-Z][a-z]{2} \d{1,2}, \d{4}/);
+    await expect(clinician.locator('main')).not.toContainText(patient.linked_patient_id);
     await expect(clinician.locator('main')).toContainText('O+');
     await expect(clinician.locator('main')).toContainText(/penicillin/i);
 
@@ -100,7 +103,8 @@ test('a clinician taps a card and reads the emergency data; the patient can see 
     await settle(admin, '/access-logs');
     const grants = admin.locator('[data-testid="grant-table"]');
     await expect(grants).toBeVisible({ timeout: 30000 });
-    await expect(grants.locator('tr').filter({ hasText: patient.linked_patient_id }).first()).toBeVisible();
+    // Rows name the patient; the id is on the name.
+    await expect(grants.locator('tr').filter({ has: admin.locator(`[data-patient-name-of="${patient.linked_patient_id}"]`) }).first()).toBeVisible();
     const endButtons = grants.getByRole('button', { name: /end now/i });
     const open = await endButtons.count();
     if (open > 0) {
@@ -128,7 +132,7 @@ test('a tag that belongs to no patient is refused, and refused plainly', async (
     const clinician = await browser.newPage();
     await signIn(clinician, 'Doctor', 0);
     await settle(clinician, '/emergency');
-    await clinician.locator('#approved-device').selectOption(deviceId);
+    await choose(clinician.locator('#approved-device'), deviceId);
     await clinician.locator('#nfc-tag').fill(`NFC-NO-SUCH-${Date.now()}`);
     await clinician.getByRole('button', { name: /open emergency summary/i }).click();
 

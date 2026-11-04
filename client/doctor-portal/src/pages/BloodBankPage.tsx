@@ -10,7 +10,7 @@ import {
   LoadingSpinner,
   Input,
   useValidatedForm,
-  transfusionStartSchema,
+  transfusionStartSchema, ChoiceChips
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
@@ -18,6 +18,7 @@ import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../compon
 import { BloodInventoryPanel } from '../components/BloodInventoryPanel';
 import { useToastActions } from '../components/Toast';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
+import { PatientName } from '../components/PatientName';
 
 /**
  * BloodBankPage
@@ -623,7 +624,7 @@ const BloodBankPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-content">{order.patientName}</div>
-                        <div className="text-xs text-content-muted">{order.patientId}</div>
+                        <div className="text-xs"><PatientName id={order.patientId} dobOnly /></div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-bold text-critical-subtle-fg">{order.bloodType}</div>
@@ -689,22 +690,19 @@ const BloodBankPage: React.FC = () => {
 
               {/* Product */}
               <div>
-                <label htmlFor="bloodbank-product" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.bloodProductLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="bloodbank-product"
+                  label={t('docBloodBank.bloodProductLabel')}
                   value={product}
-                  onChange={(e) => setProduct(e.target.value as typeof product)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="RBC">{t('docBloodBank.product_RBC')}</option>
-                  <option value="Platelets">{t('docBloodBank.product_Platelets')}</option>
-                  <option value="FFP">{t('docBloodBank.product_FFP')}</option>
-                  <option value="Cryoprecipitate">{t('docBloodBank.product_Cryoprecipitate')}</option>
-                  <option value="Whole Blood">{t('docBloodBank.product_Whole Blood')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setProduct(next as typeof product); }}
+                  options={[
+                    { value: 'RBC', label: t('docBloodBank.product_RBC') },
+                    { value: 'Platelets', label: t('docBloodBank.product_Platelets') },
+                    { value: 'FFP', label: t('docBloodBank.product_FFP') },
+                    { value: 'Cryoprecipitate', label: t('docBloodBank.product_Cryoprecipitate') },
+                    { value: 'Whole Blood', label: t('docBloodBank.product_Whole Blood') },
+                  ]}
+                />
               </div>
 
               {/* Units */}
@@ -726,20 +724,17 @@ const BloodBankPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label htmlFor="bloodbank-priority" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.priorityLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="bloodbank-priority"
+                  label={t('docBloodBank.priorityLabel')}
                   value={priority}
-                  onChange={(e) => setPriority(e.target.value as typeof priority)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="routine">{t('docBloodBank.priority_routine')}</option>
-                  <option value="urgent">{t('docBloodBank.priority_urgent')}</option>
-                  <option value="emergency">{t('docBloodBank.priority_emergency')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setPriority(next as typeof priority); }}
+                  options={[
+                    { value: 'routine', label: t('docBloodBank.priority_routine') },
+                    { value: 'urgent', label: t('docBloodBank.priority_urgent') },
+                    { value: 'emergency', label: t('docBloodBank.priority_emergency') },
+                  ]}
+                />
               </div>
 
               {/* Indication */}
@@ -782,8 +777,8 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={submitPending}
-                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                aria-disabled={submitPending || undefined}
+                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docBloodBank.submitOrderBtn')}
@@ -1091,8 +1086,8 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={submitPending}
-                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                aria-disabled={submitPending || undefined}
+                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {endTime ? t('docBloodBank.completeTransfusionBtn') : t('docBloodBank.startTransfusionBtn')}

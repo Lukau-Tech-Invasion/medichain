@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nProvider, ToastProvider } from '@medichain/shared';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -28,18 +28,10 @@ function renderPage() {
 }
 
 describe('MedicalIdPage (Patient)', () => {
-  it('downloads the QR image through the API instead of navigating to a protected URL', async () => {
+  it('offers no second code: the one code is on the emergency card', async () => {
     renderPage();
-    const button = await screen.findByRole('button', { name: /Download QR Code/i });
-    mockFetch.mockResolvedValueOnce({
-      ok: true, headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ qr_image_base64: 'aGVsbG8=' }),
-    });
-    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    fireEvent.click(button);
-    await waitFor(() => expect(download).toHaveBeenCalledOnce());
-    expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith('/medical-id/HEALTH123/qr'))).toBe(true);
-    download.mockRestore();
+    await screen.findAllByText(/Test Patient/i);
+    expect(screen.queryByRole('button', { name: /Download QR Code/i })).not.toBeInTheDocument();
   });
   const mockPatient = {
     id: '1',

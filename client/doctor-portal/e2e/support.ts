@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fixtureManifestPath as findFixtureFile } from './fixture-manifest';
 import { portalPath } from './portal-path';
@@ -87,7 +87,7 @@ export const ROLE_HOME: Record<RoleName, string> = {
   Pharmacist: '/dashboard',
   LabTechnician: '/dashboard',
   Admin: '/dashboard',
-  Paramedic: '/ems-handoff',
+  Paramedic: '/ems-run',
 };
 
 /**
@@ -136,7 +136,7 @@ export async function signIn(page: Page, role: RoleName = 'Doctor', fixtureIndex
   await skipFirstVisitReload(page);
   await page.goto(portalPath('/login'));
   const fixture = getStaffFixture(role, fixtureIndex);
-  await page.getByRole('textbox', { name: 'Employee ID or work email' }).fill(fixture.login_id);
+  await page.getByRole('textbox', { name: 'Employee ID or username' }).fill(fixture.login_id);
   await page.getByRole('textbox', { name: 'Password' }).fill(fixture.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
@@ -302,7 +302,12 @@ export async function selectPatient(
   const options = page
     .locator('div.absolute.z-50 button[type="button"]')
     .or(page.locator('[role="listbox"] button'));
-  const matchingOption = options.filter({ hasText: search ?? fixturePatientId() }).first();
+  // A record id is matched on the option's data attribute: rows show name and
+  // date of birth, not the id (UX plan 1.2). A name is matched as text.
+  const wanted = search ?? fixturePatientId();
+  const matchingOption = (/^PAT-/.test(wanted)
+    ? page.locator(`[data-patient-id="${wanted}"]`)
+    : options.filter({ hasText: wanted })).first();
   await expect(matchingOption).toBeVisible({ timeout: 20000 });
 
   // An option renders as: the avatar initial, then the full name, then
@@ -422,10 +427,8 @@ export async function pickPatientById(page: Page, selector: string, patientId: s
   }
   await input.click();
   await input.fill(patientId);
-  const option = page
-    .locator('div.absolute.z-50 button[type="button"]')
-    .or(page.locator('[role="listbox"] button'))
-    .filter({ hasText: patientId });
+  // Rows show name and date of birth, not the id; the id is on the row.
+  const option = page.locator(`[data-patient-id="${patientId}"]`);
   await expect(option.first()).toBeVisible({ timeout: 20000 });
   await option.first().click();
   await declareAccessReason(page);
@@ -534,4 +537,28 @@ export async function readablePageText(page: Page): Promise<string> {
     });
     return parts.join('\n');
   });
+}
+
+/**
+ * Answer a field the way a user would, whichever control it is now.
+ *
+ * Short fixed lists moved from `<select>` to `ChoiceChips`: a fieldset of
+ * radios, each inside its own label. A spec that names the field by id keeps
+ * working: a group is answered by pressing the chip, a dropdown by choosing.
+ */
+export async function choose(
+  field: Locator,
+  option: string | { value?: string; label?: string },
+): Promise<void> {
+  const wanted = typeof option === 'string' ? { value: option } : option;
+  const tag = await field.evaluate((element) => element.tagName);
+  if (tag !== 'FIELDSET') {
+    await field.selectOption(wanted);
+    return;
+  }
+  const chip = wanted.value !== undefined
+    ? field.locator(`label:has(input[value="${wanted.value}"])`)
+    : field.locator('label', { hasText: new RegExp(`^\s*${wanted.label}\s*$`) });
+  await chip.click();
+  await expect(chip.locator('input')).toBeChecked();
 }

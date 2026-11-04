@@ -839,8 +839,11 @@ them into any image that serves real patients.
 `);
 }
 
-// Run only when executed directly: seed-showcase-accounts.ts imports the helpers.
-const invokedDirectly = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+// Run unless a script imported this for its helpers (`lib/seed-as-library.ts`).
+// Not an argv check: under vite-node, the documented way to run this, the
+// script's own path is not in `process.argv` at all, so that check never
+// matched and the seeder exited 0 having written nothing.
+const invokedDirectly = !(globalThis as { __medichainSeedAsLibrary?: boolean }).__medichainSeedAsLibrary;
 if (invokedDirectly) main().catch((err) => {
   // A `SeedFailure` has already printed the only useful thing about itself, and
   // a stack trace through the fetch helpers adds nothing. Anything else is

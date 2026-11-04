@@ -13,6 +13,8 @@ import {
   signInWithPassword,
   activateWithCode,
   clearSessionMemory,
+  forgetOfflineRoster,
+  readOfflineRoster,
 } from '@medichain/shared';
 import type { UserPermissions, SignedInUser, SignInOutcome } from '@medichain/shared';
 
@@ -80,6 +82,13 @@ interface AuthState {
    * clinician genuinely having no department — screens must not conflate them.
    */
   identityHydrated: boolean;
+  /**
+   * Signed in without the server: the app was reopened with no signal, and the
+   * session has not been confirmed since. Only this account's day list and its
+   * own unsent work are usable; `restoreSession` confirms it once signal
+   * returns, or signs out if the server says the session is over.
+   */
+  offlineSession: boolean;
 
   // Actions
   /**
@@ -243,6 +252,7 @@ export const useAuthStore = create<AuthState>()(
           mfaRequired: false,
           error: null,
           identityHydrated: false,
+          offlineSession: false,
         });
         void hydrateIdentity(set, get);
         initPush();
@@ -279,6 +289,7 @@ export const useAuthStore = create<AuthState>()(
         isConnected: true,
         mfaRequired: false,
         identityHydrated: false,
+        offlineSession: false,
 
         /**
          * Check API connection status
@@ -322,6 +333,9 @@ export const useAuthStore = create<AuthState>()(
         },
 
         logout: () => {
+          const owner = get().user?.userId ?? getProviderAuth()?.userId;
+          // The day's patients leave the device with the person who downloaded them.
+          if (owner) void forgetOfflineRoster(owner);
           clearStoredAuth();
           // Revoke the session server-side as well. Local state is cleared
           // immediately either way, so the UI never waits on the network to sign
@@ -335,6 +349,7 @@ export const useAuthStore = create<AuthState>()(
             mfaRequired: false,
             error: null,
             identityHydrated: false,
+            offlineSession: false,
           });
           debugLog('authStore', 'Logged out');
         },
@@ -380,7 +395,26 @@ export const useAuthStore = create<AuthState>()(
             return true;
           }
 
-          if (await getApiClient().restoreSession()) {
+          const outcome = await getApiClient().restoreSessionOutcome();
+          if (outcome === 'unreachable') {
+            // No signal. The server has not said the session is over, so it is
+            // not treated as over — but it is honoured only while this
+            // account's day list is on the device (at most one shift), so an
+            // old login on a found phone opens nothing.
+            const roster = await readOfflineRoster(storedAuth.userId);
+            if (roster) {
+              const user: User = get().user ?? {
+                userId: storedAuth.userId,
+                username: storedAuth.name,
+                role: storedAuth.role as Role,
+                createdAt: new Date().toISOString(),
+              };
+              set({ user, isAuthenticated: true, isLoading: false, error: null, offlineSession: true });
+              return true;
+            }
+          }
+
+          if (outcome === 'restored') {
             const restoredToken = getApiClient().getAccessToken();
             // A reload leaves the login token; re-enter the work context the
             // professional screens run under, as sign-in does.
@@ -400,7 +434,7 @@ export const useAuthStore = create<AuthState>()(
               role: storedAuth.role as Role,
               createdAt: new Date().toISOString(),
             };
-            set({ user, isAuthenticated: true, isLoading: false, error: null });
+            set({ user, isAuthenticated: true, isLoading: false, error: null, offlineSession: false });
             void hydrateIdentity(set, get);
             return true;
           }
@@ -413,6 +447,7 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             error: null,
             identityHydrated: false,
+            offlineSession: false,
           });
           return false;
         },

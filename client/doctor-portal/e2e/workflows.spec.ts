@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { readFixtures } from './identity';
-import { declareAccessReason, settle, signIn, type RoleName } from './support';
+import { declareAccessReason, settle, signIn, type RoleName, choose } from './support';
 
 /**
  * Cross-role workflows, each proved by the person who needs to read the result.
@@ -48,10 +48,8 @@ async function pickPatient(page: Page, selector: string, patientId: string) {
   }
   await input.click();
   await input.fill(patientId);
-  const option = page
-    .locator('div.absolute.z-50 button[type="button"]')
-    .or(page.locator('[role="listbox"] button'))
-    .filter({ hasText: patientId });
+  // Rows show name and date of birth, not the id; the id is on the row.
+  const option = page.locator(`[data-patient-id="${patientId}"]`);
   await expect(option.first()).toBeVisible({ timeout: 20000 });
   await option.first().click();
   await declareAccessReason(page);
@@ -222,7 +220,7 @@ test('a doctor registers a patient who can then be found', async ({ page }) => {
   await page.locator('#register-full-name').fill(name);
   await page.locator('#register-date-of-birth').fill('1990-04-12');
   await page.locator('#register-national-id').fill(`90041${String(Date.now()).slice(-8)}`);
-  await page.locator('#register-blood-type').selectOption('A+');
+  await choose(page.locator('#register-blood-type'), 'A+');
   await page.locator('#register-emergency-contact-name').fill('Sipho Workflow');
   await page.locator('#register-emergency-contact-phone').fill('+27821234567');
   await page.locator('#register-emergency-contact-relationship').fill('Brother');
@@ -247,11 +245,10 @@ test('a lab result is entered, approved, and reaches the patient and their trend
   await pickPatient(page, '#lab-entry-patient', PATIENT_A());
   const panel = page.locator('#lab-entry-panel');
   const panelValue = await panel.locator('option').nth(1).getAttribute('value');
-  await panel.selectOption(panelValue as string);
+  await choose(panel, panelValue as string);
   await page.locator('input[id^="lab-value-"]').first().fill('5.4');
   // The fictional report states adult-female ranges; the group is never inferred.
-  await page.getByRole('combobox', { name: /Reference range group from the laboratory report/i })
-    .selectOption({ label: 'Adult female' });
+  await choose(page.locator('#lab-reference-group'), 'female');
   const note = `Workflow result ${stamp()}`;
   await page.locator('#lab-entry-notes').fill(note);
   // Proof of submission is the server's answer, not text that also matches a tab label.
@@ -284,7 +281,7 @@ test('an untyped patient registers with blood group Unknown, not a guess', async
   await page.locator('#register-full-name').fill(name);
   await page.locator('#register-date-of-birth').fill('1988-02-02');
   await page.locator('#register-national-id').fill(`88020${String(Date.now()).slice(-8)}`);
-  await page.locator('#register-blood-type').selectOption('Unknown');
+  await choose(page.locator('#register-blood-type'), 'Unknown');
   await page.locator('#register-emergency-contact-name').fill('Kin Workflow');
   await page.locator('#register-emergency-contact-phone').fill('+27821230000');
   await page.locator('#register-emergency-contact-relationship').fill('Sister');

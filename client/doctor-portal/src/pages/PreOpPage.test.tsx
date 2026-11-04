@@ -4,6 +4,7 @@ import PreOpPage from './PreOpPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 import { selectPatient } from '../test/selectPatient';
+import { fillField, fieldValue } from '../test/fields';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -77,14 +78,13 @@ describe('PreOpPage', () => {
 
   it('starts fasting compliance as unrecorded and permits explicit yes, no and clearing', () => {
     render(<PreOpPage />);
-    const compliance = screen.getByRole('combobox', { name: 'NPO compliance' });
-    expect(compliance).toHaveValue('');
-    fireEvent.change(compliance, { target: { value: 'true' } });
-    expect(compliance).toHaveValue('true');
-    fireEvent.change(compliance, { target: { value: 'false' } });
-    expect(compliance).toHaveValue('false');
-    fireEvent.change(compliance, { target: { value: '' } });
-    expect(compliance).toHaveValue('');
+    expect(fieldValue('NPO compliance')).toBe('');
+    fillField('NPO compliance', 'true');
+    expect(fieldValue('NPO compliance')).toBe('true');
+    fillField('NPO compliance', 'false');
+    expect(fieldValue('NPO compliance')).toBe('false');
+    fillField('NPO compliance', '');
+    expect(fieldValue('NPO compliance')).toBe('');
   });
 
   it('does not declare no known drug allergies from an empty draft', () => {
@@ -118,9 +118,9 @@ describe('PreOpPage', () => {
   /** Select a synthetic patient and enter a draft through the form controls. */
   async function enterDraft() {
     await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
-    fireEvent.change(screen.getByLabelText('Scheduled Procedure'), { target: { value: 'Fictional QA procedure' } });
-    fireEvent.change(screen.getByLabelText('Additional Notes'), { target: { value: 'No assessment or clinical care occurred' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'NPO compliance' }), { target: { value: 'false' } });
+    fillField('Scheduled Procedure', 'Fictional QA procedure');
+    fillField('Additional Notes', 'No assessment or clinical care occurred');
+    fillField('NPO compliance', 'false');
   }
 
   it.each(['Assessment', 'Pre-Op Checklist'])('guards pending writes from the %s save button and clears the completed draft', async tab => {
@@ -138,7 +138,7 @@ describe('PreOpPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByLabelText('Scheduled Procedure')).toHaveValue('');
     expect(screen.getByLabelText('Additional Notes')).toHaveValue('');
-    expect(screen.getByRole('combobox', { name: 'NPO compliance' })).toHaveValue('');
+    expect(fieldValue('NPO compliance')).toBe('');
     expect(screen.getAllByText('Synthetic History Patient').length).toBeGreaterThan(0);
   });
 
@@ -150,7 +150,7 @@ describe('PreOpPage', () => {
     await screen.findByRole('alert');
     expect(screen.queryByText('Private storage exception')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Additional Notes')).toHaveValue('No assessment or clinical care occurred');
-    expect(screen.getByRole('combobox', { name: 'NPO compliance' })).toHaveValue('false');
+    expect(fieldValue('NPO compliance')).toBe('false');
     expect(screen.getByRole('button', { name: 'Save Assessment' })).toBeEnabled();
   });
 

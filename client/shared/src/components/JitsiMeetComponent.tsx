@@ -228,6 +228,7 @@ export function JitsiMeetComponent({
   );
 
   return (
+    // ux-allow(overlay): the full-screen call itself, not a dialog; Escape must not end a consultation.
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       <div className="flex items-center justify-between p-3 bg-gray-900 text-white">
         <span className="flex items-center gap-2 font-medium">

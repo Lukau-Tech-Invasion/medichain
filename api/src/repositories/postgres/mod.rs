@@ -176,6 +176,9 @@ pub use phase7::{
     PgDrugInteractionCheckRepository,
     PgEPrescriptionV2Repository,
     PgEligibilityCheckRepository,
+    // Ambulance run record (migration 20261030000001)
+    PgEmsRunEventRepository,
+    PgEmsRunRepository,
     PgFamilyGroupRepository,
     PgFamilyHistoryRecordRepository,
     PgInsuranceCardRepository,

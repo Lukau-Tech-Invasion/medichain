@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><title>ED incoming</title><link rel="stylesheet" href="mock.css">
+<style>.vt{border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.vt td,.vt th{padding:4px 10px;text-align:right}.vt th{color:rgb(var(--muted));font-weight:600}.vt td:first-child,.vt th:first-child{text-align:left;color:rgb(var(--muted))}
+.up{color:rgb(var(--ok))}.dn{color:rgb(var(--danger))}</style></head>
+<body><div class="desk" style="display:flex">
+  <aside class="sidebar">
+    <div class="logo" style="padding:4px 12px 12px"><span class="mk"><i data-i="heart" class="sm"></i></span>MediChain</div>
+    <div class="side-h">Riverside District · ED</div>
+    <a class="side on"><i data-i="truck" class="sm"></i>Incoming <span class="badge danger" style="margin-left:auto">2</span></a>
+    <a class="side"><i data-i="bed" class="sm"></i>Department board</a>
+    <a class="side"><i data-i="clipboard" class="sm"></i>Triage queue</a>
+    <div class="side-h">Recent patients</div>
+    <a class="side"><span class="avatar" style="width:26px;height:26px;font-size:11px">SM</span>Sipho Mabaso</a>
+  </aside>
+  <div style="flex:1;padding:18px 24px;display:flex;flex-direction:column;gap:14px;min-width:0">
+    <div class="row between"><div><h1 style="font-size:22px">Incoming ambulances</h1><p class="small muted">Live · only patients coming to Riverside District</p></div><span class="xs muted row" style="gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:rgb(var(--ok))"></span>Live</span></div>
+    <!-- Arrived: one tap to receive. The summary follows the ATMIST order paramedics speak in. -->
+    <section class="card" style="border-color:rgb(var(--primary));display:grid;grid-template-columns:1fr 330px">
+      <div style="padding:16px 18px" class="col">
+        <div class="row" style="gap:12px"><span class="avatar">TN</span><div class="grow"><p class="bb" style="font-size:18px">Thandiwe Ndlovu · F · 34</p><p class="small t2">born 12 Mar 1992 · Health ID MC 4821 7703 19 · Unit 14 (P. Mokoena)</p></div><span class="badge ok" style="padding:6px 12px">Arrived 14:31</span></div>
+        <div class="row" style="gap:6px"><span class="badge danger"><i data-i="alert" class="sm"></i>Penicillin · Latex</span><span class="badge info">O+</span><span class="badge warn">Trauma alert</span></div>
+        <div class="atm">
+          <span class="k">A</span><span>34-year-old woman, identified by card scan</span>
+          <span class="k">T</span><span>Call 14:02 · on scene 14:09 · left 14:18</span>
+          <span class="k">M</span><span>Car crash, driver, airbag deployed</span>
+          <span class="k">I</span><span>Left forearm deformity · chest wall tenderness</span>
+          <span class="k">S</span><span>Improving — see trend</span>
+          <span class="k">T</span><span>O₂ 15 L 14:14 · IV 18G 14:15 · NaCl 0.9% 500 mL 14:16 · splint 14:13</span>
+        </div>
+      </div>
+      <div style="padding:16px 18px;border-left:1px solid rgb(var(--border));display:flex;flex-direction:column;gap:12px">
+        <table class="vt"><tr><th></th><th>14:12</th><th>14:24</th></tr>
+          <tr><td>BP</td><td>92/58</td><td class="up">104/66</td></tr><tr><td>HR</td><td>118</td><td class="up">106</td></tr>
+          <tr><td>SpO₂</td><td>91%</td><td class="up">96%</td></tr><tr><td>GCS</td><td>14</td><td class="up">15</td></tr></table>
+        <span class="btn primary" style="min-height:52px;font-size:16px;margin-top:auto"><i data-i="check"></i>Received</span>
+        <span class="btn sm">Full timeline (10 entries)</span>
+      </div>
+    </section>
+    <!-- En route: the pre-alert. -->
+    <section class="card" style="display:grid;grid-template-columns:1fr 330px">
+      <div style="padding:14px 18px" class="col" >
+        <div class="row" style="gap:12px"><span class="avatar" style="background:rgb(var(--raised));color:rgb(var(--text-2))">?</span><div class="grow"><p class="bb" style="font-size:17px">Unknown man, about 40</p><p class="small t2">Unit 22 · not yet identified — will link when scanned or registered</p></div><span class="badge warn" style="padding:6px 12px">ETA 14 min</span></div>
+        <div class="row" style="gap:6px"><span class="badge danger">STEMI alert</span></div>
+        <div class="atm"><span class="k">M</span><span>Crushing chest pain 40 min, sweating</span><span class="k">T</span><span>Aspirin 300 mg 14:20 · ECG transmitted 14:22</span></div>
+      </div>
+      <div style="padding:14px 18px;border-left:1px solid rgb(var(--border))"><table class="vt"><tr><th></th><th>14:19</th></tr><tr><td>BP</td><td>158/94</td></tr><tr><td>HR</td><td>98</td></tr><tr><td>SpO₂</td><td>95%</td></tr></table></div>
+    </section>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

@@ -6,7 +6,7 @@ import {
   updateDemographics,
   replaceEmergencyContacts,
   formatTimestamp,
-  notifySuccess,
+  notifySuccess, ChoiceChips
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { validInsuranceDates } from './insuranceDates';
@@ -260,7 +260,9 @@ export function MyProfilePage() {
   };
 
   const handleAddContact = async () => {
-    if (!profile || !newContact.name || !newContact.phone || !newContact.relationship) {
+    if (!profile || isSaving) return;
+    if (!newContact.name || !newContact.phone || !newContact.relationship) {
+      setError(t('profile.errContactFields'));
       return;
     }
     // Reject malformed numbers before submit so we never save a broken contact.
@@ -300,7 +302,7 @@ export function MyProfilePage() {
   };
 
   const handleSaveDetails = async () => {
-    if (!profile) return;
+    if (!profile || isSaving) return;
     if (detailsDraft.phone.trim() && !isValidPhoneNumber(detailsDraft.phone)) {
       setError(t('profile.invalidPhone'));
       return;
@@ -342,7 +344,7 @@ export function MyProfilePage() {
   };
 
   const handleSaveAddress = async () => {
-    if (!profile) return;
+    if (!profile || isSaving) return;
     if (!addressDraft.city.trim() || !addressDraft.country.trim()) {
       setAddressError(t('profile.addressIncomplete'));
       return;
@@ -678,6 +680,7 @@ export function MyProfilePage() {
         </div>
 
         {editingDetails ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSaveDetails(); }} noValidate>
           <div className="space-y-4">
               <div>
                 <label htmlFor="profile-phone" className="block text-sm font-medium text-content-secondary mb-1">
@@ -693,20 +696,17 @@ export function MyProfilePage() {
                 />
               </div>
               <div>
-                <label htmlFor="profile-gender" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('profile.gender')}
-                </label>
-                <select
+                <ChoiceChips
                   id="profile-gender"
-                  value={detailsDraft.gender}
-                  onChange={(e) => setDetailsDraft({ ...detailsDraft, gender: e.target.value })}
-                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="">{t('profile.genderUnspecified')}</option>
-                  <option value="female">{t('profile.genderFemale')}</option>
-                  <option value="male">{t('profile.genderMale')}</option>
-                  <option value="other">{t('profile.genderOther')}</option>
-                </select>
+                  label={t('profile.gender')}
+                  value={(detailsDraft.gender) || undefined}
+                  onChange={(chosen) => { const next = chosen ?? ''; setDetailsDraft({ ...detailsDraft, gender: next }); }}
+                  options={[
+                    { value: 'female', label: t('profile.genderFemale') },
+                    { value: 'male', label: t('profile.genderMale') },
+                    { value: 'other', label: t('profile.genderOther') },
+                  ]}
+                />
               </div>
               <div>
                 <label htmlFor="profile-languages" className="block text-sm font-medium text-content-secondary mb-1">
@@ -722,23 +722,23 @@ export function MyProfilePage() {
                 />
               </div>
             <div className="flex gap-3 pt-2">
-              <button
+              <button type="button"
                 onClick={() => setEditingDetails(false)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
               </button>
-              <button
-                onClick={handleSaveDetails}
-                disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={isSaving || undefined}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
               </button>
             </div>
           </div>
+          </form>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -792,6 +792,7 @@ export function MyProfilePage() {
         </div>
 
         {editingAddress ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSaveAddress(); }} noValidate>
           <div className="space-y-4">
               <div>
                 <label htmlFor="address-street" className="block text-sm font-medium text-content-secondary mb-1">
@@ -860,23 +861,23 @@ export function MyProfilePage() {
               </div>
             {addressError && <p id="address-error" role="alert" className="text-critical-subtle-fg">{addressError}</p>}
             <div className="flex gap-3 pt-2">
-              <button
+              <button type="button"
                 onClick={() => setEditingAddress(false)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
               </button>
-              <button
-                onClick={handleSaveAddress}
-                disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={isSaving || undefined}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
               </button>
             </div>
           </div>
+          </form>
         ) : profile?.address ? (
           <div className="text-content space-y-1">
             {profile.address.street && <p className="font-medium">{profile.address.street}</p>}
@@ -955,27 +956,23 @@ export function MyProfilePage() {
                 />
               </div>
               <div>
-                <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('profile.insuranceCoverageType')}
-                </label>
-                <select
+                <ChoiceChips
                   id="insurance-type"
+                  label={t('profile.insuranceCoverageType')}
                   value={insuranceDraft.coverageType}
-                  onChange={(e) =>
-                    setInsuranceDraft({
+                  onChange={(next) => { if (next === undefined) return; setInsuranceDraft({
                       ...insuranceDraft,
-                      coverageType: e.target.value as PatientInsurance['coverageType'],
-                    })
-                  }
-                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="Public">{t('profile.coveragePublic')}</option>
-                  <option value="Private">{t('profile.coveragePrivate')}</option>
-                  <option value="Employer">{t('profile.coverageEmployer')}</option>
-                  <option value="NHIS">{t('profile.coverageNHIS')}</option>
-                  <option value="Community">{t('profile.coverageCommunity')}</option>
-                  <option value="None">{t('profile.coverageNone')}</option>
-                </select>
+                      coverageType: next as PatientInsurance['coverageType'],
+                    }); }}
+                  options={[
+                    { value: 'Public', label: t('profile.coveragePublic') },
+                    { value: 'Private', label: t('profile.coveragePrivate') },
+                    { value: 'Employer', label: t('profile.coverageEmployer') },
+                    { value: 'NHIS', label: t('profile.coverageNHIS') },
+                    { value: 'Community', label: t('profile.coverageCommunity') },
+                    { value: 'None', label: t('profile.coverageNone') },
+                  ]}
+                />
               </div>
               <div>
                 <label htmlFor="insurance-from" className="block text-sm font-medium text-content-secondary mb-1">
@@ -1083,6 +1080,7 @@ export function MyProfilePage() {
         {isAddingContact && (
           <div className="mb-6 p-4 bg-ok-subtle rounded-xl border border-ok-subtle-fg/20">
             <h3 className="font-medium text-content mb-4">{t('profile.addEmergencyContact')}</h3>
+            <form onSubmit={(event) => { event.preventDefault(); void handleAddContact(); }} noValidate>
             <div className="space-y-4">
               <div>
                 <label htmlFor="emergency-contact-name" className="block text-sm font-medium text-content-secondary mb-1">{t('profile.fullNameRequired')}</label>
@@ -1135,17 +1133,16 @@ export function MyProfilePage() {
                 {t('profile.canMakeDecisions')}
               </label>
               <div className="flex gap-3 pt-2">
-                <button
+                <button type="button"
                   onClick={cancelAddContact}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
                 >
                   <X className="w-4 h-4" />
                   {t('common.cancel')}
                 </button>
-                <button
-                  onClick={handleAddContact}
-                  disabled={isSaving || !newContact.name || !newContact.phone || !newContact.relationship}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                <button type="submit"
+                  aria-disabled={isSaving || undefined}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
                 >
                   {isSaving ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1156,6 +1153,7 @@ export function MyProfilePage() {
                 </button>
               </div>
             </div>
+            </form>
           </div>
         )}
 

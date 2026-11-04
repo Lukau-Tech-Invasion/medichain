@@ -58,15 +58,16 @@ describe('FallRiskPage', () => {
     render(<FallRiskPage />);
     await selectPatient('Search patients', 'Test Patient');
     expect(screen.queryByText('Morse Fall Scale Score: 0')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save Assessment' })).toBeDisabled();
+    // Saving an incomplete assessment is refused in words, and nothing is sent.
+    fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
+    expect(await screen.findByText(/Complete all six Morse assessment observations/i)).toBeInTheDocument();
     screen.getAllByRole('radio', { name: 'No (0 points)' }).forEach(radio => fireEvent.click(radio));
     fireEvent.click(screen.getByRole('radio', { name: 'None / Bed Rest / Nurse Assist (0 points)' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Normal / Bedrest / Immobile (0 points)' }));
     fireEvent.click(screen.getByRole('radio', { name: 'Oriented to own ability (0 points)' }));
-    expect(screen.getByRole('button', { name: 'Save Assessment' })).toBeEnabled();
+    expect(screen.getByText('Morse Fall Scale Score: 0')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Clear selected patient Test Patient' }));
     await selectPatient('Search patients', 'Other Patient');
-    expect(screen.getByRole('button', { name: 'Save Assessment' })).toBeDisabled();
     expect(screen.queryByText('Morse Fall Scale Score: 0')).not.toBeInTheDocument();
     expect(screen.getAllByRole('radio').every(radio => !(radio as HTMLInputElement).checked)).toBe(true);
   });

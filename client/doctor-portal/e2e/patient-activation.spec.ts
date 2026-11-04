@@ -9,7 +9,7 @@ import {
   registerPatientViaApi,
   stamp,
 } from './identity';
-import { settle, signInWithCredentials } from './support';
+import { settle, signInWithCredentials, choose } from './support';
 
 /**
  * How a patient gets an account: a doctor registers them, the clinic hands over a
@@ -46,7 +46,7 @@ test('a doctor registers a patient; the code is shown once, on the screen, and i
   await page.locator('#register-full-name').fill(name);
   await page.locator('#register-date-of-birth').fill('1990-04-12');
   await page.locator('#register-national-id').fill(`90041${String(Date.now()).slice(-8)}`);
-  await page.locator('#register-blood-type').selectOption('A+');
+  await choose(page.locator('#register-blood-type'), 'A+');
   await page.locator('#register-emergency-contact-name').fill('Sipho Activation');
   await page.locator('#register-emergency-contact-phone').fill('+27821234567');
   await page.locator('#register-emergency-contact-relationship').fill('Brother');

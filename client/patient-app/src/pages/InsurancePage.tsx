@@ -16,10 +16,11 @@ import {
   Loader2
 } from 'lucide-react';
 import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog, ModalPanel,
-  notifySuccess,
+  notifySuccess, ChoiceChips
 } from '@medichain/shared';
 import type { EobDocument } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { PageBanner, useEmbedded } from '../components/MergedScreen';
 
 /**
  * InsurancePage
@@ -171,6 +172,7 @@ async function loadCardImage(cardId: string, side: 'front' | 'back'): Promise<st
 
 const InsurancePage: React.FC = () => {
   const { t, locale } = useTranslation();
+  const embedded = useEmbedded();
   const [activeTab, setActiveTab] = useState<'cards' | 'claims' | 'add'>('cards');
   const [insuranceCards, setInsuranceCards] = useState<InsuranceCard[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
@@ -183,6 +185,8 @@ const InsurancePage: React.FC = () => {
   const [uploadSide, setUploadSide] = useState<'front' | 'back'>('front');
   const [verifying, setVerifying] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Set when a read failed: what is shown may be incomplete, not empty.
+  const [loadNotice, setLoadNotice] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -233,8 +237,8 @@ const InsurancePage: React.FC = () => {
 
         setLoading(false);
         return;
-      } catch (err) {
-        console.warn('No insurance data from API:', err);
+      } catch {
+        setLoadNotice(t('kit.listLoadFailed'));
       }
     }
 
@@ -256,8 +260,8 @@ const InsurancePage: React.FC = () => {
       setClaims(prev => [...prev, ...(response.claims ?? []).map(mapApiClaim)]);
       setClaimsCursor(response.next_cursor ?? null);
       setClaimsHasMore(!!response.next_cursor);
-    } catch (err) {
-      console.warn('Failed to load more claims:', err);
+    } catch {
+      setLoadNotice(t('kit.moreLoadFailed'));
     } finally {
       setLoadingMoreClaims(false);
     }
@@ -373,7 +377,8 @@ const InsurancePage: React.FC = () => {
   };
 
   const handleAddInsurance = async () => {
-    if (!patient?.healthId || !newInsurance.providerName || !newInsurance.memberId) return;
+    if (!patient?.healthId || savingCard) return;
+    if (!newInsurance.providerName || !newInsurance.memberId) { setCardError(t('insurance.errProviderAndMember')); return; }
     setSavingCard(true);
     setCardError(null);
 
@@ -460,9 +465,12 @@ const InsurancePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {loadNotice && (
+        <p role="alert" className="m-4 rounded-xl border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{loadNotice}</p>
+      )}
       {/* Loading State */}
       {loading && (
-        <div role="status" aria-live="polite" className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-16">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('insurance.loadingInsurance')}</span>
@@ -471,16 +479,11 @@ const InsurancePage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <CreditCard className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">{t('insurance.title')}</h1>
-        </div>
-        <p className="text-white">{t('insurance.subtitle')}</p>
-      </div>
+      <PageBanner title={t('insurance.title')} subtitle={t('insurance.subtitle')}
+        icon={<CreditCard className="w-8 h-8" />} gradient="from-teal-700 to-cyan-800" />
 
       {/* Summary Cards */}
-      <div className="p-4 -mt-4">
+      <div className={embedded ? 'p-4' : 'p-4 -mt-4'}>
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-surface rounded-lg shadow p-4 text-center">
             <div className="text-2xl font-bold text-content-secondary">{insuranceCards.filter(c => c.status === 'active').length}</div>
@@ -757,26 +760,25 @@ const InsurancePage: React.FC = () => {
 
         {/* Add New Tab */}
         {activeTab === 'add' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleAddInsurance(); }} noValidate>
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-content mb-4">{t('insurance.addNewInsuranceTitle')}</h2>
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('insurance.insuranceTypeLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="insurance-type"
+                  label={t('insurance.insuranceTypeLabel')}
                   value={newInsurance.type}
-                  onChange={(e) => setNewInsurance(prev => ({ ...prev, type: e.target.value as InsuranceType }))}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="medical">{t('insurance.type_medical')}</option>
-                  <option value="dental">{t('insurance.type_dental')}</option>
-                  <option value="vision">{t('insurance.type_vision')}</option>
-                  <option value="pharmacy">{t('insurance.type_pharmacy')}</option>
-                  <option value="supplemental">{t('insurance.type_supplemental')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewInsurance(prev => ({ ...prev, type: next as InsuranceType })); }}
+                  options={[
+                    { value: 'medical', label: t('insurance.type_medical') },
+                    { value: 'dental', label: t('insurance.type_dental') },
+                    { value: 'vision', label: t('insurance.type_vision') },
+                    { value: 'pharmacy', label: t('insurance.type_pharmacy') },
+                    { value: 'supplemental', label: t('insurance.type_supplemental') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -924,15 +926,15 @@ const InsurancePage: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={() => void handleAddInsurance()}
-                disabled={savingCard || !newInsurance.providerName || !newInsurance.memberId}
-                className="w-full py-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg font-medium hover:from-teal-800 hover:to-cyan-900 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+              <button type="submit"
+                aria-disabled={savingCard || undefined}
+                className="w-full py-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg font-medium hover:from-teal-800 hover:to-cyan-900 transition-colors"
               >
                 {t('insurance.addInsuranceCardButton')}
               </button>
             </div>
           </div>
+          </form>
         )}
       </div>
 

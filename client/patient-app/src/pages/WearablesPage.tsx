@@ -32,7 +32,7 @@ import {
   useTranslation,
   confirmDialog,
   formatDateOnly,
-  notifySuccess,
+  notifySuccess, ChoiceChips
 } from '@medichain/shared';
 import type {
   SupportedWearable,
@@ -41,6 +41,7 @@ import type {
 } from '@medichain/shared';
 import type { WearableDevice, WearableReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { PageBanner } from '../components/MergedScreen';
 
 /**
  * WearablesPage
@@ -325,6 +326,7 @@ const WearablesPage: React.FC = () => {
 
   const submitRule = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (ruleBusy) return;
     setRuleError('');
     setRuleNotice('');
     // A rule with neither bound is refused by the server too. Saying so here
@@ -379,6 +381,8 @@ const WearablesPage: React.FC = () => {
   const [selectedMetric, setSelectedMetric] = useState<HealthMetric | null>(null);
   const [activityRings] = useState<ActivityRing[]>([]);
   const [loading, setLoading] = useState(true);
+  // Set when a read failed: what is shown may be incomplete, not empty.
+  const [loadNotice, setLoadNotice] = useState('');
   const { patient } = usePatientAuthStore();
 
   const loadWearableData = useCallback(async () => {
@@ -404,8 +408,8 @@ const WearablesPage: React.FC = () => {
 
         setLoading(false);
         return;
-      } catch (err) {
-        console.warn('No wearable data from API:', err);
+      } catch {
+        setLoadNotice(t('kit.listLoadFailed'));
       }
     }
 
@@ -545,9 +549,12 @@ const WearablesPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken pb-20">
+      {loadNotice && (
+        <p role="alert" className="m-4 rounded-xl border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{loadNotice}</p>
+      )}
       {/* Loading State */}
       {loading && (
-        <div role="status" aria-live="polite" className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-16">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('wearables.loading')}</span>
@@ -556,23 +563,20 @@ const WearablesPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <Watch className="w-8 h-8" />
-            <h1 className="text-2xl font-bold">{t('wearables.title')}</h1>
-          </div>
+      <PageBanner title={t('wearables.title')}
+        subtitle={t('wearables.devicesConnected', { count: devices.filter(d => d.status === 'connected').length })}
+        icon={<Watch className="w-8 h-8" />} gradient="from-teal-700 to-cyan-800"
+        aside={
           <button
+            type="button"
             onClick={handleSync}
             aria-label={t('common.refresh')}
             disabled={isSyncing}
-            className="p-2 bg-surface/20 rounded-full hover:bg-surface/30"
+            className="p-2 rounded-full hover:bg-surface-sunken/40"
           >
             <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
-        </div>
-        <p className="text-white">{t('wearables.devicesConnected', { count: devices.filter(d => d.status === 'connected').length })}</p>
-      </div>
+        } />
 
       {/* Tabs */}
       <div className="bg-surface border-b sticky top-0 z-10">
@@ -853,38 +857,34 @@ const WearablesPage: React.FC = () => {
 
               <form onSubmit={submitRule} className="grid gap-3 sm:grid-cols-2 mb-4">
                 <div>
-                  <label htmlFor="rule-type" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('wearables.ruleType')}
-                  </label>
-                  <select
+                  <ChoiceChips
                     id="rule-type"
+                    label={t('wearables.ruleType')}
                     value={ruleDataType}
-                    onChange={(e) => setRuleDataType(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
-                  >
-                    <option value="HeartRate">{t('wearables.typeHeartRate')}</option>
-                    <option value="BloodPressure">{t('wearables.typeBloodPressure')}</option>
-                    <option value="BloodGlucose">{t('wearables.typeBloodGlucose')}</option>
-                    <option value="SpO2">{t('wearables.typeSpO2')}</option>
-                    <option value="Weight">{t('wearables.typeWeight')}</option>
-                    <option value="Steps">{t('wearables.typeSteps')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setRuleDataType(next); }}
+                    options={[
+                      { value: 'HeartRate', label: t('wearables.typeHeartRate') },
+                      { value: 'BloodPressure', label: t('wearables.typeBloodPressure') },
+                      { value: 'BloodGlucose', label: t('wearables.typeBloodGlucose') },
+                      { value: 'SpO2', label: t('wearables.typeSpO2') },
+                      { value: 'Weight', label: t('wearables.typeWeight') },
+                      { value: 'Steps', label: t('wearables.typeSteps') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="rule-severity" className="block text-sm font-medium text-content-secondary mb-1">
-                    {t('wearables.ruleSeverity')}
-                  </label>
-                  <select
+                  <ChoiceChips
                     id="rule-severity"
+                    label={t('wearables.ruleSeverity')}
                     value={ruleSeverity}
-                    onChange={(e) => setRuleSeverity(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-content min-h-[44px]"
-                  >
-                    <option value="Info">{t('wearables.severityInfo')}</option>
-                    <option value="Warning">{t('wearables.severityWarning')}</option>
-                    <option value="Urgent">{t('wearables.severityUrgent')}</option>
-                    <option value="Critical">{t('wearables.severityCritical')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setRuleSeverity(next); }}
+                    options={[
+                      { value: 'Info', label: t('wearables.severityInfo') },
+                      { value: 'Warning', label: t('wearables.severityWarning') },
+                      { value: 'Urgent', label: t('wearables.severityUrgent') },
+                      { value: 'Critical', label: t('wearables.severityCritical') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="rule-low" className="block text-sm font-medium text-content-secondary mb-1">
@@ -915,8 +915,8 @@ const WearablesPage: React.FC = () => {
                 <div>
                   <button
                     type="submit"
-                    disabled={ruleBusy}
-                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+                    aria-disabled={ruleBusy || undefined}
+                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg min-h-[44px]"
                   >
                     {ruleBusy ? t('wearables.ruleSaving') : t('wearables.ruleSave')}
                   </button>

@@ -109,7 +109,9 @@ pub async fn create_soap_note(
         assessment: req.assessment.clone(),
         plan: req.plan.clone(),
         author_id: current_user_id.clone(),
-        created_at: Utc::now().timestamp(),
+        // When it was written, which for a note sent late from a device
+        // without signal is earlier than when it arrived.
+        created_at: crate::support::clinical_time(&http_req).timestamp(),
         updated_at: None,
         status: "active".to_string(),
         addenda: vec![],

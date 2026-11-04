@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LogOut, Search, X } from 'lucide-react';
 
+// ux-allow(no-form): a search box that filters the menu as it is typed; there is nothing to submit.
+
 interface NavigationSection {
   label: string;
   items: { path: string; label: string; icon: ComponentType<{ className?: string }> }[];

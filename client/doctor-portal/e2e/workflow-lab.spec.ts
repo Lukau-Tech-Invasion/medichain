@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFixtures } from './identity';
-import { pickPatientById, settle, signIn } from './support';
+import { pickPatientById, settle, signIn, choose } from './support';
 
 /**
  * Workflow 2 — laboratory: a specimen is collected, rejected, re-collected
@@ -30,19 +30,19 @@ async function technician(browser: Browser): Promise<Page> {
 
 async function collect(page: Page, patientId: string, tests: string) {
   await settle(page, '/specimen');
-  await page.getByRole('button', { name: 'Collect Specimen' }).click();
+  await page.getByRole('tab', { name: 'Collect Specimen' }).click();
   await pickPatientById(page, '#specimen-patient', patientId);
-  await page.locator('#specimen-type').selectOption('blood');
-  await page.locator('#specimen-priority').selectOption('stat');
+  await choose(page.locator('#specimen-type'), 'blood');
+  await choose(page.locator('#specimen-priority'), 'stat');
   await page.locator('#specimen-tests-ordered').fill(tests);
   await page.getByRole('button', { name: /record collection/i }).click();
-  await expect(page.getByText('Specimen collection recorded.')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText('Specimen collection recorded.').first()).toBeVisible({ timeout: 30000 });
 }
 
 /** The specimen card for this run, from the list after a reload. */
 async function specimenCard(page: Page, tests: string) {
   await page.reload();
-  await page.getByRole('button', { name: 'All Specimens' }).click();
+  await page.getByRole('tab', { name: 'All Specimens' }).click();
   await page.getByRole('textbox', { name: /search/i }).first().fill(tests);
   const card = page.locator('main [role="button"]').filter({ hasText: tests }).first();
   await expect(card, `the specimen "${tests}" is not in the list after a reload`).toBeVisible({ timeout: 30000 });
@@ -80,7 +80,7 @@ test('a rejected specimen is re-collected and the replacement linked', async ({ 
   await expect(detail.getByRole('status')).toBeVisible();
   await expect(detail.getByRole('status')).not.toContainText(/recorded/i);
 
-  await detail.locator('#reject-category').selectOption('specimen_quality');
+  await choose(detail.locator('#reject-category'), 'specimen_quality');
   await detail.getByRole('button', { name: /reject specimen/i }).click();
   await expect(detail.getByRole('status')).toContainText(/rejection .* recorded/i, { timeout: 30000 });
   // Escape closes the detail: it is a real dialog.

@@ -8,6 +8,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Search, X, Home, Users, FileText, Activity, Pill, Siren, Settings, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ModalPanel } from '@medichain/shared';
+
+// ux-allow(no-form): rendered inside other pages' forms, where a nested <form> is invalid; Enter is handled on the control itself.
 
 interface CommandItem {
   id: string;
@@ -141,13 +144,14 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[999] overflow-y-auto">
-      {/* Backdrop */}
-      <div aria-hidden="true" className="fixed inset-0 bg-black/50 transition-opacity" onClick={onClose} />
-
-      {/* Dialog */}
-      <div className="fixed inset-0 flex items-start justify-center pt-[15vh] px-4">
-        <div role="dialog" aria-modal="true" aria-label="Go to page" className="relative w-full max-w-lg bg-surface rounded-xl shadow-2xl overflow-hidden">
+    // ModalPanel: focus held inside, Escape and a click beside it close it.
+    <ModalPanel
+      label="Go to page"
+      onClose={onClose}
+      initialFocus={inputRef}
+      overlayClassName="fixed inset-0 z-[999] flex items-start justify-center overflow-y-auto bg-black/50 px-4 pt-[15vh]"
+      className="relative w-full max-w-lg bg-surface rounded-xl shadow-2xl overflow-hidden"
+    >
           {/* Search Input */}
           <div className="flex items-center gap-3 px-4 py-3 border-b">
             <Search className="text-content-muted" size={20} />
@@ -210,8 +214,6 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
               <kbd className="px-1.5 py-0.5 bg-surface border rounded">esc</kbd> close
             </span>
           </div>
-        </div>
-      </div>
-    </div>
+    </ModalPanel>
   );
 }

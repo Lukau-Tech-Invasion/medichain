@@ -29,7 +29,8 @@ import {
   Input,
   amaDetailsSchema,
   collectAmaSignatures,
-  getApiErrorMessage, ModalPanel } from '@medichain/shared';
+  getApiErrorMessage, ModalPanel, ChoiceChips
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -145,6 +146,7 @@ const AMAPage: React.FC = () => {
       try {
         await getPatients();
       } catch (err) {
+        // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
         console.error('Error fetching patients:', err);
       }
     };
@@ -176,6 +178,7 @@ const AMAPage: React.FC = () => {
   });
 
   const handleCreateAMA = async () => {
+    if (isSubmitting) return;
     // The recommended treatment is the thing being refused. An AMA that does
     // not say what was advised records a refusal of nothing in particular,
     // which is what a later dispute turns on. Selecting the patient stays a
@@ -185,6 +188,11 @@ const AMAPage: React.FC = () => {
       return;
     }
     if (!validate(amaDetails())) {
+      return;
+    }
+    // Said in words; the button used to be greyed out until all were present.
+    if (!signaturesComplete) {
+      showError(t('docAMA.errorSignaturesIncomplete'));
       return;
     }
 
@@ -398,17 +406,18 @@ const AMAPage: React.FC = () => {
                       className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                     />
                   </div>
-                  <select aria-label={t('common.filterByStatus')}
+                  <ChoiceChips
+                    label={t('common.filterByStatus')}
                     value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as AMAStatus | 'all')}
-                    className="px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                  >
-                    <option value="all">{t('docAMA.filterAll')}</option>
-                <option value="draft">{t('docAMA.status_draft')}</option>
-                <option value="pending-signatures">{t('docAMA.status_pending-signatures')}</option>
-                <option value="completed">{t('docAMA.status_completed')}</option>
-                <option value="voided">{t('docAMA.status_voided')}</option>
-              </select>
+                    onChange={(next) => { if (next === undefined) return; setStatusFilter(next as AMAStatus | 'all'); }}
+                    options={[
+                      { value: 'all', label: t('docAMA.filterAll') },
+                      { value: 'draft', label: t('docAMA.status_draft') },
+                      { value: 'pending-signatures', label: t('docAMA.status_pending-signatures') },
+                      { value: 'completed', label: t('docAMA.status_completed') },
+                      { value: 'voided', label: t('docAMA.status_voided') },
+                    ]}
+                  />
             </div>
 
             {/* Records List */}
@@ -600,6 +609,7 @@ const AMAPage: React.FC = () => {
 
         {/* New AMA Form */}
         {activeTab === 'new' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleCreateAMA(); }} noValidate>
           <div className="space-y-4">
             {/* Progress Steps */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -668,7 +678,7 @@ const AMAPage: React.FC = () => {
                     />
                   </div>
                 </div>
-                <button
+                <button type="button"
                   onClick={() => setFormStep(2)}
                   disabled={!patientId || !patientName || !mrn}
                   className={`w-full mt-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
@@ -722,7 +732,7 @@ const AMAPage: React.FC = () => {
                     </label>
                     <div className="grid grid-cols-2 gap-3">
                       {(['low', 'moderate', 'high', 'critical'] as RiskLevel[]).map(level => (
-                        <button
+                        <button type="button"
                           key={level}
                           onClick={() => setRiskLevel(level)}
                           className={`py-2 px-4 rounded-lg border-2 capitalize font-medium ${
@@ -741,13 +751,13 @@ const AMAPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-3 mt-6">
-                  <button
+                  <button type="button"
                     onClick={() => setFormStep(1)}
                     className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => setFormStep(3)}
                     disabled={!diagnosis || !recommendedTreatment}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
@@ -859,13 +869,13 @@ const AMAPage: React.FC = () => {
                   </span>
                 </label>
                 <div className="flex gap-3 mt-6">
-                  <button
+                  <button type="button"
                     onClick={() => setFormStep(2)}
                     className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
-                  <button
+                  <button type="button"
                     onClick={() => setFormStep(4)}
                     disabled={!readyForSignatures}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
@@ -994,16 +1004,15 @@ const AMAPage: React.FC = () => {
                 </div>
 
                 <div className="flex gap-3 mt-6">
-                  <button
+                  <button type="button"
                     onClick={() => setFormStep(3)}
                     className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
-                  <button
-                    onClick={handleCreateAMA}
-                    disabled={isSubmitting || !signaturesComplete}
-                    className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2"
+                  <button type="submit"
+                    aria-disabled={isSubmitting || undefined}
+                    className="aria-disabled:cursor-wait flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2"
                   >
                     {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                     {t('docAMA.completeFormBtn')}
@@ -1025,6 +1034,7 @@ const AMAPage: React.FC = () => {
               </div>
             </div>
           </div>
+          </form>
         )}
           </div>
         </>

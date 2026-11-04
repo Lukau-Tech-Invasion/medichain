@@ -15,7 +15,6 @@ import {
   HardDrive,
   FileText,
   Image,
-  Settings,
   Shield,
   Loader2
 } from 'lucide-react';
@@ -39,6 +38,8 @@ import {
 } from '@medichain/shared';
 import { useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { PageBanner, useEmbedded } from '../components/MergedScreen';
+
 
 /**
  * OfflineSyncPage
@@ -86,6 +87,7 @@ interface ConflictItem {
 
 const OfflineSyncPage: React.FC = () => {
   const { t } = useTranslation();
+  const embedded = useEmbedded();
   const { patient } = usePatientAuthStore();
   const statusLabel = (s: string) =>
     ({
@@ -108,6 +110,7 @@ const OfflineSyncPage: React.FC = () => {
       images: t('offlineSync.catImages'),
     }[c] || c.replace('-', ' '));
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [actionError, setActionError] = useState('');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [isSyncing, setIsSyncing] = useState(false);
   const [cachedItems, setCachedItems] = useState<CachedItem[]>([]);
@@ -118,7 +121,7 @@ const OfflineSyncPage: React.FC = () => {
   // because "3 sent, 1 already applied, 2 still waiting" is the answer to
   // the question a patient on a poor connection is really asking.
   const [lastReplay, setLastReplay] = useState<ReplayOutcome | null>(null);
-  const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'cache'>('status');
   const [loading, setLoading] = useState(true);
   const [offlineDataUnavailable, setOfflineDataUnavailable] = useState(false);
   const [unownedDataWithheld, setUnownedDataWithheld] = useState(false);
@@ -328,8 +331,8 @@ const OfflineSyncPage: React.FC = () => {
       await downloadOfflineData(patient.healthId);
       await loadOfflineData();
       setLastFullSync(new Date().toISOString());
-    } catch (err) {
-      console.error('Download for offline failed:', err);
+    } catch {
+      setActionError(t('offlineSync.downloadFailed'));
     } finally {
       setIsSyncing(false);
     }
@@ -345,8 +348,8 @@ const OfflineSyncPage: React.FC = () => {
         await clearCachedDataForOwner(patient.userId);
         setCachedItems([]);
       }
-    } catch (error) {
-      console.error('Failed to clear cache:', error);
+    } catch {
+      setActionError(t('offlineSync.clearFailed'));
     }
   };
 
@@ -389,6 +392,9 @@ const OfflineSyncPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {actionError && (
+        <p role="alert" className="m-4 rounded-xl border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{actionError}</p>
+      )}
       {unownedDataWithheld && <p role="status" className="p-4 text-content-muted">Local data belonging to another or unidentified account is withheld and will not be replayed by this account.</p>}
       {/* Devices holding a copy of my records */}
       <div className="patient-card mb-4">
@@ -428,22 +434,18 @@ const OfflineSyncPage: React.FC = () => {
       </div>
 
       {/* Header */}
-      <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-700 to-blue-800' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            {isOnline ? <Cloud className="w-8 h-8" /> : <CloudOff className="w-8 h-8" />}
-            <h1 className="text-2xl font-bold">{t('offlineSync.title')}</h1>
-          </div>
-          <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${isOnline ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
+      <PageBanner title={t('offlineSync.title')} subtitle={t('offlineSync.subtitle')}
+        icon={isOnline ? <Cloud className="w-8 h-8" /> : <CloudOff className="w-8 h-8" />}
+        gradient={isOnline ? 'from-sky-700 to-blue-800' : 'from-gray-600 to-gray-500'}
+        aside={
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${isOnline ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
             {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
             <span className="text-sm font-medium">{isOnline ? t('offlineSync.online') : t('offlineSync.offline')}</span>
           </div>
-        </div>
-        <p className="text-white">{t('offlineSync.subtitle')}</p>
-      </div>
+        } />
 
       {/* Sync Buttons */}
-      <div className="p-4 -mt-4 space-y-2">
+      <div className={`p-4 space-y-2 ${embedded ? '' : '-mt-4'}`}>
         <button
           onClick={handleSync}
           disabled={!isOnline || isSyncing || !patient?.userId}
@@ -481,7 +483,6 @@ const OfflineSyncPage: React.FC = () => {
           {[
             { id: 'status', label: t('offlineSync.tabStatus') },
             { id: 'cache', label: t('offlineSync.tabCache') },
-            { id: 'settings', label: t('offlineSync.tabSettings') }
           ].map(tab => (
             <button
               key={tab.id}
@@ -724,61 +725,6 @@ const OfflineSyncPage: React.FC = () => {
         </div>
       )}
 
-      {/* Settings Tab */}
-      {activeTab === 'settings' && (
-        <div className="px-4 pb-8 space-y-4">
-          <div className="bg-surface rounded-lg shadow divide-y divide-border">
-            <div className="p-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-content">{t('offlineSync.autoSync')}</h3>
-                <p className="text-sm text-content-muted">{t('offlineSync.autoSyncDesc')}</p>
-              </div>
-              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.autoSync')} className="w-5 h-5 rounded opacity-50" />
-            </div>
-            <div className="p-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-content">{t('offlineSync.backgroundSync')}</h3>
-                <p className="text-sm text-content-muted">{t('offlineSync.backgroundSyncDesc')}</p>
-              </div>
-              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.backgroundSync')} className="w-5 h-5 rounded opacity-50" />
-            </div>
-            <div className="p-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-content">{t('offlineSync.downloadLab')}</h3>
-                <p className="text-sm text-content-muted">{t('offlineSync.downloadLabDesc')}</p>
-              </div>
-              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.downloadLab')} className="w-5 h-5 rounded opacity-50" />
-            </div>
-            <div className="p-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-content">{t('offlineSync.syncMobile')}</h3>
-                <p className="text-sm text-content-muted">{t('offlineSync.syncMobileDesc')}</p>
-              </div>
-              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.syncMobile')} className="w-5 h-5 rounded opacity-50" />
-            </div>
-            <div className="p-4 flex items-center justify-between">
-              <div>
-                <h3 className="font-medium text-content">{t('offlineSync.highPriorityOnly')}</h3>
-                <p className="text-sm text-content-muted">{t('offlineSync.highPriorityOnlyDesc')}</p>
-              </div>
-              <input type="checkbox" disabled checked={false} aria-label={t('offlineSync.highPriorityOnly')} className="w-5 h-5 rounded opacity-50" />
-            </div>
-          </div>
-
-          {/* Service Worker Info */}
-          <div className="bg-notice-subtle rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <Settings className="w-5 h-5 text-notice-subtle-fg mt-0.5" />
-              <div>
-                <h4 className="font-medium text-notice-subtle-fg">Manual offline controls</h4>
-                <p className="text-sm text-notice-subtle-fg mt-1">
-                  Automatic sync and these preferences are not implemented. Use Sync Now to retry your queued changes while online. Cached data availability does not establish that every feature works offline.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

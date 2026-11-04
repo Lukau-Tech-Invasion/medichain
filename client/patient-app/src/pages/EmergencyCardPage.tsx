@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
-import QRCode from 'qrcode';
 import {
   useProviderDirectory,
   getEmergencyCapsuleAccessLog,
   getApiClient,
+  getMedicalIdQr,
   useOfflineCache,
   useTranslation,
   useToastActions,
@@ -21,6 +21,7 @@ import {
   Shield,
   RefreshCw,
   Share2,
+  Download,
   Copy,
   Check,
   Info,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 import { CapsuleVerify } from '../components/CapsuleVerify';
+import { PageTitle } from '../components/MergedScreen';
 
 interface EmergencyData {
   patientId: string;
@@ -71,8 +73,6 @@ export function EmergencyCardPage() {
   // Who opened the card is stored as a user id; the patient needs a name.
   const { providerName } = useProviderDirectory(patient?.userId);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [qrError, setQrError] = useState(false);
 
   // Canonical patient record id; the user id is the authenticated caller.
   const patientId = patient?.healthId || null;
@@ -189,49 +189,37 @@ export function EmergencyCardPage() {
       emergencyData.dnrVerifiedAt,
   );
 
-  // Compact emergency-access URL embedded in the QR code. Falls back to the
-  // current origin so the QR is still meaningful in offline/preview contexts.
-  const emergencyUrl = emergencyData
-    ? `${window.location.origin}/emergency/${encodeURIComponent(emergencyData.nationalHealthId)}`
-    : '';
+  // One card, one code (patient-app plan, 2026-11-04). The code shown is the
+  // server's Medical ID code, the only one the paramedic scanner reads
+  // (`parseEmergencyCode`): it carries the patient id, a possession proof that
+  // opens emergency access, and a summary for when the responder has no signal.
+  // This page used to draw its own code ({id, name, bt, url}), which the scanner
+  // refused as "not a MediChain code". Kept on the device like the card itself,
+  // so it can still be shown with no signal.
+  const fetchQr = useCallback(async () => {
+    if (!patientId) throw new Error('Not signed in');
+    return getMedicalIdQr(patientId);
+  }, [patientId]);
+  const { data: qr, loading: qrLoading, refresh: refreshQr } = useOfflineCache(
+    `medical-id-qr-${patientId || 'none'}`,
+    'emergency',
+    fetchQr,
+  );
+  const qrDataUrl = qr?.qr_image_base64 ? `data:image/png;base64,${qr.qr_image_base64}` : null;
+  const qrError = !qrLoading && !qrDataUrl;
 
-  // Generate a REAL scannable QR encoding the critical emergency payload.
-  // Memoized on the load-bearing fields so it only regenerates when they change;
-  // works fully offline (no network call) for the cached emergency card.
-  useEffect(() => {
-    if (!emergencyData) return;
-    let cancelled = false;
-    const payload = JSON.stringify({
-      id: emergencyData.nationalHealthId,
-      name: emergencyData.fullName,
-      bt: emergencyData.bloodType,
-      url: emergencyUrl,
-    });
-    QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 1, width: 256 })
-      .then((url) => {
-        if (!cancelled) {
-          setQrDataUrl(url);
-          setQrError(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setQrDataUrl(null);
-          setQrError(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `emergencyData` rather than three of its fields: the QR encodes the card,
-    // and listing a subset means a change to anything else in it leaves a code
-    // on screen that no longer matches what it claims to represent.
-  }, [emergencyData, emergencyUrl]);
+  const downloadQr = () => {
+    if (!qrDataUrl) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `medichain-medical-id-${patientId ?? 'card'}.png`;
+    link.click();
+  };
 
   const handleRefreshQR = async () => {
     setIsRefreshing(true);
     try {
-      await refresh();
+      await Promise.all([refresh(), refreshQr()]);
     } catch {
       showError(t('emergency.refreshFailed'));
     } finally {
@@ -283,7 +271,7 @@ export function EmergencyCardPage() {
     const shareText = `Emergency Medical Info for ${emergencyData.fullName}\nHealth ID: ${emergencyData.nationalHealthId}`;
 
     if (!navigator.share) {
-      const ok = await copyToClipboard(`${shareText}\n${emergencyUrl}`);
+      const ok = await copyToClipboard(shareText);
       if (ok) {
         showInfoCopiedInstead();
       } else {
@@ -296,7 +284,6 @@ export function EmergencyCardPage() {
       await navigator.share({
         title: 'MediChain Emergency Card',
         text: shareText,
-        url: emergencyUrl || window.location.href,
       });
     } catch (err) {
       // A user-cancelled share surfaces as AbortError — stay silent for that.
@@ -361,7 +348,7 @@ export function EmergencyCardPage() {
     <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-content">{t('emergency.cardTitle')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('emergency.cardTitle')}</PageTitle>
         <p className="text-content-muted">{t('emergency.cardSubtitle')}</p>
       </div>
 
@@ -405,7 +392,7 @@ export function EmergencyCardPage() {
         {/* QR Code */}
         <div className="py-6">
           <div className="relative mx-auto w-56 h-56">
-            {/* Real, scannable QR code generated client-side (works offline). */}
+            {/* The Medical ID code a paramedic scans (kept on the device for offline use). */}
             <div className="w-full h-full bg-surface border-4 border-neutral-900 rounded-2xl p-3 relative overflow-hidden">
               {qrError ? (
                 <div className="w-full h-full flex flex-col items-center justify-center text-center text-content-muted">
@@ -451,6 +438,15 @@ export function EmergencyCardPage() {
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               {t('common.refresh')}
+            </button>
+            <button
+              type="button"
+              onClick={downloadQr}
+              disabled={!qrDataUrl}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-content-muted hover:text-content transition-colors disabled:opacity-60"
+            >
+              <Download className="w-4 h-4" aria-hidden="true" />
+              {t('medicalId.downloadQrCode')}
             </button>
             <button
               onClick={handleShare}

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fixtureStaff, fixtureToken } from './identity';
-import { signIn, settle } from './support';
+import { signIn, settle, choose } from './support';
 
 /**
  * Break-glass, end to end, through the screens a person actually uses.
@@ -38,8 +38,8 @@ test('a device is enrolled, credentialed, and then offered for emergency access'
   const { organization_id, facility_id } = work.body.context ?? {};
   expect(organization_id).toBeTruthy();
   expect(facility_id).toBeTruthy();
-  await page.locator('#device-org').selectOption(String(organization_id));
-  await page.locator('#device-facility').selectOption(String(facility_id));
+  await choose(page.locator('#device-org'), String(organization_id));
+  await choose(page.locator('#device-facility'), String(facility_id));
 
   await expect(page.getByRole('heading', { name: /approved devices/i })).toBeVisible({
     timeout: 20000,

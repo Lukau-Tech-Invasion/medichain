@@ -7,9 +7,14 @@ import {
   getTriageQueue,
   useTranslation,
   formatTimestamp,
+  submitForReply,
+  useScoringCatalog,
+  useSubmission,
+  vitalFlag,
 } from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import PatientSelect from '../components/PatientSelect';
+import { AmbulanceRunStrip } from '../ems/AmbulanceRunStrip';
 import {
   AlertTriangle,
   Activity,
@@ -165,6 +170,7 @@ function TriagePage() {
   const [queueAttempt, setQueueAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submission = useSubmission('triage');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [apiConnected, setApiConnected] = useState(false);
@@ -216,16 +222,22 @@ function TriagePage() {
     fetchTriageQueue();
   }, [activeTab, user?.userId, user, queueAttempt]);
 
-  // Check for critical vital signs
+  // Which readings are critical comes from the server's catalogue (rule 8):
+  // the copy that used to live here disagreed with it on four of six limits,
+  // so an SpO2 the server alerted on raised no warning on this screen.
+  const { catalog: scoringCatalog } = useScoringCatalog();
   const hasCriticalVitals = (): boolean => {
-    const { heart_rate, respiratory_rate, bp_systolic, temperature_celsius, oxygen_saturation, gcs_score } = vitalSigns;
-    if (heart_rate && (heart_rate < 40 || heart_rate > 150)) return true;
-    if (respiratory_rate && (respiratory_rate < 8 || respiratory_rate > 35)) return true;
-    if (bp_systolic && (bp_systolic < 80 || bp_systolic > 220)) return true;
-    if (temperature_celsius && (temperature_celsius < 35 || temperature_celsius > 40)) return true;
-    if (oxygen_saturation && oxygen_saturation < 90) return true;
-    if (gcs_score && gcs_score < 9) return true;
-    return false;
+    const readings: Array<[number | null, string]> = [
+      [vitalSigns.heart_rate, 'heart_rate'],
+      [vitalSigns.respiratory_rate, 'respiratory_rate'],
+      [vitalSigns.bp_systolic, 'bp_systolic'],
+      [vitalSigns.bp_diastolic, 'bp_diastolic'],
+      [vitalSigns.temperature_celsius, 'temperature'],
+      [vitalSigns.oxygen_saturation, 'oxygen_saturation'],
+      [vitalSigns.gcs_score, 'gcs'],
+      [vitalSigns.blood_glucose, 'blood_glucose'],
+    ];
+    return readings.some(([value, key]) => vitalFlag(value, key, scoringCatalog) === 'critical');
   };
 
   // Handle form submission
@@ -252,15 +264,21 @@ function TriagePage() {
     setSuccess(null);
 
     try {
-      const data = await createTriageAssessment({
+      const assessment = {
         patient_id: selectedPatientId,
         esi_level: selectedESI as number,
         chief_complaint: chiefComplaint,
         vital_signs: vitalSigns,
         pain_scale: vitalSigns.pain_scale,
         notes: notes || null,
-      });
-      setSuccess(t('docTriage.successMessage', { id: data.assessment_id, level: data.esi_level, wait: data.expected_wait }));
+      };
+      const outcome = await submitForReply(submission, assessment, () => createTriageAssessment(assessment));
+      if (outcome.kind === 'busy') return;
+      // Only a fresh save carries the id and the wait; an earlier attempt that
+      // already wrote this, or one held offline, has neither to show.
+      setSuccess(outcome.kind === 'saved'
+        ? t('docTriage.successMessage', { id: outcome.value.assessment_id, level: outcome.value.esi_level, wait: outcome.value.expected_wait })
+        : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       // Reset form
       setSelectedPatientId('');
       setSelectedESI(null);
@@ -373,6 +391,21 @@ function TriagePage() {
               onChange={(patientId) => setSelectedPatientId(patientId)}
               required
             />
+            <div className="mt-3">
+              <AmbulanceRunStrip patientId={selectedPatientId} onUseVitals={(crew) => setVitalSigns((v) => ({
+                // The crew's value fills a field only where nothing is entered;
+                // what the nurse typed is never overwritten.
+                ...v,
+                heart_rate: v.heart_rate ?? crew.heart_rate ?? null,
+                respiratory_rate: v.respiratory_rate ?? crew.respiratory_rate ?? null,
+                bp_systolic: v.bp_systolic ?? crew.systolic_bp ?? null,
+                bp_diastolic: v.bp_diastolic ?? crew.diastolic_bp ?? null,
+                temperature_celsius: v.temperature_celsius ?? crew.temperature_c ?? null,
+                oxygen_saturation: v.oxygen_saturation ?? crew.spo2 ?? null,
+                gcs_score: v.gcs_score ?? crew.gcs ?? null,
+                blood_glucose: v.blood_glucose ?? crew.glucose_mmol ?? null,
+              }))} />
+            </div>
             {selectedPatientId && (
               <p className="mt-2 text-sm text-ok-subtle-fg flex items-center gap-1 min-h-[24px] py-1">
                 <CheckCircle size={16} />
@@ -666,8 +699,8 @@ function TriagePage() {
             </Link>
             <button
               type="submit"
-              disabled={submitting || !selectedPatientId || selectedESI === null || !chiefComplaint.trim()}
-              className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center gap-2"
+              aria-disabled={submitting || undefined}
+              className="aria-disabled:cursor-wait px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors flex items-center gap-2"
             >
               {submitting ? (
                 <>

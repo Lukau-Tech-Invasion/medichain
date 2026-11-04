@@ -1,9 +1,48 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '../store';
-import { getPatients, clickable, getApiClient, useTranslation } from '@medichain/shared';
+import { getPatients, clickable, getApiClient, useTranslation, formatDateOnly, ModalPanel, searchOfflineRoster } from '@medichain/shared';
+import type { OfflineBundle, OfflinePatient } from '@medichain/shared';
+import { useClinicianOffline } from '../offline/ClinicianOffline';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import { ChartAccessPrompt, applyAccess, declaredAccessFor } from './ChartAccess';
 import { Search, User, ChevronDown, Loader2, X } from 'lucide-react';
+import { useContext } from 'react';
+import { UNSAFE_LocationContext, UNSAFE_NavigationContext } from 'react-router-dom';
+import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
+import { patientFormOfPath, workspacePath } from '../workspace/forms';
+
+// ux-allow(no-form): rendered inside other pages' forms, where a nested <form> is invalid; Enter is handled on the control itself.
+
+/**
+ * Whether the page around the picker already holds typed content. Moving a
+ * page into the patient workspace remounts it, so the move is only made when
+ * nothing would be lost.
+ */
+function pageHasTypedContent(root: HTMLElement | null): boolean {
+  const scope = root?.closest('main') ?? document.querySelector('main');
+  if (!scope) return false;
+  const fields = scope.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+    'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=search]), textarea',
+  );
+  return [...fields].some((field) => !root?.contains(field) && field.value.trim() !== '');
+}
+
+/**
+ * Which page the person last clicked or typed on.
+ *
+ * Moving into the workspace remounts the page as it first opens. A picker that
+ * appeared only after the person did something (opened "Enter result", "New
+ * repair", "Add specimen") would land them back on the list with that form
+ * gone, so only a picker that was on screen before any of that moves.
+ */
+let lastInteractionPage: string | null = null;
+const currentPage = (): string =>
+  (window.history.state as { key?: string } | null)?.key ?? window.location.pathname;
+if (typeof document !== 'undefined') {
+  const note = () => { lastInteractionPage = currentPage(); };
+  document.addEventListener('pointerdown', note, true);
+  document.addEventListener('keydown', note, true);
+}
 
 /** A directory row, exactly as `getPatients` returns it; pages receive the whole entry. */
 export type Patient = PatientDirectoryEntry & { health_id?: string };
@@ -16,6 +55,17 @@ export type Patient = PatientDirectoryEntry & { health_id?: string };
  * directory identity only; it does not open or grant chart access. `null`
  * when no readable entry matches.
  */
+/** A patient from the day kept on this device, in the directory's shape. */
+function fromRoster(p: OfflinePatient): Patient {
+  return { patient_id: p.patient_id, full_name: p.full_name, date_of_birth: p.date_of_birth, content_available: true } as Patient;
+}
+
+/** The kept day's entry for `patientId`, when there is one. */
+function rosterEntry(roster: OfflineBundle | null, patientId: string): Patient | null {
+  const found = roster?.patients.find((p) => p.patient_id === patientId);
+  return found ? fromRoster(found) : null;
+}
+
 export async function findDirectoryPatient(patientId: string): Promise<Patient | null> {
   const rows = await getPatients({ query: patientId, limit: 50 });
   return rows.find((row) => row.patient_id === patientId && row.content_available !== false) ?? null;
@@ -151,11 +201,30 @@ export default function PatientSelect({
   const [pending, setPending] = useState<Patient | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Read without the throwing hooks: the picker is also rendered outside a
+  // router (unit tests, embedded panels), where there is nowhere to move to.
+  const location = useContext(UNSAFE_LocationContext)?.location;
+  const navigator = useContext(UNSAFE_NavigationContext)?.navigator;
+  // Inside a patient workspace the patient is already chosen: adopt it, once.
+  const workspace = usePatientWorkspace();
+  // No signal: search today's patients on this device instead of the server.
+  const { online, roster } = useClinicianOffline();
+  const searchingOffline = !online && roster !== null;
+  // Read once, at mount: was this picker revealed by something the person did?
+  const appearedAfterInteraction = useRef(lastInteractionPage === currentPage());
+  useEffect(() => {
+    if (workspace && value !== workspace.patientId) {
+      onChange(workspace.patientId, workspace.patient ?? undefined);
+    }
+    // `onChange` is often an inline function; re-running on its identity would
+    // re-adopt on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.patientId, value]);
 
   // Query the server rather than downloading a roster and filtering protected
   // names in the browser. The short debounce avoids a request for every key.
   useEffect(() => {
-    if (!user) return;
+    if (!user || workspace) return;
 
     let active = true;
     setPatients([]);
@@ -164,6 +233,13 @@ export default function PatientSelect({
     const fetchPatients = async () => {
       setLoading(true);
       setLoadError(null);
+      if (searchingOffline) {
+        if (active) {
+          setPatients(searchOfflineRoster(roster, searchTerm).map(fromRoster));
+          setLoading(false);
+        }
+        return;
+      }
       try {
         const patientArray = await getPatients({ query: searchTerm, limit: 50 });
         // Unreadable rows remain visible in the directory but cannot be used
@@ -183,7 +259,7 @@ export default function PatientSelect({
       window.clearTimeout(timer);
       active = false;
     };
-  }, [user, searchTerm]);
+  }, [user, searchTerm, searchingOffline, roster]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -208,11 +284,20 @@ export default function PatientSelect({
     let active = true;
     setSelectedDirectoryPatient(null);
     if (!user || !value) return;
+    if (searchingOffline) {
+      setSelectedDirectoryPatient(rosterEntry(roster, value));
+      return;
+    }
     findDirectoryPatient(value).then(found => {
       if (active) setSelectedDirectoryPatient(found);
-    }).catch(() => { if (active) setLoadError('The selected patient could not be loaded'); });
+    }).catch(() => {
+      if (!active) return;
+      const kept = rosterEntry(roster, value);
+      if (kept) setSelectedDirectoryPatient(kept);
+      else setLoadError('The selected patient could not be loaded');
+    });
     return () => { active = false; };
-  }, [value, user]);
+  }, [value, user, searchingOffline, roster]);
 
   // Reads of the selected patient cite its access context; leaving the page
   // clears it, so the next page's patient cannot inherit this one's.
@@ -227,10 +312,20 @@ export default function PatientSelect({
     onChange(patient.patient_id, patient);
     setSearchTerm('');
     setIsOpen(false);
+    // Opened the old way (`/vitals`, then pick a patient): carry on inside the
+    // patient's workspace, so the next form needs no picking at all.
+    const form = location ? patientFormOfPath(location.pathname) : undefined;
+    if (navigator && !workspace && requireChartAccess && form && !appearedAfterInteraction.current
+      && !pageHasTypedContent(wrapperRef.current)) {
+      navigator.replace(workspacePath(patient.patient_id, form), { from: location });
+    }
   };
 
   const handleSelect = (patient: Patient) => {
-    if (!requireChartAccess) {
+    // Offline the reason prompt cannot reach the server to open an access
+    // context, and nothing is read from the server either. The day list was
+    // downloaded under the clinician's authority and logged per patient.
+    if (!requireChartAccess || searchingOffline) {
       choose(patient);
       return;
     }
@@ -264,6 +359,24 @@ export default function PatientSelect({
       setIsOpen(true);
     }
   };
+
+  if (workspace) {
+    // The banner above already names the patient; this line says the form is
+    // for them, without a control that could switch to somebody else.
+    return (
+      <div className={className}>
+        {label && <p className="block text-sm font-medium text-content-secondary mb-2">{label}</p>}
+        <div
+          id={id ? `${id}-selected` : undefined}
+          className="flex items-center gap-3 rounded-lg border border-border bg-surface-sunken px-4 py-2.5"
+        >
+          <User size={16} className="text-content-muted" aria-hidden="true" />
+          <span className="font-medium text-content">{workspace.patient?.full_name ?? ''}</span>
+          <span className="text-xs text-content-muted">{t('workspace.patientFromWorkspace')}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
@@ -299,6 +412,7 @@ export default function PatientSelect({
               <div>
                 <p className="font-medium text-content">{selectedPatient.full_name}</p>
                 <p className="text-xs text-content-muted">
+                  {/* ux-allow(raw-patient-id): the picker's second identifier under the name, beside the health id (UX plan 1.2). */}
                   {selectedPatient.patient_id}{selectedPatient.health_id ? ` • ${selectedPatient.health_id}` : ''}
                 </p>
               </div>
@@ -367,13 +481,25 @@ export default function PatientSelect({
               <div className="py-4 px-3 text-center text-critical-subtle-fg">{loadError}</div>
             ) : patients.length === 0 ? (
               <div className="py-4 px-3 text-center text-content-muted">
-                {searchTerm ? 'No patients found matching your search' : 'No patients available'}
+                {searchingOffline
+                  ? t('clinicianOffline.noMatchOffline')
+                  : searchTerm ? 'No patients found matching your search' : 'No patients available'}
               </div>
             ) : (
-              patients.map((patient) => (
+              <>
+              {searchingOffline && (
+                <p className="px-3 py-2 text-xs text-caution-subtle-fg bg-caution-subtle">{t('clinicianOffline.searchOffline')}</p>
+              )}
+              {patients.map((patient) => {
+                // Two identifiers on every row; a name shared with another row is
+                // called out, because that is where the wrong chart gets opened.
+                const sameName = patients.some((other) => other.patient_id !== patient.patient_id
+                  && other.full_name.trim().toLowerCase() === patient.full_name.trim().toLowerCase());
+                return (
                 <button
                   key={patient.patient_id}
                   type="button"
+                  data-patient-id={patient.patient_id}
                   onClick={() => handleSelect(patient)}
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
@@ -391,11 +517,17 @@ export default function PatientSelect({
                       {patient.full_name}
                     </p>
                     <p className="text-xs text-content-muted truncate">
-                      {patient.patient_id}{patient.health_id ? ` • Health ID: ${patient.health_id}` : ''}
+                      {patient.date_of_birth ? `${t('patientSelect.born')} ${formatDateOnly(patient.date_of_birth)}` : patient.patient_id}
+                      {patient.health_id ? ` • ${t('patientSelect.healthId')} ${patient.health_id}` : ''}
                     </p>
+                    {sameName && (
+                      <p className="mt-0.5 text-xs font-semibold text-caution-subtle-fg">{t('patientSelect.sameName')}</p>
+                    )}
                   </div>
                 </button>
-              ))
+                );
+              })}
+              </>
             )}
           </div>
         )}
@@ -409,13 +541,13 @@ export default function PatientSelect({
         </p>
       )}
       {pending && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('accessReason.title')}
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+        <ModalPanel
+          label={t('accessReason.title')}
+          onClose={() => setPending(null)}
+          closeOnBackdrop={false}
+          overlayClassName="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4"
+          className="w-full max-w-xl"
         >
-          <div className="w-full max-w-xl">
             <ChartAccessPrompt
               patientId={pending.patient_id}
               title={t('accessReason.title')}
@@ -426,8 +558,7 @@ export default function PatientSelect({
               }}
               onCancel={() => setPending(null)}
             />
-          </div>
-        </div>
+        </ModalPanel>
       )}
     </div>
   );

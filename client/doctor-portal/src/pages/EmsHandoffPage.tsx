@@ -125,6 +125,7 @@ function EmsHandoffPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (saving) return;
     setError('');
     setNotice('');
     if (!agency.trim() || !complaint.trim()) {
@@ -339,8 +340,8 @@ function EmsHandoffPage() {
 
         <button
           type="submit"
-          disabled={saving}
-          className="px-4 py-2 rounded-lg font-medium bg-brand text-brand-fg disabled:opacity-60"
+          aria-disabled={saving || undefined}
+          className="aria-disabled:cursor-wait px-4 py-2 rounded-lg font-medium bg-brand text-brand-fg"
         >
           {saving ? t('docEms.saving') : t('docEms.save')}
         </button>

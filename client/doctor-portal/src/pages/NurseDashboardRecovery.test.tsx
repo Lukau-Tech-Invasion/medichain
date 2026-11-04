@@ -8,7 +8,7 @@ import { useAuthStore } from '../store';
 vi.mock('../store', () => ({ useAuthStore: vi.fn() }));
 vi.mock('@medichain/shared', async original => ({
   ...(await original<typeof import('@medichain/shared')>()),
-  getNurseDashboard: vi.fn(), getNurseTasks: vi.fn(),
+  getNurseDashboard: vi.fn(), getNurseTasks: vi.fn(), getMyWard: vi.fn(),
 }));
 const dashboard: shared.NurseDashboardResponse = {
   nurse_id: 'QA-NURSE', patients: { total: 1, list: [{ patient_id: 'QA-PAT', health_id: 'QA-PAT', full_name: 'QA Patient', date_of_birth: '2000-01-01', gender: '', allergies: [], current_medications: [], medical_conditions: [], content_available: true }] },
@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.mocked(useAuthStore).mockReturnValue({ user: { userId: 'QA-NURSE', role: 'Nurse' } } as never);
   vi.mocked(shared.getNurseDashboard).mockResolvedValue(dashboard);
   vi.mocked(shared.getNurseTasks).mockResolvedValue({ success: true, tasks: [] });
+  vi.mocked(shared.getMyWard).mockResolvedValue({ shifts: [], wards: [], patients: [] });
 });
 
 describe('nurse dashboard recovery', () => {

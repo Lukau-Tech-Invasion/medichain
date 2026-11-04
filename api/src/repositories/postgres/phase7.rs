@@ -173,6 +173,8 @@ pg_json_repo!(PgInsuranceClaimRepository, "insurance_claims");
 pg_json_repo!(PgInsuranceCardRepository, "insurance_cards");
 pg_json_repo!(PgAutopsyReportRepository, "autopsy_reports");
 pg_json_repo!(PgSyncQueueItemRepository, "sync_queue_items");
+pg_json_repo!(PgEmsRunRepository, "ems_runs");
+pg_json_repo!(PgEmsRunEventRepository, "ems_run_events");
 
 // Round 5: wearables + telehealth legacy shapes (repos existed but entity shapes
 // don't match the rich legacy structs, so these persist losslessly as JSON).

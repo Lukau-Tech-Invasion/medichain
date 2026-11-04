@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatients, getPatientCodeBlues, formatTimestamp, useTranslation, type CodeBlueListRow } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatients, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -17,11 +16,12 @@ import {
   History
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 
 export default function CodeBluePage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
   // The roster this page used to hold existed only to fill a patient
@@ -34,6 +34,8 @@ export default function CodeBluePage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<CodeBlueListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const submission = useSubmission('code-blue');
   const [isActive, setIsActive] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -69,6 +71,7 @@ export default function CodeBluePage() {
     try {
       await getPatients();
     } catch (error) {
+      // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
       console.error('Failed to load patients', error);
     }
   };
@@ -76,10 +79,13 @@ export default function CodeBluePage() {
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
       setEmergencyHistory(await getPatientCodeBlues(patientId));
-    } catch (e) {
-      console.error('Failed to fetch emergency history', e);
+    } catch {
+      // Not "no events": a code blue history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docCodeBlue.errorLoadHistory'));
     } finally {
       setHistoryLoading(false);
     }
@@ -144,7 +150,11 @@ export default function CodeBluePage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedPatient || !startTime || !outcome) return;
+    // Each refusal said in words; the button used to be greyed out instead.
+    if (!selectedPatient) { showError(t('docCodeBlue.selectPatientPlaceholder')); return; }
+    if (!startTime) { showError(t('docCodeBlue.errorNotStarted')); return; }
+    if (isActive) { showError(t('docCodeBlue.errorStopFirst')); return; }
+    if (!outcome) { showError(t('docCodeBlue.outcomeNotChosen')); return; }
 
     try {
       const codeData = {
@@ -161,8 +171,11 @@ export default function CodeBluePage() {
         cpr_cycles: events.filter(e => e.includes('CPR')).length,
       };
 
-      await createCodeBlue(codeData);
-      navigate('/dashboard');
+      // One record per resuscitation: a double tap or a retry is the same submission.
+      const outcomeOfSave = await submitOnce(submission, codeData, () => createCodeBlue(codeData));
+      if (outcomeOfSave === 'busy') return;
+      notifySuccess(t(outcomeOfSave === 'saved' ? 'forms.saved' : outcomeOfSave === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
+      returnAfterSave();
     } catch (error) {
       console.error('Failed to save code blue record', error);
       showError(t('docCodeBlue.saveFailed'));
@@ -190,6 +203,8 @@ export default function CodeBluePage() {
           </h2>
           {historyLoading ? (
             <p className="text-content-muted text-sm">{t('docCodeBlue.loadingHistory')}</p>
+          ) : historyError ? (
+            <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
           ) : emergencyHistory.length === 0 ? (
             <p className="text-content-muted text-sm italic">{t('docCodeBlue.noEvents')}</p>
           ) : (
@@ -227,6 +242,7 @@ export default function CodeBluePage() {
         </div>
       )}
 
+      <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} onKeyDown={keepEnterInField} noValidate>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Controls & Patient */}
         <div className="lg:col-span-2 space-y-6">
@@ -255,7 +271,7 @@ export default function CodeBluePage() {
             
             <div className="flex justify-center space-x-4">
               {!isActive ? (
-                <button
+                <button type="button"
                   onClick={startCode}
                   disabled={!selectedPatient}
                   // The foreground moves with the fill. It was pinned to
@@ -273,7 +289,7 @@ export default function CodeBluePage() {
                   {t('docCodeBlue.startCode')}
                 </button>
               ) : (
-                <button
+                <button type="button"
                   onClick={stopCode}
                   className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-critical-fg bg-critical hover:bg-critical"
                 >
@@ -288,7 +304,7 @@ export default function CodeBluePage() {
           <div className="bg-surface shadow rounded-lg p-6">
             <h3 className="text-lg font-medium text-content mb-4">{t('docCodeBlue.quickActions')}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <button
+              <button type="button"
                 onClick={() => logEvent('CPR Cycle Started')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-notice-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -297,7 +313,7 @@ export default function CodeBluePage() {
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.cprCycle')}</span>
               </button>
               
-              <button
+              <button type="button"
                 onClick={() => logEvent('Shock Delivered - 200J')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-caution-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -306,7 +322,7 @@ export default function CodeBluePage() {
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.shock')}</span>
               </button>
 
-              <button
+              <button type="button"
                 onClick={() => void logMedication('Epinephrine', '1mg')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -320,7 +336,7 @@ export default function CodeBluePage() {
                   Only epi was one tap away, so the drug that follows the third
                   shock had to be typed into the narrative — the one place it is
                   least likely to be timed accurately during a code. */}
-              <button
+              <button type="button"
                 onClick={() => void logMedication('Amiodarone', '300mg')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -329,7 +345,7 @@ export default function CodeBluePage() {
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.amiodarone')}</span>
               </button>
 
-              <button
+              <button type="button"
                 onClick={() => logEvent('Pulse Check - Pulse Present')}
                 disabled={!isActive}
                 className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-ok-subtle disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -394,19 +410,18 @@ export default function CodeBluePage() {
                 />
               </div>
               <div>
-                <label htmlFor="code-blue-outcome" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.outcome')}</label>
-                <select
+                <ChoiceChips
                   id="code-blue-outcome"
-                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  value={outcome}
-                  onChange={(e) => setOutcome(e.target.value)}
-                >
-                  <option value="">{t('docCodeBlue.outcomeNotChosen')}</option>
-                  <option value="ongoing">{t('docCodeBlue.outcomeOngoing')}</option>
-                  <option value="rosc">{t('docCodeBlue.outcomeRosc')}</option>
-                  <option value="expired">{t('docCodeBlue.outcomeExpired')}</option>
-                  <option value="transferred">{t('docCodeBlue.outcomeTransferred')}</option>
-                </select>
+                  label={t('docCodeBlue.outcome')}
+                  value={outcome || undefined}
+                  onChange={(chosen) => { const next = chosen ?? ''; setOutcome(next); }}
+                  options={[
+                    { value: 'ongoing', label: t('docCodeBlue.outcomeOngoing') },
+                    { value: 'rosc', label: t('docCodeBlue.outcomeRosc') },
+                    { value: 'expired', label: t('docCodeBlue.outcomeExpired') },
+                    { value: 'transferred', label: t('docCodeBlue.outcomeTransferred') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -431,10 +446,9 @@ export default function CodeBluePage() {
           </div>
           
           <div className="mt-6 pt-6 border-t border-border">
-            <button
-              onClick={handleSubmit}
-              disabled={isActive || !startTime || !outcome}
-              className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
+            <button type="submit"
+              aria-disabled={submission.status === 'saving' || undefined}
+              className="aria-disabled:cursor-wait w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
             >
               <Save className="h-4 w-4 mr-2" />
               {t('docCodeBlue.finalizeRecord')}
@@ -442,6 +456,7 @@ export default function CodeBluePage() {
           </div>
         </div>
       </div>
+      </form>
     </div>
   );
 }

@@ -84,7 +84,8 @@ test.describe.serial('paediatric assessment readback', () => {
     await page.getByRole('button', { name: 'Assessment', exact: true }).click();
 
     for (const label of ['Appearance', 'Work of Breathing', 'Circulation']) {
-      await expect(page.getByLabel(label, { exact: true })).toHaveValue('');
+      // A chip group now: nothing chosen until somebody observes it.
+      await expect(page.getByRole('group', { name: label, exact: true }).getByRole('radio', { checked: true })).toHaveCount(0);
     }
     await expect(page.getByRole('radio', { name: 'Not assessed' })).toBeChecked();
 

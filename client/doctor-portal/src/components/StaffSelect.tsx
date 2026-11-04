@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { clickable, getProviders } from '@medichain/shared';
+import { clickable, getProviders, useTranslation } from '@medichain/shared';
 import { Search, ChevronDown, Loader2, X, UserCircle } from 'lucide-react';
+
+// ux-allow(no-form): rendered inside other pages' forms, where a nested <form> is invalid; Enter is handled on the control itself.
 
 export interface StaffMember {
   user_id: string;
@@ -49,6 +51,7 @@ export default function StaffSelect({
   returnName = false,
 }: StaffSelectProps) {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -140,12 +143,30 @@ export default function StaffSelect({
     }
   };
 
+  // Most staff fields name the person filling in the form: one tap, not a search.
+  const me = user ? staff.find(s => s.user_id === user.userId) : undefined;
+  const meSelected = me && (value === me.user_id || value === me.name);
+
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
-      {label && (
-        <label htmlFor={id} className="block text-sm font-medium text-content-secondary mb-2">
-          {label} {required && <span className="text-critical">*</span>}
-        </label>
+      {(label || (me && !disabled)) && (
+        <div className="mb-2 flex items-end justify-between gap-2">
+          {label ? (
+            <label htmlFor={id} className="block text-sm font-medium text-content-secondary">
+              {label} {required && <span className="text-critical">*</span>}
+            </label>
+          ) : <span />}
+          {me && !disabled && !meSelected && (
+            <button
+              type="button"
+              onClick={() => handleSelect(me)}
+              aria-label={t('kit.meFor', { field: label ?? placeholder })}
+              className="mc-press min-h-[36px] rounded-lg border border-border-interactive px-3 text-sm font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            >
+              {t('kit.me')}
+            </button>
+          )}
+        </div>
       )}
       
       <div className="relative">

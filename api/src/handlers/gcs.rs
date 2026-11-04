@@ -166,7 +166,7 @@ pub async fn create_gcs_assessment(
             .as_ref()
             .map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
         assessed_by: current_user_id.clone(),
-        assessed_at: Utc::now(),
+        assessed_at: crate::support::clinical_time(&http_req),
         created_at: Utc::now(),
         updated_at: Utc::now(),
         facility_id: None,

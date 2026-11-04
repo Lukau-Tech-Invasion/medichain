@@ -33,6 +33,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(list_patient_care_plans)
         .service(list_patient_pharmacy_decisions)
         .service(list_patient_ems_handoffs)
+        .service(list_patient_ems_runs)
+        .service(list_patient_admissions)
         .service(list_patient_blood)
         .service(list_patient_procedures)
         .service(list_patient_ama_discharges)
@@ -280,6 +282,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_patient_sepsis)
         .service(clinical_endpoints::create_ems_handoff)
         .service(clinical_endpoints::list_recent_ems_handoffs)
+        // Ambulance run record: list and fixed segments before `{run_id}`.
+        .service(list_own_ems_runs)
+        .service(list_ems_destinations)
+        .service(list_incoming_ems_runs)
+        .service(create_ems_run)
+        .service(get_ems_run)
+        .service(add_ems_run_event)
+        .service(receive_ems_run)
         .service(clinical_endpoints::get_ems_handoff)
         .service(clinical_endpoints::get_patient_emergency_records)
         // Nursing documentation endpoints (Phase 3)
@@ -301,6 +311,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::create_iv_site)
         .service(clinical_endpoints::list_patient_iv_sites)
         .service(clinical_endpoints::get_iv_site)
+        // The handoff draft built from the caller's own shift (UX plan WP 5.6).
+        .service(shift_handoff_draft)
         .service(clinical_endpoints::create_shift_handoff)
         .service(clinical_endpoints::list_provider_handoffs)
         .service(clinical_endpoints::get_shift_handoff)
@@ -458,6 +470,19 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::verify_insurance)
         // Dashboard & Workflow endpoints
         .service(clinical_endpoints::doctor_dashboard)
+        // Caller-scoped work list; registered before any /api/dashboard/{x} pattern.
+        .service(doctor_today)
+        .service(clinician_offline_bundle)
+        // Wards, roster and admissions (UX plan Phase 5). The literal
+        // /api/wards/shifts/... route is registered before /api/wards/{ward_id}/...
+        .service(cancel_ward_shift)
+        .service(create_ward)
+        .service(list_wards)
+        .service(assign_ward_shift)
+        .service(list_ward_shifts)
+        .service(admit_patient)
+        .service(discharge_admission)
+        .service(my_ward)
         .service(clinical_endpoints::nurse_dashboard)
         .service(clinical_endpoints::lab_dashboard)
         .service(clinical_endpoints::admin_dashboard)

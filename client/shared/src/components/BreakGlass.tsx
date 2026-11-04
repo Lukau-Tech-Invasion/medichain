@@ -30,6 +30,12 @@ export function BreakGlassPanel({ patientId, onOpened }: Props) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy) return;
+    if (length < MIN_REASON_CHARS) {
+      // Said in words, not by a greyed-out button that cannot say why.
+      setError(t('breakGlass.reasonTooShort', { min: String(MIN_REASON_CHARS) }));
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -64,8 +70,8 @@ export function BreakGlassPanel({ patientId, onOpened }: Props) {
       {error && <p role="alert" className="text-sm text-critical-subtle-fg">{error}</p>}
       <button
         type="submit"
-        disabled={busy || length < MIN_REASON_CHARS}
-        className="flex items-center gap-2 rounded-md bg-critical px-3 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-60"
+        aria-disabled={busy || undefined}
+        className="flex min-h-[44px] items-center gap-2 rounded-md bg-critical px-3 py-2 text-sm font-medium text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 aria-disabled:cursor-wait"
       >
         {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
         {t('breakGlass.submit')}

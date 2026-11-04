@@ -10,6 +10,8 @@ import {
 } from '../api/endpoints';
 import type { MessageAttachment } from '../api/endpoints';
 
+// ux-allow(no-form): a file picker that uploads on choice; there is nothing to submit.
+
 const BYTES_PER_KB = 1024;
 const BYTES_PER_MB = BYTES_PER_KB * 1024;
 

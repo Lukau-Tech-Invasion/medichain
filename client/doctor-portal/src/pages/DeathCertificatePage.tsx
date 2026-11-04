@@ -25,7 +25,7 @@ import {
   Input,
   useValidatedForm,
   deathCertificateSchema,
-  formatDateOnly,
+  formatDateOnly, ChoiceChips
 } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 
@@ -205,6 +205,7 @@ const DeathCertificatePage: React.FC = () => {
   // The draft being revised, when the clinician reopened one. Null means the
   // form is composing a new certificate.
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   const loadCertificates = React.useCallback(async () => {
     try {
@@ -312,10 +313,14 @@ const DeathCertificatePage: React.FC = () => {
    * partial work was not to leave the page.
    */
   const handleSaveDraft = async () => {
+    // One draft per press: the first save sets editingDraftId, so a second
+    // press while it is in flight would otherwise create a second draft.
+    if (savingDraft) return;
     if (!patientId) {
       showError(t('docDeathCertificate.errorSelectPatient'));
       return;
     }
+    setSavingDraft(true);
     try {
       if (editingDraftId) {
         await updateDeathCertificateDraft(editingDraftId, draftPayload());
@@ -327,6 +332,8 @@ const DeathCertificatePage: React.FC = () => {
       await loadCertificates();
     } catch (err) {
       showError(getApiErrorMessage(err, t('docDeathCertificate.draftFailed')));
+    } finally {
+      setSavingDraft(false);
     }
   };
 
@@ -485,18 +492,19 @@ const DeathCertificatePage: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-slate-500"
               />
             </div>
-            <select aria-label={t('common.filterByStatus')}
+            <ChoiceChips
+              label={t('common.filterByStatus')}
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as CertificateStatus | 'all')}
-              className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-slate-500"
-            >
-              <option value="all">{t('docDeathCertificate.filterAllStatuses')}</option>
-              <option value="draft">{t('docDeathCertificate.status_draft')}</option>
-              <option value="pending-review">{t('docDeathCertificate.status_pending-review')}</option>
-              <option value="pending-signature">{t('docDeathCertificate.status_pending-signature')}</option>
-              <option value="filed">{t('docDeathCertificate.status_filed')}</option>
-              <option value="amended">{t('docDeathCertificate.status_amended')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setStatusFilter(next as CertificateStatus | 'all'); }}
+              options={[
+                { value: 'all', label: t('docDeathCertificate.filterAllStatuses') },
+                { value: 'draft', label: t('docDeathCertificate.status_draft') },
+                { value: 'pending-review', label: t('docDeathCertificate.status_pending-review') },
+                { value: 'pending-signature', label: t('docDeathCertificate.status_pending-signature') },
+                { value: 'filed', label: t('docDeathCertificate.status_filed') },
+                { value: 'amended', label: t('docDeathCertificate.status_amended') },
+              ]}
+            />
           </div>
 
           {/* Certificates */}
@@ -601,6 +609,7 @@ const DeathCertificatePage: React.FC = () => {
 
       {/* New Certificate Form */}
       {activeTab === 'new' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSaveDraft(); }} noValidate>
         <div className="p-6">
           {/* Progress Steps */}
           <div className="flex items-center justify-between mb-8 max-w-3xl mx-auto">
@@ -632,8 +641,8 @@ const DeathCertificatePage: React.FC = () => {
 
           {currentStep < 4 && (
             <div className="max-w-3xl mx-auto flex justify-end mb-4">
-              <button type="button" onClick={handleSaveDraft} disabled={!patientId}
-                className="px-4 py-2 border border-border-strong rounded-lg disabled:opacity-50">
+              <button type="submit" aria-disabled={savingDraft || undefined}
+                className="aria-disabled:cursor-wait px-4 py-2 border border-border-strong rounded-lg">
                 {t('docDeathCertificate.saveAsDraftBtn')}
               </button>
             </div>
@@ -717,35 +726,33 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-sex" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.sexLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="death-sex"
-                    value={deceasedInfo.sex}
-                    onChange={(e) => setDeceasedInfo({ ...deceasedInfo, sex: e.target.value as '' | 'male' | 'female' })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="">{t('docDeathCertificate.selectEllipsis')}</option>
-                    <option value="male">{t('docDeathCertificate.sex_male')}</option>
-                    <option value="female">{t('docDeathCertificate.sex_female')}</option>
-                  </select>
+                    label={t('docDeathCertificate.sexLabel')}
+                    value={(deceasedInfo.sex) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setDeceasedInfo({ ...deceasedInfo, sex: next as '' | 'male' | 'female' }); }}
+                    options={[
+                      { value: 'male', label: t('docDeathCertificate.sex_male') },
+                      { value: 'female', label: t('docDeathCertificate.sex_female') },
+                    ]}
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label htmlFor="death-marital-status" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.maritalStatusLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="death-marital-status"
-                    value={deceasedInfo.maritalStatus}
-                    onChange={(e) => setDeceasedInfo({ ...deceasedInfo, maritalStatus: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="">{t('docDeathCertificate.selectEllipsis')}</option>
-                    <option value="single">{t('docDeathCertificate.marital_single')}</option>
-                    <option value="married">{t('docDeathCertificate.marital_married')}</option>
-                    <option value="widowed">{t('docDeathCertificate.marital_widowed')}</option>
-                    <option value="divorced">{t('docDeathCertificate.marital_divorced')}</option>
-                  </select>
+                    label={t('docDeathCertificate.maritalStatusLabel')}
+                    value={(deceasedInfo.maritalStatus) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setDeceasedInfo({ ...deceasedInfo, maritalStatus: next }); }}
+                    options={[
+                      { value: 'single', label: t('docDeathCertificate.marital_single') },
+                      { value: 'married', label: t('docDeathCertificate.marital_married') },
+                      { value: 'widowed', label: t('docDeathCertificate.marital_widowed') },
+                      { value: 'divorced', label: t('docDeathCertificate.marital_divorced') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="death-occupation" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.occupationLabel')}</label>
@@ -784,7 +791,7 @@ const DeathCertificatePage: React.FC = () => {
               </div>
 
               <div className="flex justify-end mt-6">
-                <button
+                <button type="button"
                   onClick={() => setCurrentStep(2)}
                   className="px-6 py-2 bg-slate-800 text-white rounded-lg font-medium"
                 >
@@ -928,13 +935,13 @@ const DeathCertificatePage: React.FC = () => {
               </div>
 
               <div className="flex justify-between mt-6">
-                <button
+                <button type="button"
                   onClick={() => setCurrentStep(1)}
                   className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docDeathCertificate.backBtn')}
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setCurrentStep(3)}
                   className="px-6 py-2 bg-slate-800 text-white rounded-lg font-medium"
                 >
@@ -1021,7 +1028,7 @@ const DeathCertificatePage: React.FC = () => {
                   ))}
 
                   {causeInfo.underlyingCauses.length < 4 && (
-                    <button
+                    <button type="button"
                       onClick={addUnderlyingCause}
                       className="text-sm text-content-muted hover:text-content-secondary"
                     >
@@ -1033,34 +1040,34 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="death-manner-of-death" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.mannerOfDeathLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="death-manner-of-death"
+                    label={t('docDeathCertificate.mannerOfDeathLabel')}
                     value={causeInfo.mannerOfDeath}
-                    onChange={(e) => setCauseInfo({ ...causeInfo, mannerOfDeath: e.target.value as MannerOfDeath })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="natural">{t('docDeathCertificate.manner_natural')}</option>
-                    <option value="accident">{t('docDeathCertificate.manner_accident')}</option>
-                    <option value="suicide">{t('docDeathCertificate.manner_suicide')}</option>
-                    <option value="homicide">{t('docDeathCertificate.manner_homicide')}</option>
-                    <option value="pending">{t('docDeathCertificate.manner_pending')}</option>
-                    <option value="undetermined">{t('docDeathCertificate.manner_undetermined')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setCauseInfo({ ...causeInfo, mannerOfDeath: next as MannerOfDeath }); }}
+                    options={[
+                      { value: 'natural', label: t('docDeathCertificate.manner_natural') },
+                      { value: 'accident', label: t('docDeathCertificate.manner_accident') },
+                      { value: 'suicide', label: t('docDeathCertificate.manner_suicide') },
+                      { value: 'homicide', label: t('docDeathCertificate.manner_homicide') },
+                      { value: 'pending', label: t('docDeathCertificate.manner_pending') },
+                      { value: 'undetermined', label: t('docDeathCertificate.manner_undetermined') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="death-tobacco-contributed" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.tobaccoContributedLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="death-tobacco-contributed"
+                    label={t('docDeathCertificate.tobaccoContributedLabel')}
                     value={causeInfo.tobaccoContributed}
-                    onChange={(e) => setCauseInfo({ ...causeInfo, tobaccoContributed: e.target.value as typeof causeInfo.tobaccoContributed })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="yes">{t('docDeathCertificate.tobacco_yes')}</option>
-                    <option value="no">{t('docDeathCertificate.tobacco_no')}</option>
-                    <option value="probably">{t('docDeathCertificate.tobacco_probably')}</option>
-                    <option value="unknown">{t('docDeathCertificate.tobacco_unknown')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setCauseInfo({ ...causeInfo, tobaccoContributed: next as typeof causeInfo.tobaccoContributed }); }}
+                    options={[
+                      { value: 'yes', label: t('docDeathCertificate.tobacco_yes') },
+                      { value: 'no', label: t('docDeathCertificate.tobacco_no') },
+                      { value: 'probably', label: t('docDeathCertificate.tobacco_probably') },
+                      { value: 'unknown', label: t('docDeathCertificate.tobacco_unknown') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -1094,13 +1101,13 @@ const DeathCertificatePage: React.FC = () => {
               </div>
 
               <div className="flex justify-between mt-6">
-                <button
+                <button type="button"
                   onClick={() => setCurrentStep(2)}
                   className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docDeathCertificate.backBtn')}
                 </button>
-                <button
+                <button type="button"
                   onClick={() => setCurrentStep(4)}
                   className="px-6 py-2 bg-slate-800 text-white rounded-lg font-medium"
                 >
@@ -1132,18 +1139,17 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="death-certifier-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.certifierTypeLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="death-certifier-type"
-                    value={certifierInfo.certifierType}
-                    onChange={(e) => setCertifierInfo({ ...certifierInfo, certifierType: e.target.value as 'physician' | 'coroner' | 'medical_examiner' })}
-                    className="w-full border rounded-lg px-3 py-2"
-                  >
-                    <option value="">{t('docDeathCertificate.selectEllipsis')}</option>
-                    <option value="physician">{t('docDeathCertificate.certifierType_physician')}</option>
-                    <option value="medical_examiner">{t('docDeathCertificate.certifierType_medicalExaminer')}</option>
-                    <option value="coroner">{t('docDeathCertificate.certifierType_coroner')}</option>
-                  </select>
+                    label={t('docDeathCertificate.certifierTypeLabel')}
+                    value={(certifierInfo.certifierType) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setCertifierInfo({ ...certifierInfo, certifierType: next as 'physician' | 'coroner' | 'medical_examiner' }); }}
+                    options={[
+                      { value: 'physician', label: t('docDeathCertificate.certifierType_physician') },
+                      { value: 'medical_examiner', label: t('docDeathCertificate.certifierType_medicalExaminer') },
+                      { value: 'coroner', label: t('docDeathCertificate.certifierType_coroner') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="death-license-number" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.licenseNumberLabel')}</label>
@@ -1199,7 +1205,7 @@ const DeathCertificatePage: React.FC = () => {
               </div>
 
               <div className="flex justify-between">
-                <button
+                <button type="button"
                   onClick={() => setCurrentStep(3)}
                   className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
@@ -1213,7 +1219,7 @@ const DeathCertificatePage: React.FC = () => {
                   >
                     {t('docDeathCertificate.saveAsDraftBtn')}
                   </button>
-                  <button
+                  <button type="button"
                     onClick={handleSignAndSubmit}
                     disabled={!certifierInfo.signature}
                     className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 ${
@@ -1230,6 +1236,7 @@ const DeathCertificatePage: React.FC = () => {
             </div>
           )}
         </div>
+        </form>
       )}
     </div>
   );

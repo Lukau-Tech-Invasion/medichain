@@ -191,7 +191,7 @@ pub async fn create_triage_assessment(
         disposition: None,
         assigned_bed: None,
         notes: req.notes.clone().filter(|n| !n.trim().is_empty()),
-        triage_time: Utc::now(),
+        triage_time: crate::support::clinical_time(&http_req),
         seen_by_provider_at: None,
         performed_by: current_user_id.clone(),
         facility_id: None,

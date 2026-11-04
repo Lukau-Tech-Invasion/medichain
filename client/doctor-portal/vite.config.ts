@@ -2,6 +2,32 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
 import path from 'path';
+import type { Plugin } from 'vite';
+
+/**
+ * Write `precache-manifest.json`: every file the build produced, so the
+ * service worker can store the whole app on its first online visit.
+ *
+ * The app has ~150 lazy route chunks. Caching only what a clinician happened
+ * to open would leave a form they had not opened yet that day unavailable the
+ * moment signal went — exactly when they need it.
+ */
+function precacheManifest(): Plugin {
+  return {
+    name: 'medichain-precache-manifest',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle)
+        .filter((name) => !name.endsWith('.map') && name !== 'stats.html')
+        .sort();
+      this.emitFile({
+        type: 'asset',
+        fileName: 'precache-manifest.json',
+        source: JSON.stringify({ build: Date.now().toString(36), files }),
+      });
+    },
+  };
+}
 
 // The dev-server port, and therefore the HMR WebSocket's port.
 //
@@ -33,6 +59,7 @@ export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
   plugins: [
     react(),
+    precacheManifest(),
     // Bundle treemap on demand: `ANALYZE=1 npm run build` -> dist/stats.html
     ...(process.env.ANALYZE
       ? [visualizer({ filename: 'dist/stats.html', gzipSize: true, brotliSize: true })]

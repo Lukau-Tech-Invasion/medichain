@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   createFallRisk,
   listPatientFallRisk,
@@ -8,6 +8,9 @@ import {
   morseTotal,
   bandFor,
   formatTimestamp,
+  formatDateOnly,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
@@ -28,6 +31,8 @@ import {
   Eye,
   RefreshCw
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
+import { PatientName } from '../components/PatientName';
 
 type RiskLevel = 'low' | 'moderate' | 'high';
 
@@ -59,7 +64,10 @@ interface FallRiskHistoryRow {
 
 export default function FallRiskPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('fall-risk');
+  const returnAfterSave = useReturnAfterSave();
   const [searchParams] = useSearchParams();
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
@@ -286,6 +294,7 @@ export default function FallRiskPage() {
   };
 
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docFallRisk.errorSelectPatient'));
       return;
@@ -310,6 +319,7 @@ export default function FallRiskPage() {
       //
       // `total_score` and `risk_level` are deliberately not sent. The server
       // derives both, and in PostgreSQL they are generated columns besides.
+      let saved: Awaited<ReturnType<typeof createFallRisk>> | undefined;
       const assessmentData = {
         patient_id: selectedPatient.patient_id,
         assessment_tool: 'morse',
@@ -331,7 +341,21 @@ export default function FallRiskPage() {
         assessed_at: new Date().toISOString()
       };
 
-      const saved = await createFallRisk(assessmentData);
+      const outcome = await submitOnce(submission, assessmentData, async () => {
+        saved = await createFallRisk(assessmentData);
+      });
+      if (outcome === 'busy') return;
+      if (outcome === 'duplicate' || !saved && outcome !== 'queued') {
+        setSuccess(t('forms.alreadySaved'));
+        setTimeout(() => returnAfterSave(), 2000);
+        return;
+      }
+      if (outcome === 'queued' || !saved) {
+        // The score is the server's (rule 8); it exists once the record is sent.
+        setSuccess(`${t('forms.queued')} ${t('clinicianOffline.scoreOffline')}`);
+        setTimeout(() => returnAfterSave(), 2000);
+        return;
+      }
       // Show what was stored, not what the form calculated. If the two ever
       // disagree the record is the one that matters.
       setSavedResult({
@@ -339,7 +363,7 @@ export default function FallRiskPage() {
         risk_level: (saved.risk_level as RiskLevel) ?? null
       });
       setSuccess(t('docFallRisk.successSaved'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docFallRisk.errorSaveFailed'));
       console.error('Failed to save fall risk assessment', err);
@@ -366,7 +390,9 @@ export default function FallRiskPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && (
+                  <p className="text-sm opacity-75">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>
+                )}
               </div>
             )}
           </div>
@@ -522,6 +548,7 @@ export default function FallRiskPage() {
             </div>
 
             {/* Main Assessment */}
+            <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
             <div className="lg:col-span-2 space-y-6">
               {/* Morse Fall Scale */}
               <div className="bg-surface rounded-lg shadow p-6">
@@ -881,10 +908,9 @@ export default function FallRiskPage() {
 
               {/* Submit Button */}
               <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={isSubmitting || !selectedPatient || !assessmentComplete}
-                  className="bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -900,6 +926,7 @@ export default function FallRiskPage() {
                 </button>
               </div>
             </div>
+            </form>
           </div>
         )}
 
@@ -921,7 +948,7 @@ export default function FallRiskPage() {
                   <div key={assessment.id} className="border rounded-lg p-4">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-bold">{assessment.patient_id}</p>
+                        <p className="font-bold"><PatientName id={assessment.patient_id} /></p>
                         <p className="text-sm text-content-muted">
                           {formatTimestamp(assessment.assessed_at)}
                         </p>

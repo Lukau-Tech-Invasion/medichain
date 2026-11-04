@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { api, fixtureStaff, fixtureToken, readFixtures } from './identity';
-import { settle, signIn } from './support';
+import { settle, signIn, choose } from './support';
 
 /**
  * A doctor on a phone writes to a patient, and the patient's open Messages
@@ -66,7 +66,7 @@ test('a doctor on a phone messages a patient, who sees it arrive live', async ({
   await expect(patientOption, 'the patient is not offered to the doctor who treats them').toHaveCount(1, {
     timeout: 20000,
   });
-  await recipient.selectOption({ value: patient.user_id });
+  await choose(recipient, { value: patient.user_id });
   await doctor.locator('textarea').first().fill(text);
   await doctor.getByRole('button', { name: /^send/i }).click();
   await expect(doctor.getByText(/sent/i).first()).toBeVisible({ timeout: 20000 });

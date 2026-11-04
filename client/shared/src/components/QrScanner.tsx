@@ -20,6 +20,12 @@ interface QrScannerProps {
   onCancel: () => void;
   /** Shown under the video, e.g. what to point the camera at. */
   hint?: string;
+  /**
+   * Barcode formats to read where the browser's detector supports them
+   * (medicine labels are usually Code 128 or Data Matrix). QR only by default;
+   * the fallback decoder reads QR only.
+   */
+  formats?: readonly string[];
 }
 
 interface DetectedBarcode {
@@ -55,12 +61,13 @@ export function cameraErrorMessage(error: unknown): string {
   }
 }
 
-async function nativeQrDetector(): Promise<NativeDetector | null> {
+async function nativeQrDetector(wanted: readonly string[] = ['qr_code']): Promise<NativeDetector | null> {
   const Detector = (window as Window & { BarcodeDetector?: NativeDetectorConstructor }).BarcodeDetector;
   if (!Detector) return null;
   try {
-    const formats = (await Detector.getSupportedFormats?.()) ?? [];
-    return formats.includes('qr_code') ? new Detector({ formats: ['qr_code'] }) : null;
+    const supported = (await Detector.getSupportedFormats?.()) ?? [];
+    const formats = wanted.filter((f) => supported.includes(f));
+    return formats.length > 0 ? new Detector({ formats }) : null;
   } catch {
     return null;
   }
@@ -88,11 +95,13 @@ async function readFrame(
   return jsQR(frame.data, width, height, { inversionAttempts: 'dontInvert' })?.data ?? null;
 }
 
-export function QrScanner({ onResult, onCancel, hint }: QrScannerProps) {
+export function QrScanner({ onResult, onCancel, hint, formats }: QrScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
+  // Read once when the camera starts; changing formats mid-scan restarts nothing.
+  const formatsRef = useRef(formats);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(true);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -147,7 +156,7 @@ export function QrScanner({ onResult, onCancel, hint }: QrScannerProps) {
         })
         .catch(() => undefined);
 
-      const native = await nativeQrDetector();
+      const native = await nativeQrDetector(formatsRef.current);
       let busy = false;
       timer = window.setInterval(() => {
         if (busy || stopped || video.readyState < 2) return;

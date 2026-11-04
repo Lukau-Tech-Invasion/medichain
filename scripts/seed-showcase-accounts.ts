@@ -23,6 +23,8 @@
 import { randomInt } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
+// Before the seeder's own module, so importing its helpers does not run it.
+import './lib/seed-as-library';
 import {
   type Account,
   type Json,

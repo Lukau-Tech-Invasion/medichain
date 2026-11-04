@@ -8,6 +8,8 @@
  * - Cached documents
  */
 
+import { canSeal, forgetSealKey, sealBody } from './offlineSeal';
+
 const DB_NAME = 'MediChainOfflineDB';
 const DB_VERSION = 1;
 
@@ -36,6 +38,11 @@ export interface SyncQueueItem {
   priority: 'high' | 'medium' | 'low';
   patientId?: string;
   error?: string;
+  /**
+   * After this instant (ms) the item is not sent: a handover queued yesterday
+   * is no longer a handover, and sending it late would mislead. Absent = no limit.
+   */
+  expiresAt?: number;
 }
 
 export interface CachedDataItem {
@@ -238,11 +245,24 @@ export async function getByIndex<T>(
  * Add item to sync queue
  */
 export async function enqueueSyncItem(
-  item: Omit<SyncQueueItem, 'id' | 'timestamp' | 'status' | 'retryCount'>
+  item: Omit<SyncQueueItem, 'id' | 'timestamp' | 'status' | 'retryCount'>,
+  /**
+   * The operation's idempotency key, when the request already had one. Keeping
+   * it means a request that reached the server just before the signal dropped
+   * is recognised on replay instead of being written a second time.
+   */
+  operationKey?: string,
 ): Promise<string> {
-  const id = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const id = operationKey ?? `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // The same operation queued twice (a double tap with no signal) is one item.
+  if (operationKey && (await getItem<SyncQueueItem>(STORES.SYNC_QUEUE, operationKey))) return operationKey;
+  // Sealed at rest for the account that queued it (utils/offlineSeal.ts).
+  const body = item.ownerUserId && item.body !== undefined && canSeal()
+    ? await sealBody(item.body, item.ownerUserId)
+    : item.body;
   const queueItem: SyncQueueItem = {
     ...item,
+    body,
     id,
     timestamp: Date.now(),
     status: 'pending',
@@ -282,6 +302,30 @@ export async function updateSyncStatus(
     if (status === 'failed') item.retryCount++;
     await updateItem(STORES.SYNC_QUEUE, item);
   }
+}
+
+/** Unsent mutations queued by `ownerUserId`, for the sign-out warning. */
+export async function unsentSyncItems(ownerUserId: string): Promise<SyncQueueItem[]> {
+  const items = await getAllSyncItems();
+  return items.filter((item) => item.ownerUserId === ownerUserId && item.method !== 'GET'
+    && (item.status === 'pending' || item.status === 'in-progress'));
+}
+
+/**
+ * Discard everything `ownerUserId` queued and destroy the key it was sealed
+ * under, so nothing of it can be read on this device afterwards.
+ */
+export async function discardUnsentSyncItems(ownerUserId: string): Promise<number> {
+  const items = await getAllSyncItems();
+  let removed = 0;
+  for (const item of items) {
+    if (item.ownerUserId === ownerUserId) {
+      await deleteItem(STORES.SYNC_QUEUE, item.id);
+      removed++;
+    }
+  }
+  if (canSeal()) await forgetSealKey(ownerUserId).catch(() => undefined);
+  return removed;
 }
 
 /**

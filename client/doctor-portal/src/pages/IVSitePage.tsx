@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
   createIvSite,
@@ -9,7 +9,10 @@ import {
   vipScorePreview,
   dwellDueAt,
   formatDateOnly,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips,
+  keepEnterInField,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
@@ -29,6 +32,7 @@ import {
   XCircle,
   History
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 type SiteLocation = 
   | 'right-hand' | 'left-hand' 
@@ -157,8 +161,11 @@ export function toIVSite(row: StoredIVSite): IVSite {
 
 export default function IVSitePage() {
   const { t } = useTranslation();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('iv-site');
   const { catalog } = useScoringCatalog();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
@@ -169,6 +176,8 @@ export default function IVSitePage() {
 
   // IV Sites data
   const [ivSites, setIvSites] = useState<IVSite[]>([]);
+  // Set when the history could not be read: "no sites" would then be a guess.
+  const [sitesError, setSitesError] = useState('');
   const [selectedSite, setSelectedSite] = useState<IVSite | null>(null);
   const [showAssessmentForm, setShowAssessmentForm] = useState(false);
   const [discontinuingSiteId, setDiscontinuingSiteId] = useState<string | null>(null);
@@ -280,8 +289,9 @@ export default function IVSitePage() {
           return { ...site, expiresAt: site.expiresAt || (site.insertedAt
             ? dwellDueAt(site.insertedAt, site.catheterType, catalog)?.toISOString().split('T')[0] || '' : '') };
         }));
-      } catch (err) {
-        console.error('Failed to fetch IV site history:', err);
+        setSitesError('');
+      } catch {
+        setSitesError(t('docIVSite.errorLoadSites'));
       }
     };
     fetchIVSites();
@@ -443,6 +453,7 @@ export default function IVSitePage() {
   };
 
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docIVSite.errorSelectPatient'));
       return;
@@ -465,9 +476,10 @@ export default function IVSitePage() {
         documented_at: Math.floor(Date.now() / 1000)
       };
 
-      await createIvSite(ivSiteData);
-      setSuccess(t('docIVSite.successRecordsSaved'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      const outcome = await submitOnce(submission, ivSiteData, () => createIvSite(ivSiteData));
+      if (outcome === 'busy') return;
+      setSuccess(outcome === 'queued' ? t('forms.queued') : t('docIVSite.successRecordsSaved'));
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docIVSite.errorSaveRecords'));
       console.error('Failed to save IV site records', err);
@@ -497,7 +509,9 @@ export default function IVSitePage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && (
+                  <p className="text-sm opacity-75">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>
+                )}
               </div>
             )}
           </div>
@@ -537,26 +551,29 @@ export default function IVSitePage() {
             {selectedPatient && (
               <div className="bg-surface rounded-lg shadow p-4 mt-4">
                 <h3 className="font-bold text-content mb-3">{t('docIVSite.ivAccessSummary')}</h3>
+                {sitesError && (
+                  <p role="alert" className="mb-3 rounded border border-critical bg-critical-subtle p-2 text-sm text-critical-subtle-fg">{sitesError}</p>
+                )}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between p-2 bg-ok-subtle rounded">
                     <span className="text-sm text-ok-subtle-fg">{t('docIVSite.activeSitesLabel')}</span>
-                    <span className="font-bold text-ok-subtle-fg">{activeSites.length}</span>
+                    <span className="font-bold text-ok-subtle-fg">{sitesError ? '—' : activeSites.length}</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-caution-subtle rounded">
                     <span className="text-sm text-caution-subtle-fg">{t('docIVSite.expiringSoonLabel')}</span>
                     <span className="font-bold text-caution-subtle-fg">
-                      {activeSites.filter(s => isExpiringSoon(s.expiresAt)).length}
+                      {sitesError ? '—' : activeSites.filter(s => isExpiringSoon(s.expiresAt)).length}
                     </span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-critical-subtle rounded">
                     <span className="text-sm text-critical-subtle-fg">{t('docIVSite.expiredLabel')}</span>
                     <span className="font-bold text-critical-subtle-fg">
-                      {activeSites.filter(s => isExpired(s.expiresAt)).length}
+                      {sitesError ? '—' : activeSites.filter(s => isExpired(s.expiresAt)).length}
                     </span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-surface-sunken rounded">
                     <span className="text-sm text-content-secondary">{t('docIVSite.discontinuedLabel')}</span>
-                    <span className="font-bold text-content-secondary">{discontinuedSites.length}</span>
+                    <span className="font-bold text-content-secondary">{sitesError ? '—' : discontinuedSites.length}</span>
                   </div>
                 </div>
               </div>
@@ -606,6 +623,7 @@ export default function IVSitePage() {
           {/* Main Content */}
           <div className="lg:col-span-3">
             {selectedPatient ? (
+              <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} onKeyDown={keepEnterInField} noValidate>
               <div className="bg-surface rounded-lg shadow">
                 {/* Tabs */}
                 <div className="border-b">
@@ -615,7 +633,7 @@ export default function IVSitePage() {
                       { id: 'add-site', label: t('docIVSite.tabAddSite'), icon: Plus },
                       { id: 'assess', label: t('docIVSite.tabAssess'), icon: Eye }
                     ].map(tab => (
-                      <button
+                      <button type="button"
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as typeof activeTab)}
                         className={`flex-1 flex items-center justify-center space-x-2 py-4 px-4 font-medium transition-colors ${
@@ -714,14 +732,14 @@ export default function IVSitePage() {
                                   )}
                                 </div>
                                 <div className="flex space-x-2">
-                                  <button
+                                  <button type="button"
                                     onClick={() => { setSelectedSite(site); setShowAssessmentForm(true); setActiveTab('assess'); }}
                                     className="p-2 bg-notice-subtle text-notice-subtle-fg rounded hover:bg-blue-200"
                                     title="Assess Site"
                                   >
                                     <Eye className="h-5 w-5" />
                                   </button>
-                                  <button
+                                  <button type="button"
                                     onClick={() => { setDiscontinuingSiteId(site.id); setDiscontinuationReason(''); }}
                                     className="p-2 bg-critical-subtle text-critical-subtle-fg rounded hover:bg-red-200"
                                     title="Discontinue"
@@ -740,12 +758,12 @@ export default function IVSitePage() {
                                     onChange={event => setDiscontinuationReason(event.target.value)}
                                     className="w-full rounded border p-2 bg-surface text-content" />
                                   <div className="flex gap-3">
-                                    <button disabled={!discontinuationReason.trim()}
+                                    <button type="button" disabled={!discontinuationReason.trim()}
                                       onClick={() => discontinueSite(site.id, discontinuationReason)}
                                       className="rounded px-3 py-2 bg-critical-subtle text-critical-subtle-fg disabled:opacity-50">
                                       {t('docIVSite.confirmDiscontinuation')}
                                     </button>
-                                    <button onClick={() => { setDiscontinuingSiteId(null); setDiscontinuationReason(''); }}
+                                    <button type="button" onClick={() => { setDiscontinuingSiteId(null); setDiscontinuationReason(''); }}
                                       className="rounded border px-3 py-2">{t('common.cancel')}</button>
                                   </div>
                                 </div>
@@ -754,11 +772,11 @@ export default function IVSitePage() {
                           );
                         })}
 
-                        {activeSites.length === 0 && (
+                        {activeSites.length === 0 && !sitesError && (
                           <div className="text-center py-8 text-content-muted">
                             <Syringe className="h-12 w-12 mx-auto mb-2 opacity-50" />
                             <p>{t('docIVSite.noActiveSites')}</p>
-                            <button
+                            <button type="button"
                               onClick={() => setActiveTab('add-site')}
                               className="mt-4 text-notice-subtle-fg hover:underline"
                             >
@@ -874,7 +892,7 @@ export default function IVSitePage() {
                           </p>
                         </div>
 
-                        <button
+                        <button type="button"
                           onClick={addNewSite}
                           className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 flex items-center justify-center"
                         >
@@ -895,7 +913,7 @@ export default function IVSitePage() {
                           <p className="text-content-muted mb-4">{t('docIVSite.selectSiteToAssess')}</p>
                           <div className="space-y-2">
                             {activeSites.map(site => (
-                              <button
+                              <button type="button"
                                 key={site.id}
                                 onClick={() => { setSelectedSite(site); setShowAssessmentForm(true); }}
                                 className="w-full text-left p-4 bg-surface-sunken rounded-lg hover:bg-surface-sunken border"
@@ -913,7 +931,7 @@ export default function IVSitePage() {
                               </button>
                             ))}
                           </div>
-                          {activeSites.length === 0 && (
+                          {activeSites.length === 0 && !sitesError && (
                             <div className="text-center py-8 text-content-muted">
                               <Eye className="h-12 w-12 mx-auto mb-2 opacity-50" />
                               <p>{t('docIVSite.noActiveSitesToAssess')}</p>
@@ -927,7 +945,7 @@ export default function IVSitePage() {
                               <h3 className="font-bold text-notice-subtle-fg">{locationLabels[selectedSite.location]}</h3>
                               <p className="text-sm text-notice-subtle-fg">{selectedSite.gauge} • {catheterTypes[selectedSite.catheterType]}</p>
                             </div>
-                            <button
+                            <button type="button"
                               onClick={() => { setSelectedSite(null); setShowAssessmentForm(false); }}
                               className="text-notice-subtle-fg hover:underline"
                             >
@@ -983,19 +1001,18 @@ export default function IVSitePage() {
 
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                  <label htmlFor="iv-dressing-type" className="block text-sm font-medium text-content-secondary mb-2">{t('docIVSite.dressingTypeLabel')}</label>
-                                  <select
+                                  <ChoiceChips
                                     id="iv-dressing-type"
-                                    value={newAssessment.dressingType ?? ''}
-                                    onChange={(e) => setNewAssessment({ ...newAssessment, dressingType: e.target.value ? e.target.value as DressingType : undefined })}
-                                    className="w-full p-3 border border-border-interactive rounded-lg"
-                                  >
-                                    <option value="">{t('docIVSite.notRecorded')}</option>
-                                    <option value="transparent">{t('docIVSite.dressing_transparent')}</option>
-                                    <option value="gauze">{t('docIVSite.dressing_gauze')}</option>
-                                    <option value="statlock">{t('docIVSite.dressing_statlock')}</option>
-                                    <option value="biopatch">{t('docIVSite.dressing_biopatch')}</option>
-                                  </select>
+                                    label={t('docIVSite.dressingTypeLabel')}
+                                    value={newAssessment.dressingType || undefined}
+                                    onChange={(chosen) => { const next = chosen ?? ''; setNewAssessment({ ...newAssessment, dressingType: next ? next as DressingType : undefined }); }}
+                                    options={[
+                                      { value: 'transparent', label: t('docIVSite.dressing_transparent') },
+                                      { value: 'gauze', label: t('docIVSite.dressing_gauze') },
+                                      { value: 'statlock', label: t('docIVSite.dressing_statlock') },
+                                      { value: 'biopatch', label: t('docIVSite.dressing_biopatch') },
+                                    ]}
+                                  />
                                 </div>
                                 <div>
                                   <span className="block text-sm font-medium text-content-secondary mb-2">{t('docIVSite.dressingIntactLabel')}</span>
@@ -1131,7 +1148,7 @@ export default function IVSitePage() {
                                 </div>
                               </div>
 
-                              <button
+                              <button type="button"
                                 onClick={addAssessment}
                                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 flex items-center justify-center"
                               >
@@ -1186,10 +1203,9 @@ export default function IVSitePage() {
 
                 {/* Save Button */}
                 <div className="p-4 border-t bg-surface-sunken flex justify-end">
-                  <button
-                    onClick={handleSave}
-                    disabled={isSubmitting || ivSites.length === 0}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                  <button type="submit"
+                    aria-disabled={isSubmitting || undefined}
+                    className="aria-disabled:cursor-wait bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -1205,6 +1221,7 @@ export default function IVSitePage() {
                   </button>
                 </div>
               </div>
+              </form>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
                 <Syringe className="h-16 w-16 mx-auto mb-4 text-content-muted" />

@@ -9,7 +9,9 @@ import {
   listWardMar,
   recordWardFluid,
   formatTimestamp,
-  useTranslation,
+  useTranslation, ChoiceChips,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import { 
   Pill, Droplets, ClipboardList, Plus, Save, Clock, 
@@ -233,6 +235,9 @@ type TabType = 'mar' | 'io' | 'careplan';
 
 function NursingPage() {
   const { t } = useTranslation();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('nursing-fluid');
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabType>('mar');
@@ -342,7 +347,7 @@ function NursingPage() {
   });
 
   const recordFluid = async () => {
-    if (!user) return;
+    if (!user || saving) return;
     if (!selectedPatient || !newFluidEntry.fluidType || !Number.isFinite(newFluidEntry.amount) || newFluidEntry.amount <= 0) {
       setError(t('docNursing.errorSelectPatientAmount'));
       return;
@@ -351,17 +356,19 @@ function NursingPage() {
     setSaving(true);
     setError(null);
     try {
-      await recordWardFluid({
+      const fluid = {
         patient_id: selectedPatient,
         entry_type: newFluidEntry.type,
         fluid_type: newFluidEntry.fluidType,
         amount_ml: newFluidEntry.amount,
         notes: newFluidEntry.notes,
         time: new Date().toISOString(),
-      });
-      setSuccess(t('docNursing.successFluidRecorded'));
+      };
+      const outcome = await submitOnce(submission, fluid, () => recordWardFluid(fluid));
+      if (outcome === 'busy') return;
+      setSuccess(outcome === 'queued' ? t('forms.queued') : t('docNursing.successFluidRecorded'));
       setNewFluidEntry({ type: 'intake', fluidType: '', amount: 0, notes: '' });
-      fetchData();
+      if (outcome !== 'queued') fetchData();
     } catch (err) {
       setError(getApiErrorMessage(err, t('docNursing.errorRecordFluid')));
     } finally {
@@ -565,6 +572,7 @@ function NursingPage() {
           {activeTab === 'io' && (
             <div className="space-y-6">
               {/* Quick Entry Form */}
+              <form onSubmit={(event) => { event.preventDefault(); void recordFluid(); }} noValidate>
               <div className="bg-surface rounded-xl shadow p-6">
                 <h3 className="font-semibold text-content mb-4 flex items-center gap-2">
                   <Plus size={20} />
@@ -580,16 +588,16 @@ function NursingPage() {
                     />
                   </div>
                   <div>
-                    <label htmlFor="nursing-entry-type" className="sr-only">{t('docNursing.entryTypeLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="nursing-entry-type"
+                      label={t('docNursing.entryTypeLabel')}
                       value={newFluidEntry.type}
-                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, type: e.target.value, fluidType: '' })}
-                      className="w-full px-3 py-2 border border-border-interactive rounded-lg"
-                    >
-                      <option value="intake">{t('docNursing.intakeOption')}</option>
-                      <option value="output">{t('docNursing.outputOption')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setNewFluidEntry({ ...newFluidEntry, type: next, fluidType: '' }); }}
+                      options={[
+                        { value: 'intake', label: t('docNursing.intakeOption') },
+                        { value: 'output', label: t('docNursing.outputOption') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label htmlFor="nursing-fluid-type" className="sr-only">{t('docNursing.fluidTypeLabel')}</label>
@@ -630,16 +638,16 @@ function NursingPage() {
                       aria-label={t('docNursing.amountMlAriaLabel')}
                     />
                   </div>
-                  <button
-                    onClick={recordFluid}
-                    disabled={saving}
-                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-2"
+                  <button type="submit"
+                    aria-disabled={saving || undefined}
+                    className="aria-disabled:cursor-wait px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center justify-center gap-2"
                   >
                     {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                     {t('docNursing.recordButton')}
                   </button>
                 </div>
               </div>
+              </form>
 
               {/* I/O Records */}
               {ioRecords.length === 0 ? (

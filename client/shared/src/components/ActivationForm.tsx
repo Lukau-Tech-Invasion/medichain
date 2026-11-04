@@ -46,7 +46,20 @@ export function ActivationForm({ audience, onSubmit, isLoading, error, footer }:
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isLoading) return;
     setLocalError('');
+    // The button is never greyed out to say "not yet": it names what is missing.
+    const missing = [
+      !identifier.trim() && (isPatient ? t('activate.patientIdLabel') : t('activate.employeeIdLabel')),
+      !code.trim() && t('activate.codeLabel'),
+      isPatient && !username.trim() && t('activate.usernameLabel'),
+      !password && t('activate.passwordLabel'),
+      !confirm && t('activate.confirmLabel'),
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      setLocalError(t('activate.errMissing', { fields: missing.join(', ') }));
+      return;
+    }
     if (password.length < MIN_PASSWORD_LENGTH) {
       setLocalError(t('activate.errPasswordShort', { min: MIN_PASSWORD_LENGTH }));
       return;
@@ -67,8 +80,6 @@ export function ActivationForm({ audience, onSubmit, isLoading, error, footer }:
   };
 
   const shownError = localError || error;
-  const ready =
-    identifier.trim() && code.trim() && password && confirm && (!isPatient || username.trim());
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" noValidate>
@@ -177,8 +188,8 @@ export function ActivationForm({ audience, onSubmit, isLoading, error, footer }:
 
       <button
         type="submit"
-        disabled={isLoading || !ready}
-        className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[44px]"
+        aria-disabled={isLoading || undefined}
+        className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg aria-disabled:cursor-wait min-h-[44px]"
       >
         {isLoading ? t('activate.activating') : t('activate.submit')}
       </button>

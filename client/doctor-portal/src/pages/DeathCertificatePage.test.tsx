@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import DeathCertificatePage from './DeathCertificatePage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { fieldValue } from '../test/fields';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -55,8 +56,9 @@ describe('DeathCertificatePage', () => {
   it('offers an unsigned partial draft immediately and leaves sex unrecorded', () => {
     render(<DeathCertificatePage />);
     fireEvent.click(screen.getByRole('button', { name: /New Certificate/i }));
-    expect(screen.getByRole('button', { name: /Save as Draft/i })).toBeDisabled();
-    expect(screen.getByLabelText(/^Sex/i)).toHaveValue('');
+    // Pressed with no patient chosen, nothing is drafted.
+    fireEvent.click(screen.getByRole('button', { name: /Save as Draft/i }));
+    expect(fieldValue(/^Sex/i)).toBe('');
     expect(shared.createDeathCertificate).not.toHaveBeenCalled();
     expect(shared.fileDeathCertificate).not.toHaveBeenCalled();
   });
@@ -82,7 +84,7 @@ describe('DeathCertificatePage', () => {
     render(<DeathCertificatePage />);
     fireEvent.click(await screen.findByTitle('Edit'));
     expect(screen.getByLabelText('Middle Name')).toHaveValue('QA');
-    expect(screen.getByLabelText(/^Sex/)).toHaveValue('female');
+    expect(fieldValue(/^Sex/)).toBe('female');
     expect(screen.getByLabelText('Occupation')).toHaveValue('QA educator');
     expect(screen.getByLabelText('Residence Address')).toHaveValue('QA address');
     fireEvent.click(screen.getByRole('button', { name: 'Save as Draft' }));
@@ -115,8 +117,8 @@ describe('DeathCertificatePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Certificate' }));
     expect(screen.getByLabelText('First Name *')).toHaveValue('');
     expect(screen.getByLabelText('Last Name *')).toHaveValue('');
-    expect(screen.getByLabelText('Sex *')).toHaveValue('');
-    expect(screen.getByRole('button', { name: 'Save as Draft' })).toBeDisabled();
+    expect(fieldValue(/^Sex/)).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Save as Draft' }));
   });
 
   it('allows entering immediate cause', () => {

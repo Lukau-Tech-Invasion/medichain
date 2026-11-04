@@ -26,7 +26,8 @@ import {
   formatDateOnly,
   formatTimestamp,
   SealStatusBadge,
-  notifySuccess,
+  notifySuccess, ChoiceChips,
+  ModalPanel,
 } from '@medichain/shared';
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
@@ -161,6 +162,7 @@ function PatientDetailPage() {
   };
 
   const saveClinicalDetails = async () => {
+    if (savingClinicalDetails) return;
     if (!patient) return;
     const updates = {
       allergies: clinicalItems(clinicalDetailsForm.allergies),
@@ -1063,19 +1065,17 @@ function PatientDetailPage() {
                 />
               </div>
               <div>
-                <label htmlFor="guardian-type" className="block text-sm font-medium mb-1">
-                  {t('docPatientDetail.guardianTypeLabel')}
-                </label>
-                <select
+                <ChoiceChips
                   id="guardian-type"
+                  label={t('docPatientDetail.guardianTypeLabel')}
                   value={newGuardianType}
-                  onChange={(e) => setNewGuardianType(e.target.value)}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="parent_or_guardian">{t('docPatientDetail.guardianTypeParent')}</option>
-                  <option value="legal_proxy">{t('docPatientDetail.guardianTypeProxy')}</option>
-                  <option value="power_of_attorney">{t('docPatientDetail.guardianTypePoa')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewGuardianType(next); }}
+                  options={[
+                    { value: 'parent_or_guardian', label: t('docPatientDetail.guardianTypeParent') },
+                    { value: 'legal_proxy', label: t('docPatientDetail.guardianTypeProxy') },
+                    { value: 'power_of_attorney', label: t('docPatientDetail.guardianTypePoa') },
+                  ]}
+                />
               </div>
               <fieldset>
                 <legend className="block text-sm font-medium mb-1">
@@ -1112,13 +1112,14 @@ function PatientDetailPage() {
       <StepUpDialog state={stepUp} />
 
       {editingClinicalDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
-          <section
-            aria-modal="true"
-            aria-labelledby="patient-clinical-details-title"
-            className="w-full max-w-2xl rounded-xl bg-surface p-6 shadow-xl"
-            role="dialog"
-          >
+        <ModalPanel
+          labelledBy="patient-clinical-details-title"
+          onClose={() => setEditingClinicalDetails(false)}
+          closeOnBackdrop={false}
+          className="w-full max-w-2xl rounded-xl bg-surface p-6 shadow-xl"
+        >
+          <form onSubmit={(event) => { event.preventDefault(); void saveClinicalDetails(); }} noValidate>
+          <section>
             <h2 id="patient-clinical-details-title" className="text-xl font-semibold text-content">
               {t('docPatientDetail.editClinicalTitle')}
             </h2>
@@ -1164,17 +1165,16 @@ function PatientDetailPage() {
               >
                 {t('docPatientDetail.editCancel')}
               </button>
-              <button
-                type="button"
-                disabled={savingClinicalDetails}
-                onClick={saveClinicalDetails}
-                className="rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={savingClinicalDetails || undefined}
+                className="aria-disabled:cursor-wait rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand"
               >
                 {savingClinicalDetails ? t('docPatientDetail.editSaving') : t('docPatientDetail.editSave')}
               </button>
             </div>
           </section>
-        </div>
+          </form>
+        </ModalPanel>
       )}
     </div>
   );

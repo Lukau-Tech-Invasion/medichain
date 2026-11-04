@@ -124,6 +124,18 @@ interface PharmacistDashboardData {
  * The generic muted grey measured 3.95:1 on the dark-mode critical background
  * (WCAG AA needs 4.5:1); each tinted background has its own foreground token.
  */
+function sameDrug(a: string | undefined, b: string | undefined): boolean {
+  const x = (a ?? '').trim().toLowerCase();
+  const y = (b ?? '').trim().toLowerCase();
+  return x !== '' && y !== '' && (x === y || x.startsWith(`${y} `) || y.startsWith(`${x} `));
+}
+
+/** Interactions recorded for this prescription's patient that involve its drug. */
+export function interactionsFor(all: DrugInteraction[], rx: { patient_id?: string; medication_name?: string }): DrugInteraction[] {
+  return all.filter((d) => d.patient_id === rx.patient_id
+    && (sameDrug(d.drug1, rx.medication_name) || sameDrug(d.drug2, rx.medication_name)));
+}
+
 function interactionDetailText(severity: string | undefined): string {
   if (severity === 'Major') return 'text-critical-subtle-fg';
   if (severity === 'Moderate') return 'text-content-muted';
@@ -146,6 +158,8 @@ export default function PharmacistDashboardPage() {
   const [decisionError, setDecisionError] = useState('');
   const [reportNotice, setReportNotice] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
 
   useEffect(() => {
     loadDashboard();
@@ -178,6 +192,7 @@ export default function PharmacistDashboardPage() {
 
   /** Send the pharmacist's decision, with the reason they gave. */
   const submitDecision = async () => {
+    if (decisionBusy) return;
     if (!decisionFor) return;
     if (!decisionReason.trim()) {
       setDecisionError(t('docPharmDashboard.decisionReasonRequired'));
@@ -257,8 +272,8 @@ export default function PharmacistDashboardPage() {
       const dashboard = response as unknown as PharmacistDashboardData;
       setData(dashboard);
       void loadDecisionsFor(dashboard.allergy_alerts ?? []);
-    } catch (error) {
-      console.error('Failed to load pharmacist dashboard:', error);
+    } catch {
+      setLoadError(t('kit.dashboardLoadFailed'));
     } finally {
       setLoading(false);
     }
@@ -346,6 +361,9 @@ export default function PharmacistDashboardPage() {
       const entered = await promptDialog({
         message: t(action === 'reject' ? 'docPharmDashboard.rejectionReasonPrompt' : 'docPharmDashboard.revokeReasonPrompt'),
         required: true,
+        choices: action === 'reject'
+          ? [t('pharmReasons.interaction'), t('pharmReasons.allergy'), t('pharmReasons.doseOutOfRange'), t('pharmReasons.duplicate'), t('pharmReasons.incomplete')]
+          : [t('pharmReasons.prescriberRequest'), t('pharmReasons.enteredInError'), t('pharmReasons.patientDischarged')],
       });
       if (entered === null) return;
       rejectionReason = entered.trim();
@@ -434,7 +452,11 @@ export default function PharmacistDashboardPage() {
 
   /** Reverse one event while retaining both the original and its correction. */
   const handleReverse = async (prescriptionId: string, eventId: string) => {
-    const entered = await promptDialog({ message: t('docPharmDashboard.reversalReasonPrompt'), required: true });
+    const entered = await promptDialog({
+      message: t('docPharmDashboard.reversalReasonPrompt'),
+      required: true,
+      choices: [t('pharmReasons.enteredInError'), t('pharmReasons.wrongQuantity'), t('pharmReasons.returnedToStock')],
+    });
     if (entered === null) return;
     const reason = entered.trim();
     if (!reason) {
@@ -465,6 +487,9 @@ export default function PharmacistDashboardPage() {
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
+      {loadError && (
+        <p role="alert" className="rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{loadError}</p>
+      )}
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-content">{t('docPharmDashboard.title')}</h1>
@@ -481,7 +506,7 @@ export default function PharmacistDashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label={t('docPharmDashboard.statPendingRx')}
-          value={data?.prescriptions?.pending_fill || 0}
+          value={data ? (data?.prescriptions?.pending_fill || 0) : '—'}
           icon={<Pill className="text-caution-subtle-fg" size={24} />}
           color="bg-caution-subtle"
           onClick={() => navigate('/e-prescribe?status=pending')}
@@ -489,7 +514,7 @@ export default function PharmacistDashboardPage() {
         />
         <StatCard
           label={t('docPharmDashboard.statStatOrders')}
-          value={data?.prescriptions?.list?.filter(rx => rx.priority === 'STAT').length || 0}
+          value={data ? (data?.prescriptions?.list?.filter(rx => rx.priority === 'STAT').length || 0) : '—'}
           icon={<AlertTriangle className="text-critical-subtle-fg" size={24} />}
           color="bg-critical-subtle"
           onClick={() => navigate('/e-prescribe?priority=STAT')}
@@ -497,14 +522,14 @@ export default function PharmacistDashboardPage() {
         />
         <StatCard
           label={t('docPharmDashboard.statVerifiedToday')}
-          value={data?.prescriptions?.completed_today || 0}
+          value={data ? (data?.prescriptions?.completed_today || 0) : '—'}
           icon={<CheckCircle className="text-ok-subtle-fg" size={24} />}
           color="bg-ok-subtle"
           loading={loading}
         />
         <StatCard
           label={t('docPharmDashboard.statInteractions')}
-          value={data?.drug_interactions?.length || 0}
+          value={data ? (data?.drug_interactions?.length || 0) : '—'}
           icon={<ShieldAlert className="text-critical-subtle-fg" size={24} />}
           color="bg-critical-subtle"
           onClick={() => navigate('/drug-interactions')}
@@ -547,7 +572,19 @@ export default function PharmacistDashboardPage() {
                     <tr key={rx.prescription_id} className="hover:bg-surface-sunken">
                       <td className="px-3 py-2 text-content">{rx.priority || t('docPharmDashboard.routine')}</td>
                       <td className="px-3 py-2 text-content-muted">{rx.patient_name || rx.patient_id || t('docPharmDashboard.noPatientRecorded')}</td>
-                      <td className="px-3 py-2 font-medium text-content">{rx.medication_name}</td>
+                      <td className="px-3 py-2 font-medium text-content">
+                        {rx.medication_name}
+                        {/* The interactions for this patient and this drug, on the
+                            row itself (UX plan Phase 6): checking them meant
+                            leaving the queue for another screen. */}
+                        {interactionsFor(data?.drug_interactions ?? [], rx).map((d) => (
+                          <span key={d.id} className={`mt-1 block rounded px-2 py-0.5 text-xs font-semibold ${
+                            d.severity === 'Major' ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
+                          }`}>
+                            {t('docPharmDashboard.inlineInteraction', { severity: d.severity, other: sameDrug(d.drug1, rx.medication_name) ? d.drug2 : d.drug1 })}
+                          </span>
+                        ))}
+                      </td>
                       <td className="px-3 py-2 text-content-muted">{rx.dosage}</td>
                       <td className="px-3 py-2 text-content-muted">
                         <span>{rx.status}</span>
@@ -961,6 +998,7 @@ export default function PharmacistDashboardPage() {
           of them can act on. */}
       {decisionFor && (
         <ModalPanel labelledBy="pharmacist-dashboard-dialog-title" closeOnBackdrop={false} onClose={() => setDecisionFor(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <form onSubmit={(event) => { event.preventDefault(); void submitDecision(); }} noValidate>
             <h2 id="pharmacist-dashboard-dialog-title" className="text-lg font-semibold text-content">
               {decisionFor.decision === 'refused_to_dispense'
                 ? t('docPharmDashboard.refuseTitle')
@@ -1003,15 +1041,14 @@ export default function PharmacistDashboardPage() {
               >
                 {t('common.cancel')}
               </button>
-              <button
-                type="button"
-                onClick={submitDecision}
-                disabled={decisionBusy}
-                className="flex-1 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-disabled disabled:text-disabled-fg"
+              <button type="submit"
+                aria-disabled={decisionBusy || undefined}
+                className="aria-disabled:cursor-wait flex-1 px-4 py-2 bg-brand text-brand-fg rounded-lg"
               >
                 {t('docPharmDashboard.decisionSubmit')}
               </button>
             </div>
+            </form>
           </ModalPanel>
       )}
     </div>

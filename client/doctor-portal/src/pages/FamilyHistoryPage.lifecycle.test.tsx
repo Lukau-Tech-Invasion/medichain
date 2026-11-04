@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as shared from '@medichain/shared';
 import FamilyHistoryPage from './FamilyHistoryPage';
+import { fillField, fieldValue } from '../test/fields';
 
 const notices = vi.hoisted(() => ({ showError: vi.fn(), showSuccess: vi.fn() }));
 vi.mock('../components/Toast', () => ({ useToastActions: () => notices }));
@@ -29,9 +30,9 @@ function submitButton() {
 async function enterRelative() {
   fireEvent.click(screen.getByRole('button', { name: /^Add Family Member$/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Choose synthetic patient' }));
-  fireEvent.change(screen.getByLabelText(/Relationship/), { target: { value: 'half-sister' } });
-  fireEvent.change(screen.getByLabelText('Family Member Name'), { target: { value: 'Fictional Lerato' } });
-  fireEvent.change(screen.getByLabelText('General Notes'), { target: { value: 'Synthetic relative documentation only' } });
+  fillField(/Relationship/, 'half-sister');
+  fillField('Family Member Name', 'Fictional Lerato');
+  fillField('General Notes', 'Synthetic relative documentation only');
 }
 
 describe('Family history append lifecycle', () => {
@@ -45,8 +46,8 @@ describe('Family history append lifecycle', () => {
     render(<FamilyHistoryPage />);
     fireEvent.click(screen.getByRole('button', { name: /^Add Family Member$/ }));
     expect(screen.getByLabelText(/Relationship/)).toHaveValue('');
-    expect(screen.getByLabelText(/Vital Status/)).toHaveValue('unknown');
-    expect(screen.getByLabelText('Severity')).toHaveValue('');
+    expect(fieldValue(/Vital Status/)).toBe('unknown');
+    expect(fieldValue('Severity')).toBe('');
     fireEvent.click(submitButton());
     expect(screen.getByRole('alert')).toHaveTextContent('Select a patient and specify the relationship');
     expect(shared.appendFamilyHistoryMember).not.toHaveBeenCalled();
@@ -59,9 +60,9 @@ describe('Family history append lifecycle', () => {
       return { success: true, history: saved };
     });
     render(<FamilyHistoryPage />); await enterRelative();
-    fireEvent.change(screen.getByLabelText('Condition Name'), { target: { value: 'Fictional QA condition' } });
-    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'diabetes' } });
-    fireEvent.change(screen.getByLabelText('Condition Notes'), { target: { value: 'Synthetic condition note' } });
+    fillField('Condition Name', 'Fictional QA condition');
+    fillField('Category', 'diabetes');
+    fillField('Condition Notes', 'Synthetic condition note');
     fireEvent.click(screen.getByRole('button', { name: 'Add Condition' }));
     fireEvent.click(submitButton());
     await waitFor(() => expect(notices.showSuccess).toHaveBeenCalledTimes(1));
@@ -71,13 +72,13 @@ describe('Family history append lifecycle', () => {
       conditions: [{ condition: 'Fictional QA condition', category: 'diabetes', severity: null, notes: 'Synthetic condition note' }],
     } });
     expect(request).not.toHaveProperty('family_members');
-    expect(shared.getPatients).not.toHaveBeenCalled();
+    expect(vi.mocked(shared.getPatients).mock.calls.every(([options]) => options?.query === 'PAT-QA')).toBe(true);
     expect(await screen.findByRole('heading', { name: 'Fictional Lerato' })).toBeInTheDocument();
   });
 
   it('does not silently discard condition fields that have not been added', async () => {
     render(<FamilyHistoryPage />); await enterRelative();
-    fireEvent.change(screen.getByLabelText('Condition Name'), { target: { value: 'Unfinished fictional condition' } });
+    fillField('Condition Name', 'Unfinished fictional condition');
     fireEvent.click(submitButton());
     expect(screen.getByRole('alert')).toHaveTextContent('Add the condition to this relative before saving');
     expect(shared.appendFamilyHistoryMember).not.toHaveBeenCalled();

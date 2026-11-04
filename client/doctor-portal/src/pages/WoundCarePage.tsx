@@ -28,7 +28,9 @@ import {
   Input,
   useValidatedForm,
   woundAssessmentSchema, ModalPanel,
-  notifySuccess,
+  notifySuccess, ChoiceChips,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -164,6 +166,9 @@ export function groupWoundAssessments(rows: WoundAssessmentRow[]): WoundAssessme
 
 const WoundCarePage: React.FC = () => {
   const { t } = useTranslation();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('wound-care');
   const [activeTab, setActiveTab] = useState<'wounds' | 'assess' | 'tracking'>('wounds');
   const [wounds, setWounds] = useState<WoundAssessment[]>([]);
   const [selectedWound, setSelectedWound] = useState<WoundAssessment | null>(null);
@@ -210,7 +215,9 @@ const WoundCarePage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(woundAssessmentSchema);
 
   const saveAssessment = async () => {
-    if (!user?.userId || photoUploading) return;
+    if (!user?.userId || saving) return;
+    // The save waits for the photo; said in words rather than by a greyed-out button.
+    if (photoUploading) { setError(t('docWoundCare.errPhotoUploading')); return; }
     // Was a banner naming two fields at once, which cannot say which control
     // is wrong -- that association is the whole of WCAG 3.3.1. The dimensions
     // stay optional: a blank one means "not measured", and forcing a 0 would
@@ -222,7 +229,7 @@ const WoundCarePage: React.FC = () => {
     setSaveMessage(null);
     try {
       const numeric = (v: string) => (v.trim() === '' ? null : Number(v));
-      await createWound({
+      const wound = {
         previous_assessment_id: form.previousAssessmentId || null,
         photos: photoHashes,
         patient_id: form.patientId,
@@ -235,13 +242,16 @@ const WoundCarePage: React.FC = () => {
         pain_level: numeric(form.painLevel),
         tissue_types: form.tissueTypes,
         notes: form.notes.trim() || null,
-      });
-      setSaveMessage(t('docWoundCare.savedOk'));
+      };
+      const outcome = await submitOnce(submission, wound, () => createWound(wound));
+      if (outcome === 'busy') return;
+      setSaveMessage(outcome === 'queued' ? t('forms.queued') : t('docWoundCare.savedOk'));
       setPhotoHashes([]);
       setForm({
         previousAssessmentId: '', patientId: '', woundType: '', location: '', lengthCm: '',
         widthCm: '', depthCm: '', exudate: '', painLevel: '', tissueTypes: [], notes: '',
       });
+      if (outcome === 'queued') return;
       await reloadWounds();
       notifySuccess('Wound assessment saved.');
     } catch (err) {
@@ -522,6 +532,7 @@ const WoundCarePage: React.FC = () => {
               }}>{t('docWoundCare.startDifferentWound')}</button>
             </div>}
 
+            <form onSubmit={(event) => { event.preventDefault(); void saveAssessment(); }} noValidate>
             <div className="space-y-4">
               <PatientSelect
                 id="wound-patient"
@@ -607,15 +618,18 @@ const WoundCarePage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="wound-exudate" className="block text-sm font-medium mb-1">{t('docWoundCare.exudate')}</label>
-                  <select id="wound-exudate" className="w-full border rounded-lg px-3 py-2"
-                    value={form.exudate} onChange={(e) => setForm(f => ({ ...f, exudate: e.target.value }))}>
-                    <option value="">{t('docWoundCare.notRecorded')}</option>
-                    <option value="none">{t('docWoundCare.exNone')}</option>
-                    <option value="minimal">{t('docWoundCare.exMinimal')}</option>
-                    <option value="moderate">{t('docWoundCare.exModerate')}</option>
-                    <option value="copious">{t('docWoundCare.exCopious')}</option>
-                  </select>
+                  <ChoiceChips
+                    id="wound-exudate"
+                    label={t('docWoundCare.exudate')}
+                    value={form.exudate || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setForm(f => ({ ...f, exudate: next })); }}
+                    options={[
+                      { value: 'none', label: t('docWoundCare.exNone') },
+                      { value: 'minimal', label: t('docWoundCare.exMinimal') },
+                      { value: 'moderate', label: t('docWoundCare.exModerate') },
+                      { value: 'copious', label: t('docWoundCare.exCopious') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="wound-pain-level" className="block text-sm font-medium mb-1">{t('docWoundCare.painLevel')}</label>
@@ -648,14 +662,14 @@ const WoundCarePage: React.FC = () => {
               {saveMessage && (
                 <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
-              <button
-                onClick={saveAssessment}
-                disabled={saving || photoUploading}
-                className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={saving || photoUploading || undefined}
+                className="aria-disabled:cursor-wait w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" /> {t('docWoundCare.saveAssessment')}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}

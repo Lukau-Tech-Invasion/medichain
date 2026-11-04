@@ -8,7 +8,7 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -177,6 +177,7 @@ const SplintPage: React.FC = () => {
 
   const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (submissionPending.current) return;
     if (!selectedPatient || !bodyPart) {
       showError(t('docSplint.errorSelect'));
@@ -257,6 +258,7 @@ const SplintPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient & Type */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -273,47 +275,47 @@ const SplintPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="splint-type" className="text-sm text-content-muted">{t('docSplint.type')}</label>
-                  <select
+                  <ChoiceChips
                     id="splint-type"
+                    label={t('docSplint.type')}
                     value={type}
-                    onChange={e => setType(e.target.value as ImmobilizationType)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="splint">{t('docSplint.typeSplint')}</option>
-                    <option value="cast">{t('docSplint.typeCast')}</option>
-                    <option value="sling">{t('docSplint.typeSling')}</option>
-                    <option value="brace">{t('docSplint.typeBrace')}</option>
-                    <option value="boot">{t('docSplint.typeBoot')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setType(next as ImmobilizationType); }}
+                    options={[
+                      { value: 'splint', label: t('docSplint.typeSplint') },
+                      { value: 'cast', label: t('docSplint.typeCast') },
+                      { value: 'sling', label: t('docSplint.typeSling') },
+                      { value: 'brace', label: t('docSplint.typeBrace') },
+                      { value: 'boot', label: t('docSplint.typeBoot') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="splint-material" className="text-sm text-content-muted">{t('docSplint.material')}</label>
-                  <select
+                  <ChoiceChips
                     id="splint-material"
+                    label={t('docSplint.material')}
                     value={material}
-                    onChange={e => setMaterial(e.target.value as Material)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="fiberglass">{t('docSplint.matFiberglass')}</option>
-                    <option value="plaster">{t('docSplint.matPlaster')}</option>
-                    <option value="prefab">{t('docSplint.matPrefab')}</option>
-                    <option value="aluminum">{t('docSplint.matAluminum')}</option>
-                    <option value="soft">{t('docSplint.matSoft')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setMaterial(next as Material); }}
+                    options={[
+                      { value: 'fiberglass', label: t('docSplint.matFiberglass') },
+                      { value: 'plaster', label: t('docSplint.matPlaster') },
+                      { value: 'prefab', label: t('docSplint.matPrefab') },
+                      { value: 'aluminum', label: t('docSplint.matAluminum') },
+                      { value: 'soft', label: t('docSplint.matSoft') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="splint-side" className="text-sm text-content-muted">{t('docSplint.side')}</label>
-                  <select
+                  <ChoiceChips
                     id="splint-side"
+                    label={t('docSplint.side')}
                     value={side}
-                    onChange={e => setSide(e.target.value as 'left' | 'right' | 'bilateral')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="left">{t('docSplint.sideLeft')}</option>
-                    <option value="right">{t('docSplint.sideRight')}</option>
-                    <option value="bilateral">{t('docSplint.sideBilateral')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setSide(next as 'left' | 'right' | 'bilateral'); }}
+                    options={[
+                      { value: 'left', label: t('docSplint.sideLeft') },
+                      { value: 'right', label: t('docSplint.sideRight') },
+                      { value: 'bilateral', label: t('docSplint.sideBilateral') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -454,18 +456,18 @@ const SplintPage: React.FC = () => {
               <h2 className="font-semibold mb-3">{t('docSplint.activityInstructions')}</h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="splint-weight-bearing" className="text-sm text-content-muted">{t('docSplint.weightBearing')}</label>
-                  <select
+                  <ChoiceChips
                     id="splint-weight-bearing"
+                    label={t('docSplint.weightBearing')}
                     value={weightBearing}
-                    onChange={e => setWeightBearing(e.target.value as 'non' | 'touch' | 'partial' | 'full')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="non">{t('docSplint.wbNon')}</option>
-                    <option value="touch">{t('docSplint.wbTouch')}</option>
-                    <option value="partial">{t('docSplint.wbPartial')}</option>
-                    <option value="full">{t('docSplint.wbFull')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setWeightBearing(next as 'non' | 'touch' | 'partial' | 'full'); }}
+                    options={[
+                      { value: 'non', label: t('docSplint.wbNon') },
+                      { value: 'touch', label: t('docSplint.wbTouch') },
+                      { value: 'partial', label: t('docSplint.wbPartial') },
+                      { value: 'full', label: t('docSplint.wbFull') },
+                    ]}
+                  />
                 </div>
                 <label htmlFor="splint-elevation-instructed" className="flex items-center gap-2">
                   <input
@@ -534,15 +536,15 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
               aria-busy={isSubmitting}
-              className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
+              className="aria-disabled:cursor-wait w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
             >
               {t('docSplint.save')}
             </button>
           </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (

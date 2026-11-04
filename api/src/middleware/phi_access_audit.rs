@@ -156,6 +156,14 @@ pub const PHI_READ_ROUTES: &[PhiReadRoute] = &[
         "Ambulance handovers",
     ),
     route(
+        "/api/clinical/patient/{patient_id}/ems-runs",
+        "Ambulance runs",
+    ),
+    route(
+        "/api/clinical/patient/{patient_id}/admissions",
+        "Admissions",
+    ),
+    route(
         "/api/clinical/patient/{patient_id}/gcs",
         "Consciousness scores",
     ),

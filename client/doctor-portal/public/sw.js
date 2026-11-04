@@ -1,15 +1,22 @@
 /**
  * MediChain Service Worker
- * 
- * Provides offline support for critical medical information.
- * Caches emergency medical data for offline access.
- * 
- * VERSION 5 - scope-safe deployment paths and cacheable-request guard
+ *
+ * Lets the portal open and work with no signal (owner request, 2026-11-04).
+ *
+ * VERSION 7 - the whole built app is stored on the first online visit, from
+ * the build's `precache-manifest.json`, so every form opens offline, not just
+ * the ones visited that day. Navigations fall back to the stored app shell.
+ *
+ * API requests are never answered from here. Version 5 turned an unreachable
+ * API read into a `503 OFFLINE` reply; to the app that is the server answering,
+ * not a lost connection, so the client kept believing it was online and the
+ * offline search and chart never took over. Patient data is also never
+ * put in Cache Storage: the day's patients live sealed in IndexedDB
+ * (`offlineRoster.ts`), deleted at sign-out, which a response cache is not.
  */
 
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v7';
 const STATIC_CACHE = `medichain-static-${CACHE_VERSION}`;
-const DATA_CACHE = `medichain-data-${CACHE_VERSION}`;
 
 // The doctor portal can be served below a prefix (`/doctor/` in Docker), so
 // root-relative paths would fetch the nginx root rather than this portal.
@@ -17,117 +24,100 @@ const DATA_CACHE = `medichain-data-${CACHE_VERSION}`;
 const APP_BASE_URL = new URL('./', self.registration.scope);
 const appPath = (path) => new URL(path.replace(/^\//, ''), APP_BASE_URL).pathname;
 const OFFLINE_PAGE = appPath('offline.html');
+const APP_SHELL = appPath('index.html');
+const ASSETS_PREFIX = appPath('assets/');
 
-// Static assets to cache
-const STATIC_ASSETS = [
-  OFFLINE_PAGE,
-];
+// Files outside the bundle that the shell needs.
+// Lookups ignore `Vary`. A module script is requested with an `Origin` header
+// and the stored copy (fetched by the worker at install) without one; a server
+// answering `Vary: Origin` (or `Accept-Encoding`) made every lookup miss, so the
+// app came up blank offline although every file was stored.
+const MATCH = { ignoreVary: true };
 
-// API endpoints to cache for offline
-const CACHEABLE_API = [
-  '/api/health',
-];
+const STATIC_ASSETS = [OFFLINE_PAGE, APP_SHELL, appPath('medichain.svg'), appPath('manifest.json')];
 
-// Install event - cache static assets and skip waiting immediately
+/** Every file of this build, or none when there is no manifest (the dev server). */
+async function buildFiles() {
+  try {
+    const response = await fetch(appPath('precache-manifest.json'), { cache: 'no-store' });
+    if (!response.ok) return [];
+    const manifest = await response.json();
+    return (manifest.files || []).map((file) => appPath(file));
+  } catch {
+    return [];
+  }
+}
+
+// Install: store the shell and the whole build. One file failing (a rolling
+// deploy) must not fail the install; it is fetched again when first used.
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing service worker v5...');
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      console.log('[SW] Caching static assets');
-      // Offline fallback is optional. A cache miss during a rolling deploy must
-      // not leave a rejected service-worker installation behind.
-      return cache.addAll(STATIC_ASSETS).catch(() => undefined);
-    })
-  );
-  // Force immediate activation - don't wait for old tabs to close
+  event.waitUntil((async () => {
+    const cache = await caches.open(STATIC_CACHE);
+    const files = [...new Set([...STATIC_ASSETS, ...(await buildFiles())])];
+    await Promise.all(files.map((file) => cache.add(file).catch(() => undefined)));
+  })());
   self.skipWaiting();
 });
 
-// Activate event - AGGRESSIVELY clean up ALL old caches
+// Activate: remove every older MediChain cache.
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating service worker v5 - clearing ALL old caches...');
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => {
-            // Delete ALL old medichain caches that don't match current version
-            return name.startsWith('medichain-') && 
-                   !name.includes(CACHE_VERSION);
-          })
-          .map((name) => {
-            console.log('[SW] Deleting old cache:', name);
-            return caches.delete(name);
-          })
-      );
-    })
+    caches.keys().then((names) => Promise.all(
+      names
+        .filter((name) => name.startsWith('medichain-') && name !== STATIC_CACHE)
+        .map((name) => caches.delete(name))
+    ))
   );
-  // Take control of all clients immediately
   self.clients.claim();
 });
 
-// Fetch event - NETWORK FIRST for everything (get fresh content)
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // External providers own their network and TLS errors; this app must not
-  // replace their scripts or media requests with its offline fallback.
+  // External providers own their network and TLS errors.
   if (url.origin !== APP_BASE_URL.origin) return;
+  if (request.method !== 'GET') return;
+  // Cache Storage only accepts HTTP(S) requests.
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+  // The API is the network's alone (see the header comment).
+  if (url.pathname.startsWith('/api/')) return;
 
-  // Skip non-GET requests
-  if (request.method !== 'GET') {
+  // Pages: the network when there is one, otherwise the stored app, which
+  // routes itself. The offline page only if the app was never stored.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(APP_SHELL, copy));
+          }
+          return response;
+        })
+        .catch(async () => (await caches.match(APP_SHELL, MATCH)) || (await caches.match(OFFLINE_PAGE, MATCH))
+          || new Response('Offline', { status: 503 }))
+    );
     return;
   }
 
-  // Browser tooling can request chrome-extension:// resources while this
-  // worker controls the page. Cache Storage only accepts HTTP(S) requests;
-  // attempting to cache another scheme rejects the fetch handler promise.
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return;
-  }
-
-  // For development/demo: Always try network first for ALL requests
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        // Only cache API responses for offline, not static assets
-        if (response.ok && url.pathname.startsWith('/api/') && 
-            CACHEABLE_API.some(path => url.pathname.startsWith(path))) {
-          const clonedResponse = response.clone();
-          caches.open(DATA_CACHE).then((cache) => {
-            cache.put(request, clonedResponse);
-          });
+  // Built files are content-hashed and never change: stored copy first.
+  if (url.pathname.startsWith(ASSETS_PREFIX)) {
+    event.respondWith(
+      caches.match(request, MATCH).then((cached) => cached || fetch(request).then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy));
         }
         return response;
-      })
-      .catch(() => {
-        // Network failed - try cache as fallback
-        return caches.match(request).then((cachedResponse) => {
-          if (cachedResponse) {
-            return cachedResponse;
-          }
-          // Offline navigation - show offline page
-          if (request.mode === 'navigate') {
-            return caches.match(OFFLINE_PAGE);
-          }
-          // Return offline error for API
-          if (url.pathname.startsWith('/api/')) {
-            return new Response(
-              JSON.stringify({
-                success: false,
-                error: 'You are offline. This data is not available.',
-                code: 'OFFLINE',
-              }),
-              {
-                status: 503,
-                headers: { 'Content-Type': 'application/json' },
-              }
-            );
-          }
-          return new Response('Offline', { status: 503 });
-        });
-      })
+      }))
+    );
+    return;
+  }
+
+  // Anything else of the app's own (icons, manifest): network, then stored.
+  event.respondWith(
+    fetch(request).catch(async () => (await caches.match(request, MATCH)) || new Response('Offline', { status: 503 }))
   );
 });
 

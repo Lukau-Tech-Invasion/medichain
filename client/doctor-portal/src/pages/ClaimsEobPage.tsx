@@ -135,7 +135,8 @@ function EobUpload({ claimId, onAdded }: { claimId: string; onAdded: (doc: EobDo
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!file) return;
+    if (busy) return;
+    if (!file) { setError(t('kit.chooseFileFirst')); return; }
     setBusy(true);
     setError('');
     try {
@@ -166,8 +167,8 @@ function EobUpload({ claimId, onAdded }: { claimId: string; onAdded: (doc: EobDo
       </div>
       <button
         type="submit"
-        disabled={!file || busy}
-        className="flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-60"
+        aria-disabled={busy || undefined}
+        className="flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
       >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />}
         {t('docClaims.fileEob')}

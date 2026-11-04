@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { I18nProvider } from '@medichain/shared';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ResearchExportsPage from './ResearchExportsPage';
@@ -67,13 +67,14 @@ describe('ResearchExportsPage', () => {
     expect(await screen.findByRole('button', { name: /Download the 1 released records/i })).toBeInTheDocument();
   });
 
-  it('keeps the propose button disabled until a real purpose is written', async () => {
+  it('refuses a purpose too short to review, in words, and sends nothing', async () => {
     mockFetch.mockImplementation(() => answer(200, { success: true, exports: [], configured: true }));
     renderAs('admin_a');
     const purpose = await screen.findByLabelText(/Purpose and recipient/i);
     fireEvent.change(purpose, { target: { value: 'study' } });
-    expect(screen.getByRole('button', { name: /Propose export/i })).toBeDisabled();
-    fireEvent.change(purpose, { target: { value: 'Hypertension prevalence study for the province' } });
-    await waitFor(() => expect(screen.getByRole('button', { name: /Propose export/i })).toBeEnabled());
+    const before = mockFetch.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /Propose export/i }));
+    expect(await screen.findByText(/Describe the purpose in at least/i)).toBeInTheDocument();
+    expect(mockFetch.mock.calls.length).toBe(before);
   });
 });

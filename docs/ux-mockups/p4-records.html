@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Records</title><link rel="stylesheet" href="mock.css">
+<style>.rec{display:flex;gap:12px;align-items:center;min-height:60px;padding:8px 14px;border-top:1px solid rgb(var(--border))}.rec:first-child{border-top:0}
+.rec .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:rgb(var(--sunken));color:rgb(var(--primary))}
+.dl{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:rgb(var(--text-2))}</style></head>
+<body><div class="phone" data-tab="health">
+  <header class="appbar"><div class="row" style="gap:6px"><span class="iconbtn"><i data-i="chev" style="transform:rotate(180deg)"></i></span><h2>Records</h2></div><span class="iconbtn"><i data-i="search"></i></span></header>
+  <main class="content" style="gap:12px;padding-top:12px">
+    <div class="row" style="gap:8px;overflow:hidden">
+      <span class="chip on">All</span><span class="chip">Lab</span><span class="chip">Imaging</span><span class="chip">Prescriptions</span><span class="chip">Visits</span>
+    </div>
+    <h3>October 2026 · 12</h3>
+    <div class="card list">
+      <div class="rec"><span class="ic"><i data-i="flask" class="sm"></i></span><div class="grow"><p class="b">HbA1c result</p><p class="xs muted">13 Oct · Dr Mokoena</p></div><span class="badge info">New</span><span class="dl" aria-label="Download"><i data-i="download" class="sm"></i></span></div>
+      <div class="rec"><span class="ic"><i data-i="file" class="sm"></i></span><div class="grow"><p class="b">Imaging report</p><p class="xs muted">12 Oct · Dr Mokoena</p></div><span class="dl"><i data-i="download" class="sm"></i></span></div>
+      <div class="rec"><span class="ic"><i data-i="pill" class="sm"></i></span><div class="grow"><p class="b">Prescription · Metformin</p><p class="xs muted">10 Oct · Dr Mokoena</p></div><span class="dl"><i data-i="download" class="sm"></i></span></div>
+      <div class="rec"><span class="ic"><i data-i="clipboard" class="sm"></i></span><div class="grow"><p class="b">Visit note</p><p class="xs muted">10 Oct · Soweto Clinic</p></div><span class="dl"><i data-i="download" class="sm"></i></span></div>
+    </div>
+    <h3>September 2026 · 9</h3>
+    <div class="card list">
+      <div class="rec"><span class="ic"><i data-i="pulse" class="sm"></i></span><div class="grow"><p class="b">Vital signs</p><p class="xs muted">28 Sep · Nurse Dlamini</p></div><span class="dl"><i data-i="download" class="sm"></i></span></div>
+      <div class="rec"><span class="ic"><i data-i="shield" class="sm"></i></span><div class="grow"><p class="b">Vaccination · Influenza</p><p class="xs muted">15 Sep · Soweto Clinic</p></div><span class="dl"><i data-i="download" class="sm"></i></span></div>
+    </div>
+    <p class="xs muted" style="text-align:center">Tap a record to read it · showing 20 of 75</p>
+  </main>
+  <span class="mock-tag">Mockup · synthetic data</span>
+</div><script src="chrome.js"></script><script src="icons.js"></script></body></html>

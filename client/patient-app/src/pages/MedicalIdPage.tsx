@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getMedicalId,
-  getMedicalIdQr,
   useTranslation,
   useToastActions,
   updateMedicalIdPreferences,
@@ -25,11 +24,13 @@ import {
   MapPin,
   Stethoscope,
   FileText,
-  Download,
   Share2,
   Lock,
   CheckCircle,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
+
+// ux-allow(no-form): the only control is a switch that saves when it is turned; there is nothing to submit.
 
 interface DnrStatusObject {
   status?: boolean;
@@ -160,25 +161,6 @@ export function MedicalIdPage() {
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [data, setData] = useState<MedicalIdData | null>(null);
   const [savingPreference, setSavingPreference] = useState(false);
-  const [downloadingQr, setDownloadingQr] = useState(false);
-
-  /** Download the authorised PNG instead of opening an unauthenticated API link. */
-  async function downloadQr() {
-    if (!patient) return;
-    setDownloadingQr(true);
-    try {
-      const qr = await getMedicalIdQr(patient.healthId);
-      if (!qr.qr_image_base64) throw new Error('QR image unavailable');
-      const link = document.createElement('a');
-      link.href = `data:image/png;base64,${qr.qr_image_base64}`;
-      link.download = 'medichain-medical-id.png';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch {
-      showError('The medical ID QR code could not be downloaded. Please try again.');
-    } finally { setDownloadingQr(false); }
-  }
 
   // The API returns these as strings on some paths and objects (e.g.
   // `{name, ...}`) on others. Rendering an object directly threw
@@ -369,7 +351,7 @@ export function MedicalIdPage() {
     <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header with settings */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-content">{t('medicalId.title')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('medicalId.title')}</PageTitle>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveView('lockscreen')}
@@ -686,26 +668,8 @@ export function MedicalIdPage() {
         </div>
       </div>
 
-      {/* QR Code Section */}
-      <div className="patient-card text-center">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Download className="w-5 h-5 text-content-muted" />
-          <h3 className="font-bold text-content">{t('medicalId.qrCodeTitle')}</h3>
-        </div>
-        <p className="text-sm text-content-muted mb-2">
-          {t('medicalId.qrCodeDesc')}
-        </p>
-        <button
-          type="button"
-          onClick={() => void downloadQr()}
-          disabled={downloadingQr}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-brand-fg rounded-lg text-sm font-medium hover:bg-brand transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          {t('medicalId.downloadQrCode')}
-        </button>
-      </div>
-
+      {/* The Medical ID code is on the Emergency card section of this screen
+          (one card, one code), with its download. */}
       {patient && <NfcStickerWriter patientId={patient.healthId} />}
 
       {/* Emergency Numbers */}

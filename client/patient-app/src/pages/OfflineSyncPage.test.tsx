@@ -84,16 +84,13 @@ describe('OfflineSyncPage (Patient)', () => {
     });
   });
 
-  it('does not present unsupported automatic sync preferences as active', async () => {
+  it('offers no switches for features that do not exist', async () => {
+    // Removed with owner approval (2026-11-04): five disabled switches for
+    // automatic sync that was never built.
     render(<OfflineSyncPage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
-    expect(screen.getByText(/Automatic sync and these preferences are not implemented/)).toBeInTheDocument();
-    const controls = screen.getAllByRole('checkbox');
-    expect(controls).toHaveLength(5);
-    controls.forEach(control => {
-      expect(control).toBeDisabled();
-      expect(control).not.toBeChecked();
-    });
+    await screen.findByRole('button', { name: /Sync Now/i });
+    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
     expect(screen.queryByText('Service Worker Active')).not.toBeInTheDocument();
   });
 

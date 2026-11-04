@@ -23,12 +23,20 @@ const REPORT_DIR = '../../.browser-test/colour-sweep';
  * here is the only way one goes unmeasured -- and the sweep says which screens
  * it covered, in `.browser-test/colour-sweep/patient.json`.
  */
+// Every screen and every section of a merged screen (patient-app plan,
+// 2026-11-04): a section is a former page and is measured as one.
 const ROUTES = [
-  '/dashboard', '/profile', '/records', '/consent', '/emergency-card', '/medications',
-  '/appointments', '/messages', '/symptoms', '/medical-id', '/settings', '/reminders',
-  '/family', '/telehealth', '/wearables', '/lab-trends', '/insurance', '/survey',
-  '/symptom-checker', '/language', '/offline-sync', '/vitals', '/lab-results',
-  '/notifications', '/medical-history',
+  '/dashboard', '/me', '/profile', '/records', '/survey', '/medical-history',
+  '/privacy', '/privacy?view=viewed',
+  '/emergency-card', '/emergency-card?view=medical-id',
+  '/cards', '/cards?view=family',
+  '/settings', '/settings?view=language', '/settings?view=offline',
+  '/medications',
+  '/lab-results',
+  '/vitals', '/vitals?view=devices',
+  '/symptoms', '/symptoms?view=check',
+  '/appointments', '/appointments?view=video',
+  '/messages', '/messages?view=notifications',
 ];
 
 interface RouteResult {
@@ -71,7 +79,10 @@ test('every patient screen, and sign-in, is readable in both themes', async ({ p
       .locator('main')
       .first()
       .waitFor({ state: 'visible', timeout: 15000 })
-      .then(() => new URL(page.url()).pathname.endsWith(path))
+      .then(() => {
+        const at = new URL(page.url());
+        return `${at.pathname}${at.search}`.endsWith(path);
+      })
       .catch(() => false);
     if (result.reached) {
       // Late-arriving data paints into the page; a list that fills in after

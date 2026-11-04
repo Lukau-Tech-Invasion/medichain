@@ -13,11 +13,30 @@ import { requestPacer, signIn, testFixtures } from './support';
  */
 
 const PROTECTED_ROUTES = [
-  '/dashboard', '/profile', '/records', '/consent', '/access-history', '/emergency-card', '/medications',
-  '/appointments', '/messages', '/symptoms', '/medical-id', '/settings', '/reminders', '/family',
-  '/telehealth', '/wearables', '/lab-trends', '/insurance', '/survey', '/symptom-checker', '/language',
-  '/offline-sync', '/vitals', '/lab-results', '/notifications', '/medical-history',
+  '/dashboard', '/me', '/profile', '/records', '/privacy', '/emergency-card', '/cards', '/medications',
+  '/appointments', '/messages', '/symptoms', '/settings', '/survey',
+  '/vitals', '/lab-results', '/medical-history',
 ] as const;
+/**
+ * Pages merged into a screen (patient-app plan, approved 2026-11-04). Each old
+ * address must still land on the part of the screen that absorbed it, so a
+ * bookmark or a link in a message is not broken.
+ */
+const REDIRECTS: Record<string, string> = {
+  '/consent': '/privacy',
+  '/access-history': '/privacy?view=viewed',
+  '/medical-id': '/emergency-card?view=medical-id',
+  '/insurance': '/cards',
+  '/family': '/cards?view=family',
+  '/language': '/settings?view=language',
+  '/offline-sync': '/settings?view=offline',
+  '/reminders': '/medications',
+  '/telehealth': '/appointments?view=video',
+  '/wearables': '/vitals?view=devices',
+  '/lab-trends': '/lab-results',
+  '/symptom-checker': '/symptoms?view=check',
+  '/notifications': '/messages?view=notifications',
+};
 const PUBLIC_ROUTES = ['/login', '/activate'] as const;
 
 const PHONE = { width: 375, height: 812 };
@@ -210,13 +229,29 @@ test('every patient route passes the page checks; an ended session returns to it
   expect(findings, `\n${findings.map((f) => `  ${f.route} [${f.check}] ${f.detail}`).join('\n')}`).toEqual([]);
 });
 
+test('every retired address lands on the section that absorbed it', async ({ page }) => {
+  test.setTimeout(240_000);
+  const pace = requestPacer(page);
+  await signIn(page);
+  const wrong: string[] = [];
+  for (const [from, to] of Object.entries(REDIRECTS)) {
+    await pace();
+    await page.goto(portalPath(from));
+    await page.locator('main h1').first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => undefined);
+    const url = new URL(page.url());
+    const landed = routeOf(page.url()) + url.search;
+    if (landed !== to) wrong.push(`${from} -> ${landed} (expected ${to})`);
+  }
+  expect(wrong).toEqual([]);
+});
+
 test('the route list matches the router', async () => {
   const { readFileSync } = await import('node:fs');
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const declared = [...app.matchAll(/<Route\s+path="([^"*]+)"/g)]
     .map((m) => (m[1].startsWith('/') ? m[1] : `/${m[1]}`))
     .filter((p) => p !== '/');
-  const listed = new Set<string>([...PROTECTED_ROUTES, ...PUBLIC_ROUTES]);
+  const listed = new Set<string>([...PROTECTED_ROUTES, ...PUBLIC_ROUTES, ...Object.keys(REDIRECTS)]);
   expect(declared.filter((p) => !listed.has(p)), 'routes this spec does not cover').toEqual([]);
   expect([...listed].filter((p) => !declared.includes(p)), 'listed routes the router no longer serves').toEqual([]);
 });

@@ -1398,6 +1398,44 @@ impl MciIncidentHeader<'_> {
     }
 }
 
+/// A casualty linked to a patient record (their card was scanned) must name a
+/// real patient. A lookup that failed is not a patient who does not exist.
+async fn casualty_patients_exist(
+    data: &web::Data<AppState>,
+    casualties: &[MciCasualtyInput],
+) -> Result<(), HttpResponse> {
+    for casualty in casualties.iter().take(MCI_MAX_CASUALTIES) {
+        let Some(patient_id) = casualty
+            .patient_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        else {
+            continue;
+        };
+        match data.repositories.patients.get_by_id(patient_id).await {
+            Ok(_) => {}
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+                return Err(HttpResponse::NotFound().json(ErrorResponse {
+                    error: format!(
+                        "Casualty {} names a patient that does not exist",
+                        casualty.tag_number
+                    ),
+                    code: "PATIENT_NOT_FOUND".to_string(),
+                }));
+            }
+            Err(e) => {
+                log::error!("MCI casualty patient lookup failed: {e}");
+                return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "The casualty's patient record could not be checked".to_string(),
+                    code: "DATABASE_ERROR".to_string(),
+                }));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Create MCI record
 #[post("/api/clinical/mci")]
 pub async fn create_mci(
@@ -1428,6 +1466,10 @@ pub async fn create_mci(
             error: format!("at most {MCI_MAX_CASUALTIES} casualties per submission"),
             code: "TOO_MANY_CASUALTIES".to_string(),
         });
+    }
+
+    if let Err(response) = casualty_patients_exist(&data, &body.casualties).await {
+        return response;
     }
 
     let now = chrono::Utc::now();

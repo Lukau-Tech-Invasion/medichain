@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getAccessLogs, getPatient, useTranslation, formatTimestamp } from '@medichain/shared';
+import { getAccessLogs, getPatient, useTranslation, formatTimestamp, formatHealthId } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
@@ -212,7 +212,7 @@ export function DashboardPage() {
           </div>
           <button
             type="button"
-            onClick={() => navigate('/notifications')}
+            onClick={() => navigate('/messages?view=notifications')}
             className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
             aria-label="Notifications"
           >
@@ -227,6 +227,22 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* The emergency card first (UX plan Phase 8, mockup p1): the screen a
+          patient may need to show a stranger in a hurry is one tap from Home,
+          above everything else. */}
+      <Link
+        to="/emergency-card"
+        className="patient-card flex min-h-[72px] items-center gap-4 p-4 hover:border-brand border-2 border-critical"
+      >
+        <div className="w-14 h-14 shrink-0 bg-critical-subtle rounded-2xl flex items-center justify-center">
+          <QrCode className="w-7 h-7 text-critical-subtle-fg" aria-hidden="true" />
+        </div>
+        <div>
+          <div className="text-lg font-semibold text-content">{t('dashboard.emergencyCard')}</div>
+          <div className="text-sm text-content-muted">{t('dashboard.showQrNfc')}</div>
+        </div>
+      </Link>
+
       {/* Health Status Card */}
       <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between gap-2 mb-4">
@@ -236,7 +252,7 @@ export function DashboardPage() {
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-lg">{t('dashboard.healthIdActive')}</h2>
-              <p className="break-all text-white text-sm">{patientData?.healthId}</p>
+              <p className="break-all font-mono text-white text-base tracking-wide">{formatHealthId(patientData?.healthId)}</p>
             </div>
           </div>
           <div className="health-indicator !bg-surface" />
@@ -262,20 +278,7 @@ export function DashboardPage() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-4">
-        <Link
-          to="/emergency-card"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
-        >
-          <div className="w-14 h-14 bg-critical-subtle rounded-2xl flex items-center justify-center">
-            <QrCode className="w-7 h-7 text-critical-subtle-fg" />
-          </div>
-          <div className="text-center">
-            <div className="font-medium text-content">{t('dashboard.emergencyCard')}</div>
-            <div className="text-sm text-content-muted">{t('dashboard.showQrNfc')}</div>
-          </div>
-        </Link>
-
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Link
           to="/records"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
@@ -290,7 +293,7 @@ export function DashboardPage() {
         </Link>
 
         <Link
-          to="/consent"
+          to="/privacy"
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-ok-subtle rounded-2xl flex items-center justify-center">
@@ -348,7 +351,7 @@ export function DashboardPage() {
           </h3>
           {/* Recent activity is who accessed the record, so "view all" is the
               full access history, not the consent screen it used to open. */}
-          <Link to="/access-history" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
+          <Link to="/privacy?view=viewed" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
             {t('dashboard.viewAll')}
           </Link>
         </div>

@@ -10,6 +10,8 @@ import {
 } from '@medichain/shared';
 import { DocumentAccessRequest } from './DocumentAccessRequest';
 
+// ux-allow(no-form): rendered inside other pages' forms, where a nested <form> is invalid; Enter is handled on the control itself.
+
 /** Reason codes the server maps to fixed wording for the patient. */
 const REASON_CODES = ['treatment', 'referral', 'emergency', 'administrative'] as const;
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle, selectPatient } from './support';
+import { signIn, settle, selectPatient, choose } from './support';
 
 /**
  * The laceration-repair page files a repair, and the repair comes back.
@@ -35,8 +35,8 @@ test('a doctor documents a laceration repair and it appears on the list', async 
 
   await page.locator('#laceration-length').fill('3.5');
   await page.locator('#laceration-location').fill(site);
-  await page.locator('#laceration-depth').selectOption('partial thickness');
-  await page.locator('#laceration-closure-method').selectOption('sutures');
+  await choose(page.locator('#laceration-depth'), 'partial thickness');
+  await choose(page.locator('#laceration-closure-method'), 'sutures');
   await page.locator('#laceration-count').fill('6');
 
   await page.getByRole('button', { name: /save repair documentation/i }).click();

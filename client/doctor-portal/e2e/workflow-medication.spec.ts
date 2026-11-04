@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFixtures } from './identity';
-import { pickPatientById, settle, signIn } from './support';
+import { pickPatientById, settle, signIn, choose } from './support';
 
 /**
  * Workflow 1 — medication: prescribe, dispense, give, and the patient reads it.
@@ -80,7 +80,7 @@ test('a prescription reaches the bedside after dispensing, is given, and the pat
   await nurse.getByRole('button', { name: /record administration/i }).click();
   await expect(nurse.getByText(/record the route the dose was given by/i).first()).toBeVisible({ timeout: 10000 });
 
-  await nurse.locator('#medadmin-route').selectOption('PO');
+  await choose(nurse.locator('#medadmin-route'), 'PO');
   await nurse.getByRole('button', { name: /record administration/i }).click();
   await expect(nurse.getByText(/administration recorded successfully/i).first()).toBeVisible({ timeout: 30000 });
 

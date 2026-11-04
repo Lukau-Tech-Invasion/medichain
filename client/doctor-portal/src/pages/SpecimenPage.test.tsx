@@ -91,12 +91,12 @@ describe('SpecimenPage', () => {
       }] : [] }),
     })) as typeof fetch;
     render(<SpecimenPage />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Collect Specimen' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Collect Specimen' }));
     await selectPatient(/Patient/, 'Thandiwe Ndlovu');
     fireEvent.change(screen.getByLabelText(/Tests Ordered/), { target: { value: 'QA refreshed CBC' } });
     fireEvent.click(screen.getByRole('button', { name: 'Record Collection' }));
     await screen.findByText('Specimen collection recorded.');
-    fireEvent.click(screen.getByRole('button', { name: 'All Specimens' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'All Specimens' }));
     expect(await screen.findByText('QA refreshed CBC')).toBeInTheDocument();
   });
 

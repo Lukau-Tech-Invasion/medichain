@@ -408,6 +408,7 @@ pub async fn create_io(
             label: Some(&entry.category),
             notes: Some(entry.notes.as_str()).filter(|n| !n.is_empty()),
             amount_ml,
+            recorded_at: crate::support::clinical_time(&http_req),
         },
     )
     .await
@@ -727,7 +728,7 @@ pub async fn create_wound(
         });
     }
 
-    let now = Utc::now();
+    let now = crate::support::clinical_time(&http_req);
     let id = format!("WND-{}", uuid::Uuid::new_v4().simple());
     let wound_id = match linked_wound_id(&data, &assessment, &id).await {
         Ok(wound_id) => wound_id,
@@ -1156,7 +1157,7 @@ pub async fn create_iv_site(
         });
     }
 
-    let now = Utc::now();
+    let now = crate::support::clinical_time(&http_req);
     let mut saved: Vec<serde_json::Value> = Vec::with_capacity(record.sites.len());
     for site in &record.sites {
         // The site keeps its client id so re-saving the same list updates rather
@@ -1970,7 +1971,7 @@ pub async fn create_fall_risk(
     };
 
     let body = req.into_inner();
-    let now = chrono::Utc::now();
+    let now = crate::support::clinical_time(&http_req);
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let id = format!("FRA-{}", uuid::Uuid::new_v4().simple());
 

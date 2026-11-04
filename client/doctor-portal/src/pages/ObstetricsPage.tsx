@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { createOb, useTranslation, formatTimestamp } from '@medichain/shared';
+import { createOb, useTranslation, formatTimestamp, ChoiceChips } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
@@ -192,6 +192,7 @@ const ObstetricsPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'assessment' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             {/* Patient & OB History */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -315,17 +316,17 @@ const ObstetricsPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label htmlFor="ob-membrane-status" className="text-sm text-content-muted">{t('docObstetrics.membraneStatus')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-membrane-status"
+                    label={t('docObstetrics.membraneStatus')}
                     value={membraneStatus}
-                    onChange={e => setMembraneStatus(e.target.value as 'intact' | 'ruptured' | 'unknown')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="intact">{t('docObstetrics.msIntact')}</option>
-                    <option value="ruptured">{t('docObstetrics.msRuptured')}</option>
-                    <option value="unknown">{t('docObstetrics.msUnknown')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setMembraneStatus(next as 'intact' | 'ruptured' | 'unknown'); }}
+                    options={[
+                      { value: 'intact', label: t('docObstetrics.msIntact') },
+                      { value: 'ruptured', label: t('docObstetrics.msRuptured') },
+                      { value: 'unknown', label: t('docObstetrics.msUnknown') },
+                    ]}
+                  />
                   {membraneStatus === 'ruptured' && (
                     <>
                       <label htmlFor="ob-rupture-time" className="sr-only">{t('docObstetrics.ruptureTimeAria')}</label>
@@ -336,49 +337,49 @@ const ObstetricsPage: React.FC = () => {
                         onChange={e => setRuptureTime(e.target.value)}
                         className="w-full border rounded p-2 mt-2"
                       />
-                      <label htmlFor="ob-fluid-color" className="sr-only">{t('docObstetrics.fluidColorAria')}</label>
-                      <select
+                      <ChoiceChips
                         id="ob-fluid-color"
+                        label={t('docObstetrics.fluidColorAria')}
                         value={fluidColor}
-                        onChange={e => setFluidColor(e.target.value as 'clear' | 'meconium' | 'bloody' | 'unknown')}
-                        className="w-full border rounded p-2 mt-2"
-                      >
-                        <option value="clear">{t('docObstetrics.fcClear')}</option>
-                        <option value="meconium">{t('docObstetrics.fcMeconium')}</option>
-                        <option value="bloody">{t('docObstetrics.fcBloody')}</option>
-                        <option value="unknown">{t('docObstetrics.fcUnknown')}</option>
-                      </select>
+                        onChange={(next) => { if (next === undefined) return; setFluidColor(next as 'clear' | 'meconium' | 'bloody' | 'unknown'); }}
+                        options={[
+                          { value: 'clear', label: t('docObstetrics.fcClear') },
+                          { value: 'meconium', label: t('docObstetrics.fcMeconium') },
+                          { value: 'bloody', label: t('docObstetrics.fcBloody') },
+                          { value: 'unknown', label: t('docObstetrics.fcUnknown') },
+                        ]}
+                      />
                     </>
                   )}
                 </div>
                 <div>
-                  <label htmlFor="ob-presentation" className="text-sm text-content-muted">{t('docObstetrics.presentation')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-presentation"
+                    label={t('docObstetrics.presentation')}
                     value={presentation}
-                    onChange={e => setPresentation(e.target.value as 'cephalic' | 'breech' | 'transverse' | 'unknown')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="cephalic">{t('docObstetrics.presCephalic')}</option>
-                    <option value="breech">{t('docObstetrics.presBreech')}</option>
-                    <option value="transverse">{t('docObstetrics.presTransverse')}</option>
-                    <option value="unknown">{t('docObstetrics.presUnknown')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setPresentation(next as 'cephalic' | 'breech' | 'transverse' | 'unknown'); }}
+                    options={[
+                      { value: 'cephalic', label: t('docObstetrics.presCephalic') },
+                      { value: 'breech', label: t('docObstetrics.presBreech') },
+                      { value: 'transverse', label: t('docObstetrics.presTransverse') },
+                      { value: 'unknown', label: t('docObstetrics.presUnknown') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="ob-labor-stage" className="text-sm text-content-muted">{t('docObstetrics.laborStage')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-labor-stage"
+                    label={t('docObstetrics.laborStage')}
                     value={laborStage}
-                    onChange={e => setLaborStage(e.target.value as LaborStage)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="latent">{t('docObstetrics.lsLatent')}</option>
-                    <option value="active">{t('docObstetrics.lsActive')}</option>
-                    <option value="second">{t('docObstetrics.lsSecond')}</option>
-                    <option value="third">{t('docObstetrics.lsThird')}</option>
-                    <option value="postpartum">{t('docObstetrics.lsPostpartum')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setLaborStage(next as LaborStage); }}
+                    options={[
+                      { value: 'latent', label: t('docObstetrics.lsLatent') },
+                      { value: 'active', label: t('docObstetrics.lsActive') },
+                      { value: 'second', label: t('docObstetrics.lsSecond') },
+                      { value: 'third', label: t('docObstetrics.lsThird') },
+                      { value: 'postpartum', label: t('docObstetrics.lsPostpartum') },
+                    ]}
+                  />
                 </div>
               </div>
               <div className="grid md:grid-cols-3 gap-4 mt-4">
@@ -444,45 +445,45 @@ const ObstetricsPage: React.FC = () => {
                   <p className="text-xs text-content-muted">{t('docObstetrics.baselineNormal')}</p>
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-variability" className="text-sm text-content-muted">{t('docObstetrics.variability')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-fhr-variability"
+                    label={t('docObstetrics.variability')}
                     value={fhr.variability}
-                    onChange={e => setFhr({ ...fhr, variability: e.target.value as 'absent' | 'minimal' | 'moderate' | 'marked' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="absent">{t('docObstetrics.varAbsent')}</option>
-                    <option value="minimal">{t('docObstetrics.varMinimal')}</option>
-                    <option value="moderate">{t('docObstetrics.varModerate')}</option>
-                    <option value="marked">{t('docObstetrics.varMarked')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFhr({ ...fhr, variability: next as 'absent' | 'minimal' | 'moderate' | 'marked' }); }}
+                    options={[
+                      { value: 'absent', label: t('docObstetrics.varAbsent') },
+                      { value: 'minimal', label: t('docObstetrics.varMinimal') },
+                      { value: 'moderate', label: t('docObstetrics.varModerate') },
+                      { value: 'marked', label: t('docObstetrics.varMarked') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-accelerations" className="text-sm text-content-muted">{t('docObstetrics.accelerations')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-fhr-accelerations"
+                    label={t('docObstetrics.accelerations')}
                     value={fhr.accelerations ? 'yes' : 'no'}
-                    onChange={e => setFhr({ ...fhr, accelerations: e.target.value === 'yes' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="yes">{t('docObstetrics.accPresent')}</option>
-                    <option value="no">{t('docObstetrics.accAbsent')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFhr({ ...fhr, accelerations: next === 'yes' }); }}
+                    options={[
+                      { value: 'yes', label: t('docObstetrics.accPresent') },
+                      { value: 'no', label: t('docObstetrics.accAbsent') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-decelerations" className="text-sm text-content-muted">{t('docObstetrics.decelerations')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-fhr-decelerations"
+                    label={t('docObstetrics.decelerations')}
                     value={fhr.decelerations}
-                    onChange={e => setFhr({ ...fhr, decelerations: e.target.value as 'none' | 'early' | 'variable' | 'late' | 'prolonged' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="none">{t('docObstetrics.decNone')}</option>
-                    <option value="early">{t('docObstetrics.decEarly')}</option>
-                    <option value="variable">{t('docObstetrics.decVariable')}</option>
-                    <option value="late">{t('docObstetrics.decLate')}</option>
-                    <option value="prolonged">{t('docObstetrics.decProlonged')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFhr({ ...fhr, decelerations: next as 'none' | 'early' | 'variable' | 'late' | 'prolonged' }); }}
+                    options={[
+                      { value: 'none', label: t('docObstetrics.decNone') },
+                      { value: 'early', label: t('docObstetrics.decEarly') },
+                      { value: 'variable', label: t('docObstetrics.decVariable') },
+                      { value: 'late', label: t('docObstetrics.decLate') },
+                      { value: 'prolonged', label: t('docObstetrics.decProlonged') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -546,13 +547,13 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit} disabled={submitPending}
-              className="w-full py-3 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700"
+            <button type="submit" aria-disabled={submitPending || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700"
             >
               {t('docObstetrics.save')}
             </button>
           </div>
+          </form>
         ) : (
           <div className="space-y-4">
             {assessments.length === 0 ? (

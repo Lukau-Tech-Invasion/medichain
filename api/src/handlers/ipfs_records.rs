@@ -731,7 +731,99 @@ fn text_document(filename: &str, body: String) -> HttpResponse {
             "Content-Disposition",
             format!("attachment; filename=\"{filename}.txt\""),
         ))
-        .body(body)
+        .body(collapse_unrecorded(&body))
+}
+
+/// Whether a rendered value says nothing was recorded (`-`, or "Not recorded",
+/// optionally followed by the unit the template printed after it).
+fn is_unrecorded(value: &str) -> bool {
+    let mut words = value.split_whitespace();
+    let first = words.next().unwrap_or("");
+    let rest: Vec<&str> = words.collect();
+    let unit_only = rest.len() <= 1 && rest.iter().all(|w| w.len() <= 8);
+    match first {
+        "-" => unit_only,
+        "Not" => rest.first() == Some(&"recorded") && rest.len() <= 2,
+        _ => false,
+    }
+}
+
+/// Move every empty field of a report into one closing line (UX plan Phase 8).
+///
+/// A vital-signs report with eight fields measured out of fourteen printed six
+/// lines of "-", and a patient scrolled past them looking for the readings.
+/// The fields still appear -- an unrecorded value is information (rule 12) --
+/// but once, together: "Not recorded: Pain scale, GCS score, ...".
+fn collapse_unrecorded(body: &str) -> String {
+    let lines: Vec<&str> = body.lines().collect();
+    let mut kept: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut missing: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        // "Label: value" on one line.
+        if let Some((label, value)) = trimmed.split_once(':') {
+            let label = label.trim();
+            let simple = !label.is_empty() && label.len() <= 40 && !label.starts_with('"');
+            if simple && !value.trim().is_empty() && is_unrecorded(value.trim()) {
+                missing.push(label.to_string());
+                i += 1;
+                continue;
+            }
+            // "Label:" with the value alone on the next line.
+            if simple
+                && value.trim().is_empty()
+                && lines
+                    .get(i + 1)
+                    .is_some_and(|next| is_unrecorded(next.trim()))
+            {
+                missing.push(label.to_string());
+                i += 2;
+                continue;
+            }
+        }
+        kept.push(line);
+        i += 1;
+    }
+    if missing.is_empty() {
+        return body.to_string();
+    }
+    let mut out = kept.join("\n");
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out.push_str(&format!("\n\nNot recorded: {}\n", missing.join(", ")));
+    out
+}
+
+#[cfg(test)]
+mod collapse_tests {
+    use super::collapse_unrecorded;
+
+    #[test]
+    fn empty_fields_become_one_line_and_measured_ones_stay() {
+        let body = "Vital signs\n  Heart rate:     118\n  Pain scale:     -\n  Temperature:    - C\n\nNotes:\n  Not recorded\n";
+        let out = collapse_unrecorded(body);
+        assert!(out.contains("Heart rate:     118"));
+        assert!(!out.contains("Pain scale:     -"));
+        assert!(
+            out.ends_with("Not recorded: Pain scale, Temperature, Notes\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn a_report_with_everything_recorded_is_unchanged() {
+        let body = "Heart rate: 80\nNotes:\n  Calm\n";
+        assert_eq!(collapse_unrecorded(body), body);
+    }
+
+    #[test]
+    fn json_and_ordinary_dashes_are_left_alone() {
+        let body = "{\n  \"notes\": \"-\"\n}\nRange: 2-4 mmol\n";
+        assert_eq!(collapse_unrecorded(body), body);
+    }
 }
 
 /// Render a structured, repository-backed clinical record without pretending it
@@ -2166,6 +2258,23 @@ pub async fn download_medical_record_by_hash(
 
 #[cfg(test)]
 mod structured_document_download_tests {
+    /// The field is in the report: either with its value, or -- when nothing
+    /// was recorded -- named in the report's closing "Not recorded:" line.
+    fn shows(text: &str, expected: &str) -> bool {
+        if text.contains(expected) {
+            return true;
+        }
+        let Some(label) = expected
+            .strip_suffix("Not recorded")
+            .map(|l| l.trim_end_matches(['\n', ' ']).trim_end_matches(':').trim())
+        else {
+            return false;
+        };
+        text.lines()
+            .filter_map(|l| l.strip_prefix("Not recorded: "))
+            .any(|names| names.split(", ").any(|n| n == label))
+    }
+
     use super::*;
     use crate::{repositories::traits::GcsAssessmentEntity, Role, User};
     use actix_web::{body::to_bytes, test, web, App};
@@ -2236,7 +2345,7 @@ mod structured_document_download_tests {
         assert!(text.contains("Total score: 15/15"));
         assert!(text.contains("Eyes open spontaneously"));
         assert!(text.contains("Synthetic GCS report note"));
-        assert!(text.contains("Pupil assessment:\nNot recorded"));
+        assert!(shows(text, "Pupil assessment:\nNot recorded"));
         assert!(!text.contains("\"total_score\""));
     }
 
@@ -2321,7 +2430,7 @@ mod structured_document_download_tests {
                     "Target end date: Not recorded",
                     "Actual end date: Not recorded",
                 ] {
-                    assert!(text.contains(value), "missing {value}");
+                    assert!(shows(text, value), "missing {value}");
                 }
                 assert!(!text.contains("\"created_by\"") && !text.contains("\"data\""));
             } else {
@@ -2410,7 +2519,7 @@ mod structured_document_download_tests {
                     "etco2: false",
                     "No entries recorded",
                 ] {
-                    assert!(text.contains(value), "missing {value}: {text}");
+                    assert!(shows(text, value), "missing {value}: {text}");
                 }
                 assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
             } else {
@@ -2453,7 +2562,7 @@ mod structured_document_download_tests {
                     "contrast:\nNot recorded",
                     "critical finding:\nfalse",
                 ] {
-                    assert!(text.contains(observation), "missing {observation}: {text}");
+                    assert!(shows(text, observation), "missing {observation}: {text}");
                 }
                 assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
             } else {
@@ -2502,7 +2611,7 @@ mod structured_document_download_tests {
                     "collection Time:\nNot recorded",
                     "is Critical:\nfalse",
                 ] {
-                    assert!(text.contains(observation), "missing {observation}: {text}");
+                    assert!(shows(text, observation), "missing {observation}: {text}");
                 }
                 assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
             } else {

@@ -1,4 +1,5 @@
 @import "../../shared/src/styles/tokens.css";
+@import "../../shared/src/styles/motion.css";
 
 @tailwind base;
 @tailwind components;

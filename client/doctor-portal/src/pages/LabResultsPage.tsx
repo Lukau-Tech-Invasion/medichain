@@ -7,7 +7,8 @@ import {
   reviewLabResult,
   submitLabResults,
   useTranslation,
-  clickable, ModalPanel } from '@medichain/shared';
+  clickable, ModalPanel, submitForReply, useSubmission, ChoiceChips
+} from '@medichain/shared';
 import type { LabPanelTemplate } from '@medichain/shared';
 import {
   FlaskConical,
@@ -25,7 +26,10 @@ import {
   Download,
   Plus,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import PatientSelect from '../components/PatientSelect';
+import { workspacePath } from '../workspace/forms';
+import { PatientName } from '../components/PatientName';
 
 interface LabTestResult {
   parameter: string;
@@ -54,6 +58,7 @@ interface LabSubmission {
 function LabResultsPage() {
   const { t } = useTranslation();
   const [submissions, setSubmissions] = useState<LabSubmission[]>([]);
+  const resultSubmission = useSubmission('lab-result');
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -107,6 +112,7 @@ function LabResultsPage() {
   };
 
   const handleSubmitResult = async () => {
+    if (isSubmitting) return;
     setEntryError(null);
     setEntrySaved(null);
     if (!entryPatientId || !selectedPanel) {
@@ -146,14 +152,19 @@ function LabResultsPage() {
 
     try {
       setIsSubmitting(true);
-      const response = await submitLabResults({
+      const submissionBody = {
         patient_id: entryPatientId,
         test_name: selectedPanel.name,
         test_category: selectedPanel.code,
         results,
         notes: entryNotes.trim() || undefined,
-      });
-      setEntrySaved(response.submission_id);
+      };
+      const outcome = await submitForReply(resultSubmission, submissionBody, () => submitLabResults(submissionBody));
+      if (outcome.kind === 'busy') return;
+      // Only a fresh save has an id to name; the queue read below shows the
+      // record an earlier attempt already wrote.
+      setEntrySaved(outcome.kind === 'saved' ? t('docLabResults.submittedAs', { id: outcome.value.submission_id })
+        : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       resetEntry();
       // Read the queue back from the API rather than trusting the local form.
       setFilterStatus('pending');
@@ -345,7 +356,7 @@ function LabResultsPage() {
         </div>
       )}
       {entrySaved && view === 'queue' && (
-        <p role="status" className="mb-4 text-ok-subtle-fg">{t('docLabResults.submittedAs', { id: entrySaved })}</p>
+        <p role="status" className="mb-4 text-ok-subtle-fg">{entrySaved}</p>
       )}
 
       {/* Queue / entry switch. The lab technician's "Enter Result" quick
@@ -377,6 +388,7 @@ function LabResultsPage() {
       </div>
 
       {view === 'enter' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSubmitResult(); }} noValidate>
         <div className="bg-surface rounded-xl shadow p-6 mb-8">
           <h2 className="text-lg font-semibold text-content mb-4">{t('docLabResults.enterHeading')}</h2>
 
@@ -417,17 +429,17 @@ function LabResultsPage() {
 
           {selectedPanel && (
             <div className="mb-4">
-              <label htmlFor="lab-reference-group" className="block text-sm font-medium mb-1">
-                {t('docLabResults.referenceGroup')}
-              </label>
-              <select id="lab-reference-group" value={referenceGroup}
-                onChange={event => setReferenceGroup(event.target.value)}
-                className="w-full border border-border-interactive rounded-lg px-3 py-2">
-                <option value="">{t('docLabResults.selectReferenceGroup')}</option>
-                <option value="female">{t('docLabResults.referenceFemale')}</option>
-                <option value="male">{t('docLabResults.referenceMale')}</option>
-                <option value="pediatric">{t('docLabResults.referencePediatric')}</option>
-              </select>
+              <ChoiceChips
+                id="lab-reference-group"
+                label={t('docLabResults.referenceGroup')}
+                value={(referenceGroup) || undefined}
+                onChange={(chosen) => { const next = chosen ?? ''; setReferenceGroup(next); }}
+                options={[
+                  { value: 'female', label: t('docLabResults.referenceFemale') },
+                  { value: 'male', label: t('docLabResults.referenceMale') },
+                  { value: 'pediatric', label: t('docLabResults.referencePediatric') },
+                ]}
+              />
               <p className="text-xs text-content-muted mt-2">{t('docLabResults.referenceGroupHelp')}</p>
             </div>
           )}
@@ -502,21 +514,20 @@ function LabResultsPage() {
           {entrySaved && (
             <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3 mb-4">
               <p className="text-sm text-ok-subtle-fg">
-                {t('docLabResults.submittedAs', { id: entrySaved })}
+                {entrySaved}
               </p>
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={handleSubmitResult}
-            disabled={isSubmitting}
-            className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
+          <button type="submit"
+            aria-disabled={isSubmitting || undefined}
+            className="aria-disabled:cursor-wait w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 min-h-[24px]"
           >
             {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
             {isSubmitting ? t('docLabResults.submitting') : t('docLabResults.submitForReview')}
           </button>
         </div>
+        </form>
       )}
 
       {/* Stats */}
@@ -569,19 +580,19 @@ function LabResultsPage() {
           
           {/* Status Filter */}
           <div className="flex items-center gap-2">
-            <label htmlFor="labresults-status-filter" className="sr-only">{t('docLabResults.filterAria')}</label>
             <Filter size={20} className="text-content-muted" aria-hidden="true" />
-            <select
+            <ChoiceChips
               id="labresults-status-filter"
+              label={t('docLabResults.filterAria')}
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
-              className="px-4 py-2 border border-border-interactive rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="pending">{t('docLabResults.optPending')}</option>
-              <option value="approved">{t('docLabResults.approved')}</option>
-              <option value="rejected">{t('docLabResults.rejected')}</option>
-              <option value="all">{t('docLabResults.optAll')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setFilterStatus(next as typeof filterStatus); }}
+              options={[
+                { value: 'pending', label: t('docLabResults.optPending') },
+                { value: 'approved', label: t('docLabResults.approved') },
+                { value: 'rejected', label: t('docLabResults.rejected') },
+                { value: 'all', label: t('docLabResults.optAll') },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -631,7 +642,7 @@ function LabResultsPage() {
                           <User size={14} />
                           <span>{submission.patient_name}</span>
                           <span className="text-content-muted" aria-hidden="true">•</span>
-                          <span>{submission.patient_id}</span>
+                          <span><PatientName id={submission.patient_id} dobOnly /></span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-content-muted mt-1">
                           <Clock size={12} />
@@ -710,6 +721,15 @@ function LabResultsPage() {
                                       {result.flag.toLowerCase() === 'normal' ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
                                       {result.flag}
                                     </span>
+                                  )}
+                                  {result.flag?.toLowerCase().startsWith('critical') && (
+                                    <Link
+                                      to={workspacePath(submission.patient_id, 'critical-value')}
+                                      state={{ criticalPrefill: { analyte: result.parameter, value: String(result.value), unit: result.unit } }}
+                                      className="ml-2 inline-flex min-h-[32px] items-center rounded px-2 text-xs font-semibold text-critical-subtle-fg underline"
+                                    >
+                                      {t('labQueue.reportCritical')}
+                                    </Link>
                                   )}
                                 </td>
                               </tr>

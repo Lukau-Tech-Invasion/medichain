@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
   createShiftHandoff,
@@ -10,6 +9,8 @@ import {
   shiftHandoffSchema,
   localDateInput,
   formatTimestamp,
+  ChoiceChips,
+  keepEnterInField,
 } from '@medichain/shared';
 import StaffName from '../components/StaffName';
 import StaffSelect from '../components/StaffSelect';
@@ -29,6 +30,10 @@ import {
   Users,
   History
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
+import { recordedSummary } from './handoffDraft';
+import { ShiftDraftPanel } from './ShiftDraftPanel';
+import type { HandoffDraftPatient } from '@medichain/shared';
 
 type ShiftType = 'day-to-evening' | 'evening-to-night' | 'night-to-day';
 type HandoffStatus = 'draft' | 'pending' | 'accepted' | 'acknowledged';
@@ -150,7 +155,7 @@ type HandoffList = { handoffs?: SavedHandoff[] } | SavedHandoff[];
 const HANDOFF_HISTORY_DAYS = 14;
 
 export default function ShiftHandoffPage() {
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -328,6 +333,32 @@ export default function ShiftHandoffPage() {
     setExpandedPatient(patient.patient_id);
   };
 
+  /** Add every chosen patient from the shift draft, prefilled with what was recorded. */
+  const addFromDraft = (chosen: HandoffDraftPatient[]) => {
+    const fresh = chosen.filter((d) => !patientHandoffs.some((p) => p.patientId === d.patient_id));
+    setPatientHandoffs((prev) => [
+      ...prev,
+      ...fresh.map((d): PatientHandoff => ({
+        patientId: d.patient_id,
+        patientName: d.full_name ?? t('today.unreadablePatient'),
+        room: d.bed_label ?? '',
+        diagnosis: '',
+        codeStatus: 'Not recorded',
+        priority: 'routine',
+        sbar: {
+          situation: '',
+          background: '',
+          assessment: recordedSummary(d, t('handoffDraft.nothingRecorded'), t('handoffDraft.recordedThisShift')),
+          recommendation: '',
+        },
+        ivAccess: '', diet: '', activity: '', pendingLabs: '', pendingTests: '',
+        medications: { scheduled: '', prn: '', drips: '' },
+        safetyRisks: [], pendingOrders: '', familyUpdates: '', additionalNotes: '',
+      })),
+    ]);
+    if (fresh[0]) setExpandedPatient(fresh[0].patient_id);
+  };
+
   const resetNewPatientForm = () => {
     setNewPatientHandoff({
       room: '',
@@ -390,6 +421,7 @@ export default function ShiftHandoffPage() {
 
   const { errors, validate, clearField } = useValidatedForm(shiftHandoffSchema);
   const handleSave = async () => {
+    if (isSubmitting) return;
     // A handover with nobody named as receiving it records that care was handed
     // to no one, which is the gap a handover exists to close.
     if (!validate(handoff)) {
@@ -422,7 +454,7 @@ export default function ShiftHandoffPage() {
 
       await createShiftHandoff(handoffData);
       setSuccess(t('docShiftHandoff.successMessage'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docShiftHandoff.errorSaveFailed'));
       console.error('Failed to save shift handoff', err);
@@ -496,6 +528,7 @@ export default function ShiftHandoffPage() {
         </div>
 
         {activeTab === 'handoff' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} onKeyDown={keepEnterInField} noValidate>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Handoff Details */}
             <div className="lg:col-span-1">
@@ -615,8 +648,10 @@ export default function ShiftHandoffPage() {
                 </div>
               </div>
 
+              <ShiftDraftPanel onAdd={addFromDraft} alreadyAdded={patientHandoffs.map((p) => p.patientId)} />
+
               {/* Add Patient Button */}
-              <button
+              <button type="button"
                 onClick={() => setShowAddPatient(true)}
                 className="w-full mt-4 bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 flex items-center justify-center"
               >
@@ -631,7 +666,7 @@ export default function ShiftHandoffPage() {
                 <div className="bg-surface rounded-lg shadow p-4 mb-6">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="font-bold text-content">{t('docShiftHandoff.selectPatientTitle')}</h3>
-                    <button
+                    <button type="button"
                       onClick={() => setShowAddPatient(false)}
                       className="text-content-muted hover:text-content-secondary"
                     >
@@ -668,17 +703,17 @@ export default function ShiftHandoffPage() {
                           />
                         </div>
                         <div>
-                          <label htmlFor="handoff-new-patient-priority" className="block text-sm font-medium text-content-secondary">{t('docShiftHandoff.priorityLabel')}</label>
-                          <select
+                          <ChoiceChips<Priority>
                             id="handoff-new-patient-priority"
+                            label={t('docShiftHandoff.priorityLabel')}
                             value={newPatientHandoff.priority}
-                            onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, priority: e.target.value as Priority })}
-                            className="w-full p-2 border border-border-interactive rounded"
-                          >
-                            <option value="routine">{t('docShiftHandoff.priority_routine')}</option>
-                            <option value="urgent">{t('docShiftHandoff.priority_urgent')}</option>
-                            <option value="critical">{t('docShiftHandoff.priority_critical')}</option>
-                          </select>
+                            onChange={(priority) => priority && setNewPatientHandoff({ ...newPatientHandoff, priority })}
+                            options={[
+                              { value: 'routine', label: t('docShiftHandoff.priority_routine') },
+                              { value: 'urgent', label: t('docShiftHandoff.priority_urgent') },
+                              { value: 'critical', label: t('docShiftHandoff.priority_critical') },
+                            ]}
+                          />
                         </div>
                       </div>
                       <div>
@@ -692,7 +727,7 @@ export default function ShiftHandoffPage() {
                           className="w-full p-2 border border-border-interactive rounded"
                         />
                       </div>
-                      <button
+                      <button type="button"
                         onClick={() => {
                           if (selectedPatientEntry) addPatientToHandoff(selectedPatientEntry);
                         }}
@@ -737,7 +772,7 @@ export default function ShiftHandoffPage() {
                           <span className="text-content-muted">
                             {expandedPatient === patient.patientId ? '▼' : '▶'}
                           </span>
-                          <button
+                          <button type="button"
                             onClick={(e) => { e.stopPropagation(); removePatientFromHandoff(patient.patientId); }}
                             className="text-critical hover:text-critical-subtle-fg p-1"
                           >
@@ -990,7 +1025,7 @@ export default function ShiftHandoffPage() {
                     <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-content-muted" />
                     <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docShiftHandoff.noPatientsTitle')}</h2>
                     <p className="text-content-muted mb-4">{t('docShiftHandoff.noPatientsDesc')}</p>
-                    <button
+                    <button type="button"
                       onClick={() => setShowAddPatient(true)}
                       className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700"
                     >
@@ -1003,10 +1038,9 @@ export default function ShiftHandoffPage() {
               {/* Submit Button */}
               {patientHandoffs.length > 0 && (
                 <div className="mt-6 flex justify-end">
-                  <button
-                    onClick={handleSave}
-                    disabled={isSubmitting}
-                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                  <button type="submit"
+                    aria-disabled={isSubmitting || undefined}
+                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 aria-disabled:cursor-wait flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -1024,6 +1058,7 @@ export default function ShiftHandoffPage() {
               )}
             </div>
           </div>
+          </form>
         )}
 
         {activeTab === 'history' && (

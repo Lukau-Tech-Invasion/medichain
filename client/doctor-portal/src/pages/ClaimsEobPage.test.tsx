@@ -96,7 +96,10 @@ describe('ClaimsEobPage', () => {
     const input = await screen.findByLabelText(/EOB file/i);
     fireEvent.change(input, { target: { files: [new File(['x'], 'eob.docx', { type: 'application/msword' })] } });
     expect(screen.getByRole('alert')).toHaveTextContent(/not a PDF, JPEG or PNG/i);
-    expect(screen.getByRole('button', { name: /File EOB/i })).toBeDisabled();
+    // Pressing File EOB with no acceptable file sends nothing.
+    const before = mockFetch.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /File EOB/i }));
+    expect(mockFetch.mock.calls.length).toBe(before);
   });
 
   it('reports a failed load as an error, not as "no claims"', async () => {

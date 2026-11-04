@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as shared from '@medichain/shared';
 import PostOpPage from './PostOpPage';
+import { fillField, fieldValue } from '../test/fields';
 
 const mocks = vi.hoisted(() => ({ user: { userId: 'doctor', role: 'Doctor' }, get: vi.fn() }));
 // Keep the module's hooks; replace only the picker component.
@@ -24,10 +25,10 @@ describe('Post-operative submission lifetime', () => {
   });
   /** Enter a fictional draft through the same labelled controls as the browser. */
   function enterDraft() {
-    fireEvent.change(screen.getByRole('combobox', { name: 'Patient' }), { target: { value: 'PAT-QA' } });
-    fireEvent.change(screen.getByLabelText('Procedure'), { target: { value: 'Fictional procedure' } });
-    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'No clinical care occurred' } });
-    fireEvent.change(screen.getByLabelText('Pain Score (0-10)'), { target: { value: '0' } });
+    fillField('Patient', 'PAT-QA');
+    fillField('Procedure', 'Fictional procedure');
+    fillField('Notes', 'No clinical care occurred');
+    fillField('Pain Score (0-10)', '0');
   }
   it('sends one pending write, locks the form, and clears only the completed draft', async () => {
     let finish!: (value: Awaited<ReturnType<typeof shared.createPostOp>>) => void;
@@ -47,7 +48,7 @@ describe('Post-operative submission lifetime', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Assessment' }));
     expect(screen.getByLabelText('Procedure')).toHaveValue('');
     expect(screen.getByLabelText('Notes')).toHaveValue('');
-    expect(screen.getByLabelText('Pain Score (0-10)')).toHaveValue('');
+    expect(fieldValue('Pain Score (0-10)')).toBe('');
     expect(screen.getByText('Aldrete score: not yet assessed')).toBeInTheDocument();
   });
   it('retains a refused draft and permits a later correction', async () => {

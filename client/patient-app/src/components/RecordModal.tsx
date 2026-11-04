@@ -17,6 +17,7 @@ export function RecordModal({ label, onClose, children, className = '', returnFo
   }, []);
   return <dialog ref={reference} aria-label={label}
     onCancel={event => { event.preventDefault(); onClose(); }}
+    // ux-allow(overlay): a native <dialog> opened with showModal(); the browser traps focus and Escape fires onCancel.
     className={`fixed inset-0 m-0 w-full max-w-none h-full max-h-none border-0 bg-transparent text-inherit flex justify-center backdrop:bg-black/60 ${className}`}>
     {children}
   </dialog>;

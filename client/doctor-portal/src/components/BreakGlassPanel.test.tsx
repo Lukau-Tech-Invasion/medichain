@@ -31,16 +31,15 @@ describe('BreakGlassPanel', () => {
     mockFetch.mockReset();
   });
 
-  it('needs a real reason before the glass can be broken', () => {
+  it('needs a real reason before the glass can be broken, and says so', async () => {
     renderPanel();
     const submit = screen.getByRole('button', { name: /Break the glass/i });
-    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/at least 10 characters/i);
     fireEvent.change(screen.getByLabelText(/Why do you need this chart now/i), { target: { value: 'urgent' } });
-    expect(submit).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Why do you need this chart now/i), {
-      target: { value: 'Unconscious in resus, no history available' },
-    });
-    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+    expect(screen.getByRole('alert')).toHaveTextContent(/at least 10 characters/i);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('sends the reason and opens the chart once access is recorded', async () => {

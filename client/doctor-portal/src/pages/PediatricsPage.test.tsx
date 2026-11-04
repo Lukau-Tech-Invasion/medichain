@@ -50,6 +50,7 @@ function caseload(children: unknown[], truncated = false) {
 }
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PediatricsPage from './PediatricsPage';
+import { fieldValue } from '../test/fields';
 
 describe('PediatricsPage', () => {
   it('loads older measurements into the same history instead of replacing newer records', async () => {
@@ -276,7 +277,7 @@ describe('PediatricsPage', () => {
       pediatric_triangle: expect.objectContaining({ appearance: null, work_of_breathing: null, circulation: null }),
     }), expect.any(String)));
     fireEvent.click(screen.getByRole('button', { name: 'Assessment' }));
-    expect(screen.getByRole('combobox', { name: 'Appearance' })).toHaveValue('');
+    expect(fieldValue('Appearance')).toBe('');
     expect(screen.getByRole('radio', { name: 'Not assessed' })).toBeChecked();
   });
 
@@ -293,7 +294,7 @@ describe('PediatricsPage', () => {
     render(<PediatricsPage />);
     fireEvent.click(screen.getByRole('button', { name: 'Assessment' }));
     for (const label of ['Appearance', 'Work of Breathing', 'Circulation']) {
-      expect(screen.getByRole('combobox', { name: label })).toHaveValue('');
+      expect(fieldValue(label)).toBe('');
     }
     expect(screen.getByRole('radio', { name: 'Not assessed' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'on track' })).not.toBeChecked();

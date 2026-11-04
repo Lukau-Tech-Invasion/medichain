@@ -24,6 +24,7 @@ import {
   getApiErrorCode,
   type LabDashboardResponse,
   promptDialog,
+  WorkQueueItem,
   notifySuccess,
 } from '@medichain/shared';
 import {
@@ -33,6 +34,19 @@ import {
   type CriticalAlert,
   type QuickAction,
 } from '../components/dashboard';
+import { workspacePath } from '../workspace/forms';
+
+const LAB_STAGES = ['collected', 'in_custody', 'other'] as const;
+
+function labStageOf(status: string | undefined): (typeof LAB_STAGES)[number] {
+  if (status === 'collected') return 'collected';
+  if (status === 'in_custody' || status === 'received' || status === 'in_progress') return 'in_custody';
+  return 'other';
+}
+
+function priorityRank(priority: string): number {
+  return priority === 'STAT' ? 0 : priority === 'Urgent' ? 1 : 2;
+}
 
 export default function LabTechDashboardPage() {
   const { t } = useTranslation();
@@ -50,6 +64,8 @@ export default function LabTechDashboardPage() {
   // confirmation is shown at page level rather than on the row that vanishes.
   const [recollectionNotice, setRecollectionNotice] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
 
   useEffect(() => {
     loadDashboard();
@@ -60,8 +76,8 @@ export default function LabTechDashboardPage() {
       setLoading(true);
       const response = await getLabDashboard();
       setData(response);
-    } catch (error) {
-      console.error('Failed to load lab dashboard:', error);
+    } catch {
+      setLoadError(t('kit.dashboardLoadFailed'));
     } finally {
       setLoading(false);
     }
@@ -92,6 +108,9 @@ export default function LabTechDashboardPage() {
   })) || [];
 
   const pendingQueue = data?.test_queue?.pending?.map((q) => ({
+    id: q.id,
+    patient_id: q.patient_id,
+    status: q.status,
     accession: q.accession_number || q.id,
     patient_name: q.patient_name || t('docLabDashboard.unknown'),
     test_name: q.test_name || t('docLabDashboard.unknownTest'),
@@ -115,7 +134,11 @@ export default function LabTechDashboardPage() {
    * technician is never told a recollection was raised when it was not.
    */
   const handleRecollect = async (rejectionId: string) => {
-    const reason = await promptDialog({ message: t('docLabDashboard.recollectionReasonPrompt'), required: true });
+    const reason = await promptDialog({
+      message: t('docLabDashboard.recollectionReasonPrompt'),
+      required: true,
+      choices: [t('labReasons.haemolysed'), t('labReasons.clotted'), t('labReasons.insufficient'), t('labReasons.wrongTube'), t('labReasons.unlabelled'), t('labReasons.delayed')],
+    });
     // Cancelled prompt, or an empty reason: do nothing. The API requires a
     // reason and would refuse, and a silent refusal reads like a dead button.
     if (reason === null || reason.trim() === '') return;
@@ -166,7 +189,11 @@ export default function LabTechDashboardPage() {
    * reason, so the prompt requires one.
    */
   const handleCancelRecollection = async (recollectionId: string) => {
-    const reason = await promptDialog({ message: t('docLabDashboard.cancelRecollectionPrompt'), required: true });
+    const reason = await promptDialog({
+      message: t('docLabDashboard.cancelRecollectionPrompt'),
+      required: true,
+      choices: [t('labReasons.orderCancelled'), t('labReasons.patientDischarged'), t('labReasons.patientRefused'), t('labReasons.duplicate')],
+    });
     if (reason === null || reason.trim() === '') return;
     setCompletingId(recollectionId);
     setCompletionResult((previous) => ({ ...previous, [recollectionId]: '' }));
@@ -212,6 +239,9 @@ export default function LabTechDashboardPage() {
 
   return (
     <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
+      {loadError && (
+        <p role="alert" className="rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{loadError}</p>
+      )}
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-content">{t('docLabDashboard.title')}</h1>
@@ -228,7 +258,7 @@ export default function LabTechDashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label={t('docLabDashboard.statSpecimens')}
-          value={data?.test_queue?.pending?.filter((t) => t.priority === 'STAT').length || 0}
+          value={data ? (data?.test_queue?.pending?.filter((t) => t.priority === 'STAT').length || 0) : '—'}
           icon={<AlertTriangle className="text-critical-subtle-fg" size={24} />}
           color="bg-critical-subtle"
           onClick={() => navigate('/specimen')}
@@ -236,7 +266,7 @@ export default function LabTechDashboardPage() {
         />
         <StatCard
           label={t('docLabDashboard.pendingQueue')}
-          value={data?.test_queue?.pending_count || 0}
+          value={data ? (data?.test_queue?.pending_count || 0) : '—'}
           icon={<FlaskConical className="text-caution-subtle-fg" size={24} />}
           color="bg-caution-subtle"
           onClick={() => navigate('/lab-results')}
@@ -244,14 +274,14 @@ export default function LabTechDashboardPage() {
         />
         <StatCard
           label={t('docLabDashboard.completedToday')}
-          value={data?.test_queue?.approved_count || 0}
+          value={data ? (data?.test_queue?.approved_count || 0) : '—'}
           icon={<CheckCircle className="text-ok-subtle-fg" size={24} />}
           color="bg-ok-subtle"
           loading={loading}
         />
         <StatCard
           label={t('docLabDashboard.rejected')}
-          value={data?.rejections?.length || 0}
+          value={data ? (data?.rejections?.length || 0) : '—'}
           icon={<XCircle className="text-critical-subtle-fg" size={24} />}
           color="bg-critical-subtle"
           onClick={() => navigate('/specimen')}
@@ -351,37 +381,39 @@ export default function LabTechDashboardPage() {
           </button>
         </div>
         {pendingQueue.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-surface-sunken">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docLabDashboard.colAccession')}</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docLabDashboard.colPatient')}</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docLabDashboard.colTest')}</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docLabDashboard.colPriority')}</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-content-muted uppercase">{t('docLabDashboard.colTime')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {pendingQueue.slice(0, 10).map((item, idx) => (
-                  <tr key={idx} className="hover:bg-surface-sunken cursor-pointer">
-                    <td className="px-3 py-2 font-mono text-content">{item.accession}</td>
-                    <td className="px-3 py-2 text-content-muted">{item.patient_name}</td>
-                    <td className="px-3 py-2 font-medium text-content">{item.test_name}</td>
-                    <td className="px-3 py-2">
-                      <span className={`px-2 py-0.5 text-xs rounded ${
-                        item.priority === 'STAT' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                        item.priority === 'Urgent' ? 'bg-surface-sunken text-content-secondary' :
-                        'bg-surface-sunken text-content-secondary'
-                      }`}>
-                        {item.priority}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-content-muted">{item.time_in_lab}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          // Grouped by stage, most urgent first within each; every row opens
+          // result entry with this patient already open (UX plan WP 4.1).
+          <div className="space-y-4">
+            {LAB_STAGES.map((stage) => {
+              const rows = pendingQueue
+                .filter((item) => labStageOf(item.status) === stage)
+                .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
+              if (rows.length === 0) return null;
+              return (
+                <section key={stage} aria-label={t(`labQueue.stage.${stage}`)}>
+                  <h3 className="mb-2 text-sm font-semibold text-content-secondary">
+                    {t(`labQueue.stage.${stage}`)} ({rows.length})
+                  </h3>
+                  <ul className="space-y-2">
+                    {rows.slice(0, 10).map((item) => (
+                      <li key={item.id}>
+                        <WorkQueueItem
+                          title={item.test_name}
+                          patientName={item.patient_name}
+                          patientDetail={item.accession}
+                          when={item.time_in_lab}
+                          urgency={item.priority === 'STAT' ? 'critical' : item.priority === 'Urgent' ? 'urgent' : 'routine'}
+                          urgencyLabel={item.priority}
+                          meta={t('labQueue.open')}
+                          to={item.patient_id ? workspacePath(item.patient_id, 'lab-results') : '/lab-results'}
+                          state={{ from: { pathname: '/dashboard' }, fromOrder: { id: item.id, test_name: item.test_name } }}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
           </div>
         ) : (
           <p className="text-sm text-content-muted text-center py-4">{t('docLabDashboard.noPending')}</p>

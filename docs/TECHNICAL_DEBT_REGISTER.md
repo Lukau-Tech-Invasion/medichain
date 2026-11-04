@@ -4520,3 +4520,27 @@ Still open: while signed in, the cached responses are unencrypted at rest. The
 ledger's "encrypted offline PHI ownership" item needs a keyed store (WebCrypto,
 key held in memory, released on sign-out) in place of raw Cache Storage. Until
 then the offline medical ID is as private as the device's own lock.
+
+## 2026-11-01 — OPEN (cleanup): `OfflineQueue` is a queue nothing writes to
+
+`client/shared/src/utils/offlineQueue.ts` is still constructed by `ApiClient`
+and polled by `useApiStatus` for its size, but nothing calls `enqueue` since
+offline saves moved to the encrypted queue in `utils/indexedDB`
+(`queueOfflineMutation`). Its size is therefore always 0, and its console-only
+catches cannot hide a user's save, which is why they carry `ux-allow` markers.
+Removal is cleanup: `useApiStatus` should read the encrypted queue's size
+instead, then the class and its export go.
+
+## 2026-11-01 — OPEN: Code Blue makes a patient-list request it throws away
+
+`CodeBluePage.tsx` `loadPatients()` calls `getPatients()` on mount and discards
+the result (its comment calls it a warm-up). It costs a directory read per
+visit and does nothing on screen. Removal is cleanup; its console-only catch
+carries a `ux-allow` marker until then.
+
+## 2026-11-01 — OPEN: the care plan id is minted on the client from the clock
+
+`CarePlanPage.tsx` sends `care_plan_id: \`CP-${Date.now()}\``. Two clinicians
+saving in the same millisecond produce the same id, and JSON-record creates are
+upserts (see the 2026-09 entry on client-chosen ids), so the second save can
+overwrite the first. The id should be minted by the server.

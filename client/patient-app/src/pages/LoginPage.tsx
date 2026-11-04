@@ -42,6 +42,7 @@ export function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     clearError();
     setLocalError('');
 
@@ -176,8 +177,8 @@ export function LoginPage() {
               {/* Submit button */}
               <button
                 type="submit"
-                disabled={isLoading}
-                className="w-full bg-primary-500 text-brand-fg py-3 px-4 rounded-xl font-medium hover:bg-brand focus:ring-4 focus:ring-primary-200 transition-all disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                aria-disabled={isLoading || undefined}
+                className="w-full bg-primary-500 text-brand-fg py-3 px-4 rounded-xl font-medium hover:bg-brand focus:ring-4 focus:ring-primary-200 transition-all flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>

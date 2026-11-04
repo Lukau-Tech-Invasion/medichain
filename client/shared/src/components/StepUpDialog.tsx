@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from '../i18n/react';
 import type { StepUpState } from '../hooks/useStepUp';
 import { getRememberedLoginId } from '../auth/loginId';
+import { ModalPanel } from './ModalPanel';
 
 /**
  * Ask for a TOTP code, or for the password, to confirm a held action.
@@ -43,13 +44,14 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
     'w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px] mb-4';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="step-up-title"
+    // ModalPanel: focus stays inside, Escape cancels, the page behind does not
+    // scroll. The hand-rolled overlay this replaces had none of the three.
+    <ModalPanel
+      labelledBy="step-up-title"
+      onClose={state.cancel}
+      closeOnBackdrop={false}
+      className="bg-surface rounded-xl shadow-lg p-6 w-full max-w-sm"
     >
-      <div className="bg-surface rounded-xl shadow-lg p-6 w-full max-w-sm">
         <h2 id="step-up-title" className="font-semibold text-content mb-1">
           {t('stepUp.title')}
         </h2>
@@ -65,6 +67,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
           <form
             onSubmit={(event) => {
               event.preventDefault();
+              if (state.verifying) return;
               void state.submitCode(code.trim());
               setCode('');
             }}
@@ -91,8 +94,8 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
               </button>
               <button
                 type="submit"
-                disabled={state.verifying}
-                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+                aria-disabled={state.verifying || undefined}
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg aria-disabled:cursor-wait min-h-[44px]"
               >
                 {state.verifying ? t('stepUp.verifying') : t('stepUp.confirm')}
               </button>
@@ -104,6 +107,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
           <form
             onSubmit={(event) => {
               event.preventDefault();
+              if (state.verifying) return;
               void state.submitPassword(password, loginId || getRememberedLoginId());
               setPassword('');
             }}
@@ -145,8 +149,8 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
               </button>
               <button
                 type="submit"
-                disabled={state.verifying}
-                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+                aria-disabled={state.verifying || undefined}
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg aria-disabled:cursor-wait min-h-[44px]"
               >
                 {state.verifying ? t('stepUp.verifying') : t('stepUp.confirm')}
               </button>
@@ -165,8 +169,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </ModalPanel>
   );
 }
 

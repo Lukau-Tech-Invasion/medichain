@@ -93,7 +93,7 @@ describe('SettingsPage', () => {
     fireEvent.click(securityTab);
 
     expect(screen.getByText(/Two-Factor Authentication/i)).toBeInTheDocument();
-    expect(screen.getByText(/Session Timeout/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Session Timeout/i).length).toBeGreaterThan(0);
   });
 
   it('allows switching to display tab and changing theme', async () => {

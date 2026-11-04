@@ -16,6 +16,7 @@ import {
   UserPlus
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { PatientName } from '../components/PatientName';
 
 // API Response types matching backend
 interface Patient {
@@ -675,7 +676,7 @@ function DashboardPage() {
                   </div>
                   <div>
                     <p className="font-medium text-content">{patient.fullName}</p>
-                    <p className="text-sm text-content-muted">{patient.patientId}</p>
+                    <p className="text-sm"><PatientName id={patient.patientId} dobOnly /></p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">

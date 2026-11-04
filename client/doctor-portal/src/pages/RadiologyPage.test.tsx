@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import RadiologyPage, { toRadiologyStudy } from './RadiologyPage';
 import { useAuthStore } from '../store/authStore';
+import { fillField } from '../test/fields';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -110,11 +111,9 @@ describe('RadiologyPage', () => {
     }));
     render(<MemoryRouter><RadiologyPage /></MemoryRouter>);
     await screen.findByText('Synthetic modality filter study');
-    fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: filter } });
+    fillField('Modality', filter);
     expect(screen.getByText('Synthetic modality filter study')).toBeInTheDocument();
-    fireEvent.change(screen.getAllByRole('combobox')[1], {
-      target: { value: filter === 'CT' ? 'MRI' : 'CT' },
-    });
+    fillField('Modality', filter === 'CT' ? 'MRI' : 'CT');
     expect(screen.queryByText('Synthetic modality filter study')).not.toBeInTheDocument();
   });
 

@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFixtures } from './identity';
-import { pickPatientById, settle, signIn } from './support';
+import { pickPatientById, settle, signIn, choose } from './support';
 
 /**
  * Workflow 7 — scheduling: an appointment proposed by the clinic is
@@ -41,7 +41,7 @@ function laterToday(minutesAhead: number): { date: string; time: string } {
 async function book(page: Page, patientId: string, reason: string, minutesAhead: number) {
   await page.getByRole('button', { name: /new appointment/i }).first().click();
   await pickPatientById(page, '#patient_id', patientId);
-  await page.locator('#appointment_type').selectOption('consultation');
+  await choose(page.locator('#appointment_type'), 'consultation');
   await page.locator('#reason').fill(reason);
   // A slot an earlier run already took is refused (409, the double-booking
   // guard); move along the day rather than calling that a failure.

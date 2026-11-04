@@ -4,6 +4,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import { Layout, I18nProvider, DialogHost, TransactionAuthorizationHost } from '@medichain/shared';
 import { ToastProvider } from './components/Toast';
+import { MovedTo } from './components/MergedScreen';
 
 // Critical-path pages stay eager so the first paint needs no extra round-trip.
 import { LoginPage } from './pages/LoginPage';
@@ -18,58 +19,18 @@ const MyProfilePage = lazy(() =>
 const MyRecordsPage = lazy(() =>
   import('./pages/MyRecordsPage').then((m) => ({ default: m.MyRecordsPage }))
 );
-const ConsentManagementPage = lazy(() =>
-  import('./pages/ConsentManagementPage').then((m) => ({ default: m.ConsentManagementPage }))
-);
-const AccessHistoryPage = lazy(() =>
-  import('./pages/AccessHistoryPage').then((m) => ({ default: m.AccessHistoryPage }))
-);
-const EmergencyCardPage = lazy(() =>
-  import('./pages/EmergencyCardPage').then((m) => ({ default: m.EmergencyCardPage }))
-);
-const SettingsPage = lazy(() =>
-  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
-);
-const MedicationsPage = lazy(() =>
-  import('./pages/MedicationsPage').then((m) => ({ default: m.MedicationsPage }))
-);
-const AppointmentsPage = lazy(() =>
-  import('./pages/AppointmentsPage').then((m) => ({ default: m.AppointmentsPage }))
-);
-const MessagesPage = lazy(() =>
-  import('./pages/MessagesPage').then((m) => ({ default: m.MessagesPage }))
-);
-const SymptomTrackerPage = lazy(() =>
-  import('./pages/SymptomTrackerPage').then((m) => ({ default: m.SymptomTrackerPage }))
-);
-const MedicalIdPage = lazy(() =>
-  import('./pages/MedicalIdPage').then((m) => ({ default: m.MedicalIdPage }))
-);
-const MedicationRemindersPage = lazy(() =>
-  import('./pages/MedicationRemindersPage').then((m) => ({ default: m.MedicationRemindersPage }))
-);
-const FamilyGroupPage = lazy(() =>
-  import('./pages/FamilyGroupPage').then((m) => ({ default: m.FamilyGroupPage }))
-);
-const TelehealthPage = lazy(() =>
-  import('./pages/TelehealthPage').then((m) => ({ default: m.TelehealthPage }))
-);
-const WearablesPage = lazy(() => import('./pages/WearablesPage'));
-const LabTrendsPage = lazy(() => import('./pages/LabTrendsPage'));
-const InsurancePage = lazy(() => import('./pages/InsurancePage'));
 const SatisfactionSurveyPage = lazy(() => import('./pages/SatisfactionSurveyPage'));
-const SymptomCheckerPage = lazy(() => import('./pages/SymptomCheckerPage'));
-const LanguageSettingsPage = lazy(() => import('./pages/LanguageSettingsPage'));
-const OfflineSyncPage = lazy(() => import('./pages/OfflineSyncPage'));
-const VitalsPage = lazy(() =>
-  import('./pages/VitalsPage').then((m) => ({ default: m.VitalsPage }))
-);
-const LabResultsPage = lazy(() =>
-  import('./pages/LabResultsPage').then((m) => ({ default: m.LabResultsPage }))
-);
-const NotificationsPage = lazy(() =>
-  import('./pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
-);
+const MePage = lazy(() => import('./pages/MePage'));
+const MedicationsPage = lazy(() => import('./pages/MedicationsPage').then((m) => ({ default: m.MedicationsPage })));
+const LabResultsPage = lazy(() => import('./pages/LabResultsPage').then((m) => ({ default: m.LabResultsPage })));
+const VitalsScreen = lazy(() => import('./pages/TabScreens').then((m) => ({ default: m.VitalsScreen })));
+const TrackCheckScreen = lazy(() => import('./pages/TabScreens').then((m) => ({ default: m.TrackCheckScreen })));
+const VisitsScreen = lazy(() => import('./pages/TabScreens').then((m) => ({ default: m.VisitsScreen })));
+const InboxScreen = lazy(() => import('./pages/TabScreens').then((m) => ({ default: m.InboxScreen })));
+const PrivacyScreen = lazy(() => import('./pages/MeScreens').then((m) => ({ default: m.PrivacyScreen })));
+const EmergencyCardScreen = lazy(() => import('./pages/MeScreens').then((m) => ({ default: m.EmergencyCardScreen })));
+const CardsScreen = lazy(() => import('./pages/MeScreens').then((m) => ({ default: m.CardsScreen })));
+const AppSettingsScreen = lazy(() => import('./pages/MeScreens').then((m) => ({ default: m.AppSettingsScreen })));
 const MedicalHistoryPage = lazy(() =>
   import('./pages/MedicalHistoryPage').then((m) => ({ default: m.MedicalHistoryPage }))
 );
@@ -127,34 +88,37 @@ function App() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="me" element={<MePage />} />
         <Route path="profile" element={<MyProfilePage />} />
+        <Route path="privacy" element={<PrivacyScreen />} />
+        <Route path="cards" element={<CardsScreen />} />
         <Route path="records" element={<MyRecordsPage />} />
-        <Route path="consent" element={<ConsentManagementPage />} />
-        <Route path="access-history" element={<AccessHistoryPage />} />
-        <Route path="emergency-card" element={<EmergencyCardPage />} />
+        <Route path="consent" element={<MovedTo path="/privacy" />} />
+        <Route path="access-history" element={<MovedTo path="/privacy" view="viewed" />} />
+        <Route path="emergency-card" element={<EmergencyCardScreen />} />
         <Route path="medications" element={<MedicationsPage />} />
-        <Route path="appointments" element={<AppointmentsPage />} />
-        <Route path="messages" element={<MessagesPage />} />
-        <Route path="symptoms" element={<SymptomTrackerPage />} />
-        <Route path="medical-id" element={<MedicalIdPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="reminders" element={<MedicationRemindersPage />} />
-        <Route path="family" element={<FamilyGroupPage />} />
-        <Route path="telehealth" element={<TelehealthPage />} />
+        <Route path="appointments" element={<VisitsScreen />} />
+        <Route path="messages" element={<InboxScreen />} />
+        <Route path="symptoms" element={<TrackCheckScreen />} />
+        <Route path="medical-id" element={<MovedTo path="/emergency-card" view="medical-id" />} />
+        <Route path="settings" element={<AppSettingsScreen />} />
+        <Route path="reminders" element={<MovedTo path="/medications" />} />
+        <Route path="family" element={<MovedTo path="/cards" view="family" />} />
+        <Route path="telehealth" element={<MovedTo path="/appointments" view="video" />} />
 
         {/* New Routes */}
-        <Route path="wearables" element={<WearablesPage />} />
-        <Route path="lab-trends" element={<LabTrendsPage />} />
-        <Route path="insurance" element={<InsurancePage />} />
+        <Route path="wearables" element={<MovedTo path="/vitals" view="devices" />} />
+        <Route path="lab-trends" element={<MovedTo path="/lab-results" />} />
+        <Route path="insurance" element={<MovedTo path="/cards" />} />
         <Route path="survey" element={<SatisfactionSurveyPage />} />
-        <Route path="symptom-checker" element={<SymptomCheckerPage />} />
-        <Route path="language" element={<LanguageSettingsPage />} />
-        <Route path="offline-sync" element={<OfflineSyncPage />} />
+        <Route path="symptom-checker" element={<MovedTo path="/symptoms" view="check" />} />
+        <Route path="language" element={<MovedTo path="/settings" view="language" />} />
+        <Route path="offline-sync" element={<MovedTo path="/settings" view="offline" />} />
 
         {/* New Pages */}
-        <Route path="vitals" element={<VitalsPage />} />
+        <Route path="vitals" element={<VitalsScreen />} />
         <Route path="lab-results" element={<LabResultsPage />} />
-        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="notifications" element={<MovedTo path="/messages" view="notifications" />} />
         <Route path="medical-history" element={<MedicalHistoryPage />} />
       </Route>
 

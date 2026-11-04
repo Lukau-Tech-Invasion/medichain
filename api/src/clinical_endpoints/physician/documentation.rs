@@ -544,7 +544,9 @@ pub async fn create_hp(
         });
     }
 
-    let now = chrono::Utc::now();
+    // When the examination happened: a record sent late from a device without
+    // signal keeps the time it was written.
+    let now = crate::support::clinical_time(&http_req);
     // The id and the recording clinician are server-assigned: a client-supplied
     // id would let one submission overwrite another's record.
     let hp_id = format!("HP-{}", uuid::Uuid::new_v4().simple());
@@ -1435,7 +1437,8 @@ pub async fn create_progress_note(
 
     let note = req.into_inner();
     let note_id = note.note_id.clone();
-    let now = chrono::Utc::now();
+    // When it was written (see `support::clinical_time`).
+    let now = crate::support::clinical_time(&http_req);
     let entity = ProgressNoteEntity {
         id: note_id.clone(),
         patient_id: note.patient_id.clone(),

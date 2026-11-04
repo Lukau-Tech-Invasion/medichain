@@ -1,5 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { PatientNavigation } from './PatientNavigation';
+import { NavigationGuard } from '../forms/unsavedChanges';
+import { confirmSignOutWithUnsent } from '../forms/signOutGuard';
+import { useTranslation } from '../i18n/react';
 import { ErrorBoundary } from './ErrorBoundary';
 import {
   LayoutDashboard,
@@ -21,17 +24,10 @@ import {
   Calendar,
   MessageSquare,
   Activity,
-  Watch,
-  TrendingUp,
   ClipboardList,
-  Globe,
   WifiOff,
-  Star,
-  HelpCircle,
-  Video,
   FlaskConical,
   BookOpen,
-  Eye,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { refreshNotificationBadges, useUnreadNotifications } from '../hooks/useUnreadNotifications';
@@ -62,6 +58,14 @@ interface NavSection {
  * 
  * @param variant - 'doctor' for healthcare provider portal, 'patient' for patient portal
  */
+const PATIENT_TABS = [
+  { path: '/dashboard', label: 'patientTabs.home', icon: LayoutDashboard, match: ['/dashboard'] },
+  { path: '/records', label: 'patientTabs.health', icon: FileText, match: ['/records', '/medications', '/vitals', '/lab-results', '/medical-history', '/symptoms'] },
+  { path: '/appointments', label: 'patientTabs.visits', icon: Calendar, match: ['/appointments', '/survey'] },
+  { path: '/messages', label: 'patientTabs.messages', icon: MessageSquare, match: ['/messages'] },
+  { path: '/me', label: 'patientTabs.me', icon: User, match: ['/me', '/profile', '/settings', '/emergency-card', '/privacy', '/cards'] },
+] as const;
+
 export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -179,51 +183,37 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
       label: 'My essentials',
       items: [
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { path: '/profile', label: 'My Profile', icon: User },
+        { path: '/me', label: 'Me', icon: User },
+        { path: '/profile', label: 'My details', icon: User },
         { path: '/records', label: 'My Records', icon: FileText },
-        { path: '/medical-id', label: 'Medical ID', icon: CreditCard },
+        { path: '/emergency-card', label: 'My emergency card', icon: CreditCard },
       ],
     },
     {
       label: 'My health',
       items: [
-        { path: '/medications', label: 'Medications', icon: Pill },
-        { path: '/reminders', label: 'Medication reminders', icon: Bell },
-        { path: '/vitals', label: 'Vital Signs', icon: Activity },
-        { path: '/lab-results', label: 'Lab Results', icon: FlaskConical },
-        { path: '/symptoms', label: 'Symptom Tracker', icon: Activity },
-        { path: '/symptom-checker', label: 'Symptom Checker', icon: HelpCircle },
-        { path: '/lab-trends', label: 'Lab Trends', icon: TrendingUp },
-        { path: '/wearables', label: 'Wearables', icon: Watch },
+        { path: '/medications', label: 'Medicines and reminders', icon: Pill },
+        { path: '/lab-results', label: 'Test results and trends', icon: FlaskConical },
+        { path: '/vitals', label: 'Vital signs and devices', icon: Activity },
+        { path: '/symptoms', label: 'Track and check symptoms', icon: Activity },
         { path: '/medical-history', label: 'Medical History', icon: BookOpen },
       ],
     },
     {
       label: 'My care team',
       items: [
-        { path: '/appointments', label: 'Appointments', icon: Calendar },
-        { path: '/telehealth', label: 'Telehealth', icon: Video },
-        { path: '/messages', label: 'Messages', icon: MessageSquare },
-        { path: '/family', label: 'Family Group', icon: Users },
+        { path: '/appointments', label: 'Appointments and video visits', icon: Calendar },
+        { path: '/messages', label: 'Messages and notifications', icon: MessageSquare },
       ],
     },
     {
+      // Patient-app plan, approved 2026-11-04: the survey is offered after a
+      // visit, and offline sync is a section of Settings, not a menu item.
       label: 'Privacy and account',
       items: [
-        { path: '/consent', label: 'Access Control', icon: Shield },
-        { path: '/access-history', label: 'Who Viewed My Records', icon: Eye },
-        { path: '/emergency-card', label: 'Emergency Card', icon: AlertCircle },
-        { path: '/insurance', label: 'Insurance', icon: ClipboardList },
-        { path: '/notifications', label: 'Notifications', icon: Bell },
-        { path: '/survey', label: 'Satisfaction Survey', icon: Star },
-      ],
-    },
-    {
-      label: 'Settings',
-      items: [
+        { path: '/privacy', label: 'Who sees my records', icon: Shield },
+        { path: '/cards', label: 'My cards and family', icon: ClipboardList },
         { path: '/settings', label: 'Settings', icon: Settings },
-        { path: '/language', label: 'Language', icon: Globe },
-        { path: '/offline-sync', label: 'Offline Sync', icon: WifiOff },
       ],
     },
   ];
@@ -241,9 +231,16 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
   ];
 
   const navItems = variant === 'doctor' ? doctorNavItems : patientMainNav;
-  const brandColor = variant === 'doctor' ? 'primary' : 'health';
 
+  const { t } = useTranslation();
   const handleLogout = async () => {
+    const proceed = await confirmSignOutWithUnsent({
+      title: t('forms.unsentTitle'),
+      message: (n) => t('forms.unsentMessage', { n: String(n) }),
+      confirm: t('forms.unsentConfirm'),
+      cancel: t('forms.unsentCancel'),
+    });
+    if (!proceed) return;
     if (onLogout) await onLogout();
     else localStorage.clear();
     navigate('/login');
@@ -251,6 +248,7 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <NavigationGuard />
       {/*
         First focusable element in the document, deliberately. The patient app
         had no skip link at all: a keyboard or switch user reached the page
@@ -292,7 +290,7 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <Link to="/dashboard" className="flex items-center gap-2">
-              <div className={`w-10 h-10 bg-${brandColor}-500 rounded-xl flex items-center justify-center`}>
+              <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center">
                 <Heart className="w-6 h-6 text-white" />
               </div>
               <div className="hidden sm:block">
@@ -312,9 +310,10 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
                   <Link
                     key={item.path}
                     to={item.path}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-colors ${
                       isActive
-                        ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                        ? 'bg-selected text-selected-fg font-semibold'
                         : 'text-content-muted hover:bg-surface-sunken'
                     }`}
                   >
@@ -336,7 +335,8 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
             <div className="flex items-center gap-3">
               <button 
                 aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}
-                onClick={() => navigate('/notifications')}
+                // The patient's notifications are a section of the one inbox.
+                onClick={() => navigate(variant === 'patient' ? '/messages?view=notifications' : '/notifications')}
                 className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
                 title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
               >
@@ -388,7 +388,7 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
                         onClick={() => setMobileMenuOpen(false)}
                         className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
                           isActive
-                            ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                            ? 'bg-selected text-selected-fg font-semibold'
                             : 'text-content-muted hover:bg-surface-sunken'
                         }`}
                       >
@@ -426,11 +426,31 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
           patient portal and took the emergency medical ID down with it.
           Keying it on the path resets the boundary when the user navigates
           away; without that, one crash would latch for the rest of the session. */}
-      <main id="main-content" className="max-w-7xl mx-auto">
+      <main id="main-content" className={`max-w-7xl mx-auto ${variant === 'patient' ? 'pb-20 lg:pb-0' : ''}`}>
         <ErrorBoundary key={location.pathname}>
           <Outlet />
         </ErrorBoundary>
       </main>
+
+      {/* Five tabs on a phone (UX plan Phase 8, mockup p1): the places a patient
+          returns to, always one thumb-tap away. Everything else stays under the
+          menu. Active is shown by colour, weight AND aria-current. */}
+      {variant === 'patient' && (
+        <nav aria-label={t('patientTabs.label')}
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+          {PATIENT_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = tab.match.some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`));
+            return (
+              <Link key={tab.path} to={tab.path} aria-current={active ? 'page' : undefined}
+                className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 text-xs ${active ? 'font-bold text-selected-fg bg-selected' : 'text-content-muted'}`}>
+                <Icon className="h-5 w-5" aria-hidden="true" />
+                {t(tab.label)}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }
