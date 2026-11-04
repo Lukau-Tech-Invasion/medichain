@@ -4567,7 +4567,7 @@ restore (no signal) keeps them, as before. Verified in the browser: three sealed
 entries while signed in, readable with fetch failing, none and no key after
 sign-out.
 
-## 2026-11-01 — OPEN (cleanup): `OfflineQueue` is a queue nothing writes to
+## 2026-11-01 — CLOSED 2026-11-05: `OfflineQueue` is a queue nothing writes to
 
 `client/shared/src/utils/offlineQueue.ts` is still constructed by `ApiClient`
 and polled by `useApiStatus` for its size, but nothing calls `enqueue` since
@@ -4577,12 +4577,19 @@ catches cannot hide a user's save, which is why they carry `ux-allow` markers.
 Removal is cleanup: `useApiStatus` should read the encrypted queue's size
 instead, then the class and its export go.
 
-## 2026-11-01 — OPEN: Code Blue makes a patient-list request it throws away
+Closed: the class, its export and `ApiClient.getOfflineQueue()` are gone, and
+`useApiStatus` counts the signed-in user's unsent items in the encrypted queue,
+so the offline banner's "pending" badge now shows a real number.
+
+## 2026-11-01 — CLOSED 2026-11-05: Code Blue makes a patient-list request it throws away
 
 `CodeBluePage.tsx` `loadPatients()` calls `getPatients()` on mount and discards
 the result (its comment calls it a warm-up). It costs a directory read per
 visit and does nothing on screen. Removal is cleanup; its console-only catch
 carries a `ux-allow` marker until then.
+
+Closed: the call and its catch are removed. The nurse dashboard's unused
+`statRecentPatients`/`recentPatients` strings went in the same change.
 
 ## 2026-11-01 — CLOSED 2026-11-04: the care plan id is minted on the client from the clock
 

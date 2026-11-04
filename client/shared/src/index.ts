@@ -63,7 +63,6 @@ export * from './utils/cache';
 export { lookupOr, componentOr } from './utils/enumLookup';
 export * from './utils/indexedDB';
 export * from './utils/syncQueue';
-export * from './utils/offlineQueue';
 export * from './utils/offlineSeal';
 export * from './utils/offlinePolicy';
 export * from './utils/offlineRoster';

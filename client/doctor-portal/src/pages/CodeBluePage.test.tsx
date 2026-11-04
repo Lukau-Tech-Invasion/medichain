@@ -1,16 +1,17 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import * as shared from '@medichain/shared';
 import CodeBluePage from './CodeBluePage';
 import { useAuthStore } from '../store/authStore';
 import { selectPatient } from '../test/selectPatient';
+import { patientProfile } from '../test/fixtures';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   openAccessContext: vi.fn(),
-  getPatients: vi.fn(),
   createCodeBlue: vi.fn(),
+  // The patient chooser searches through this.
+  getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -43,9 +44,7 @@ beforeEach(() => {
     },
     isAuthenticated: true,
   } as never);
-  vi.mocked(shared.getPatients).mockResolvedValue([
-    patientProfile(),
-  ]);
+  vi.mocked(shared.getPatients).mockResolvedValue([patientProfile()]);
 });
 
 describe('CodeBluePage', () => {

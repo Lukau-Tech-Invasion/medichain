@@ -15,7 +15,6 @@
 import { offlineIntentFor, type OfflineRoute } from '../utils/offlinePolicy';
 import type { ApiError } from '../types';
 import { API_CONFIG, debugLog, sleep, calculateBackoff } from '../config';
-import { OfflineQueue } from '../utils/offlineQueue';
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -220,7 +219,6 @@ export class ApiClient {
   private connectionListeners: ((connected: boolean) => void)[] = [];
   private isConnected: boolean = true;
   private lastHealthCheck: number = 0;
-  private offlineQueue: OfflineQueue;
   // JWT auth (Phase 9.4): when set, requests send `Authorization: Bearer <access>`
   // and transparently refresh on a 401 using the refresh token.
   private accessToken?: string;
@@ -256,7 +254,6 @@ export class ApiClient {
     this.maxRetries = config.maxRetries ?? API_CONFIG.MAX_RETRIES;
     this.onError = config.onError;
     this.onConnectionChange = config.onConnectionChange;
-    this.offlineQueue = new OfflineQueue();
   }
 
   /**
@@ -505,15 +502,6 @@ export class ApiClient {
       this.onConnectionChange?.(connected);
       this.connectionListeners.forEach(listener => listener(connected));
       debugLog('ApiClient', `Connection status: ${connected ? 'connected' : 'disconnected'}`);
-      
-      // If we just reconnected, process the offline queue
-      if (connected) {
-        this.offlineQueue.processQueue({
-          request: (method, path, body) => this.request(method, path, body),
-        }).catch(err => {
-          debugLog('ApiClient', 'Error processing offline queue after reconnection:', err);
-        });
-      }
     }
   }
 
@@ -1087,13 +1075,6 @@ export class ApiClient {
       noOfflineQueue: true,
       headers,
     });
-  }
-
-  /**
-   * Get the current offline queue
-   */
-  getOfflineQueue(): OfflineQueue {
-    return this.offlineQueue;
   }
 }
 

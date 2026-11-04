@@ -21,7 +21,7 @@ export interface UseOfflineCacheResult<T> {
  * is available offline. Offline (or when a fetch fails): serves the last cached
  * copy if present and not expired, flagging `fromCache` so the UI can show an
  * "offline / cached" badge. This is what makes records viewable with no network —
- * the OfflineQueue already covers the write path.
+ * the sync queue (`syncQueue.ts`) covers the write path.
  *
  * `fetcher` is read through a ref, so callers may pass an inline closure without
  * causing a refetch loop; the effect only re-runs when `cacheId` changes.

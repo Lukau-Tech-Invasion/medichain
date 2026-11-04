@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatients, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -26,8 +26,7 @@ export default function CodeBluePage() {
   const { showError } = useToastActions();
   // The roster this page used to hold existed only to fill a patient
   // dropdown. `PatientSelect` queries the server as the clinician types, so
-  // the list is no longer fetched or kept here; `loadPatients` remains as
-  // the warm-up call the page already made on mount.
+  // the list is no longer fetched or kept here.
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   // The list endpoint returns summary rows keyed `id`. This panel read
   // `event_id`, `event_type` and `outcome` off them -- names from the
@@ -54,10 +53,6 @@ export default function CodeBluePage() {
   const [primaryCause, setPrimaryCause] = useState('');
 
   useEffect(() => {
-    loadPatients();
-  }, []);
-
-  useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     if (isActive && startTime) {
       interval = setInterval(() => {
@@ -66,15 +61,6 @@ export default function CodeBluePage() {
     }
     return () => clearInterval(interval);
   }, [isActive, startTime]);
-
-  const loadPatients = async () => {
-    try {
-      await getPatients();
-    } catch (error) {
-      // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
-      console.error('Failed to load patients', error);
-    }
-  };
 
   const fetchEmergencyHistory = async (patientId: string) => {
     if (!user || !patientId) return;

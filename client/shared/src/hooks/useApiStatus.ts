@@ -1,31 +1,40 @@
 import { useState, useEffect } from 'react';
 import { getApiClient } from '../api/client';
+import { unsentSyncItems } from '../utils/indexedDB';
 
 /**
  * useApiStatus hook
- * 
- * Provides real-time information about the API connection status
- * and the size of the offline operation queue.
+ *
+ * Provides real-time information about the API connection status and how many
+ * of the signed-in user's writes are saved on this device but not yet sent.
  */
 export function useApiStatus() {
   const apiClient = getApiClient();
   const [isOnline, setIsOnline] = useState(apiClient.getConnectionStatus());
-  const [queueSize, setQueueSize] = useState(apiClient.getOfflineQueue().size());
+  const [queueSize, setQueueSize] = useState(0);
 
   useEffect(() => {
-    // Listen for connection changes from ApiClient
+    let cancelled = false;
+    const countUnsent = () => {
+      const owner = apiClient.getUserId();
+      if (!owner) {
+        setQueueSize(0);
+        return;
+      }
+      unsentSyncItems(owner)
+        .then((items) => { if (!cancelled) setQueueSize(items.length); })
+        .catch(() => { /* an unreadable queue shows no badge rather than a guess */ });
+    };
+    countUnsent();
+
     const unsubscribe = apiClient.addConnectionListener((connected) => {
       setIsOnline(connected);
-      setQueueSize(apiClient.getOfflineQueue().size());
+      countUnsent();
     });
 
-    // Also poll queue size periodically (as enqueue might happen without connection change)
+    // Writes are queued without a connection change, so the count is polled too.
     const interval = setInterval(() => {
-      const currentQueueSize = apiClient.getOfflineQueue().size();
-      if (currentQueueSize !== queueSize) {
-        setQueueSize(currentQueueSize);
-      }
-      
+      countUnsent();
       // Heartbeat check if offline
       if (!apiClient.getConnectionStatus()) {
         apiClient.checkHealth().catch(() => {});
@@ -33,13 +42,14 @@ export function useApiStatus() {
     }, 5000);
 
     return () => {
+      cancelled = true;
       unsubscribe();
       clearInterval(interval);
     };
-  }, [apiClient, queueSize]);
+  }, [apiClient]);
 
-  return { 
-    isOnline, 
+  return {
+    isOnline,
     queueSize,
     checkConnection: () => apiClient.checkHealth()
   };
