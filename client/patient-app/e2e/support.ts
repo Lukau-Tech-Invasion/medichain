@@ -151,8 +151,8 @@ export async function signInWithCredentials(
 }
 
 /**
- * Sign out through the navigation menu (the "All pages" button on a desktop, the
- * menu button on a phone) and land on the sign-in page.
+ * Sign out through the page finder (the top bar's "Find a page" button, the
+ * same on a phone and a desktop) and land on the sign-in page.
  */
 export async function signOut(page: Page) {
   await page.locator('button[aria-haspopup="dialog"]:visible').first().click();

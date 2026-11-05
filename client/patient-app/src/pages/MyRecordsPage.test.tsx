@@ -24,6 +24,9 @@ const SUMMARY_KEYS = [
   'immunizations', 'medication-administrations', 'emergency-care',
 ];
 
+/** A record's row, named by its title (the button's name also carries its date and author). */
+const row = (title: string) => new RegExp('^' + title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
 describe('MyRecordsPage (Patient)', () => {
   const mockPatientId = 'HEALTH123';
 
@@ -174,53 +177,53 @@ describe('MyRecordsPage (Patient)', () => {
 
   it('shows a resuscitation the patient was given', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    expect(await screen.findByRole('heading', { name: 'Resuscitation (code blue)' })).toBeInTheDocument();
-    expect(screen.getAllByText('Outcome: ROSC').length).toBeGreaterThan(0);
+    expect(await screen.findByRole('button', { name: row('Resuscitation (code blue)') })).toBeInTheDocument();
+    expect(screen.getAllByText(/Outcome: ROSC/).length).toBeGreaterThan(0);
   });
 
   it('shows the doses the ward recorded, including one that was held and why', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    expect(await screen.findByRole('heading', { name: 'Medication given: QA amlodipine' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Medication held: QA metformin' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: row('Medication given: QA amlodipine') })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: row('Medication held: QA metformin') })).toBeInTheDocument();
     expect(screen.getAllByText(/Reason: Nil by mouth/).length).toBeGreaterThan(0);
   });
 
   it('includes stored immunizations in the vaccination filter and record details', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    const record = await screen.findByRole('heading', { name: 'QA influenza vaccination' });
+    const record = await screen.findByRole('button', { name: row('QA influenza vaccination') });
     fireEvent.click(screen.getByRole('button', { name: 'Vaccination' }));
     expect(record).toBeInTheDocument();
     expect(screen.queryByText('Blood Count')).not.toBeInTheDocument();
     fireEvent.click(record);
-    expect(screen.getByText('Record Details')).toBeInTheDocument();
-    expect(screen.getAllByText('Nurse QA').length).toBeGreaterThan(0);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getAllByText(/Nurse QA/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Dose 1 · Lot QA-LOT').length).toBeGreaterThan(0);
   });
 
   it('keeps bedside observations out of lab results and labels their details accurately', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    await screen.findByRole('heading', { name: 'Vital signs' });
+    await screen.findByRole('button', { name: row('Vital signs') });
     fireEvent.click(screen.getByRole('button', { name: 'Lab Result' }));
     expect(screen.getByText('Blood Count')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Vital signs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: row('Vital signs') })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Vital Signs' }));
     expect(screen.queryByText('Blood Count')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('heading', { name: 'Vital signs' }));
-    expect(screen.getByText('Record Details')).toBeInTheDocument();
-    expect(screen.getByText('Vital Signs', { selector: 'span' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: row('Vital signs') }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getAllByText(/^Vital Signs · /).length).toBeGreaterThan(0);
   });
 
   it('lists GCS under assessments without mixing it into consultations', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    await screen.findByRole('heading', { name: 'Glasgow Coma Scale 15' });
+    await screen.findByRole('button', { name: row('Glasgow Coma Scale 15') });
     fireEvent.click(screen.getByRole('button', { name: 'Consultation' }));
-    expect(screen.queryByRole('heading', { name: 'Glasgow Coma Scale 15' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: row('Glasgow Coma Scale 15') })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Assessment' }));
-    expect(screen.getByRole('heading', { name: 'Glasgow Coma Scale 15' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: row('Glasgow Coma Scale 15') })).toBeInTheDocument();
     expect(screen.queryByText('Blood Count')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('heading', { name: 'Glasgow Coma Scale 15' }));
-    expect(screen.getByText('Assessment', { selector: 'span' })).toBeInTheDocument();
-    expect(screen.getAllByText('Stored interpretation').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: row('Glasgow Coma Scale 15') }));
+    expect(screen.getAllByText(/^Assessment · /).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Stored interpretation/).length).toBeGreaterThan(0);
   });
 
   it('filters records by search query', async () => {
@@ -270,7 +273,7 @@ describe('MyRecordsPage (Patient)', () => {
       fireEvent.click(record);
     });
 
-    expect(screen.getByText(/Record Details/i)).toBeInTheDocument();
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(screen.getAllByText(/Hematology/i).length).toBeGreaterThan(0);
   });
 
@@ -325,7 +328,7 @@ describe('MyRecordsPage (Patient)', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(await screen.findByRole('heading', { name: /Discharge Summary/i }));
+    fireEvent.click((await screen.findAllByRole('button', { name: /^Discharge Summary/i })).find((b) => b.closest('li'))!);
     const badge = await screen.findByTestId('seal-badge');
     expect(badge).toHaveTextContent('Sealed and exported');
   });
@@ -337,47 +340,61 @@ describe('MyRecordsPage (Patient)', () => {
       </MemoryRouter>
     );
     fireEvent.click(await screen.findByText(/Blood Count/i));
-    await screen.findByText(/Record Details/i);
+    await screen.findByRole('dialog');
     expect(screen.queryByTestId('seal-badge')).not.toBeInTheDocument();
   });
 
   it('lists all three surgical documentation stages with their stored descriptions and providers', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
     for (const title of ['Pre-operative assessment', 'Operative note', 'Post-operative note']) {
-      expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: row(title) })).toBeInTheDocument();
     }
     fireEvent.change(screen.getByPlaceholderText('Search records...'), { target: { value: 'QA pre-operative procedure' } });
-    expect(screen.getByText('Doctor QA')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Pre-operative assessment' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Operative note' })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Doctor QA/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: row('Pre-operative assessment') })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: row('Operative note') })).not.toBeInTheDocument();
   });
 
   it('classifies anaesthesia and surgical records as procedures in filters and details', async () => {
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    await screen.findByRole('heading', { name: 'Anaesthesia' });
+    await screen.findByRole('button', { name: row('Anaesthesia') });
     fireEvent.click(screen.getByRole('button', { name: 'Procedure' }));
-    expect(screen.getByRole('heading', { name: 'Anaesthesia' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Operative note' })).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Pre-operative assessment' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('heading', { name: 'Anaesthesia' }));
-    expect(screen.getByText('Record Details')).toBeInTheDocument();
-    expect(screen.getAllByText('Procedure').length).toBeGreaterThan(1);
+    expect(screen.getByRole('button', { name: row('Anaesthesia') })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: row('Operative note') })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: row('Pre-operative assessment') })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: row('Anaesthesia') }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getAllByText(/^Procedure · /).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(screen.getByRole('button', { name: 'Consultation' }));
-    expect(screen.queryByRole('heading', { name: 'Anaesthesia' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: row('Anaesthesia') })).not.toBeInTheDocument();
   });
 
-  it('does not reopen a preview after its record details were dismissed during loading', async () => {
+  it('opens the document itself on one tap, in one sheet', async () => {
+    const previous = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => url.endsWith('/download')
+      ? Promise.resolve({ ok: true, headers: new Headers({ 'content-type': 'text/plain' }),
+        blob: async () => ({ text: async () => 'Anaesthesia record\nImpression: Uneventful\nAirway: Grade 1\nNot recorded: Addendum, Technique\n' }) })
+      : previous(url, init));
+    render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: row('Anaesthesia') }));
+    const sheet = await screen.findByRole('dialog');
+    expect(await within(sheet).findByText('Uneventful')).toBeInTheDocument();
+    expect(within(sheet).getByText('Not recorded (2)')).toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: /^Download$/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  });
+
+  it('does not reopen a preview after its record was closed during loading', async () => {
     let finish!: (response: unknown) => void;
     const previous = mockFetch.getMockImplementation()!;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => url.endsWith('/download')
       ? new Promise(resolve => { finish = resolve; }) : previous(url, init));
     render(<MemoryRouter><MyRecordsPage /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('heading', { name: 'Anaesthesia' }));
-    const details = screen.getByRole('dialog', { name: 'Record Details' });
-    fireEvent.click(within(details).getByRole('button', { name: 'View' }));
+    fireEvent.click(await screen.findByRole('button', { name: row('Anaesthesia') }));
+    const details = await screen.findByRole('dialog');
     await waitFor(() => expect(finish).toBeTypeOf('function'));
-    fireEvent(details, new Event('cancel', { cancelable: true }));
+    fireEvent.click(within(details).getByRole('button', { name: 'Close' }));
     await act(async () => { finish({ ok: true, headers: new Headers({ 'content-type': 'text/plain' }),
       blob: async () => ({ text: async () => 'Late report' }) }); });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

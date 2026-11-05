@@ -106,3 +106,38 @@ Sign-in and Activate stay as they are.
   are keyed by the parameter name the result line carries (`lab_trends.rs`).
 * `MedicationRemindersPage` and `LabTrendsPage` were deleted (owner approval,
   2026-11-04); their logic and its tests now live in the two components.
+
+## Wireframe pass (2026-11-05)
+
+A screen-by-screen comparison with p1–p6 found the merges built but the
+screens themselves still in their old shape. Closed:
+
+* **Navigation (p1, p6).** The same five tabs on every width; *My health*
+  opens its own page (`/health`) with a heart icon; Messages carries the unread
+  count. The top bar is the logo, the connection in words ("Up to date",
+  "Offline", "N waiting to send"), a *Find a page* search (the former menu,
+  now one button), and on a laptop an Emergency card button. The bell, the
+  phone Menu button and the six-link laptop bar with "All pages" are gone.
+* **My health (p2)** — `pages/MyHealthPage.tsx`: four tiles (Records, Lab
+  results, Medications, Vital signs with the newest reading) and the *Track
+  and check* list. Tile subtitles name the place, not a count, except vitals:
+  no cheap read exists for the others' counts, and a guessed count is worse
+  than none.
+* **Home (p1)** — the emergency card carries blood group and allergies; *Today*
+  (`components/HomeToday.tsx`) shows the next dose with **Taken**, the next
+  visit and a result from the last 14 days; *Privacy* shows who looked, built
+  on the access history's own sessions, repeats folded ("· 5 times"), the
+  patient's own reads left out. Health ID moved to Me.
+* **Me (p3)** — copy button for the Health ID; "N with access" on *Who can see
+  my records*.
+* **Records (p4–p6)** — one tap opens the document (no details step, never two
+  dialogs); Download on every row and pinned in the reader; month headers with
+  counts; sticky filter chips; 20 at a time with *Show more*. The reader
+  (`components/RecordDocument.tsx`) puts findings/impression first, lays
+  fields out as a list with readable dates and Yes/No, and folds the server's
+  "Not recorded:" line into one expandable row. On a laptop the document opens
+  beside the list, with the My health pages as a side list.
+
+Not matched, and why: the Health ID stays the full identifier (the mockup's
+short "MC 4821 7703 19" form does not exist in the system), and a lab result
+is "latest", not "new" (nothing records whether the patient has seen it).

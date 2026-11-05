@@ -21,6 +21,7 @@ const MyRecordsPage = lazy(() =>
 );
 const SatisfactionSurveyPage = lazy(() => import('./pages/SatisfactionSurveyPage'));
 const MePage = lazy(() => import('./pages/MePage'));
+const MyHealthPage = lazy(() => import('./pages/MyHealthPage'));
 const MedicationsPage = lazy(() => import('./pages/MedicationsPage').then((m) => ({ default: m.MedicationsPage })));
 const LabResultsPage = lazy(() => import('./pages/LabResultsPage').then((m) => ({ default: m.LabResultsPage })));
 const VitalsScreen = lazy(() => import('./pages/TabScreens').then((m) => ({ default: m.VitalsScreen })));
@@ -89,6 +90,7 @@ function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="me" element={<MePage />} />
+        <Route path="health" element={<MyHealthPage />} />
         <Route path="profile" element={<MyProfilePage />} />
         <Route path="privacy" element={<PrivacyScreen />} />
         <Route path="cards" element={<CardsScreen />} />

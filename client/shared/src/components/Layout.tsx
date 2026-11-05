@@ -28,6 +28,9 @@ import {
   WifiOff,
   FlaskConical,
   BookOpen,
+  Home,
+  QrCode,
+  Search,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { refreshNotificationBadges, useUnreadNotifications } from '../hooks/useUnreadNotifications';
@@ -58,9 +61,10 @@ interface NavSection {
  * 
  * @param variant - 'doctor' for healthcare provider portal, 'patient' for patient portal
  */
+// The same five places on every screen size (mockups p1 and p6).
 const PATIENT_TABS = [
-  { path: '/dashboard', label: 'patientTabs.home', icon: LayoutDashboard, match: ['/dashboard'] },
-  { path: '/records', label: 'patientTabs.health', icon: FileText, match: ['/records', '/medications', '/vitals', '/lab-results', '/medical-history', '/symptoms'] },
+  { path: '/dashboard', label: 'patientTabs.home', icon: Home, match: ['/dashboard'] },
+  { path: '/health', label: 'patientTabs.health', icon: Heart, match: ['/health', '/records', '/medications', '/vitals', '/lab-results', '/medical-history', '/symptoms'] },
   { path: '/appointments', label: 'patientTabs.visits', icon: Calendar, match: ['/appointments', '/survey'] },
   { path: '/messages', label: 'patientTabs.messages', icon: MessageSquare, match: ['/messages'] },
   { path: '/me', label: 'patientTabs.me', icon: User, match: ['/me', '/profile', '/settings', '/emergency-card', '/privacy', '/cards'] },
@@ -182,7 +186,8 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
     {
       label: 'My essentials',
       items: [
-        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { path: '/dashboard', label: 'Home', icon: Home },
+        { path: '/health', label: 'My health', icon: Heart },
         { path: '/me', label: 'Me', icon: User },
         { path: '/profile', label: 'My details', icon: User },
         { path: '/records', label: 'My Records', icon: FileText },
@@ -218,21 +223,17 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
     },
   ];
 
-  // Primary actions stay in the desktop header. The remaining routes are in a
-  // labelled desktop menu below; hiding them in the mobile-only drawer made
-  // implemented patient workflows undiscoverable on laptops and desktops.
-  const patientMainNav: NavItem[] = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/records', label: 'Records', icon: FileText },
-    { path: '/medications', label: 'Medications', icon: Pill },
-    { path: '/appointments', label: 'Appointments', icon: Calendar },
-    { path: '/messages', label: 'Messages', icon: MessageSquare },
-    { path: '/settings', label: 'Settings', icon: Settings },
-  ];
-
-  const navItems = variant === 'doctor' ? doctorNavItems : patientMainNav;
-
   const { t } = useTranslation();
+  const isPatientTabActive = (match: readonly string[]) =>
+    match.some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`));
+  // The Messages tab counts what is unread; nothing else on the bar is a badge.
+  const tabBadge = (path: string) =>
+    path === '/messages' && unreadNotifications !== null && unreadNotifications > 0 ? (
+      <span aria-label={t('patientTabs.unread', { n: String(unreadNotifications) })}
+        className="absolute -right-2 -top-1.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-critical px-1 text-xs font-semibold text-critical-fg">
+        {unreadNotifications > 99 ? '99+' : unreadNotifications}
+      </span>
+    ) : null;
   const handleLogout = async () => {
     const proceed = await confirmSignOutWithUnsent({
       title: t('forms.unsentTitle'),
@@ -301,9 +302,28 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
               </div>
             </Link>
 
-            {/* Desktop Navigation */}
-            <div className="hidden lg:flex items-center gap-1">
-              {navItems.map((item) => {
+            {/* Patient on a laptop: the five tabs, nothing else (mockup p6). */}
+            {variant === 'patient' && (
+              <div className="hidden lg:flex items-center gap-1">
+                {PATIENT_TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  const active = isPatientTabActive(tab.match);
+                  return (
+                    <Link key={tab.path} to={tab.path} aria-current={active ? 'page' : undefined}
+                      className={`flex min-h-[44px] items-center gap-2 rounded-xl px-4 transition-colors ${
+                        active ? 'bg-selected text-selected-fg font-semibold' : 'text-content-muted hover:bg-surface-sunken'
+                      }`}>
+                      <span className="relative"><Icon className="h-5 w-5" aria-hidden="true" />{tabBadge(tab.path)}</span>
+                      <span className="text-sm">{t(tab.label)}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Doctor desktop navigation */}
+            {variant === 'doctor' && <div className="hidden lg:flex items-center gap-1">
+              {doctorNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
                 return (
@@ -322,21 +342,38 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
                   </Link>
                 );
               })}
-              {variant === 'patient' && (
-                <button type="button" onClick={() => setPatientDesktopMenuOpen(true)}
-                  aria-haspopup="dialog" aria-expanded={patientDesktopMenuOpen}
-                  className="flex min-h-[44px] items-center gap-2 px-3 rounded-xl text-content hover:bg-surface-sunken">
-                  <Menu className="w-5 h-5" /><span>All pages</span>
-                </button>
-              )}
-            </div>
+            </div>}
 
-            {/* Right Actions */}
-            <div className="flex items-center gap-3">
-              <button 
+            {/* Patient: connection as words, a page finder, and the emergency
+                card one click away on a laptop. The bell's job is done by the
+                Messages tab's count. */}
+            {variant === 'patient' && (
+              <div className="flex items-center gap-2">
+                <span role="status" className="flex items-center gap-1.5 text-sm text-content-muted">
+                  <span aria-hidden="true" className={`h-2 w-2 rounded-full ${isOnline ? 'bg-ok' : 'bg-caution'}`} />
+                  {!isOnline ? t('patientTabs.offline')
+                    : queueSize > 0 ? t('patientTabs.waiting', { n: String(queueSize) })
+                    : t('patientTabs.upToDate')}
+                </span>
+                <button type="button" onClick={() => setPatientDesktopMenuOpen(true)}
+                  aria-haspopup="dialog" aria-expanded={patientDesktopMenuOpen} aria-label={t('patientTabs.findPage')}
+                  title={t('patientTabs.findPage')}
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-content-muted hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <Search className="h-5 w-5" aria-hidden="true" />
+                </button>
+                <Link to="/emergency-card"
+                  className="hidden lg:flex min-h-[44px] items-center gap-2 rounded-xl border border-critical px-4 font-semibold text-critical-subtle-fg hover:bg-critical-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <QrCode className="h-5 w-5" aria-hidden="true" />
+                  {t('patientTabs.emergencyCard')}
+                </Link>
+              </div>
+            )}
+
+            {/* Doctor right actions */}
+            {variant === 'doctor' && <div className="flex items-center gap-3">
+              <button
                 aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}
-                // The patient's notifications are a section of the one inbox.
-                onClick={() => navigate(variant === 'patient' ? '/messages?view=notifications' : '/notifications')}
+                onClick={() => navigate('/notifications')}
                 className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
                 title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
               >
@@ -348,26 +385,24 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
                 )}
               </button>
 
-              {variant !== 'patient' && <button
+              <button
                 aria-label="Sign out"
                 onClick={handleLogout}
                 className="hidden sm:flex items-center gap-2 px-4 py-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
               >
                 <LogOut className="w-5 h-5" />
-              </button>}
+              </button>
 
               {/* Mobile Menu Button */}
               <button
                 aria-label="Open navigation"
-                aria-haspopup={variant === 'patient' ? 'dialog' : undefined}
                 aria-expanded={mobileMenuOpen}
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="lg:hidden min-h-[44px] flex items-center gap-2 p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-                {variant === 'patient' && <span>Menu</span>}
               </button>
-            </div>
+            </div>}
           </div>
         </div>
 
@@ -412,11 +447,10 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
         )}
       </nav>
 
-      {variant === 'patient' && (mobileMenuOpen || patientDesktopMenuOpen) && (
-        <PatientNavigation sections={patientNavSections} onClose={() => {
-          setMobileMenuOpen(false);
-          setPatientDesktopMenuOpen(false);
-        }} onLogout={handleLogout} />
+      {/* The page finder: every destination, searchable, from the top bar. */}
+      {variant === 'patient' && patientDesktopMenuOpen && (
+        <PatientNavigation sections={patientNavSections} onClose={() => setPatientDesktopMenuOpen(false)}
+          onLogout={handleLogout} />
       )}
 
       {/* Main Content
@@ -433,18 +467,21 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
       </main>
 
       {/* Five tabs on a phone (UX plan Phase 8, mockup p1): the places a patient
-          returns to, always one thumb-tap away. Everything else stays under the
-          menu. Active is shown by colour, weight AND aria-current. */}
+          returns to, always one thumb-tap away. Every other page sits under one
+          of them. Active is shown by the pill, weight AND aria-current. */}
       {variant === 'patient' && (
         <nav aria-label={t('patientTabs.label')}
           className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
           {PATIENT_TABS.map((tab) => {
             const Icon = tab.icon;
-            const active = tab.match.some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`));
+            const active = isPatientTabActive(tab.match);
             return (
               <Link key={tab.path} to={tab.path} aria-current={active ? 'page' : undefined}
-                className={`flex min-h-[56px] flex-col items-center justify-center gap-0.5 text-xs ${active ? 'font-bold text-selected-fg bg-selected' : 'text-content-muted'}`}>
-                <Icon className="h-5 w-5" aria-hidden="true" />
+                className={`flex min-h-[64px] flex-col items-center justify-center gap-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${active ? 'font-bold text-content' : 'text-content-muted'}`}>
+                <span className={`relative flex h-8 w-14 items-center justify-center rounded-full ${active ? 'bg-selected text-selected-fg' : ''}`}>
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                  {tabBadge(tab.path)}
+                </span>
                 {t(tab.label)}
               </Link>
             );

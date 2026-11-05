@@ -3,14 +3,17 @@
  * family, and the app. Every row opens one screen; the long menu of separate
  * pages it replaces is in `docs/PATIENT_APP_SIMPLIFICATION_PLAN_2026-11-01.md`.
  */
-import { useRef, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronRight, CreditCard, Eye, Globe, LogOut, Shield, ShieldAlert, SlidersHorizontal, Users, ClipboardList } from 'lucide-react';
+import { ChevronRight, Copy, CreditCard, Eye, Globe, LogOut, Shield, ShieldAlert, SlidersHorizontal, Users, ClipboardList } from 'lucide-react';
 import {
   LOCALE_CONFIGS,
   confirmDialog,
   confirmSignOutWithUnsent,
+  copyTextToClipboard,
   formatHealthId,
+  listPatientAccessGrants,
+  notifySuccess,
   useTranslation,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -54,6 +57,27 @@ export function MePage() {
   const logout = usePatientAuthStore((s) => s.logout);
   const signingOut = useRef(false);
   const name = patient?.fullName ?? '';
+  const [copyError, setCopyError] = useState('');
+  // undefined until known: a failed read shows no count rather than "0".
+  const [activeGrants, setActiveGrants] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!patient?.healthId) return;
+    let cancelled = false;
+    listPatientAccessGrants(patient.healthId)
+      .then((body) => { if (!cancelled) setActiveGrants(body.grants.filter((g) => g.status === 'active').length); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [patient?.healthId]);
+
+  const copyId = async (id: string) => {
+    if (await copyTextToClipboard(id)) {
+      setCopyError('');
+      notifySuccess(t('emergency.copySuccess'));
+    } else {
+      setCopyError(t('emergency.copyFailed'));
+    }
+  };
 
   const signOut = async () => {
     if (signingOut.current) return;
@@ -85,23 +109,35 @@ export function MePage() {
     <div className="mx-auto max-w-2xl space-y-5 p-4 pb-8 md:p-5">
       <h1 className="text-2xl font-bold text-content">{t('me.title')}</h1>
 
-      <Link to="/profile" aria-label={t('me.openDetails', { name })}
-        className="flex items-center gap-3 rounded-2xl border border-border bg-surface p-4 hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-lg font-bold text-brand-subtle-fg" aria-hidden="true">
-          {initials(name)}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-semibold text-content">{name}</span>
-          <span className="block text-sm text-content-muted">
-            {t('me.healthId')} <span className="font-mono text-content-secondary">{formatHealthId(patient?.healthId)}</span>
+      {/* The copy button sits beside the link, not inside it: a button nested
+          in a link is two controls in one target. */}
+      <div className="flex items-center gap-1 rounded-2xl border border-border bg-surface pr-2">
+        <Link to="/profile" aria-label={t('me.openDetails', { name })}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-4 hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-lg font-bold text-brand-subtle-fg" aria-hidden="true">
+            {initials(name)}
           </span>
-          <span className="block text-sm text-brand">{t('me.myDetails')}</span>
-        </span>
-        <ChevronRight className="h-4 w-4 text-content-muted" aria-hidden="true" />
-      </Link>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-semibold text-content">{name}</span>
+            <span className="block text-sm text-content-muted">
+              {t('me.healthId')} <span className="font-mono text-content-secondary">{formatHealthId(patient?.healthId)}</span>
+            </span>
+            <span className="block text-sm text-brand">{t('me.myDetails')}</span>
+          </span>
+          <ChevronRight className="h-4 w-4 text-content-muted" aria-hidden="true" />
+        </Link>
+        {patient?.healthId && (
+          <button type="button" onClick={() => void copyId(patient.healthId)} aria-label={t('me.copyHealthId')} title={t('me.copyHealthId')}
+            className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl text-content-muted hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+            <Copy className="h-5 w-5" aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      {copyError && <p role="alert" className="text-sm text-critical-subtle-fg">{copyError}</p>}
 
       <Group title={t('me.whoSees')} rows={[
-        { to: '/privacy', label: t('me.whoCanSee'), icon: Shield },
+        { to: '/privacy', label: t('me.whoCanSee'), icon: Shield,
+          detail: activeGrants === undefined ? undefined : t('me.grantCount', { n: String(activeGrants) }) },
         { to: '/privacy?view=viewed', label: t('me.whoViewed'), icon: Eye },
         { to: '/privacy?view=viewed#emergency-access', label: t('me.emergencyHistory'), icon: ShieldAlert },
       ]} />

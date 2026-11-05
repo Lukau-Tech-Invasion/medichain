@@ -1,15 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, clickable, formatTimestamp, SealStatusBadge } from '@medichain/shared';
+import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, formatTimestamp, SealStatusBadge, Sheet } from '@medichain/shared';
 import type { SealStatus } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
   Download,
-  Eye,
-  Calendar,
-  User,
   Search,
-  ChevronRight,
   X,
   FlaskConical,
   Image,
@@ -17,11 +13,12 @@ import {
   Stethoscope,
   FileCheck,
   Syringe,
-  Shield,
   CheckCircle,
 } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
-import { RecordModal } from '../components/RecordModal';
+import { RecordDocument } from '../components/RecordDocument';
+import { HealthSubnav } from '../components/HealthSubnav';
+import { useWideScreen } from '../hooks/useWideScreen';
 
 // ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
 
@@ -778,86 +775,50 @@ export function MyRecordsPage() {
   };
 
   /**
-   * In-app preview of a record's contents.
-   *
-   * The View button used to have no `onClick` at all - it rendered, took the
-   * click and did nothing. Viewing goes through the same authorised download
-   * endpoint as the Download button; the difference is only that the bytes are
-   * shown here instead of being written to a file.
+   * The open record's contents (mockup p5). Tapping a record opens the
+   * document itself -- there is no details step before it -- through the same
+   * authorised download endpoint the Download button uses.
    */
-  const [preview, setPreview] = useState<{
-    title: string;
-    kind: 'text' | 'image' | 'pdf' | 'unsupported';
-    text?: string;
-    url?: string;
-    contentType: string;
-  } | null>(null);
-  const [isViewing, setIsViewing] = useState<string | null>(null);
-  const previewReturnFocus = useRef<HTMLElement | null>(null);
+  const [preview, setPreview] = useState<RecordPreview | null>(null);
+  const [isViewing, setIsViewing] = useState(false);
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const wide = useWideScreen();
   const viewRequest = useRef(0);
   useEffect(() => () => { viewRequest.current += 1; }, []);
   const previewUrl = preview?.url;
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  /** Dismiss the preview; its lifecycle cleanup revokes any object URL. */
-  const closePreview = () => {
-    setPreview(null);
-  };
-
-  /** Dismiss details and invalidate pending preview results before another record is opened. */
+  /** Close the reader and drop any document still on its way. */
   const closeDetails = () => {
     viewRequest.current += 1;
-    setIsViewing(null);
-    closePreview();
+    setIsViewing(false);
+    setPreview(null);
     setSelectedRecord(null);
   };
 
-  const handleView = async (record: MedicalRecord, trigger: HTMLElement) => {
+  const openRecord = async (record: MedicalRecord) => {
     const ticket = ++viewRequest.current;
-    previewReturnFocus.current = trigger;
-    setIsViewing(record.id);
+    setSelectedRecord(record);
+    setPreview(null);
+    setIsViewing(true);
     try {
-      let download: { blob: Blob; contentType: string };
-      try {
-        download = await downloadRecordContent(record.contentHash);
-      } catch {
-        if (viewRequest.current === ticket) showError(t('records.viewFailed', { title: record.title }));
-        return;
-      }
+      const { blob, contentType } = await downloadRecordContent(record.contentHash);
       if (viewRequest.current !== ticket) return;
-      const { blob, contentType } = download;
-
       if (contentType.startsWith('text/') || contentType.includes('json')) {
         const text = await blob.text();
-        if (viewRequest.current !== ticket) return;
-        setPreview({
-          title: record.title,
-          kind: 'text',
-          text,
-          contentType,
-        });
+        if (viewRequest.current === ticket) setPreview({ kind: 'text', text, contentType });
       } else if (contentType.startsWith('image/')) {
-        setPreview({
-          title: record.title,
-          kind: 'image',
-          url: URL.createObjectURL(blob),
-          contentType,
-        });
+        setPreview({ kind: 'image', url: URL.createObjectURL(blob), contentType });
       } else if (contentType.includes('pdf')) {
-        setPreview({
-          title: record.title,
-          kind: 'pdf',
-          url: URL.createObjectURL(blob),
-          contentType,
-        });
+        setPreview({ kind: 'pdf', url: URL.createObjectURL(blob), contentType });
       } else {
         // Say so rather than rendering bytes as mojibake; Download still works.
-        setPreview({ title: record.title, kind: 'unsupported', contentType });
+        setPreview({ kind: 'unsupported', contentType });
       }
     } catch {
-      if (viewRequest.current === ticket) showError(t('records.viewError', { title: record.title }));
+      if (viewRequest.current === ticket) setPreview({ kind: 'failed', contentType: '' });
     } finally {
-      if (viewRequest.current === ticket) setIsViewing(null);
+      if (viewRequest.current === ticket) setIsViewing(false);
     }
   };
 
@@ -894,9 +855,12 @@ export function MyRecordsPage() {
     return matchesSearch && matchesFilter;
   });
 
-  // Newest first, grouped by month (UX plan Phase 8, mockup p3): a patient
-  // looks for "the visit in March", not for record number 37 of 80.
-  const byMonth = groupByMonth(filteredRecords);
+  // Newest first, grouped by month (mockup p4): a patient looks for "the visit
+  // in March", not for record number 37 of 80. A page at a time, so 75
+  // records are not 12 screens of scrolling.
+  const visible = byNewest(filteredRecords).slice(0, shown);
+  const monthCounts = new Map(groupByMonth(filteredRecords).map((g) => [g.key, g.records.length]));
+  const byMonth = groupByMonth(visible);
 
   const recordTypes = ['all', 'lab_result', 'imaging', 'prescription', 'consultation', 'procedure', 'discharge_summary', 'vaccination', 'vital_signs', 'assessment', 'other'];
 
@@ -912,294 +876,264 @@ export function MyRecordsPage() {
     );
   }
 
+  const downloadButton = (record: MedicalRecord, wideButton: boolean) => (
+    <button
+      type="button"
+      onClick={() => void handleDownload(record)}
+      aria-disabled={isDownloading === record.id || undefined}
+      aria-label={wideButton ? undefined : t('records.downloadNamed', { title: record.title })}
+      className={wideButton
+        ? 'flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand px-6 font-semibold text-brand-fg hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+        : 'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'}
+    >
+      {isDownloading === record.id
+        ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-border-strong border-t-transparent" aria-hidden="true" />
+        : <Download className="h-5 w-5" aria-hidden="true" />}
+      {wideButton && t('records.download')}
+    </button>
+  );
+
+  const reader = selectedRecord && (
+    <RecordReader
+      record={selectedRecord}
+      preview={preview}
+      loading={isViewing}
+      typeLabel={typeLabel(selectedRecord.type)}
+      provider={providerName(selectedRecord.provider)}
+      date={formatDate(selectedRecord.date)}
+      reviewer={selectedRecord.reviewedBy ? providerName(selectedRecord.reviewedBy) : null}
+      onRetry={() => void openRecord(selectedRecord)}
+    />
+  );
+
   return (
-    <div className="p-4 md:p-5 space-y-4 pb-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-content">{t('records.pageTitle')}</h1>
-        <p className="text-content-muted">{t('records.subtitle')}</p>
-      </div>
+    <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_minmax(0,1fr)] lg:gap-0">
+      <aside className="hidden self-start border-r border-border p-4 lg:sticky lg:top-16 lg:block">
+        <HealthSubnav />
+      </aside>
 
-      {unloadedSections.length > 0 && (
-        <div role="alert" className="rounded-xl bg-caution-subtle text-caution-subtle-fg p-4 flex items-start justify-between gap-4">
-          <p>{t('records.partialLoad')}</p>
-          <button
-            type="button"
-            onClick={() => void loadRecords()}
-            className="shrink-0 font-medium underline"
-          >
-            {t('records.retry')}
-          </button>
-        </div>
-      )}
-
-      {/* Search & Filter */}
-      <div className="space-y-4">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-          <input aria-label={t('records.search')}
-            type="text"
-            placeholder={t('records.search')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-surface-sunken text-content border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
-          />
+      <div className="space-y-4 p-4 pb-6 md:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold text-content">{t('records.pageTitle')}</h1>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-content-muted" aria-hidden="true" />
+            <input aria-label={t('records.search')}
+              type="search"
+              placeholder={t('records.search')}
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setShown(PAGE_SIZE); }}
+              className="min-h-[44px] w-full rounded-xl border border-border-interactive bg-surface pl-12 pr-4 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            />
+          </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4">
+        {unloadedSections.length > 0 && (
+          <div role="alert" className="rounded-xl bg-caution-subtle text-caution-subtle-fg p-4 flex items-start justify-between gap-4">
+            <p>{t('records.partialLoad')}</p>
+            <button type="button" onClick={() => void loadRecords()} className="shrink-0 font-medium underline">
+              {t('records.retry')}
+            </button>
+          </div>
+        )}
+
+        {/* Filter chips stay in reach while the list scrolls. */}
+        <div className="sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto bg-surface-sunken px-4 py-2 md:-mx-5 md:px-5">
           {recordTypes.map(type => (
             <button
               key={type}
-              onClick={() => setFilterType(type)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+              type="button"
+              aria-pressed={filterType === type}
+              onClick={() => { setFilterType(type); setShown(PAGE_SIZE); }}
+              className={`min-h-[40px] whitespace-nowrap rounded-full border px-4 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
                 filterType === type
-                  ? 'bg-primary-500 text-brand-fg'
-                  : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
+                  ? 'border-selected bg-selected text-selected-fg'
+                  : 'border-border-interactive bg-surface text-content hover:bg-surface-sunken'
               }`}
             >
               {type === 'all' ? t('records.allRecords') : typeLabel(type)}
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Records Count */}
-      <div className="flex items-center gap-2 text-sm text-content-muted">
-        <FileText className="w-4 h-4" />
-        {t('records.found', { count: filteredRecords.length })}
-      </div>
+        <div className="space-y-4">
+          {byMonth.map((group) => (
+            <section key={group.key} aria-labelledby={`records-${group.key}`} className="space-y-2">
+              <h2 id={`records-${group.key}`} className="px-1 text-sm font-semibold uppercase tracking-wide text-content-secondary">
+                {t('records.monthCount', { month: group.label ?? t('records.undated'), n: String(monthCounts.get(group.key) ?? group.records.length) })}
+              </h2>
+              <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+                {group.records.map(record => {
+                  const open = selectedRecord?.id === record.id;
+                  return (
+                    <li key={record.id} className={`flex items-center gap-1 pr-2 ${open ? 'bg-selected text-selected-fg' : ''}`}>
+                      <button
+                        type="button"
+                        onClick={() => void openRecord(record)}
+                        aria-current={open ? 'true' : undefined}
+                        className="flex min-h-[64px] min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+                      >
+                        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${getRecordColor(record.type)}`} aria-hidden="true">
+                          {getRecordIcon(record.type)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block truncate font-semibold ${open ? '' : 'text-content'}`}>{record.title}</span>
+                          <span className={`block truncate text-sm ${open ? '' : 'text-content-muted'}`}>
+                            {[record.description !== record.title ? record.description : null, formatDate(record.date), providerName(record.provider)]
+                              .filter(Boolean).join(' · ')}
+                          </span>
+                        </span>
+                      </button>
+                      {!wide && downloadButton(record, false)}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
 
-      {/* Records List */}
-      <div className="space-y-3">
-        {byMonth.map((group) => (
-          <section key={group.key} aria-labelledby={`records-${group.key}`} className="space-y-3">
-            <h2 id={`records-${group.key}`} className="sticky top-0 z-10 bg-surface py-1 text-sm font-semibold text-content-secondary">
-              {group.label ?? t('records.undated')}
-            </h2>
-            {group.records.map(record => (
-          <div
-            key={record.id}
-            className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
-            {...clickable(() => setSelectedRecord(record))}
-          >
-            <div className="flex items-start gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getRecordColor(record.type)}`}>
-                {getRecordIcon(record.type)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-medium text-content truncate">{record.title}</h3>
-
-                </div>
-                <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
-                <div className="flex items-center gap-4 text-xs text-content-muted">
-                  <span className="flex items-center gap-1">
-                    <User className="w-3 h-3" />
-                    {providerName(record.provider)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    {formatDate(record.date)}
-                  </span>
-                </div>
-              </div>
-              <ChevronRight className="w-5 h-5 text-content-muted flex-shrink-0" />
+          {filteredRecords.length === 0 && (
+            <div className="text-center py-12">
+              <FileText className="w-12 h-12 text-content-muted mx-auto mb-4" aria-hidden="true" />
+              <p className="text-content-muted">{t('records.noRecords')}</p>
             </div>
-          </div>
-        ))}
-          </section>
-        ))}
+          )}
 
-        {filteredRecords.length === 0 && (
-          <div className="text-center py-12">
-            <FileText className="w-12 h-12 text-content-muted mx-auto mb-4" />
-            <p className="text-content-muted">{t('records.noRecords')}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Record Detail Modal */}
-      {selectedRecord && (
-        <RecordModal label={t('records.recordDetails')} onClose={closeDetails} className="items-end sm:items-center">
-          <div className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-content">{t('records.recordDetails')}</h2>
-              <button
-                aria-label={t('common.close')}
-                onClick={closeDetails}
-                className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
-              >
-                <X className="w-6 h-6 text-content-muted" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Record Header */}
-              <div className="flex items-start gap-4">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${getRecordColor(selectedRecord.type)}`}>
-                  {getRecordIcon(selectedRecord.type)}
-                </div>
-                <div>
-                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-1 ${getRecordColor(selectedRecord.type)}`}>
-                    {typeLabel(selectedRecord.type)}
-                  </span>
-                  <h3 className="font-semibold text-lg text-content">{selectedRecord.title}</h3>
-                  <p className="text-content-muted">{selectedRecord.description}</p>
-                </div>
-              </div>
-
-              {/* Record Info */}
-              <div className="space-y-4 p-4 bg-surface-sunken rounded-xl">
-                <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-content-muted" />
-                  <div>
-                    <p className="text-sm text-content-muted">{t('records.provider')}</p>
-                    <p className="font-medium text-content">{providerName(selectedRecord.provider)}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Calendar className="w-5 h-5 text-content-muted" />
-                  <div>
-                    <p className="text-sm text-content-muted">{t('records.date')}</p>
-                    <p className="font-medium text-content">{formatDate(selectedRecord.date)}</p>
-                  </div>
-                </div>
-                {selectedRecord.sealStatus && (
-                  <div className="flex items-center gap-3">
-                    <Shield className="w-5 h-5 text-content-muted" />
-                    <div>
-                      <p className="text-sm text-content-muted">{t('records.integrity')}</p>
-                      <SealStatusBadge status={selectedRecord.sealStatus} />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Lab Results Details (only for lab_result type) */}
-              {selectedRecord.type === 'lab_result' && selectedRecord.labResults && selectedRecord.labResults.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <FlaskConical className="w-5 h-5 text-info" />
-                    <h4 className="font-semibold text-content">{t('records.testResults')}</h4>
-                    <span className="text-xs text-ok-subtle-fg flex items-center gap-1 bg-ok-subtle px-2 py-0.5 rounded-full">
-                      <CheckCircle className="w-3 h-3" />
-                      {t('records.doctorApproved')}
-                    </span>
-                  </div>
-                  <div className="bg-surface-sunken rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-surface-sunken">
-                        <tr>
-                          <th className="text-left px-4 py-2 font-medium text-content-muted">{t('records.parameter')}</th>
-                          <th className="text-right px-4 py-2 font-medium text-content-muted">{t('records.value')}</th>
-                          <th className="text-right px-4 py-2 font-medium text-content-muted">{t('records.reference')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedRecord.labResults.map((result, idx) => (
-                          <tr key={idx} className="border-t border-border">
-                            <td className="px-4 py-2 text-content">{result.parameter}</td>
-                            <td className="px-4 py-2 text-right">
-                              <span className={`font-medium ${
-                                result.flag?.toLowerCase().startsWith('critical') ? 'text-critical-subtle-fg' :
-                                ['high', 'low'].includes(result.flag?.toLowerCase() ?? '') ? 'text-caution-subtle-fg' :
-                                'text-content'
-                              }`}>
-                                {result.value} {result.unit}
-                              </span>
-                              {result.flag && (
-                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                                  result.flag.toLowerCase() === 'normal' ? 'bg-ok-subtle text-ok-subtle-fg' :
-                                  result.flag.toLowerCase().startsWith('critical') ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                  ['high', 'low'].includes(result.flag.toLowerCase()) ? 'bg-caution-subtle text-caution-subtle-fg' :
-                                  'bg-surface-sunken text-content-secondary'
-                                }`}>
-                                  {result.flag}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-right text-content-muted">{result.reference_range}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {selectedRecord.reviewedBy && (
-                    <p className="text-xs text-content-muted flex items-center gap-1">
-                      <Shield className="w-3 h-3 text-ok-subtle-fg" />
-                      {t('records.reviewedByName', { name: providerName(selectedRecord.reviewedBy) })}
-                    </p>
-                  )}
-                </div>
+          {filteredRecords.length > 0 && (
+            <div className="space-y-2 text-center">
+              <p className="text-sm text-content-muted">
+                {t('records.tapToRead')} · {t('records.showing', { shown: String(visible.length), total: String(filteredRecords.length) })}
+              </p>
+              {visible.length < filteredRecords.length && (
+                <button type="button" onClick={() => setShown((n) => n + PAGE_SIZE)}
+                  className="min-h-[44px] rounded-xl border border-border-interactive px-5 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  {t('records.showMore')}
+                </button>
               )}
+            </div>
+          )}
+        </div>
+      </div>
 
-              {/* Actions */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleDownload(selectedRecord)}
-                  disabled={isDownloading === selectedRecord.id}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-                >
-                  {isDownloading === selectedRecord.id ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Download className="w-5 h-5" />
-                  )}
-                  {t('records.download')}
-                </button>
-                <button
-                  onClick={event => void handleView(selectedRecord, event.currentTarget)}
-                  disabled={isViewing === selectedRecord.id}
-                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-                >
-                  {isViewing === selectedRecord.id ? (
-                    <div className="w-5 h-5 border-2 border-border-strong border-t-neutral-600 rounded-full animate-spin" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
-                  {t('records.view')}
+      {/* Laptop: the document opens beside the list, no pop-up (mockup p6). */}
+      {wide && (
+        <aside aria-label={selectedRecord?.title ?? t('records.recordDetails')}
+          className="sticky top-16 flex h-[calc(100dvh-4rem)] flex-col border-l border-border bg-surface">
+          {selectedRecord ? (
+            <>
+              <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+                <h2 className="text-xl font-bold text-content">{selectedRecord.title}</h2>
+                <button type="button" onClick={closeDetails} aria-label={t('common.close')}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
-            </div>
-          </div>
-        </RecordModal>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{reader}</div>
+              <div className="border-t border-border px-5 py-3">{downloadButton(selectedRecord, true)}</div>
+            </>
+          ) : (
+            <p className="p-6 text-content-muted">{t('records.chooseRecord')}</p>
+          )}
+        </aside>
       )}
 
-      {preview && (
-        <RecordModal label={preview.title} onClose={closePreview} returnFocus={previewReturnFocus.current} className="items-center p-4">
-          <div className="bg-surface rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="font-semibold text-content truncate">{preview.title}</h2>
-              <button
-                type="button"
-                onClick={closePreview}
-                className="px-3 py-1 text-sm text-content-muted hover:text-content"
-              >
-                {t('records.close')}
-              </button>
-            </div>
-            <div className="p-4 overflow-auto">
-              {preview.kind === 'text' && (
-                <pre className="text-sm text-content whitespace-pre-wrap break-words font-mono">
-                  {preview.text}
-                </pre>
-              )}
-              {preview.kind === 'image' && (
-                <img src={preview.url} alt={preview.title} className="max-w-full h-auto mx-auto" />
-              )}
-              {preview.kind === 'pdf' && (
-                <iframe src={preview.url} title={preview.title} className="w-full h-[65vh]" />
-              )}
-              {preview.kind === 'unsupported' && (
-                <p className="text-sm text-content-muted">
-                  {t('records.viewUnsupported', { type: preview.contentType })}
-                </p>
-              )}
-            </div>
-          </div>
-        </RecordModal>
+      {/* Phone and tablet: one sheet, never two, with Download pinned. */}
+      {!wide && selectedRecord && (
+        <Sheet title={selectedRecord.title} onClose={closeDetails} actions={downloadButton(selectedRecord, true)}>
+          {reader}
+        </Sheet>
       )}
     </div>
   );
 }
 
+type RecordPreview = {
+  kind: 'text' | 'image' | 'pdf' | 'unsupported' | 'failed';
+  text?: string;
+  url?: string;
+  contentType: string;
+};
+
+const PAGE_SIZE = 20;
+
+/** Newest first; undated last. */
+function byNewest<R extends { date: string }>(records: R[]): R[] {
+  return [...records].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+}
+
+/** The open record: who and when, any lab table, then the document itself. */
+function RecordReader({ record, preview, loading, typeLabel, provider, date, reviewer, onRetry }: {
+  record: MedicalRecord;
+  preview: RecordPreview | null;
+  loading: boolean;
+  typeLabel: string;
+  provider: string;
+  date: string;
+  reviewer: string | null;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-4">
+      <p className="flex flex-wrap items-center gap-2 text-sm text-content-muted">
+        <span>{[typeLabel, date, provider].filter(Boolean).join(' · ')}</span>
+        {record.sealStatus && <SealStatusBadge status={record.sealStatus} />}
+      </p>
+      {record.description && record.description !== record.title && (
+        <p className="text-content">{record.description}</p>
+      )}
+
+      {record.type === 'lab_result' && record.labResults && record.labResults.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-sunken">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-content-muted">{t('records.parameter')}</th>
+                <th className="px-3 py-2 text-right font-medium text-content-muted">{t('records.value')}</th>
+                <th className="px-3 py-2 text-right font-medium text-content-muted">{t('records.reference')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {record.labResults.map((result, idx) => (
+                <tr key={idx} className="border-t border-border">
+                  <td className="px-3 py-2 text-content">{result.parameter}</td>
+                  <td className="px-3 py-2 text-right">
+                    <span className="font-medium text-content">{result.value} {result.unit}</span>
+                    {result.flag && (
+                      <span className={`ml-2 rounded px-1.5 py-0.5 text-xs ${
+                        result.flag.toLowerCase() === 'normal' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                        result.flag.toLowerCase().startsWith('critical') ? 'bg-critical-subtle text-critical-subtle-fg' :
+                        ['high', 'low'].includes(result.flag.toLowerCase()) ? 'bg-caution-subtle text-caution-subtle-fg' :
+                        'bg-surface-sunken text-content-secondary'
+                      }`}>{result.flag}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right text-content-muted">{result.reference_range}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {reviewer && (
+            <p className="flex items-center gap-1 border-t border-border px-3 py-2 text-xs text-content-muted">
+              <CheckCircle className="h-3 w-3 text-ok-subtle-fg" aria-hidden="true" />
+              {t('records.reviewedByName', { name: reviewer })}
+            </p>
+          )}
+        </div>
+      )}
+
+      {loading && <p role="status" className="text-content-muted">{t('records.opening')}</p>}
+      {preview?.kind === 'text' && preview.text && <RecordDocument text={preview.text} />}
+      {preview?.kind === 'image' && <img src={preview.url} alt={record.title} className="mx-auto h-auto max-w-full" />}
+      {preview?.kind === 'pdf' && <iframe src={preview.url} title={record.title} className="h-[60vh] w-full" />}
+      {preview?.kind === 'unsupported' && (
+        <p className="text-sm text-content-muted">{t('records.viewUnsupported', { type: preview.contentType })}</p>
+      )}
+      {preview?.kind === 'failed' && (
+        <div role="alert" className="rounded-xl bg-caution-subtle p-3 text-sm text-caution-subtle-fg">
+          <p>{t('records.viewFailed', { title: record.title })}</p>
+          <button type="button" onClick={onRetry} className="mt-1 font-semibold underline">{t('records.retry')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
