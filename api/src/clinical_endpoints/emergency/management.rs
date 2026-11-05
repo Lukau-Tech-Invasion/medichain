@@ -265,10 +265,11 @@ pub async fn administer_medication(
     http_req: HttpRequest,
     req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.id,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.id.clone();
     let body = req.into_inner();
     let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
         Some(p) if !p.trim().is_empty() => p.to_string(),
@@ -279,8 +280,22 @@ pub async fn administer_medication(
             })
         }
     };
-    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
-        return resp;
+    // A dose goes on the chart of a patient the clinician is treating: by the
+    // patient's grant, a care relationship, a ward assignment, or -- in a code
+    // with no prior link -- a break-glass grant, which tells the patient.
+    match crate::care_access::treats_patient(&data, &caller, &patient_id).await {
+        Ok(true) => {}
+        Ok(false) => return crate::middleware::phi_access_audit::chart_refused(true),
+        Err(error) => {
+            log::error!(
+                "emergency medication authority for {patient_id}: {}",
+                error.0
+            );
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Access to this chart cannot be checked right now".to_string(),
+                code: "ACCESS_CHECK_UNAVAILABLE".to_string(),
+            });
+        }
     }
 
     let administration = serde_json::json!({

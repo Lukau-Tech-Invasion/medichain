@@ -826,3 +826,60 @@ mod handoff_scope_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod administer_med_scope_tests {
+    //! An emergency dose is written to the chart of a patient the clinician is
+    //! linked to. A clinician with no link is told to break the glass.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+
+    const PATIENT: &str = "PAT-EMERG-MED";
+    const TREATING: &str = "emerg-med-treating-doctor";
+    const STRANGER: &str = "emerg-med-stranger-doctor";
+
+    #[actix_web::test]
+    async fn only_a_linked_clinician_records_an_emergency_dose() {
+        let state = AppState::new();
+        test_fixtures::register(&state, TREATING, Role::Doctor);
+        test_fixtures::register(&state, STRANGER, Role::Doctor);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        crate::care_access::record_encounter(
+            &state,
+            PATIENT,
+            TREATING,
+            "APT-EMERG-MED",
+            Utc::now(),
+        )
+        .await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::administer_medication),
+        )
+        .await;
+        let dose = |who: &'static str| {
+            test::TestRequest::post()
+                .uri("/api/emergency/administer-med")
+                .insert_header(test_fixtures::as_user(who))
+                .set_json(serde_json::json!({
+                    "patient_id": PATIENT, "medication_name": "Adrenaline",
+                    "dose": "1 mg", "route": "IV",
+                }))
+                .to_request()
+        };
+        let refused = test::call_service(&app, dose(STRANGER)).await;
+        assert_eq!(refused.status().as_u16(), 403);
+        let body: serde_json::Value = test::read_body_json(refused).await;
+        assert_eq!(body["code"], "CARE_RELATIONSHIP_REQUIRED");
+        assert_eq!(body["break_glass_available"], true);
+
+        let recorded = test::call_service(&app, dose(TREATING)).await;
+        assert_eq!(
+            recorded.status().as_u16(),
+            200,
+            "the treating doctor records the dose"
+        );
+    }
+}
