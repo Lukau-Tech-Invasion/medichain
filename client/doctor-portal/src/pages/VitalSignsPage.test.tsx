@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import VitalSignsPage from './VitalSignsPage';
 import { useAuthStore } from '../store';
+import { clearAllDrafts } from '@medichain/shared';
 
 // Mock the stores
 vi.mock('../store', () => ({
@@ -48,6 +49,8 @@ describe('VitalSignsPage', () => {
   };
 
   beforeEach(() => {
+    // The form keeps a draft for the tab; each test starts from an empty one.
+    clearAllDrafts();
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
@@ -115,19 +118,15 @@ describe('VitalSignsPage', () => {
     });
   });
 
-  it('allows opening the add new vitals form', async () => {
+  it('opens the form at once when opened for a patient', async () => {
     render(
       <MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}>
         <VitalSignsPage />
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      const addButton = screen.getByText(/Record Vitals/i);
-      fireEvent.click(addButton);
-    });
-
-    expect(screen.getByText(/Record New Vital Signs/i)).toBeInTheDocument();
+    // Opened for a patient, the form is the task: it is open without a click.
+    expect(await screen.findByText(/Record New Vital Signs/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Heart Rate/i)).toBeInTheDocument();
   });
 
@@ -168,10 +167,7 @@ describe('VitalSignsPage', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      fireEvent.click(screen.getByText(/Record Vitals/i));
-    });
-    fireEvent.change(screen.getByLabelText(/Systolic/i), { target: { value: '80' } });
+    fireEvent.change(await screen.findByLabelText(/Systolic/i), { target: { value: '80' } });
     fireEvent.change(screen.getByLabelText(/Diastolic/i), { target: { value: '120' } });
     fireEvent.submit(screen.getByLabelText(/Systolic/i).closest('form')!);
 
@@ -182,12 +178,20 @@ describe('VitalSignsPage', () => {
     expect(posted).toBe(false);
   });
 
+  it('keeps a half-filled form as a draft when the clinician is called away', async () => {
+    const first = render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    fireEvent.change(await screen.findByLabelText(/Heart Rate/i), { target: { value: '104' } });
+    expect(screen.getByText('Draft kept on this tab')).toBeInTheDocument();
+    first.unmount();
+    render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    expect(await screen.findByDisplayValue('104')).toBeInTheDocument();
+  });
+
   it('refuses blank and notes-only readings but accepts an explicitly entered zero pain score', async () => {
     render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button', { name: 'Record Vitals' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Save Vitals' }));
     expect(await screen.findByText('Enter at least one measured vital sign before saving.')).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText('Additional observations...'), { target: { value: 'Synthetic note only' } });
+    fireEvent.change(screen.getByLabelText(/^Notes/i), { target: { value: 'Synthetic note only' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
     expect(mockFetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
     fireEvent.change(screen.getByLabelText('Pain Scale (0-10)'), { target: { value: '0' } });

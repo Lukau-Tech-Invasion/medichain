@@ -59,10 +59,10 @@ export default function TodayPage() {
   const waiting = SECTIONS.reduce((n, s) => n + today[s].length, 0);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
-      <header>
-        <h1 className="text-2xl font-bold text-content">{t('today.title')}</h1>
-        <p className="text-content-secondary">
+    <div className="mx-auto max-w-4xl space-y-4 p-4">
+      <header className="flex flex-wrap items-baseline gap-x-3">
+        <h1 className="text-xl font-bold text-content">{t('today.title')}</h1>
+        <p className="text-sm text-content-secondary">
           {formatDateOnly(today.date)} · {t('today.waiting', { n: waiting })}
         </p>
       </header>
@@ -73,11 +73,11 @@ export default function TodayPage() {
       )}
 
       {SECTIONS.map((section) => today[section].length > 0 && (
-        <section key={section} aria-labelledby={`today-${section}`} className="space-y-2">
-          <h2 id={`today-${section}`} className="text-lg font-semibold text-content">
+        <section key={section} aria-labelledby={`today-${section}`} className="space-y-1">
+          <h2 id={`today-${section}`} className="text-sm font-semibold uppercase tracking-wide text-content-secondary">
             {t(`today.section.${section}`)} <span className="text-content-muted">({today[section].length})</span>
           </h2>
-          <ul className="space-y-2">
+          <ul className="space-y-1">
             {today[section].map((item) => {
               const p = who(item.patient_id);
               return (
@@ -102,14 +102,14 @@ export default function TodayPage() {
 
       {waiting === 0 && today.unavailable.length === 0 && <StatusBanner kind="empty" message={t('today.nothingWaiting')} />}
 
-      <section aria-labelledby="today-patients" className="space-y-2">
-        <h2 id="today-patients" className="text-lg font-semibold text-content">
+      <section aria-labelledby="today-patients" className="space-y-1">
+        <h2 id="today-patients" className="text-sm font-semibold uppercase tracking-wide text-content-secondary">
           {t('today.myPatients')} <span className="text-content-muted">({today.patients.length})</span>
         </h2>
         {today.patients.length === 0 ? (
           <StatusBanner kind="empty" message={t('today.noPatients')} />
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-1">
             {today.patients.map((p) => (
               <li key={p.patient_id}>
                 <WorkQueueItem

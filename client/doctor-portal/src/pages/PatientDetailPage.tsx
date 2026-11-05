@@ -33,7 +33,6 @@ import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain
 import type { GuardianRelationship } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import { 
-  ArrowLeft, 
   User, 
   Heart, 
   AlertTriangle, 
@@ -584,95 +583,65 @@ function PatientDetailPage() {
   }
 
   return (
-    <div className="p-4 sm:p-8">
-      {/* Back Button */}
-      <Link to="/patients" className="inline-flex items-center gap-2 text-content-muted hover:text-content-secondary mb-6">
-        <ArrowLeft size={20} />
-        {t('docPatientDetail.backToPatients')}
-      </Link>
-
-      {/* Patient Header */}
-      <div className="bg-surface rounded-xl shadow p-4 sm:p-6 mb-6">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 bg-brand-subtle rounded-full flex items-center justify-center">
-              <span className="text-2xl font-bold text-brand">
-                {patient.fullName.split(' ').map(n => n[0]).join('')}
-              </span>
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-content break-words">{patient.fullName}</h1>
-              <p className="text-content-muted break-words">{patient.nationalHealthId}</p>
-              <div className="flex flex-wrap items-center gap-2 mt-2">
-                <span className="text-sm bg-surface-sunken px-2 py-1 rounded">
-                  {t('docPatientDetail.dob', { date: patient.dateOfBirth })}
-                </span>
-                <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
-                  {t('docPatientDetail.blood', { type: patient.bloodType })}
-                </span>
-                {patient.bloodType === 'Unknown' && (
-                  <span role="alert" className="text-sm font-medium text-critical-subtle-fg">
-                    {t('emergency.unknownBloodTypeWarning')}
-                  </span>
-                )}
-                {patient.dnrStatus && (
-                  <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
-                    {t('docPatientDetail.dnr')}
-                  </span>
-                )}
-                {patient.organDonor && (
-                  <span className="text-sm bg-ok-subtle text-ok-subtle-fg px-2 py-1 rounded">
-                    {t('docPatientDetail.organDonor')}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex shrink-0 flex-wrap gap-2">
+    <div className="p-4">
+      {/* The workspace banner above already names the patient, their age,
+          allergies, blood group and code status, and "Close patient" is the way
+          back: this page shows one header, not two (mockup c4). */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label={t('docPatientDetail.tabsLabel')} className="flex gap-1 rounded-lg bg-surface-sunken p-1">
+          {(['overview', 'records', 'access'] as const).map((tab) => (
             <button
+              key={tab}
               type="button"
-              onClick={() => patient && downloadPatientSummary(patient)}
-              className="px-4 py-2 border border-border rounded-lg hover:bg-surface-sunken flex items-center gap-2"
+              aria-pressed={activeTab === tab}
+              onClick={() => setActiveTab(tab)}
+              className={`min-h-[40px] rounded-md px-4 transition-colors ${
+                activeTab === tab
+                  ? 'bg-surface shadow text-content'
+                  : 'text-content-muted hover:text-content-secondary'
+              }`}
             >
-              <Download size={18} />
-              {t('docPatientDetail.export')}
+              {tab === 'access' ? t('docPatientDetail.tabAccess') : tab === 'records' ? t('docPatientDetail.tabRecords') : t('docPatientDetail.tabOverview')}
             </button>
-            <button
-              type="button"
-              onClick={openClinicalDetailsEditor}
-              className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
-            >
-              <Edit size={18} />
-              {t('docPatientDetail.edit')}
-            </button>
-          </div>
+          ))}
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-surface-sunken p-1 rounded-lg w-fit">
-        {(['overview', 'records', 'access'] as const).map((tab) => (
+        <div className="flex flex-wrap items-center gap-2">
+          {patient.bloodType === 'Unknown' && (
+            <span role="alert" className="text-sm font-medium text-critical-subtle-fg">
+              {t('emergency.unknownBloodTypeWarning')}
+            </span>
+          )}
+          {patient.organDonor && (
+            <span className="rounded bg-ok-subtle px-2 py-1 text-sm text-ok-subtle-fg">
+              {t('docPatientDetail.organDonor')}
+            </span>
+          )}
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-md transition-colors ${
-              activeTab === tab
-                ? 'bg-surface shadow text-content'
-                : 'text-content-muted hover:text-content-secondary'
-            }`}
+            type="button"
+            onClick={() => patient && downloadPatientSummary(patient)}
+            className="flex min-h-[40px] items-center gap-2 rounded-lg border border-border-interactive px-4 hover:bg-surface-sunken"
           >
-            {tab === 'access' ? t('docPatientDetail.tabAccess') : tab === 'records' ? t('docPatientDetail.tabRecords') : t('docPatientDetail.tabOverview')}
+            <Download size={18} aria-hidden="true" />
+            {t('docPatientDetail.export')}
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={openClinicalDetailsEditor}
+            className="flex min-h-[40px] items-center gap-2 rounded-lg bg-brand px-4 text-brand-fg hover:bg-brand-hover"
+          >
+            <Edit size={18} aria-hidden="true" />
+            {t('docPatientDetail.edit')}
+          </button>
+        </div>
       </div>
 
       {/* Tab Content */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Allergies */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+          {/* Allergies stay here as well as in the banner: this card is what
+              tells "none recorded" apart from "none known" (rule 12). */}
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.allergies')}</h3>
             </div>
@@ -690,8 +659,8 @@ function PatientDetailPage() {
           </div>
 
           {/* Medications */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Pill className="text-brand" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.currentMeds')}</h3>
             </div>
@@ -710,8 +679,8 @@ function PatientDetailPage() {
           </div>
 
           {/* Chronic Conditions */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Heart className="text-critical" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.chronicConditions')}</h3>
             </div>
@@ -731,8 +700,8 @@ function PatientDetailPage() {
           <PatientAdministrativeDetails details={patient.administrative ?? {}} />
           <LatestPediatricAssessment patientId={patientId!} />
           {/* Dedicated vital-sign chart: separate encounters retain their own observations. */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Activity className="text-content-muted" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.latestVitalsHeading')}</h3>
             </div>
@@ -784,8 +753,8 @@ function PatientDetailPage() {
           </div>
 
           {/* Emergency Contacts */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Phone className="text-ok" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.emergencyContacts')}</h3>
             </div>
@@ -805,8 +774,8 @@ function PatientDetailPage() {
       )}
 
       {activeTab === 'records' && (
-        <div className="bg-surface rounded-xl shadow p-6">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="bg-surface rounded-lg border border-border p-4">
+          <div className="flex items-center gap-2 mb-2">
             <FileText className="text-content-muted" size={20} />
             <h3 className="font-semibold text-content">{t('docPatientDetail.medicalRecords')}</h3>
           </div>
@@ -816,7 +785,7 @@ function PatientDetailPage() {
 
       {activeTab === 'access' && (
         <div className="space-y-6">
-          <div className="bg-surface rounded-xl shadow p-6">
+          <div className="bg-surface rounded-lg border border-border p-4">
             <h3 className="font-semibold text-content mb-1">
               {t('docPatientDetail.capsuleHeading')}
             </h3>
@@ -902,8 +871,8 @@ function PatientDetailPage() {
             )}
           </div>
 
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Clock className="text-content-muted" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.accessHistory')}</h3>
             </div>
@@ -947,7 +916,7 @@ function PatientDetailPage() {
             )}
           </div>
 
-          <div className="bg-surface rounded-xl shadow p-6">
+          <div className="bg-surface rounded-lg border border-border p-4">
             <h3 className="font-semibold text-content mb-1">{t('docPatientDetail.guardiansHeading')}</h3>
             <p className="text-sm text-content-muted mb-4">{t('docPatientDetail.guardiansSubtitle')}</p>
 

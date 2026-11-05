@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { AlertTriangle, ChevronDown, History, Search, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, History, Menu, Search, X } from 'lucide-react';
 import {
   ModalPanel,
   draftsForPatient,
@@ -88,6 +88,9 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [directory, setDirectory] = useState<Patient | null>(null);
   const [closing, setClosing] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
+  // Choosing a form on a phone puts the form in view, not the list.
+  useEffect(() => setRailOpen(false), [form]);
   const returnTo = useRef(returnPathFrom(location.state, '/dashboard'));
   const events = useVisitEvents(user?.userId, patientId);
   const currentForm = form ? rail.byId.get(form) : undefined;
@@ -124,6 +127,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   const dob = profile?.date_of_birth ?? directory?.date_of_birth ?? kept?.date_of_birth;
   const years = age(dob);
   const sex = profile?.gender ?? kept?.gender ?? undefined;
+  const healthId = directory?.health_id ?? undefined;
   const info = profile?.emergency_info ?? (kept ? {
     allergies: kept.allergies,
     blood_type: kept.blood_type ?? undefined,
@@ -140,18 +144,32 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
 
   return (
     <PatientWorkspaceContext.Provider value={workspaceValue}>
-      <div className="flex min-h-full flex-col">
+      {/* Fixed frame: the banner, the form list and "This visit" stay put and
+          only the middle column scrolls -- the chart moves, the navigation does not. */}
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <header
-          className="sticky top-0 z-20 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-3 lg:px-6"
+          className="z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-3 lg:px-6"
           aria-label={t('workspace.bannerLabel')}
         >
+          {/* Phone: the form list is behind one button, not a panel above the chart. */}
+          <button
+            type="button"
+            onClick={() => setRailOpen((v) => !v)}
+            aria-expanded={railOpen}
+            aria-controls="workspace-forms"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-border-interactive px-3 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
+          >
+            <Menu className="h-4 w-4" aria-hidden="true" />
+            {t('workspace.forms')}
+          </button>
           <span className="mc-patient-identity flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-base font-bold text-brand-subtle-fg" aria-hidden="true">
             {initials(name)}
           </span>
           <div className="min-w-0" aria-live="polite">
             <h1 className="truncate text-lg font-bold text-content">{name || t('workspace.loadingPatient')}</h1>
             <p className="text-sm text-content-secondary">
-              {[sex, years !== null ? t('workspace.years', { n: String(years) }) : null, dob ? t('workspace.born', { date: formatDateOnly(dob) }) : null]
+              {[sex, years !== null ? t('workspace.years', { n: String(years) }) : null, dob ? t('workspace.born', { date: formatDateOnly(dob) }) : null,
+                healthId ? t('workspace.healthId', { id: healthId }) : null]
                 .filter(Boolean).join(' · ')}
             </p>
           </div>
@@ -182,9 +200,12 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
           </button>
         </header>
 
-        <div className="grid flex-1 grid-cols-1 lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[232px_minmax(0,1fr)_280px]">
-          <ActionsRail patientId={patientId} rail={rail} current={form} />
-          <section className="min-w-0" aria-label={currentForm?.label ?? t('workspace.chartHome')}>
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[232px_minmax(0,1fr)_280px]">
+          <ActionsRail patientId={patientId} rail={rail} current={form} open={railOpen} />
+          {/* `relative`: an absolutely placed child (every `sr-only` label) is
+              otherwise positioned against the page, escapes this scroll area and
+              makes the whole window scroll again. */}
+          <section className="relative min-h-0 min-w-0 overflow-y-auto" aria-label={currentForm?.label ?? t('workspace.chartHome')}>
             {!form && !online && roster && kept && <OfflineChartSummary bundle={roster} patient={kept} />}
             {!form && <div className="px-4 pt-4 lg:px-6"><AmbulanceRunStrip patientId={patientId} /></div>}
             {restricted || !known ? (
@@ -211,7 +232,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   );
 }
 
-function ActionsRail({ patientId, rail, current }: { patientId: string; rail: ReturnType<typeof workspaceRail>; current?: string }) {
+function ActionsRail({ patientId, rail, current, open }: { patientId: string; rail: ReturnType<typeof workspaceRail>; current?: string; open: boolean }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
@@ -237,7 +258,8 @@ function ActionsRail({ patientId, rail, current }: { patientId: string; rail: Re
     );
   };
   return (
-    <nav aria-label={t('workspace.actionsLabel')} className="border-b border-border bg-surface p-2 lg:border-b-0 lg:border-r">
+    <nav id="workspace-forms" aria-label={t('workspace.actionsLabel')}
+      className={`${open ? 'block max-h-[60vh]' : 'hidden'} overflow-y-auto border-b border-border bg-surface p-2 lg:block lg:max-h-none lg:border-b-0 lg:border-r`}>
       <div className="relative m-1">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-muted" aria-hidden="true" />
         <label htmlFor="workspace-form-search" className="sr-only">{t('workspace.searchForms')}</label>
@@ -293,15 +315,17 @@ function ActionsRail({ patientId, rail, current }: { patientId: string; rail: Re
 function VisitPanel({ events, patientName }: { events: ReturnType<typeof useVisitEvents>; patientName: string }) {
   const { t } = useTranslation();
   return (
-    <aside aria-label={t('workspace.thisVisit')} className="hidden border-l border-border bg-surface p-4 xl:block">
+    <aside aria-label={t('workspace.thisVisit')} className="hidden overflow-y-auto border-l border-border bg-surface p-4 xl:block">
       <h2 className="flex items-center gap-2 font-semibold text-content">
         <History className="h-4 w-4" aria-hidden="true" />
         {t('workspace.thisVisit')}
       </h2>
       <p className="mb-3 text-xs text-content-muted">{t('workspace.thisVisitFor', { name: patientName })}</p>
       <ol className="space-y-0" aria-live="polite">
-        {events.map((e) => (
-          <li key={`${e.at}-${e.label}`} className="mc-enter flex gap-3 border-t border-border py-2 first:border-t-0">
+        {/* Two entries can share a time and a label (a form saved twice in a
+            second); the position keeps each key unique. */}
+        {events.map((e, i) => (
+          <li key={`${e.at}-${e.label}-${i}`} className="mc-enter flex gap-3 border-t border-border py-2 first:border-t-0">
             <span className="w-12 shrink-0 text-xs tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
             <span className={`text-sm ${e.kind === 'saved' ? 'font-semibold text-content' : 'text-content-secondary'}`}>
               {e.kind === 'saved' ? t('workspace.savedEntry', { form: e.label }) : e.label}

@@ -48,18 +48,20 @@ export function WorkQueueItem({ title, patientName, patientDetail, when, urgency
           )}
           <span className="font-semibold text-content">{title}</span>
         </span>
-        {(patientName || patientDetail) && (
-          <span className="mt-0.5 block text-sm text-content-secondary">
+        {/* Who, then what was found, on one line: two lines a row, so a queue
+            fits a screen instead of scrolling past three. */}
+        {(patientName || patientDetail || meta) && (
+          <span className="block truncate text-sm text-content-secondary">
             {patientName}{patientName && patientDetail ? ' · ' : ''}{patientDetail}
+            {meta && <span className="text-content-muted">{patientName || patientDetail ? ' · ' : ''}{meta}</span>}
           </span>
         )}
-        {meta && <span className="mt-0.5 block text-sm text-content-muted">{meta}</span>}
       </span>
-      {when && <span className="shrink-0 text-sm tabular-nums text-content-muted">{when}</span>}
-      <ChevronRight className="h-5 w-5 shrink-0 text-content-muted" aria-hidden="true" />
+      {when && <span className="shrink-0 text-xs tabular-nums text-content-muted">{when}</span>}
+      <ChevronRight className="h-4 w-4 shrink-0 text-content-muted" aria-hidden="true" />
     </>
   );
-  const className = `mc-press flex min-h-[56px] w-full items-center gap-3 rounded-xl border border-border border-l-4 ${URGENCY[urgency]} bg-surface px-4 py-3 text-left hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus`;
+  const className = `mc-press flex min-h-[48px] w-full items-center gap-3 rounded-lg border border-border border-l-4 ${URGENCY[urgency]} bg-surface px-3 py-2 text-left hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus`;
   if (to) return <Link to={to} state={state} onClick={onOpen} className={className}>{body}</Link>;
   return <button type="button" onClick={onOpen} className={className}>{body}</button>;
 }

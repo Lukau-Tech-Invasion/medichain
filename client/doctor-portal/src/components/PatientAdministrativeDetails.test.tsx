@@ -5,7 +5,9 @@ import { PatientAdministrativeDetails } from './PatientAdministrativeDetails';
 describe('PatientAdministrativeDetails', () => {
   it('preserves absent data as unknown rather than no insurance or active coverage', () => {
     render(<PatientAdministrativeDetails details={{}} />);
-    expect(screen.getAllByText('Not recorded')).toHaveLength(10);
+    // Every field is still named as not recorded -- once, on one line.
+    expect(screen.getByText('Not recorded:')).toBeInTheDocument();
+    expect(screen.getByText(/Phone, Gender, Address/)).toBeInTheDocument();
     expect(screen.queryByText('Reported inactive')).not.toBeInTheDocument();
     expect(screen.queryByText('Reported active')).not.toBeInTheDocument();
   });

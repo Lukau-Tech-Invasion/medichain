@@ -4,11 +4,9 @@ import PatientSelect from '../components/PatientSelect';
 import {
   createGCS,
   getApiErrorMessage,
-  bloodPressureSchema,
   useScoringCatalog,
   useTranslation,
   vitalFlag,
-  addVitalSigns,
   getVitalsFlowsheet,
   formatTimestamp,
   notifySuccess, submitOnce, useSubmission } from '@medichain/shared';
@@ -34,6 +32,8 @@ import {
 } from 'lucide-react';
 
 import StaffName from '../components/StaffName';
+import { VitalsEntryForm } from '../components/VitalsEntryForm';
+import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
 interface VitalReading {
   reading_id: string;
   patient_id: string;
@@ -105,7 +105,7 @@ function VitalSignsPage() {
   const patientIdFromUrl = searchParams.get('patientId');
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const submission = useSubmission('vitals');
+  const workspace = usePatientWorkspace();
   const gcsSubmission = useSubmission('gcs');
 
   const { user, isAuthenticated } = useAuthStore();
@@ -178,6 +178,7 @@ function VitalSignsPage() {
   } | null>(null);
 
   const handleSubmitGcs = async () => {
+    if (gcsSubmitting) return;
     setGcsError(null);
     setGcsResult(null);
     if (!selectedPatientId) {
@@ -237,27 +238,13 @@ function VitalSignsPage() {
 
   const [flowsheet, setFlowsheet] = useState<VitalFlowsheet | null>(null);
   const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  // Opened for a patient -- from their chart, or with ?patientId= -- the form
+  // is the task, so it is open; chosen here, it waits for "Record vitals".
+  const [showForm, setShowForm] = useState(Boolean(patientIdFromUrl || workspace));
   const [showHistory, setShowHistory] = useState(true);
   
-  // New vital signs form
-  const [newVitals, setNewVitals] = useState({
-    heart_rate: '',
-    respiratory_rate: '',
-    bp_systolic: '',
-    bp_diastolic: '',
-    temperature: '',
-    oxygen_saturation: '',
-    pain_scale: '',
-    gcs_total: '',
-    blood_glucose: '',
-    weight_kg: '',
-    notes: '',
-  });
-
   // Auth redirect
   useEffect(() => {
     if (!isAuthenticated) {
@@ -288,78 +275,16 @@ function VitalSignsPage() {
     fetchFlowsheet();
   }, [selectedPatientId, user, t]);
 
-  const handleSubmitVitals = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedPatientId || !user) return;
-
+  const refreshAfterSave = async (queued: boolean) => {
     setError(null);
-    setSuccess(null);
-    if (!Object.entries(newVitals).some(([field, value]) => field !== 'notes' && value.trim() !== '')) {
-      setError(t('docVitalSigns.errorMeasurementRequired'));
-      return;
-    }
-    // A pair entered the wrong way round reads as profound hypotension; the
-    // server refuses it too, this says so before the round trip.
-    if (newVitals.bp_systolic && newVitals.bp_diastolic) {
-      const bp = bloodPressureSchema.safeParse({
-        systolic: Number(newVitals.bp_systolic),
-        diastolic: Number(newVitals.bp_diastolic),
-      });
-      if (!bp.success) {
-        setError(bp.error.issues[0]?.message ?? t('docVitalSigns.errorRecordVitalsGeneric'));
-        return;
-      }
-    }
-
-    setSubmitting(true);
+    setSuccess(queued ? t('forms.queued') : t('docVitalSigns.recordSuccess'));
+    setShowForm(false);
+    // A reading still on this device is not on the flowsheet yet.
+    if (queued) return;
     try {
-      const payload = {
-        patient_id: selectedPatientId,
-        heart_rate: newVitals.heart_rate ? Number(newVitals.heart_rate) : null,
-        respiratory_rate: newVitals.respiratory_rate ? Number(newVitals.respiratory_rate) : null,
-        systolic_bp: newVitals.bp_systolic ? Number(newVitals.bp_systolic) : null,
-        diastolic_bp: newVitals.bp_diastolic ? Number(newVitals.bp_diastolic) : null,
-        temperature_celsius: newVitals.temperature ? Number(newVitals.temperature) : null,
-        oxygen_saturation: newVitals.oxygen_saturation ? Number(newVitals.oxygen_saturation) : null,
-        pain_scale: newVitals.pain_scale ? Number(newVitals.pain_scale) : null,
-        gcs_total: newVitals.gcs_total ? Number(newVitals.gcs_total) : null,
-        blood_glucose: newVitals.blood_glucose ? Number(newVitals.blood_glucose) : null,
-        weight_kg: newVitals.weight_kg ? Number(newVitals.weight_kg) : null,
-        notes: newVitals.notes || null,
-      };
-
-      let outcome: Awaited<ReturnType<typeof submitOnce>>;
-      try {
-        // One key per submission: a double tap, or a retry after a timeout that
-        // had in fact saved, is answered "already saved" instead of writing twice.
-        outcome = await submitOnce(submission, payload, () => addVitalSigns(payload));
-        if (outcome === 'busy') return;
-      } catch (refused) {
-        throw new Error(getApiErrorMessage(refused, t('docVitalSigns.errorRecordVitals')));
-      }
-
-      setSuccess(outcome === 'queued' ? t('forms.queued') : t('docVitalSigns.recordSuccess'));
-      setShowForm(false);
-      setNewVitals({
-        heart_rate: '',
-        respiratory_rate: '',
-        bp_systolic: '',
-        bp_diastolic: '',
-        temperature: '',
-        oxygen_saturation: '',
-        pain_scale: '',
-        gcs_total: '',
-        blood_glucose: '',
-        weight_kg: '',
-        notes: '',
-      });
-
-      // Refresh flowsheet (a reading still on this device is not on it yet)
-      if (outcome !== 'queued') setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
+      setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('docVitalSigns.errorRecordVitalsGeneric'));
-    } finally {
-      setSubmitting(false);
+      setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
     }
   };
 
@@ -398,9 +323,10 @@ function VitalSignsPage() {
             placeholder={t('docVitalSigns.selectPatientPlaceholder')}
             className="flex-1"
           />
-          {selectedPatientId && (
+          {selectedPatientId && !showForm && (
             <button
-              onClick={() => setShowForm(!showForm)}
+              type="button"
+              onClick={() => setShowForm(true)}
               className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
             >
               <Plus size={20} />
@@ -410,12 +336,25 @@ function VitalSignsPage() {
         </div>
       </div>
 
+      {/* The vitals form first (mockup c3): the task the page is opened for. */}
+      {showForm && selectedPatientId && (
+        <VitalsEntryForm
+          key={selectedPatientId}
+          patientId={selectedPatientId}
+          onCancel={() => setShowForm(false)}
+          onSaved={(queued) => void refreshAfterSave(queued)}
+        />
+      )}
+
       {/* Glasgow Coma Scale.
           Its own card, not a field on the vitals form: the vitals row carries a
           free-typed `gcs_total`, and a total with no eye/verbal/motor behind it
           cannot be checked or trended. */}
       {selectedPatientId && gcsScale && (
-        <div className="mb-6 bg-surface rounded-xl shadow p-6">
+        <form
+          onSubmit={(e) => { e.preventDefault(); void handleSubmitGcs(); }}
+          className="mb-6 bg-surface rounded-xl shadow p-6"
+        >
           <h2 className="text-lg font-semibold text-content mb-1">
             {t('docVitalSigns.gcsHeading')}
           </h2>
@@ -505,14 +444,13 @@ function VitalSignsPage() {
           )}
 
           <button
-            type="button"
-            onClick={handleSubmitGcs}
-            disabled={gcsSubmitting}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
+            type="submit"
+            aria-disabled={gcsSubmitting || undefined}
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-medium aria-disabled:cursor-wait min-h-[44px]"
           >
             {gcsSubmitting ? t('docVitalSigns.gcsSaving') : t('docVitalSigns.gcsSave')}
           </button>
-        </div>
+        </form>
       )}
 
       {/* Success/Error Messages */}
@@ -526,186 +464,6 @@ function VitalSignsPage() {
         <div className="mb-6 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-3">
           <AlertTriangle className="text-critical-subtle-fg" size={20} />
           <span className="text-critical-subtle-fg">{error}</span>
-        </div>
-      )}
-
-      {/* New Vitals Form */}
-      {showForm && selectedPatientId && (
-        <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
-          <h2 className="text-lg font-semibold text-content mb-4">{t('docVitalSigns.recordNewVitalsTitle')}</h2>
-          <form onSubmit={handleSubmitVitals}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div>
-                <label htmlFor="vitals-heart-rate" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Heart className="inline mr-1" size={14} />
-                  {t('docVitalSigns.heartRateLabel')}
-                </label>
-                <input
-                  id="vitals-heart-rate"
-                  type="number"
-                  value={newVitals.heart_rate}
-                  onChange={(e) => setNewVitals({ ...newVitals, heart_rate: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="60-100"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Wind className="inline mr-1" size={14} />
-                  {t('docVitalSigns.respRateLabel')}
-                </label>
-                <input
-                  id="vitals-respiratory-rate"
-                  type="number"
-                  value={newVitals.respiratory_rate}
-                  onChange={(e) => setNewVitals({ ...newVitals, respiratory_rate: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="12-20"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-bp-systolic" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.bpSystolicLabel')}
-                </label>
-                <input
-                  id="vitals-bp-systolic"
-                  type="number"
-                  value={newVitals.bp_systolic}
-                  onChange={(e) => setNewVitals({ ...newVitals, bp_systolic: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="90-140"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-bp-diastolic" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.bpDiastolicLabel')}
-                </label>
-                <input
-                  id="vitals-bp-diastolic"
-                  type="number"
-                  value={newVitals.bp_diastolic}
-                  onChange={(e) => setNewVitals({ ...newVitals, bp_diastolic: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="60-90"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-temperature" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Thermometer className="inline mr-1" size={14} />
-                  {t('docVitalSigns.temperatureLabel')}
-                </label>
-                <input
-                  id="vitals-temperature"
-                  type="number"
-                  step="0.1"
-                  value={newVitals.temperature}
-                  onChange={(e) => setNewVitals({ ...newVitals, temperature: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="36.1-37.8"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-oxygen-saturation" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Droplet className="inline mr-1" size={14} />
-                  {t('docVitalSigns.spo2Label')}
-                </label>
-                <input
-                  id="vitals-oxygen-saturation"
-                  type="number"
-                  value={newVitals.oxygen_saturation}
-                  onChange={(e) => setNewVitals({ ...newVitals, oxygen_saturation: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="95-100"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-pain-scale" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.painScaleLabel')}
-                </label>
-                <input
-                  id="vitals-pain-scale"
-                  type="number"
-                  min="0"
-                  max="10"
-                  value={newVitals.pain_scale}
-                  onChange={(e) => setNewVitals({ ...newVitals, pain_scale: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="0-10"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-gcs-total" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.gcsScoreLabel')}
-                </label>
-                <input
-                  id="vitals-gcs-total"
-                  type="number"
-                  min="3"
-                  max="15"
-                  value={newVitals.gcs_total}
-                  onChange={(e) => setNewVitals({ ...newVitals, gcs_total: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="15"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-blood-glucose" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.bloodGlucoseLabel')}
-                </label>
-                <input
-                  id="vitals-blood-glucose"
-                  type="number"
-                  value={newVitals.blood_glucose}
-                  onChange={(e) => setNewVitals({ ...newVitals, blood_glucose: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="3.9-7.8"
-                  step="0.1"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-weight" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.weightLabel')}
-                </label>
-                <input
-                  id="vitals-weight"
-                  type="number"
-                  step="0.1"
-                  value={newVitals.weight_kg}
-                  onChange={(e) => setNewVitals({ ...newVitals, weight_kg: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder={t('docVitalSigns.weightPlaceholder')}
-                />
-              </div>
-            </div>
-            <div className="mb-4">
-              <label htmlFor="vitals-notes" className="block text-sm font-medium text-content-secondary mb-1">{t('docVitalSigns.notesLabel')}</label>
-              <textarea
-                id="vitals-notes"
-                value={newVitals.notes}
-                onChange={(e) => setNewVitals({ ...newVitals, notes: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                rows={2}
-                placeholder={t('docVitalSigns.notesPlaceholder')}
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                aria-disabled={submitting || undefined}
-                className="aria-disabled:cursor-wait px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
-              >
-                {submitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                {t('docVitalSigns.saveVitalsButton')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-6 py-2 border border-border-strong rounded-lg hover:bg-surface-sunken"
-              >
-                {t('docVitalSigns.cancelButton')}
-              </button>
-            </div>
-          </form>
         </div>
       )}
 

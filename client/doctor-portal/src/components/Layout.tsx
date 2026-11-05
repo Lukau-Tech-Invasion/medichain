@@ -28,8 +28,6 @@ import { useToastActions } from './Toast';
 import {
   getNavForRole,
   getThemeForRole,
-  getDefaultExpandedSections,
-  getQuickActionsForRole,
   rolesOwningRoute,
   type NavSection,
   type NavItem,
@@ -72,6 +70,27 @@ interface NavSectionProps {
   isCollapsed: boolean;
   getBadgeCount: (itemId: string) => number | null;
   onMobileClose?: () => void;
+}
+
+const RECENT_NAV_KEY = 'medichain.nav.recent';
+const RECENT_NAV_LIMIT = 4;
+
+/** Recently opened menu routes; empty when storage is unavailable. */
+function readRecentNav(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_NAV_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.filter((r): r is string => typeof r === 'string').slice(0, RECENT_NAV_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentNav(routes: string[]): void {
+  try {
+    localStorage.setItem(RECENT_NAV_KEY, JSON.stringify(routes));
+  } catch {
+    // A private window or blocked storage just means no "Recent" list.
+  }
 }
 
 interface NavItemProps {
@@ -142,7 +161,6 @@ function NavItemComponent({
   // Written out in full: a class name assembled from a colour at runtime is
   // invisible to Tailwind's compiler and shipped as no colour at all.
   const accent = NAV_ACCENT[theme.bg] ?? NAV_ACCENT.default;
-  const priorityDotClass = `w-2 h-2 rounded-full ${accent.dot}`;
   
   return (
     <li>
@@ -175,11 +193,6 @@ function NavItemComponent({
           `}>
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
-        )}
-        
-        {/* Priority indicator (if no badge) */}
-          {(badgeCount === null || badgeCount === 0) && item.priority === 'high' && (
-          <span className={`${isCollapsed ? 'absolute top-1 right-1' : 'ml-auto'} ${priorityDotClass}`} />
         )}
         
         {/* Tooltip for collapsed mode */}
@@ -314,6 +327,9 @@ function Layout() {
   const { t } = useTranslation();
   const { user, logout } = useAuthStore();
   
+  // A patient's chart or one of its forms: the workspace brings its own navigation.
+  const patientOpen = /^\/patients\/[^/]+/.test(location.pathname);
+
   // Sidebar state
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -433,9 +449,32 @@ function Layout() {
   );
   const paramedicRestricted = userRole === 'Paramedic'
     && !PARAMEDIC_ALLOWED_ROUTES.has(location.pathname);
-  const defaultExpanded = useMemo(() => getDefaultExpandedSections(userRole), [userRole]);
-  
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(defaultExpanded);
+  // Under "More", every section starts folded: the screens used most are
+  // already above it, and an open section would only repeat them.
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
+
+  // The role's high-priority destinations, once each, at the top.
+  const pinned = useMemo(() => {
+    const seen = new Set<string>();
+    return navigation.flatMap((s) => s.items).filter((i) => i.priority === 'high' && !seen.has(i.to) && seen.add(i.to));
+  }, [navigation]);
+
+  // The last few screens this person opened from the menu. Route ids only --
+  // nothing about a patient -- in local storage, so it survives a reload.
+  const [recentIds, setRecentIds] = useState<string[]>(() => readRecentNav());
+  useEffect(() => {
+    const hit = navigation.flatMap((s) => s.items).find((i) => i.to === location.pathname);
+    if (!hit || pinned.some((p) => p.to === hit.to)) return;
+    setRecentIds((prev) => {
+      const next = [hit.to, ...prev.filter((to) => to !== hit.to)].slice(0, RECENT_NAV_LIMIT);
+      writeRecentNav(next);
+      return next;
+    });
+  }, [location.pathname, navigation, pinned]);
+  const recent = useMemo(() => {
+    const items = navigation.flatMap((s) => s.items);
+    return recentIds.map((to) => items.find((i) => i.to === to)).filter((i): i is NavItem => Boolean(i));
+  }, [recentIds, navigation]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -540,11 +579,11 @@ function Layout() {
    */
   const renderSidebar = (isMobile = false) => (
     <>
-      {/* Logo with role-based gradient */}
-      <div className={`p-4 bg-gradient-to-r ${theme.bgGradient}`}>
-        <div className="flex items-center gap-3">
-          <div className={`${isCollapsed && !isMobile ? 'w-8 h-8' : 'w-10 h-10'} bg-surface/20 rounded-lg flex items-center justify-center transition-all duration-200`}>
-            <Shield className="text-white" size={isCollapsed && !isMobile ? 20 : 24} />
+      {/* Logo, product and the collapse toggle in one quiet row. */}
+      <div className="border-b border-border p-3">
+        <div className={`flex items-center gap-3 ${isCollapsed && !isMobile ? 'flex-col' : ''}`}>
+          <div className={`h-9 w-9 shrink-0 rounded-lg bg-gradient-to-r ${theme.bgGradient} flex items-center justify-center`}>
+            <Shield className="text-white" size={20} />
           </div>
           {(!isCollapsed || isMobile) && (
             <div className="flex-1 min-w-0">
@@ -559,80 +598,81 @@ function Layout() {
                 name repeated twice tells them nothing about where they are
                 (WCAG 2.2 SC 1.3.1). The page heading is now the only h1.
               */}
-              <span className="block font-bold text-lg text-white">MediChain</span>
-              <span className="text-xs text-white">{portalTitle}</span>
+              <span className="block font-bold text-content">MediChain</span>
+              <span className="text-xs text-content-muted">{portalTitle}</span>
             </div>
           )}
           {/* Mobile close button */}
           {isMobile && (
             <button
               onClick={closeMobileMenu}
-              className="p-1 rounded-lg bg-surface/10 hover:bg-surface/20 transition-colors"
+              className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-surface-sunken transition-colors"
               aria-label="Close menu"
             >
-              <X className="text-white" size={20} />
+              <X className="text-content-secondary" size={20} />
+            </button>
+          )}
+          {!isMobile && (
+            <button
+              onClick={toggleCollapse}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content-secondary"
+              aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <ChevronLeft size={18} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
             </button>
           )}
         </div>
       </div>
 
-      {/* Role Badge & Collapse Toggle */}
-      <div className={`px-4 py-2 border-b border-border flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'justify-between'}`}>
-        {(!isCollapsed || isMobile) && (
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${theme.bgLight} ${theme.text}`}>
-            {user?.role || 'Unknown Role'}
-          </span>
-        )}
-        {/* Desktop collapse toggle */}
-        {!isMobile && (
-          <button
-            onClick={toggleCollapse}
-            className="p-1.5 rounded-lg hover:bg-surface-sunken transition-colors text-content-muted hover:text-content-secondary"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <ChevronLeft size={18} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
-          </button>
-        )}
-      </div>
-
-      {/* Navigation */}
+      {/* Navigation: what this role uses most, what this person used last,
+          and everything else folded away -- not 50 links at once. */}
       <nav role="navigation" aria-label="Sidebar navigation" className="flex-1 p-3 overflow-y-auto scrollbar-hide">
-        {navigation.map((section) => (
+        {(isCollapsed && !isMobile) ? navigation.map((section) => (
           <NavSectionComponent
             key={section.id}
             section={section}
-            isExpanded={expandedSections.has(section.id)}
+            isExpanded={false}
             onToggle={() => toggleSection(section.id)}
             theme={theme}
-            isCollapsed={isCollapsed && !isMobile}
+            isCollapsed
             getBadgeCount={getBadgeCount}
-            onMobileClose={isMobile ? closeMobileMenu : undefined}
           />
-        ))}
-      </nav>
-
-      {/* Quick Actions */}
-      {(!isCollapsed || isMobile) && (
-        <div className="shrink-0 px-3 py-2 border-t border-border">
-          <details>
-          <summary className="min-h-[36px] cursor-pointer text-sm font-medium text-content-muted flex items-center">Quick actions <span className="ml-auto" aria-hidden="true">+</span></summary>
-          <div className="flex gap-2 flex-wrap pt-2">
-            {getQuickActionsForRole(userRole).map(action => (
-              <button
-                key={action.id}
-                onClick={() => { navigate(action.to); if (isMobile) closeMobileMenu(); }}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm bg-surface border hover:bg-surface-sunken ${theme.hoverBg}`}
-                aria-label={action.label}
-              >
-                <action.icon size={14} />
-                <span >{action.label}</span>
-              </button>
+        )) : (
+          <>
+            <ul className="space-y-1">
+              {pinned.map((item) => (
+                <NavItemComponent key={item.id} item={item} theme={theme} isCollapsed={false}
+                  badgeCount={getBadgeCount(item.id)} onMobileClose={isMobile ? closeMobileMenu : undefined} />
+              ))}
+            </ul>
+            {recent.length > 0 && (
+              <>
+                <p className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-content-muted">Recent</p>
+                <ul className="space-y-1">
+                  {recent.map((item) => (
+                    <NavItemComponent key={item.id} item={item} theme={theme} isCollapsed={false}
+                      badgeCount={getBadgeCount(item.id)} onMobileClose={isMobile ? closeMobileMenu : undefined} />
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-content-muted">More</p>
+            {navigation.map((section) => (
+              <NavSectionComponent
+                key={section.id}
+                section={section}
+                isExpanded={expandedSections.has(section.id)}
+                onToggle={() => toggleSection(section.id)}
+                theme={theme}
+                isCollapsed={false}
+                getBadgeCount={getBadgeCount}
+                onMobileClose={isMobile ? closeMobileMenu : undefined}
+              />
             ))}
-          </div>
-          </details>
-        </div>
-      )}
+          </>
+        )}
+      </nav>
 
       {/* User info & logout */}
       <div className="shrink-0 p-2 border-t border-border">
@@ -745,6 +785,10 @@ function Layout() {
       >
         Skip to main content
       </a>
+      {/* With a patient open, the patient workspace is the whole screen (mockup
+          c4): its banner and form list are the only navigation, and "Close
+          patient" is the way back. Two side menus at once read as two apps. */}
+      {!patientOpen && <>
       {/* Mobile Header */}
       <div className="fixed top-0 left-0 right-0 h-14 bg-surface shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
         <button
@@ -806,9 +850,10 @@ function Layout() {
       >
         {renderSidebar()}
       </aside>
+      </>}
 
       {/* Main content */}
-      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken">
+      <main id="main-content" role="main" className={`relative flex-1 bg-surface-sunken ${patientOpen ? 'flex min-h-0 flex-col overflow-hidden' : 'overflow-auto pt-14 lg:pt-0'}`}>
         <OfflineStatusBar />
         {paramedicRestricted ? (
           <RestrictedSection

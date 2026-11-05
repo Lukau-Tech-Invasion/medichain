@@ -18,14 +18,25 @@ export function PatientAdministrativeDetails({ details }: { details: PatientAdmi
     ['adminGroup', insurance?.group_number], ['adminCoverage', insurance?.coverage_type],
     ['adminStatus', status], ['adminFrom', insurance?.valid_from], ['adminTo', insurance?.valid_to],
   ];
-  return <section aria-label={t('docPatientDetail.administrativeHeading')} className="bg-surface rounded-xl shadow p-6 lg:col-span-2">
-    <h3 className="font-semibold text-content">{t('docPatientDetail.administrativeHeading')}</h3>
-    <p className="text-sm text-content-muted mt-2">{t('docPatientDetail.administrativeNotice')}</p>
-    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-      {fields.map(([label, value]) => <div key={label} className="min-w-0">
-        <dt className="text-sm text-content-muted">{t(`docPatientDetail.${label}`)}</dt>
-        <dd className="text-content break-words">{value?.trim() || t('docPatientDetail.adminNotRecorded')}</dd>
-      </div>)}
-    </dl>
+  // What was recorded is listed; what was not is named once, on one line, so
+  // ten "Not recorded" rows do not fill the chart (still said, rule 12).
+  const recorded = fields.filter(([, value]) => value?.trim());
+  const missing = fields.filter(([, value]) => !value?.trim()).map(([label]) => t(`docPatientDetail.${label}`));
+  return <section aria-label={t('docPatientDetail.administrativeHeading')} className="bg-surface rounded-lg border border-border p-4">
+    <h3 className="font-semibold text-content" title={t('docPatientDetail.administrativeNotice')}>{t('docPatientDetail.administrativeHeading')}</h3>
+    {recorded.length > 0 && (
+      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+        {recorded.map(([label, value]) => <div key={label} className="contents">
+          <dt className="text-content-muted">{t(`docPatientDetail.${label}`)}</dt>
+          <dd className="text-content break-words">{value?.trim()}</dd>
+        </div>)}
+      </dl>
+    )}
+    {missing.length > 0 && (
+      <p className="mt-2 text-sm text-content-muted">
+        <span className="font-medium">{t('docPatientDetail.adminNotRecorded')}:</span> {missing.join(', ')}
+      </p>
+    )}
+    <p className="mt-2 text-xs text-content-muted">{t('docPatientDetail.administrativeNotice')}</p>
   </section>;
 }

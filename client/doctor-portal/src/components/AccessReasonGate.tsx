@@ -49,7 +49,12 @@ export function AccessReasonGate({ patientId, children }: AccessReasonGateProps)
   if (!patientId || currentAccess || onDevice) {
     return <>{children}</>;
   }
-  return <ChartAccessPrompt key={patientId} patientId={patientId} title={t('accessReason.title')} onReady={setAccess} />;
+  // Its own scroll area: inside a patient's workspace the page itself does not scroll.
+  return (
+    <div className="h-full overflow-y-auto">
+      <ChartAccessPrompt key={patientId} patientId={patientId} title={t('accessReason.title')} onReady={setAccess} />
+    </div>
+  );
 }
 
 /**

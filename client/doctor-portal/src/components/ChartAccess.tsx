@@ -125,12 +125,16 @@ export function ChartAccessPrompt({ patientId, title, onReady, onCancel }: Chart
     );
   }
   if (step.kind === 'break_glass') {
-    return <div className="space-y-6">
-      <section aria-label="Patient-approved chart access" className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="font-semibold">Ask the patient for chart access</h2>
-        <DocumentAccessRequest key={patientId} patientId={patientId} scope="chart" onCheckAccess={() => void open(step.reason)} />
-      </section>
+    // Emergency first, one tap (mockup c1); asking the patient is the
+    // non-emergency path, folded below it rather than stacked above it.
+    return <div className="mx-auto max-w-xl space-y-4 px-4 py-4">
       <BreakGlassPanel patientId={patientId} onOpened={() => void open(step.reason)} />
+      <details aria-label="Patient-approved chart access" className="rounded-2xl border border-border bg-surface px-4 py-3">
+        <summary className="cursor-pointer font-semibold text-content">{t('breakGlass.notEmergency')}</summary>
+        <div className="mt-3">
+          <DocumentAccessRequest key={patientId} patientId={patientId} scope="chart" onCheckAccess={() => void open(step.reason)} />
+        </div>
+      </details>
       {onCancel && <button type="button" onClick={onCancel} className={buttonClass}>{t('accessReason.cancel')}</button>}
     </div>;
   }

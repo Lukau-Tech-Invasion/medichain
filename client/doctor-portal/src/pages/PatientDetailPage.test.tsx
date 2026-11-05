@@ -127,9 +127,8 @@ describe('PatientDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('John Doe')).toBeInTheDocument();
-      expect(screen.getByText(/ID12345/i)).toBeInTheDocument();
-      expect(screen.getByText(/A\+/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument();
+      // Identity and blood group are the workspace banner's, not this page's.
       expect(screen.getByText(/Peanuts/i)).toBeInTheDocument();
       expect(screen.getByText(/Lisinopril/i)).toBeInTheDocument();
       expect(screen.getByText(/Hypertension/i)).toBeInTheDocument();
@@ -224,7 +223,7 @@ describe('PatientDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('John Doe')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole('button', { name: /^Records$/i }));
@@ -249,7 +248,7 @@ describe('PatientDetailPage', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /^Edit$/i }));
     fireEvent.change(screen.getByLabelText(/^Allergies$/i), { target: { value: 'Peanuts\nLatex' } });
     fireEvent.click(screen.getByRole('button', { name: /save clinical details/i }));
@@ -295,7 +294,7 @@ describe('PatientDetailPage', () => {
         </Routes>
       </MemoryRouter>
     );
-    await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /access/i }));
   }
 

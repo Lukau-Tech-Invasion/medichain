@@ -176,6 +176,8 @@ describe('AccessReasonGate', () => {
     }) as unknown as typeof fetch;
     renderGate('PAT-NORMAL');
     fireEvent.click(screen.getByRole('button', { name: 'Referral' }));
+    // Asking the patient is the folded, non-emergency path below break-glass.
+    fireEvent.click(await screen.findByText(/Not an emergency?/));
     const reason = await screen.findByLabelText('Reason for chart access');
     fireEvent.change(reason, { target: { value: 'Synthetic normal consent test' } });
     fireEvent.click(screen.getByRole('button', { name: 'Request chart access' }));

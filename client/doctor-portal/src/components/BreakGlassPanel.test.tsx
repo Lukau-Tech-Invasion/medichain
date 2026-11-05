@@ -55,6 +55,19 @@ describe('BreakGlassPanel', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ reason: 'Unconscious in resus, no history available' });
   });
 
+  it('opens the chart on one tap of a reason, sent as the reason itself', async () => {
+    mockFetch.mockImplementation(() => answer(201, { success: true, grant_id: 'BG-2', expires_at: '2026-09-26T13:00:00Z' }));
+    const onOpened = renderPanel();
+    for (const name of ['Unconscious or cannot consent', 'Life-threatening emergency', 'Treating clinician unavailable', 'Mass-casualty incident']) {
+      // Each preset clears the API's ten-character minimum on its own.
+      expect(name.length).toBeGreaterThanOrEqual(10);
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Life-threatening emergency' }));
+    await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(mockFetch.mock.calls[0][1]?.body))).toEqual({ reason: 'Life-threatening emergency' });
+  });
+
   it('keeps the chart closed and says so when access cannot be recorded', async () => {
     mockFetch.mockImplementation(() =>
       answer(503, { error: 'Emergency access could not be recorded. Please try again.', code: 'BREAK_GLASS_UNAVAILABLE' }),

@@ -797,6 +797,15 @@ const en_US: TranslationRecord = {
     reasonTooShort: 'Write a reason of at least {{min}} characters.',
     submit: 'Break the glass and open the chart',
     failed: 'Emergency access could not be recorded. Please try again.',
+    heading: 'Emergency access',
+    tapReason: 'You have no care relationship with this patient. Tap the reason and the chart opens at once.',
+    presetUnconscious: 'Unconscious or cannot consent',
+    presetLifeThreatening: 'Life-threatening emergency',
+    presetClinicianUnavailable: 'Treating clinician unavailable',
+    presetMassCasualty: 'Mass-casualty incident',
+    whatHappens: 'Access lasts one hour. The patient is told straight away and sees your reason. Everything you open is marked as emergency access. Record what happened in the chart as usual.',
+    otherReason: 'Another reason',
+    notEmergency: 'Not an emergency? Ask the patient for access instead',
   },
 
   // Where an entry stands in the sealed audit stream
@@ -2235,6 +2244,7 @@ const en_US: TranslationRecord = {
   },
 
   docPatientDetail: {
+    tabsLabel: 'Chart sections',
     administrativeHeading: 'Administrative details',
     administrativeNotice: 'These details can be maintained by the patient. Reported insurance is not verified eligibility.',
     adminPhone: 'Phone',
@@ -8577,6 +8587,9 @@ const en_US: TranslationRecord = {
   },
 
   docVitalSigns: {
+    formLabel: 'Vital signs',
+    draftKept: 'Draft kept on this tab',
+    moreDetails: 'More details — pain, blood glucose, weight, GCS, note',
     gcsHeading: 'Glasgow Coma Scale',
     gcsSubtitle: 'Record each component. The total and its interpretation are scored by the server.',
     gcsEye: 'Eye opening',
@@ -8824,6 +8837,8 @@ const en_US: TranslationRecord = {
   },
 
   workspace: {
+    forms: 'Forms',
+    healthId: 'Health ID {{id}}',
     bannerLabel: 'Open patient',
     loadingPatient: 'Loading patient…',
     years: '{{n}} years',
