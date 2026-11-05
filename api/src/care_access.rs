@@ -211,6 +211,32 @@ pub async fn treats_patient(
     ))
 }
 
+/// Refuse a write to `patient_id`'s chart unless `caller` [`treats_patient`].
+///
+/// For writes the GET-only chart gate in `PhiAccessAuditMiddleware` never
+/// sees. A clinician with no link is told to break the glass, which tells the
+/// patient; an authority store that cannot be read fails closed with 503.
+pub async fn require_treating_link(
+    data: &actix_web::web::Data<AppState>,
+    caller: &crate::User,
+    patient_id: &str,
+) -> Result<(), actix_web::HttpResponse> {
+    match treats_patient(data, caller, patient_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(crate::middleware::phi_access_audit::chart_refused(
+            caller.role.can_view_medical_records(),
+        )),
+        Err(error) => {
+            log::error!("treating authority for {patient_id}: {}", error.0);
+            Err(actix_web::HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                "success": false,
+                "error": "Access to this chart cannot be checked right now. Please try again shortly.",
+                "code": "ACCESS_CHECK_UNAVAILABLE",
+            })))
+        }
+    }
+}
+
 /// Record (or refresh) a care relationship from a clinical workflow item.
 ///
 /// A failure is logged, not returned: the appointment or consult it came from

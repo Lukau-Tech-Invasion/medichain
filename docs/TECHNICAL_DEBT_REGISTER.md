@@ -4531,9 +4531,11 @@ remain OPEN:
   `CARE_RELATIONSHIP_REQUIRED` with `break_glass_available`, so a code with no
   prior link proceeds by breaking the glass, which tells the patient.
   `administer_med_scope_tests` covers it.
-- OPEN: `POST /api/nursing/mar/administer` writes through the same MAR writer
-  and checks only the role (`require_provider`), so the same gap remains on the
-  ward route.
+- **CLOSED 2026-11-05:** `POST /api/nursing/mar/administer` writes through the
+  same MAR writer and checked only the role (`require_provider`). Both routes
+  now call `care_access::require_treating_link`, so the rule lives in one
+  place; `mar_scope_tests` covers the ward route. An administrator, who passed
+  the role check, no longer records doses: oversight is not treatment.
 - **CLOSED 2026-11-05:** `GET /api/clinical/shift-handoff/{provider_id}`
   passed a *provider* id into a patient-ownership check, so any healthcare
   provider could read any colleague's handoffs, which name patients. It now

@@ -283,19 +283,9 @@ pub async fn administer_medication(
     // A dose goes on the chart of a patient the clinician is treating: by the
     // patient's grant, a care relationship, a ward assignment, or -- in a code
     // with no prior link -- a break-glass grant, which tells the patient.
-    match crate::care_access::treats_patient(&data, &caller, &patient_id).await {
-        Ok(true) => {}
-        Ok(false) => return crate::middleware::phi_access_audit::chart_refused(true),
-        Err(error) => {
-            log::error!(
-                "emergency medication authority for {patient_id}: {}",
-                error.0
-            );
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Access to this chart cannot be checked right now".to_string(),
-                code: "ACCESS_CHECK_UNAVAILABLE".to_string(),
-            });
-        }
+    if let Err(resp) = crate::care_access::require_treating_link(&data, &caller, &patient_id).await
+    {
+        return resp;
     }
 
     let administration = serde_json::json!({
