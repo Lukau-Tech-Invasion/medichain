@@ -20,6 +20,12 @@ pub struct AddVitalSignsRequest {
     pub blood_glucose: Option<f64>,
     pub weight_kg: Option<f32>,
     pub notes: Option<String>,
+    /// ACVPU; absent when not assessed (never assumed alert).
+    #[serde(default)]
+    pub consciousness: Option<crate::clinical_scoring::Acvpu>,
+    /// Supplemental oxygen (true) or room air (false); absent when not recorded.
+    #[serde(default)]
+    pub on_oxygen: Option<bool>,
     /// Stable fixture key accepted only in explicit demo mode.
     #[serde(default)]
     pub demo_seed_key: Option<String>,
@@ -39,6 +45,8 @@ impl AddVitalSignsRequest {
             self.gcs_total.is_some(),
             self.blood_glucose.is_some(),
             self.weight_kg.is_some(),
+            self.consciousness.is_some(),
+            self.on_oxygen.is_some(),
         ]
         .into_iter()
         .any(|present| present)
@@ -53,6 +61,9 @@ pub struct VitalSignsResponse {
     pub mean_arterial_pressure: Option<u16>,
     pub critical_alerts: Vec<String>,
     pub message: String,
+    /// Scored here, from what this reading recorded (rule 8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub news2: Option<crate::clinical_scoring::News2Score>,
 }
 
 pub(crate) fn vital_reading_json(
@@ -74,6 +85,8 @@ pub(crate) fn vital_reading_json(
         "blood_glucose": v.blood_glucose,
         "weight_kg": v.weight_kg,
         "notes": v.notes,
+        "consciousness": v.consciousness,
+        "on_oxygen": on_oxygen_of(v.oxygen_delivery.as_deref()),
     })
 }
 
@@ -183,6 +196,7 @@ pub async fn add_vital_signs(
                     mean_arterial_pressure: None,
                     critical_alerts: Vec::new(),
                     message: "Deterministic demo vital signs already exist.".to_string(),
+                    news2: None,
                 });
             }
             id
@@ -248,6 +262,8 @@ pub async fn add_vital_signs(
         entity.gcs_score = req.gcs_total.map(i32::from);
         entity.blood_glucose = req.blood_glucose;
         entity.weight_kg = req.weight_kg.map(f64::from);
+        entity.consciousness = req.consciousness.map(|c| c.as_str().to_string());
+        entity.oxygen_delivery = req.on_oxygen.map(|o| oxygen_delivery_of(o).to_string());
         if let Err(e) = data.repositories.vital_signs.create(entity).await {
             log::error!("Vital signs persistence failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -301,7 +317,64 @@ pub async fn add_vital_signs(
         } else {
             "Vital signs recorded successfully".to_string()
         },
+        news2: Some(news2_of(&req)),
     })
+}
+
+/// What `oxygen_delivery` holds for room air and for supplemental oxygen.
+fn oxygen_delivery_of(on_oxygen: bool) -> &'static str {
+    if on_oxygen {
+        "supplemental_oxygen"
+    } else {
+        "room_air"
+    }
+}
+
+/// Whether a stored reading was on oxygen; `None` for anything this form did not write.
+fn on_oxygen_of(delivery: Option<&str>) -> Option<bool> {
+    match delivery {
+        Some("supplemental_oxygen") => Some(true),
+        Some("room_air") => Some(false),
+        _ => None,
+    }
+}
+
+/// NEWS2 for a reading as it was submitted.
+fn news2_of(req: &AddVitalSignsRequest) -> crate::clinical_scoring::News2Score {
+    crate::clinical_scoring::news2_score(&crate::clinical_scoring::News2Inputs {
+        respiratory_rate: req.respiratory_rate.map(i32::from),
+        oxygen_saturation: req.oxygen_saturation.map(i32::from),
+        on_oxygen: req.on_oxygen,
+        systolic_bp: req.systolic_bp.map(i32::from),
+        heart_rate: req.heart_rate.map(i32::from),
+        consciousness: req.consciousness,
+        temperature_celsius: req.temperature_celsius.map(f64::from),
+    })
+}
+
+/// NEWS2 for observations not yet saved: the vitals form's live score (mockup
+/// c3). Pure arithmetic over the request -- nothing is read or stored, so no
+/// patient is named -- but only clinical staff may ask, like the form itself.
+#[post("/api/clinical/scoring/news2")]
+pub async fn preview_news2(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<crate::clinical_scoring::News2Inputs>,
+) -> impl Responder {
+    let caller = get_current_user_id(&http_req).and_then(|id| get_user(&data, &id));
+    match caller {
+        Some(user) if user.role.can_edit_medical_records() => {
+            HttpResponse::Ok().json(crate::clinical_scoring::news2_score(&body))
+        }
+        Some(_) => HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only clinical staff can score observations".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }),
+        None => HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        }),
+    }
 }
 
 /// Response when vital signs cannot be read.
@@ -657,6 +730,59 @@ mod cds_wiring_tests {
             vital_reading_json(stored)["notes"],
             "Synthetic measured observation"
         );
+    }
+
+    /// Alertness and breathing support are stored, and the save answers with
+    /// the server's NEWS2 for exactly what was recorded (mockup c3).
+    #[actix_web::test]
+    async fn a_saved_reading_stores_acvpu_and_oxygen_and_returns_news2() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-NEWS2";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(&profile, &state.encryption_keyring))
+            .await
+            .unwrap();
+        state.users.write().unwrap().insert("doctor_user".to_string(), test_doctor());
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new().app_data(data.clone()).service(add_vital_signs).service(preview_news2),
+        )
+        .await;
+        let body = serde_json::json!({"patient_id": patient_id, "systolic_bp": 148, "diastolic_bp": 92,
+            "heart_rate": 104, "respiratory_rate": 20, "consciousness": "new_confusion", "on_oxygen": true});
+        let response = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/vitals")
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .set_json(body)
+            .to_request()).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+        let saved: serde_json::Value = test::read_body_json(response).await;
+        // Pulse 104 (1) + confusion (3) + oxygen (2) = 6, five of seven recorded.
+        assert_eq!(saved["news2"]["total"], 6);
+        assert_eq!(saved["news2"]["parameters_measured"], 5);
+        assert_eq!(saved["news2"]["complete"], false);
+        let stored = data.repositories.vital_signs.get_latest_by_patient(patient_id).await.unwrap().unwrap();
+        assert_eq!(stored.consciousness.as_deref(), Some("new_confusion"));
+        assert_eq!(stored.oxygen_delivery.as_deref(), Some("supplemental_oxygen"));
+        assert_eq!(vital_reading_json(stored)["on_oxygen"], true);
+
+        // The live preview: same arithmetic, nothing stored.
+        let preview = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/scoring/news2")
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .set_json(serde_json::json!({"respiratory_rate": 26}))
+            .to_request()).await;
+        assert_eq!(preview.status(), actix_web::http::StatusCode::OK);
+        let scored: serde_json::Value = test::read_body_json(preview).await;
+        assert_eq!((scored["total"].as_u64(), scored["band"].as_str()), (Some(3), Some("low_medium")));
+        let anonymous = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/scoring/news2")
+            .set_json(serde_json::json!({}))
+            .to_request()).await;
+        assert_eq!(anonymous.status(), actix_web::http::StatusCode::UNAUTHORIZED);
     }
 
     /// A recorded GCS preserves its explicit note along with all scored components.

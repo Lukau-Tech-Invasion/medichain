@@ -335,6 +335,10 @@ pub struct VitalSignsEntity {
     pub recorded_by: String,
     pub facility_id: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// ACVPU (`clinical_scoring::Acvpu::as_str`); absent on older readings.
+    #[serde(default)]
+    #[sqlx(default)]
+    pub consciousness: Option<String>,
 }
 
 /// Triage assessment entity (database model)

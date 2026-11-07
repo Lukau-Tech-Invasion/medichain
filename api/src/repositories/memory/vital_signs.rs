@@ -232,6 +232,7 @@ mod tests {
             recorded_by: "RN-001".to_string(),
             facility_id: None,
             created_at: Utc::now(),
+            consciousness: None,
         }
     }
 

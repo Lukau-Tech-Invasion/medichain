@@ -14,7 +14,9 @@ import {
   criticalValueAckSchema,
   criticalValueReportSchema,
   confirmDialog,
-  promptDialog, ModalPanel, ChoiceChips
+  promptDialog, ModalPanel, ChoiceChips,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { useLocation } from 'react-router-dom';
 import { useToastActions } from '../components/Toast';
@@ -136,6 +138,11 @@ const CriticalValuePage: React.FC = () => {
     notifiedProvider: '',
     readBackValue: '',
     acknowledgmentNotes: '',
+  });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const criticalDraft = useDraftFields('critical-value', newCritical.patientId || undefined, t('docCriticalValue.formLabel'), {
+    ...draftFieldsOf(newCritical, setNewCritical, ['analyte', 'value', 'unit', 'orderingProvider']),
+    acknowledgment: [acknowledgment, setAcknowledgment],
   });
 
   const fetchData = useCallback(async () => {
@@ -268,6 +275,7 @@ const CriticalValuePage: React.FC = () => {
       const response = await createCriticalValue(newNotification) as { success?: boolean; error?: string; notification_id?: string };
       if (response.success !== false) {
         await fetchData();
+        criticalDraft.markSaved();
         setNewCritical({
           patientId: '',
           analyte: '',
@@ -290,6 +298,7 @@ const CriticalValuePage: React.FC = () => {
 
   const handleStartNotification = (notification: CriticalValueNotification) => {
     setSelectedNotification(notification);
+    criticalDraft.markSaved();
     setAcknowledgment({
       notificationMethod: 'phone',
       notifiedProvider: notification.orderingProvider,
@@ -340,6 +349,7 @@ const CriticalValuePage: React.FC = () => {
     }
     await fetchData();
     setSelectedNotification(null);
+    criticalDraft.markSaved();
     setAcknowledgment({
       notificationMethod: 'phone',
       notifiedProvider: '',

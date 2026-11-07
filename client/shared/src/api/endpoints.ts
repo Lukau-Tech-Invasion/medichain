@@ -3664,6 +3664,35 @@ export async function getPatientVitals(
 /**
  * Add vital signs reading
  */
+/** Consciousness on the ACVPU scale (NEWS2). */
+export type Acvpu = 'alert' | 'new_confusion' | 'voice' | 'pain' | 'unresponsive';
+
+/** The NEWS2 observations; any may be absent. */
+export interface News2Inputs {
+  respiratory_rate?: number | null;
+  oxygen_saturation?: number | null;
+  on_oxygen?: boolean | null;
+  systolic_bp?: number | null;
+  heart_rate?: number | null;
+  consciousness?: Acvpu | null;
+  temperature_celsius?: number | null;
+}
+
+/** The server's NEWS2 (`clinical_scoring::News2Score`): never computed in a page (rule 8). */
+export interface News2Score {
+  /** Null when nothing was recorded -- not zero (rule 12). */
+  total: number | null;
+  band: 'low' | 'low_medium' | 'medium' | 'high' | null;
+  parameters_measured: number;
+  complete: boolean;
+  not_measured: string[];
+}
+
+/** NEWS2 for observations not yet saved: the vitals form's live score. Nothing is stored. */
+export async function previewNews2(inputs: News2Inputs): Promise<News2Score> {
+  return getApiClient().post('/api/clinical/scoring/news2', inputs);
+}
+
 /** `AddVitalSignsRequest`: a field nobody measured is null, never a plausible default. */
 export async function addVitalSigns(data: {
   patient_id: string;
@@ -3678,12 +3707,15 @@ export async function addVitalSigns(data: {
   blood_glucose?: number | null;
   weight_kg?: number | null;
   notes?: string | null;
+  consciousness?: Acvpu | null;
+  on_oxygen?: boolean | null;
 }): Promise<{
   success: boolean;
   reading_id: string;
   mean_arterial_pressure: number | null;
   critical_alerts: string[];
   message: string;
+  news2?: News2Score;
 }> {
   return getApiClient().post('/api/clinical/vitals', data);
 }

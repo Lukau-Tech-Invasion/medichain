@@ -37,6 +37,7 @@ import { AdmissionControl } from './AdmissionControl';
 import { AmbulanceRunStrip } from '../ems/AmbulanceRunStrip';
 import { workspacePath, workspaceRail, type WorkspaceForm } from './forms';
 import { clearVisit, recordVisitEvent, useVisitEvents } from './visitLog';
+import { useTypingGuard } from './useTypingGuard';
 import { findDirectoryPatient, type Patient } from '../components/PatientSelect';
 import { useClinicianOffline } from '../offline/ClinicianOffline';
 import { OfflineChartSummary } from '../offline/OfflineChartSummary';
@@ -44,7 +45,7 @@ import { OfflineChartSummary } from '../offline/OfflineChartSummary';
 // ux-allow(no-form): the only field filters the list of forms as it is typed; there is nothing to submit.
 
 /** Mutations that are housekeeping, not something saved for this patient. */
-const NOT_CLINICAL = /^\/api\/(notifications|auth|events|access-contexts?|patients\/[^/]+\/access-context|session)/;
+const NOT_CLINICAL = /^\/api\/(notifications|auth|events|access-contexts?|patients\/[^/]+\/access-context|session|clinical\/scoring\/)/;
 
 export interface PatientWorkspaceProps {
   /** The form elements by route segment, built where the routes are declared. */
@@ -119,6 +120,10 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
     if (NOT_CLINICAL.test(path)) return;
     recordVisitEvent(user?.userId, patientId, { at: Date.now(), label: formRef.current.label, kind: 'saved' });
   }), [patientId, user?.userId]);
+
+  // Typing in a form that keeps no draft of its own still counts as unsaved work.
+  const formArea = useRef<HTMLElement>(null);
+  useTypingGuard(formArea, form, currentForm?.label ?? '', NOT_CLINICAL);
 
   // No signal: the copy of this patient kept on the device stands in.
   const { online, roster } = useClinicianOffline();
@@ -205,7 +210,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
           {/* `relative`: an absolutely placed child (every `sr-only` label) is
               otherwise positioned against the page, escapes this scroll area and
               makes the whole window scroll again. */}
-          <section className="relative min-h-0 min-w-0 overflow-y-auto" aria-label={currentForm?.label ?? t('workspace.chartHome')}>
+          <section ref={formArea} className="relative min-h-0 min-w-0 overflow-y-auto" aria-label={currentForm?.label ?? t('workspace.chartHome')}>
             {!form && !online && roster && kept && <OfflineChartSummary bundle={roster} patient={kept} />}
             {!form && <div className="px-4 pt-4 lg:px-6"><AmbulanceRunStrip patientId={patientId} /></div>}
             {restricted || !known ? (
@@ -226,6 +231,8 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
           onCancel={() => setClosing(false)}
           returnTo={returnTo.current}
           userId={user?.userId}
+          currentForm={form}
+          labelOf={(id) => rail.byId.get(id)?.label ?? id}
         />
       )}
     </PatientWorkspaceContext.Provider>
@@ -344,6 +351,9 @@ function ClosePatientDialog(props: {
   events: ReturnType<typeof useVisitEvents>;
   returnTo: string;
   userId?: string;
+  /** The form on screen: its own registration already names it. */
+  currentForm?: string;
+  labelOf: (formId: string) => string;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
@@ -351,7 +361,9 @@ function ClosePatientDialog(props: {
   const saved = props.events.filter((e) => e.kind === 'saved');
   const drafts = draftsForPatient(props.patientId);
   const unsaved = unsavedForms();
-  const pending = [...new Set([...unsaved, ...drafts])];
+  // A draft is named by its form's menu label; the form on screen has already
+  // named itself through its unsaved-changes registration.
+  const pending = [...new Set([...unsaved, ...drafts.filter((d) => d !== props.currentForm).map(props.labelOf)])];
 
   const close = () => {
     drafts.forEach((formId) => clearDraft(formId, props.patientId));

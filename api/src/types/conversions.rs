@@ -176,6 +176,7 @@ impl From<(String, crate::clinical::VitalSignsReading)>
             recorded_by: r.recorded_by,
             facility_id: None,
             created_at: recorded_at,
+            consciousness: None,
         }
     }
 }

@@ -259,6 +259,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_gcs_assessment)
         .service(get_patient_gcs_assessments)
         .service(add_vital_signs)
+        .service(preview_news2)
         .service(get_patient_vitals)
         .service(get_vitals_flowsheet)
         .service(get_patient_latest_vitals)

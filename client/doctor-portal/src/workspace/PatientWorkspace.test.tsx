@@ -62,13 +62,25 @@ function FakeSoapForm() {
   );
 }
 
+/** A form that keeps no draft and registers nothing: most of the forty. */
+function PlainOrderForm() {
+  return (
+    <form>
+      <label htmlFor="o">Order details</label>
+      <input id="o" defaultValue="" />
+    </form>
+  );
+}
+
+const FORMS = { soap: <FakeSoapForm />, orders: <PlainOrderForm /> };
+
 function renderAt(path: string) {
   return render(
     <I18nProvider>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route path="/patients/:patientId" element={<PatientWorkspace forms={{ soap: <FakeSoapForm /> }} home={<p>Chart home</p>} />} />
-          <Route path="/patients/:patientId/:form" element={<PatientWorkspace forms={{ soap: <FakeSoapForm /> }} home={<p>Chart home</p>} />} />
+          <Route path="/patients/:patientId" element={<PatientWorkspace forms={FORMS} home={<p>Chart home</p>} />} />
+          <Route path="/patients/:patientId/:form" element={<PatientWorkspace forms={FORMS} home={<p>Chart home</p>} />} />
           <Route path="/dashboard" element={<p>Dashboard</p>} />
         </Routes>
       </MemoryRouter>
@@ -124,6 +136,16 @@ describe('PatientWorkspace', () => {
     expect(within(dialog).getByText("SOAP Notes")).toBeInTheDocument();
     expect(within(dialog).getByRole('alert')).toHaveTextContent('SOAP note');
 
+    fireEvent.click(within(dialog).getByRole('button', { name: /close and discard/i }));
+    await screen.findByText('Dashboard');
+  });
+
+  it('catches typing in a form that keeps no draft of its own', async () => {
+    renderAt(`/patients/${PID}/orders`);
+    fireEvent.input(await screen.findByLabelText('Order details'), { target: { value: 'CBC' } });
+    fireEvent.click(screen.getByRole('button', { name: /close patient/i }));
+    const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Physician Orders');
     fireEvent.click(within(dialog).getByRole('button', { name: /close and discard/i }));
     await screen.findByText('Dashboard');
   });

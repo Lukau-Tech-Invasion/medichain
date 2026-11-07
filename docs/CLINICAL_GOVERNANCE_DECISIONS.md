@@ -146,6 +146,21 @@ clinical approval and does not claim one.
 
 ---
 
+## 4. NEWS2 SpO2 scale (built 2026-11-05; Scale 2 open)
+
+The vitals form shows the server's NEWS2 (`clinical_scoring::news2_score`,
+RCP 2017 charts 1 and 2). SpO2 is scored on **Scale 1 only**. Scale 2 is for
+patients with confirmed hypercapnic respiratory failure, and the RCP requires
+that a clinician document the decision to use it; nothing in the record holds
+that decision yet, so Scale 2 is not offered rather than guessed.
+
+Open: who may designate a patient for Scale 2, where that designation is
+recorded, and whether the facility's escalation responses (chart 2) are
+adopted as published. Until then the band is shown as the RCP names it and no
+escalation is triggered automatically.
+
+---
+
 ## How to close these
 
 An answer is not "the code should do X". It is a decision by someone

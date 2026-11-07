@@ -25,7 +25,9 @@ import {
   rejectSpecimen,
   getApiErrorMessage,
   formatTimestamp, ModalPanel,
-  notifySuccess, ChoiceChips
+  notifySuccess, ChoiceChips,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -130,6 +132,9 @@ const SpecimenPage: React.FC = () => {
     notes: '',
     checklist: [] as string[],
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const specimenDraft = useDraftFields('specimen', form.patientId || undefined, t('docSpecimen.formLabel'),
+    draftFieldsOf(form, setForm, ['specimenType', 'priority', 'testsOrdered', 'collectionSite', 'notes', 'checklist']));
   const { user } = useAuthStore();
 
   const toggleCheck = (key: string) =>
@@ -195,6 +200,7 @@ const SpecimenPage: React.FC = () => {
       });
       await fetchSpecimens();
       setSaveMessage(t('docSpecimen.savedOk'));
+      specimenDraft.markSaved();
       setForm({
         patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
         collectionSite: '', notes: '', checklist: [],

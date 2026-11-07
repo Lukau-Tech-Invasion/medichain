@@ -35,6 +35,8 @@ import {
   submitForReply,
   submitOnce,
   useSubmission,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
@@ -214,6 +216,11 @@ function DischargePage() {
 
   const [medications, setMedications] = useState<DischargeMedication[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpAppointment[]>([]);
+  // Kept for this tab while unsent; a cleared form after saving is not a draft.
+  useDraftFields('discharge', selectedPatient || undefined, t('docDischarge.formLabel'), {
+    ...draftFieldsOf(formData, setFormData, Object.keys(formData) as Array<keyof typeof formData>),
+    medications: [medications, setMedications], followUps: [followUps, setFollowUps],
+  });
   const [instructions] = useState<DischargeInstruction[]>([
     { category: 'Wound Care', instructions: [] },
     { category: 'Activity', instructions: [] },

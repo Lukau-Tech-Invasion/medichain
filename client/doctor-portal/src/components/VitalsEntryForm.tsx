@@ -7,10 +7,12 @@
  * nothing here flags or scores a value (rule 8): the server answers with its
  * critical alerts, and the page around this shows the server's bands.
  */
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { CheckCircle, ChevronDown, Loader2, Save } from 'lucide-react';
 import {
+  ChoiceChips,
   addVitalSigns,
+  previewNews2,
   bloodPressureSchema,
   getApiErrorMessage,
   submitOnce,
@@ -19,6 +21,7 @@ import {
   useTranslation,
   useUnsavedChanges,
 } from '@medichain/shared';
+import type { Acvpu, News2Score } from '@medichain/shared';
 
 export interface VitalsDraft {
   heart_rate: string;
@@ -32,11 +35,15 @@ export interface VitalsDraft {
   blood_glucose: string;
   weight_kg: string;
   notes: string;
+  /** '' until chosen: nothing is assumed (rule 9). */
+  consciousness: Acvpu | '';
+  breathing: 'room_air' | 'oxygen' | '';
 }
 
 const EMPTY: VitalsDraft = {
   heart_rate: '', respiratory_rate: '', bp_systolic: '', bp_diastolic: '', temperature: '',
   oxygen_saturation: '', pain_scale: '', gcs_total: '', blood_glucose: '', weight_kg: '', notes: '',
+  consciousness: '', breathing: '',
 };
 
 /** Each field as the API names it: a number when entered, null when not. */
@@ -55,6 +62,8 @@ export function vitalsPayload(patientId: string, v: VitalsDraft) {
     blood_glucose: num(v.blood_glucose),
     weight_kg: num(v.weight_kg),
     notes: v.notes.trim() || null,
+    consciousness: v.consciousness || null,
+    on_oxygen: v.breathing === '' ? null : v.breathing === 'oxygen',
   };
 }
 
@@ -89,8 +98,10 @@ export function VitalsEntryForm({ patientId, onSaved, onCancel }: {
   const dirty = Object.values(v).some((s) => s.trim() !== '');
   // Kept in memory for this tab only (no PHI in browser storage), and named to
   // "Close patient" and to the leave-page warning while it holds anything.
-  useFormDraft('vitals', patientId, v, dirty, setV);
-  useUnsavedChanges(dirty, t('docVitalSigns.formLabel'));
+  // Merged over EMPTY so a draft kept before a field existed still has every field.
+  useFormDraft('vitals', patientId, v, dirty, (draft) => setV({ ...EMPTY, ...draft }));
+  const news2 = useNews2Preview(v);
+  useUnsavedChanges(dirty, t('docVitalSigns.formLabel'), { keptAsDraft: true });
   const set = (key: keyof VitalsDraft) => (value: string) => setV((prev) => ({ ...prev, [key]: value }));
 
   const submit = async (e: React.FormEvent) => {
@@ -154,6 +165,32 @@ export function VitalsEntryForm({ patientId, onSaved, onCancel }: {
         <Field id={`${id}-spo2`} label={t('docVitalSigns.spo2Label')} unit="%" value={v.oxygen_saturation} onChange={set('oxygen_saturation')} />
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <ChoiceChips<Acvpu>
+          label={t('docVitalSigns.acvpuLabel')}
+          value={v.consciousness || undefined}
+          onChange={(value) => setV((prev) => ({ ...prev, consciousness: value ?? '' }))}
+          options={[
+            { value: 'alert', label: t('docVitalSigns.acvpuAlert') },
+            { value: 'new_confusion', label: t('docVitalSigns.acvpuNewConfusion') },
+            { value: 'voice', label: t('docVitalSigns.acvpuVoice') },
+            { value: 'pain', label: t('docVitalSigns.acvpuPain') },
+            { value: 'unresponsive', label: t('docVitalSigns.acvpuUnresponsive') },
+          ]}
+        />
+        <ChoiceChips<'room_air' | 'oxygen'>
+          label={t('docVitalSigns.breathingLabel')}
+          value={v.breathing || undefined}
+          onChange={(value) => setV((prev) => ({ ...prev, breathing: value ?? '' }))}
+          options={[
+            { value: 'room_air', label: t('docVitalSigns.roomAir') },
+            { value: 'oxygen', label: t('docVitalSigns.onOxygen') },
+          ]}
+        />
+      </div>
+
+      <News2Panel score={news2} />
+
       <details className="group rounded-xl border border-border px-4 py-3">
         <summary className="flex cursor-pointer list-none items-center justify-between font-semibold text-content">
           {t('docVitalSigns.moreDetails')}
@@ -186,5 +223,59 @@ export function VitalsEntryForm({ patientId, onSaved, onCancel }: {
         </button>
       </div>
     </form>
+  );
+}
+
+/** Ask the server for NEWS2 as the form is filled, a moment after typing stops. */
+function useNews2Preview(v: VitalsDraft): News2Score | null {
+  const [score, setScore] = useState<News2Score | null>(null);
+  const key = JSON.stringify([v.respiratory_rate, v.oxygen_saturation, v.breathing, v.bp_systolic, v.heart_rate, v.consciousness, v.temperature]);
+  useEffect(() => {
+    const p = vitalsPayload('', v);
+    const inputs = {
+      respiratory_rate: p.respiratory_rate, oxygen_saturation: p.oxygen_saturation, on_oxygen: p.on_oxygen,
+      systolic_bp: p.systolic_bp, heart_rate: p.heart_rate, consciousness: p.consciousness, temperature_celsius: p.temperature_celsius,
+    };
+    if (Object.values(inputs).every((x) => x === null)) {
+      setScore(null);
+      return undefined;
+    }
+    let live = true;
+    const timer = window.setTimeout(() => {
+      // Without a signal there is no score; the panel says so rather than guess.
+      previewNews2(inputs).then((s) => { if (live) setScore(s); }, () => { if (live) setScore(null); });
+    }, 400);
+    return () => { live = false; window.clearTimeout(timer); };
+    // The key is the seven NEWS2 inputs; nothing else changes the score.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return score;
+}
+
+const BAND_CLASS: Record<NonNullable<News2Score['band']>, string> = {
+  low: 'bg-ok-subtle text-ok-subtle-fg',
+  low_medium: 'bg-caution-subtle text-caution-subtle-fg',
+  medium: 'bg-caution-subtle text-caution-subtle-fg',
+  high: 'bg-critical-subtle text-critical-subtle-fg',
+};
+
+/** The server's NEWS2 and how much of it was measured (rules 8 and 12). */
+function News2Panel({ score }: { score: News2Score | null }) {
+  const { t } = useTranslation();
+  if (!score || score.total === null || !score.band) return null;
+  const missing = score.not_measured.map((n) => t(`docVitalSigns.news2Param.${n}`)).join(', ');
+  return (
+    <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border bg-surface-sunken px-4 py-3">
+      <span className="text-sm text-content-muted">{t('docVitalSigns.news2Title')}</span>
+      <span className="text-2xl font-bold tabular-nums text-content">{score.total}</span>
+      <span className={`rounded-full px-2.5 py-0.5 text-sm font-semibold ${BAND_CLASS[score.band]}`}>
+        {t(`docVitalSigns.news2Band.${score.band}`)}
+      </span>
+      {!score.complete && <span className="text-sm text-content-muted">{t('docVitalSigns.news2SoFar')}</span>}
+      <span className="basis-full text-xs text-content-muted">
+        {t('docVitalSigns.news2Measured', { n: String(score.parameters_measured) })}
+        {missing && ` · ${t('docVitalSigns.news2NotEntered', { list: missing })}`}
+      </span>
+    </div>
   );
 }

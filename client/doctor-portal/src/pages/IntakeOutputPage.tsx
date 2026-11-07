@@ -26,7 +26,9 @@ import {
   Input,
   useValidatedForm,
   intakeOutputSchema,
-  getPatients, ModalPanel, submitOnce, useSubmission, ChoiceChips
+  getPatients, ModalPanel, submitOnce, useSubmission, ChoiceChips,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -167,6 +169,9 @@ const IntakeOutputPage: React.FC = () => {
     source: '',
     notes: ''
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const ioDraft = useDraftFields('intake-output', selectedPatient?.patientId, t('docIntakeOutput.formLabel'),
+    draftFieldsOf(newEntry, setNewEntry, ['type', 'category', 'amount', 'unit', 'source', 'notes']));
 
   const exportTrendCsv = () => {
     const blob = new Blob([intakeOutputTrendCsv(selectedDate, trendPatients)], { type: 'text/csv;charset=utf-8' });
@@ -331,6 +336,7 @@ const IntakeOutputPage: React.FC = () => {
       if (outcome === 'queued') {
         // Kept on this device; the totals cannot include it until it is sent.
         showSuccess(t('forms.queued'));
+        ioDraft.markSaved();
         setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
         return;
       }
@@ -347,6 +353,7 @@ const IntakeOutputPage: React.FC = () => {
       setPatients(refreshed);
       setSelectedPatient(refreshed.find(person => person.patientId === selectedPatient.patientId) || null);
 
+      ioDraft.markSaved();
       setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
     } catch (err) {
       console.error('Error recording I/O:', err);

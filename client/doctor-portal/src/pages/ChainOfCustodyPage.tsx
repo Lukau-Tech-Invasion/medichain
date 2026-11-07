@@ -12,6 +12,8 @@ import {
   transferChainOfCustody,
   getApiErrorMessage, ChoiceChips,
   keepEnterInField,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -127,6 +129,11 @@ const ChainOfCustodyPage: React.FC = () => {
     sealIntact: true,
     witnessSignature: '',
     notes: '',
+  });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const custodyDraft = useDraftFields('chain-of-custody', newCollection.patientId || undefined, t('docChainOfCustody.formLabel'), {
+    ...draftFieldsOf(newCollection, setNewCollection, (Object.keys(newCollection) as Array<keyof typeof newCollection>).filter((k) => k !== 'patientId')),
+    transfer: [transfer, setTransfer],
   });
 
   const fetchData = useCallback(async () => {
@@ -258,6 +265,7 @@ const ChainOfCustodyPage: React.FC = () => {
     // numbered from this page's list, while the server stored its own id --
     // so a transfer recorded against the new row addressed nothing.
     void fetchData();
+    custodyDraft.markSaved();
     setNewCollection({
       patientId: '',
       specimenType: 'blood',
@@ -312,6 +320,7 @@ const ChainOfCustodyPage: React.FC = () => {
     }
     await fetchData();
     setSelectedRecord(null);
+    custodyDraft.markSaved();
     setTransfer({
       transferredTo: '',
       location: '',

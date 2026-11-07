@@ -640,6 +640,267 @@ pub fn qsofa_score(
 }
 
 // ============================================================================
+// NEWS2 — NATIONAL EARLY WARNING SCORE 2
+// ============================================================================
+//
+// Royal College of Physicians, "National Early Warning Score (NEWS) 2", 2017,
+// chart 1 (scoring) and chart 2 (clinical response). The engineering library
+// does not cover clinical scores; the RCP publication is the source.
+//
+// SpO2 is scored on Scale 1. Scale 2 is for patients with hypercapnic
+// respiratory failure and needs a clinician's documented decision to use it;
+// nothing records that decision yet, so it is not offered.
+
+/// Consciousness on the ACVPU scale. Anything but Alert scores 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Acvpu {
+    Alert,
+    /// New confusion, disorientation or agitation.
+    NewConfusion,
+    Voice,
+    Pain,
+    Unresponsive,
+}
+
+impl Acvpu {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Acvpu::Alert => "alert",
+            Acvpu::NewConfusion => "new_confusion",
+            Acvpu::Voice => "voice",
+            Acvpu::Pain => "pain",
+            Acvpu::Unresponsive => "unresponsive",
+        }
+    }
+}
+
+/// The seven NEWS2 observations. Every one is optional.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct News2Inputs {
+    #[serde(default)]
+    pub respiratory_rate: Option<i32>,
+    #[serde(default)]
+    pub oxygen_saturation: Option<i32>,
+    /// On supplemental oxygen (true) or breathing room air (false).
+    #[serde(default)]
+    pub on_oxygen: Option<bool>,
+    #[serde(default)]
+    pub systolic_bp: Option<i32>,
+    #[serde(default)]
+    pub heart_rate: Option<i32>,
+    #[serde(default)]
+    pub consciousness: Option<Acvpu>,
+    #[serde(default)]
+    pub temperature_celsius: Option<f64>,
+}
+
+/// NEWS2 clinical-risk band (RCP chart 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum News2Band {
+    /// 0-4 with no single parameter scoring 3.
+    Low,
+    /// 0-4 with one parameter scoring 3: an urgent ward-based response.
+    LowMedium,
+    /// 5-6.
+    Medium,
+    /// 7 or more.
+    High,
+}
+
+/// The number of NEWS2 parameters.
+pub const NEWS2_PARAMETERS: u8 = 7;
+
+/// A NEWS2 result, with the working shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct News2Score {
+    /// Points from the parameters that were recorded; `None` when none were.
+    pub total: Option<u8>,
+    /// The band of `total`. When `complete` is false it is the band *so far*:
+    /// an unrecorded parameter can only add points.
+    pub band: Option<News2Band>,
+    /// Points per parameter, `None` where it was not recorded.
+    pub respiratory_rate: Option<u8>,
+    pub oxygen_saturation: Option<u8>,
+    pub supplemental_oxygen: Option<u8>,
+    pub systolic_bp: Option<u8>,
+    pub heart_rate: Option<u8>,
+    pub consciousness: Option<u8>,
+    pub temperature: Option<u8>,
+    pub parameters_measured: u8,
+    /// All seven recorded.
+    pub complete: bool,
+    /// Names of the parameters not recorded, in chart order.
+    pub not_measured: Vec<String>,
+}
+
+fn news2_respiratory_rate(rr: i32) -> u8 {
+    match rr {
+        i32::MIN..=8 => 3,
+        9..=11 => 1,
+        12..=20 => 0,
+        21..=24 => 2,
+        _ => 3,
+    }
+}
+
+fn news2_spo2_scale1(spo2: i32) -> u8 {
+    match spo2 {
+        i32::MIN..=91 => 3,
+        92..=93 => 2,
+        94..=95 => 1,
+        _ => 0,
+    }
+}
+
+fn news2_systolic(sbp: i32) -> u8 {
+    match sbp {
+        i32::MIN..=90 => 3,
+        91..=100 => 2,
+        101..=110 => 1,
+        111..=219 => 0,
+        _ => 3,
+    }
+}
+
+fn news2_pulse(hr: i32) -> u8 {
+    match hr {
+        i32::MIN..=40 => 3,
+        41..=50 => 1,
+        51..=90 => 0,
+        91..=110 => 1,
+        111..=130 => 2,
+        _ => 3,
+    }
+}
+
+fn news2_temperature(t: f64) -> u8 {
+    // The chart's bands are to one decimal place; 36.05 is read as 36.1.
+    let tenths = (t * 10.0).round() as i32;
+    match tenths {
+        i32::MIN..=350 => 3,
+        351..=360 => 1,
+        361..=380 => 0,
+        381..=390 => 1,
+        _ => 2,
+    }
+}
+
+/// NEWS2 from whatever was recorded. An unrecorded parameter is not scored as
+/// normal (rule 12): the result names it and says how many were measured.
+pub fn news2_score(inputs: &News2Inputs) -> News2Score {
+    let parts: [(&'static str, Option<u8>); 7] = [
+        ("respiratory_rate", inputs.respiratory_rate.map(news2_respiratory_rate)),
+        ("oxygen_saturation", inputs.oxygen_saturation.map(news2_spo2_scale1)),
+        ("supplemental_oxygen", inputs.on_oxygen.map(|o| if o { 2 } else { 0 })),
+        ("systolic_bp", inputs.systolic_bp.map(news2_systolic)),
+        ("heart_rate", inputs.heart_rate.map(news2_pulse)),
+        ("consciousness", inputs.consciousness.map(|c| if c == Acvpu::Alert { 0 } else { 3 })),
+        ("temperature", inputs.temperature_celsius.map(news2_temperature)),
+    ];
+    let measured = parts.iter().filter(|(_, p)| p.is_some()).count() as u8;
+    let total = (measured > 0).then(|| parts.iter().filter_map(|(_, p)| *p).sum::<u8>());
+    debug_assert!(total.unwrap_or(0) <= 20, "NEWS2 is at most 20");
+    let any_three = parts.iter().any(|(_, p)| *p == Some(3));
+    let band = total.map(|t| match t {
+        7.. => News2Band::High,
+        5..=6 => News2Band::Medium,
+        _ if any_three => News2Band::LowMedium,
+        _ => News2Band::Low,
+    });
+    News2Score {
+        total,
+        band,
+        respiratory_rate: parts[0].1,
+        oxygen_saturation: parts[1].1,
+        supplemental_oxygen: parts[2].1,
+        systolic_bp: parts[3].1,
+        heart_rate: parts[4].1,
+        consciousness: parts[5].1,
+        temperature: parts[6].1,
+        parameters_measured: measured,
+        complete: measured == NEWS2_PARAMETERS,
+        not_measured: parts.iter().filter(|(_, p)| p.is_none()).map(|(n, _)| (*n).to_string()).collect(),
+    }
+}
+
+#[cfg(test)]
+mod news2_tests {
+    use super::*;
+
+    fn all_normal() -> News2Inputs {
+        News2Inputs {
+            respiratory_rate: Some(16),
+            oxygen_saturation: Some(98),
+            on_oxygen: Some(false),
+            systolic_bp: Some(120),
+            heart_rate: Some(70),
+            consciousness: Some(Acvpu::Alert),
+            temperature_celsius: Some(37.0),
+        }
+    }
+
+    #[test]
+    fn nothing_recorded_is_no_score_not_zero() {
+        let s = news2_score(&News2Inputs::default());
+        assert_eq!(s.total, None);
+        assert_eq!(s.band, None);
+        assert_eq!(s.parameters_measured, 0);
+        assert_eq!(s.not_measured.len(), 7);
+    }
+
+    #[test]
+    fn a_complete_normal_set_scores_zero_and_low() {
+        let s = news2_score(&all_normal());
+        assert_eq!((s.total, s.band, s.complete), (Some(0), Some(News2Band::Low), true));
+    }
+
+    #[test]
+    fn one_parameter_scoring_three_is_low_medium() {
+        let s = news2_score(&News2Inputs { consciousness: Some(Acvpu::NewConfusion), ..all_normal() });
+        assert_eq!((s.total, s.band), (Some(3), Some(News2Band::LowMedium)));
+    }
+
+    #[test]
+    fn bands_follow_the_rcp_chart() {
+        // RR 22 (2) + SpO2 93 (2) + oxygen (2) = 6: medium.
+        let medium = News2Inputs { respiratory_rate: Some(22), oxygen_saturation: Some(93), on_oxygen: Some(true), ..all_normal() };
+        assert_eq!(news2_score(&medium).band, Some(News2Band::Medium));
+        // + pulse 135 (3) = 9: high.
+        let high = News2Inputs { heart_rate: Some(135), ..medium };
+        assert_eq!(news2_score(&high).band, Some(News2Band::High));
+    }
+
+    #[test]
+    fn boundaries_score_as_charted() {
+        assert_eq!(news2_respiratory_rate(8), 3);
+        assert_eq!(news2_respiratory_rate(9), 1);
+        assert_eq!(news2_respiratory_rate(20), 0);
+        assert_eq!(news2_respiratory_rate(25), 3);
+        assert_eq!(news2_spo2_scale1(91), 3);
+        assert_eq!(news2_spo2_scale1(96), 0);
+        assert_eq!(news2_systolic(90), 3);
+        assert_eq!(news2_systolic(111), 0);
+        assert_eq!(news2_systolic(220), 3);
+        assert_eq!(news2_pulse(40), 3);
+        assert_eq!(news2_pulse(91), 1);
+        assert_eq!(news2_pulse(131), 3);
+        assert_eq!(news2_temperature(35.0), 3);
+        assert_eq!(news2_temperature(36.1), 0);
+        assert_eq!(news2_temperature(38.1), 1);
+        assert_eq!(news2_temperature(39.1), 2);
+    }
+
+    #[test]
+    fn a_partial_set_says_what_is_missing() {
+        let s = news2_score(&News2Inputs { systolic_bp: Some(148), heart_rate: Some(104), respiratory_rate: Some(20), ..Default::default() });
+        assert_eq!((s.total, s.parameters_measured, s.complete), (Some(1), 3, false));
+        assert_eq!(s.not_measured, vec!["oxygen_saturation", "supplemental_oxygen", "consciousness", "temperature"]);
+    }
+}
+
+// ============================================================================
 // SOFA — SEQUENTIAL ORGAN FAILURE ASSESSMENT
 // ============================================================================
 

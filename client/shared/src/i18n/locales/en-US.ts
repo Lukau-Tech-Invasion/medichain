@@ -1928,6 +1928,7 @@ const en_US: TranslationRecord = {
   },
 
   docEPrescribe: {
+    formLabel: 'Prescription',
     refillQueueTitle: 'Refill requests',
     refillQueueReload: 'Reload',
     refillQueueLoading: 'Loading refill requests...',
@@ -2999,6 +3000,7 @@ const en_US: TranslationRecord = {
   },
 
   docProgressNote: {
+    formLabel: 'Progress note',
     printNote: 'Print note',
     unknownPatient: 'Unknown Patient',
     failFetch: 'Failed to fetch progress notes',
@@ -3064,6 +3066,7 @@ const en_US: TranslationRecord = {
   },
 
   docOrders: {
+    formLabel: 'Physician order',
     failUpdateStatus: 'The order status was not changed. The board still shows the previous status.',
     title: 'Physician Orders',
     subtitle: 'Manage and track clinical orders',
@@ -3376,6 +3379,7 @@ const en_US: TranslationRecord = {
     declareFailed: 'The breach could not be declared.',
   },
   docSpecimen: {
+    formLabel: 'Specimen collection',
     notAuthenticated: 'User not authenticated',
     fetchError: 'Failed to fetch specimens: {{status}}',
     failLoad: 'Failed to load specimens',
@@ -4002,6 +4006,7 @@ const en_US: TranslationRecord = {
   },
 
   docWoundCare: {
+    formLabel: 'Wound assessment',
     errPhotoUploading: 'The photo is still uploading. Save again when it has finished.',
     photoHelp: 'Select the patient first. Attach up to four PNG or JPEG images, 1 MiB each. Images are stored as encrypted patient documents. Include a measurement reference where appropriate.',
     photoUploading: 'Uploading encrypted photo…',
@@ -5326,6 +5331,7 @@ const en_US: TranslationRecord = {
     saveCardiacEventBtn: 'Save Cardiac Event',
   },
   docCarePlan: {
+    formLabel: 'Care plan',
     errorLoadPlans: 'Recent care plans could not be loaded. Reload the page to try again.',
     colPatient: 'Patient',
     title: 'Nursing Care Plan',
@@ -5419,6 +5425,7 @@ const en_US: TranslationRecord = {
     selectPatientEmptyHint: 'Choose a patient from the list to create or edit their care plan.',
   },
   docChainOfCustody: {
+    formLabel: 'Chain of custody',
     title: 'Chain of Custody',
     subtitle: 'Forensic specimen tracking and custody documentation',
     tabActiveSpecimens: 'Active Specimens',
@@ -5648,6 +5655,7 @@ const en_US: TranslationRecord = {
     submitRequestBtn: 'Submit Consult Request',
   },
   docCriticalValue: {
+    formLabel: 'Critical value report',
     title: 'Critical Value Reporting',
     subtitle: 'Alert notification and read-back verification workflow',
     pendingBannerSingular: '{{count}} pending notification requiring action',
@@ -5920,6 +5928,7 @@ const en_US: TranslationRecord = {
     errorSubmitFailed: 'Failed to submit death certificate. Please try again.',
   },
   docDischarge: {
+    formLabel: 'Discharge summary',
     errorExportPdf: 'The discharge summary PDF could not be created. Try again.',
     failApprove: 'The discharge was not approved. Approval is a second-clinician check and it has not been recorded.',
     defaultEmergencyInstructions: 'If you experience any warning signs, call {{emergencyNumber}} or go to the nearest emergency room immediately.',
@@ -6792,6 +6801,7 @@ const en_US: TranslationRecord = {
     rootCauseHeading: 'Root Cause',
   },
   docIntakeOutput: {
+    formLabel: 'Intake and output',
     retryLoad: 'Retry I/O records',
     noEntriesRecorded: 'No entries recorded',
     volumeUnknown: 'Not recorded',
@@ -8014,6 +8024,7 @@ const en_US: TranslationRecord = {
     tableAsaClass: 'ASA Class',
   },
   docSOAPNote: {
+    formLabel: 'SOAP note',
     errorLoadNotes: 'Earlier SOAP notes for this patient could not be loaded. Reload to try again.',
     printNote: 'Print note',
     addAddendum: 'Add addendum',
@@ -8590,6 +8601,34 @@ const en_US: TranslationRecord = {
     formLabel: 'Vital signs',
     draftKept: 'Draft kept on this tab',
     moreDetails: 'More details — pain, blood glucose, weight, GCS, note',
+    acvpuLabel: 'Alertness (ACVPU)',
+    acvpuAlert: 'Alert',
+    acvpuNewConfusion: 'New confusion',
+    acvpuVoice: 'Voice',
+    acvpuPain: 'Pain',
+    acvpuUnresponsive: 'Unresponsive',
+    breathingLabel: 'Breathing support',
+    roomAir: 'Room air',
+    onOxygen: 'On oxygen',
+    news2Title: 'NEWS2 — calculated by the server',
+    news2SoFar: 'so far',
+    news2Measured: '{{n}} of 7 measured',
+    news2NotEntered: 'not entered yet: {{list}}',
+    news2Band: {
+      low: 'Low',
+      low_medium: 'Low–medium: urgent ward review',
+      medium: 'Medium',
+      high: 'High',
+    },
+    news2Param: {
+      respiratory_rate: 'breathing rate',
+      oxygen_saturation: 'oxygen saturation',
+      supplemental_oxygen: 'breathing support',
+      systolic_bp: 'blood pressure',
+      heart_rate: 'pulse',
+      consciousness: 'alertness',
+      temperature: 'temperature',
+    },
     gcsHeading: 'Glasgow Coma Scale',
     gcsSubtitle: 'Record each component. The total and its interpretation are scored by the server.',
     gcsEye: 'Eye opening',

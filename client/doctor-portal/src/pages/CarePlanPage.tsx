@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCarePlan, getApiClient, useTranslation, ChoiceChips, formatDateOnly, keepEnterInField } from '@medichain/shared';
+import { createCarePlan, getApiClient, useTranslation, ChoiceChips, formatDateOnly, keepEnterInField, useDraftFields } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
@@ -118,6 +118,11 @@ export default function CarePlanPage() {
     frequency: '',
     responsibleParty: '',
     status: 'active'
+  });
+  // The plan being built is kept for this tab until it is saved.
+  const planDraft = useDraftFields('care-plan', selectedPatient?.patient_id, t('docCarePlan.formLabel'), {
+    diagnoses: [diagnoses, setDiagnoses], goals: [goals, setGoals], interventions: [interventions, setInterventions],
+    newDiagnosis: [newDiagnosis, setNewDiagnosis], newGoal: [newGoal, setNewGoal], newIntervention: [newIntervention, setNewIntervention],
   });
 
   // Common nursing diagnoses (NANDA-I)
@@ -281,6 +286,7 @@ export default function CarePlanPage() {
       };
 
       await createCarePlan(carePlanData);
+      planDraft.markSaved();
       setSuccess(t('docCarePlan.successSaved'));
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {

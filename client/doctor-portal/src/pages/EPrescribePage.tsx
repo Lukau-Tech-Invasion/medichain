@@ -10,6 +10,8 @@ import {
   useValidatedForm,
   prescriptionSchema,
   notifySuccess,
+  useDraftFields,
+  draftFieldsOf,
   ChoiceChips,
   submitForReply,
   useSubmission,
@@ -44,6 +46,10 @@ export default function EPrescribePage() {
     diagnosis_codes: [] as string[],
     patient_instructions: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const draft = useDraftFields('e-prescribe', formData.patient_id || undefined, t('docEPrescribe.formLabel'),
+    draftFieldsOf(formData, setFormData, ['medication_name', 'strength', 'form', 'quantity', 'days_supply', 'directions',
+      'refills_allowed', 'is_controlled', 'pharmacy_name', 'diagnosis_codes', 'patient_instructions']));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const prescriptionSubmission = useSubmission('e-prescription');
   const [success, setSuccess] = useState(false);
@@ -107,6 +113,7 @@ export default function EPrescribePage() {
       }
       setSuccess(outcome.kind === 'saved');
       setLastPrescription(formData);
+      draft.markSaved();
       setTimeout(() => setSuccess(false), 3000);
       // Reset form
       setFormData({

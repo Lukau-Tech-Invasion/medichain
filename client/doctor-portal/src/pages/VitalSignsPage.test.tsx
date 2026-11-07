@@ -178,6 +178,27 @@ describe('VitalSignsPage', () => {
     expect(posted).toBe(false);
   });
 
+  it('shows the server\'s NEWS2 and how much was measured, and sends alertness and oxygen as chosen', async () => {
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => url.includes('/api/clinical/scoring/news2')
+      ? Promise.resolve({ ok: true, headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ total: 3, band: 'low_medium', parameters_measured: 1, complete: false,
+            not_measured: ['respiratory_rate', 'oxygen_saturation', 'supplemental_oxygen', 'systolic_bp', 'heart_rate', 'temperature'] }) })
+      : base(url, init));
+    render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByLabelText('New confusion'));
+    // The panel shows what the server scored; the page adds nothing up (rule 8).
+    expect(await screen.findByText('Low–medium: urgent ward review', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText(/1 of 7 measured/)).toBeInTheDocument();
+    const [, init] = mockFetch.mock.calls.find(([url]) => String(url).includes('/scoring/news2'))!;
+    expect(JSON.parse(init.body)).toMatchObject({ consciousness: 'new_confusion', on_oxygen: null, heart_rate: null });
+    fireEvent.click(screen.getByLabelText('On oxygen'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([url, o]) => String(url).endsWith('/api/clinical/vitals') && o?.method === 'POST')).toBe(true));
+    const [, saved] = mockFetch.mock.calls.find(([url, o]) => String(url).endsWith('/api/clinical/vitals') && o?.method === 'POST')!;
+    expect(JSON.parse(saved.body)).toMatchObject({ consciousness: 'new_confusion', on_oxygen: true });
+  });
+
   it('keeps a half-filled form as a draft when the clinician is called away', async () => {
     const first = render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
     fireEvent.change(await screen.findByLabelText(/Heart Rate/i), { target: { value: '104' } });

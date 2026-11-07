@@ -21,7 +21,7 @@ import {
   useValidatedForm,
   progressNoteSchema,
   progressNoteDraftSchema, ModalPanel,
-  notifySuccess, submitOnce, useSubmission, ChoiceChips
+  notifySuccess, submitOnce, useSubmission, ChoiceChips, useDraftFields, draftFieldsOf
 } from '@medichain/shared';
 import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -80,6 +80,9 @@ const ProgressNotePage: React.FC = () => {
     patientId: '', patientName: '', noteType: 'daily' as NoteType,
     subjective: '', objective: '', assessment: '', plan: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  useDraftFields('progress-note', form.patientId || undefined, t('docProgressNote.formLabel'),
+    draftFieldsOf(form, setForm, ['noteType', 'subjective', 'objective', 'assessment', 'plan']));
 
   // A template started from the template screen fills the note once, on arrival.
   useEffect(() => {

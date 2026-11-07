@@ -21,6 +21,13 @@ import { confirmDialog } from '../components/Dialog';
 import { useTranslation } from '../i18n/react';
 
 const dirtyForms = new Map<string, string>();
+/** Registrations whose content survives moving around the app (a kept draft). */
+const keptAsDraft = new Set<string>();
+
+/** Unsaved forms a link click would lose: those that keep no draft. */
+function lostOnNavigation(): string[] {
+  return [...dirtyForms].filter(([id]) => !keptAsDraft.has(id)).map(([, label]) => label);
+}
 const listeners = new Set<() => void>();
 
 /** Labels of the forms with unsaved changes right now. */
@@ -31,20 +38,31 @@ export function unsavedForms(): string[] {
 /** Forget every registration (tests; sign-out after the user chose to discard). */
 export function clearUnsavedForms(): void {
   dirtyForms.clear();
+  keptAsDraft.clear();
   listeners.forEach((l) => l());
 }
 
-/** Register this form as holding unsaved changes while `dirty` is true. */
-export function useUnsavedChanges(dirty: boolean, label: string): void {
+/**
+ * Register this form as holding unsaved changes while `dirty` is true.
+ *
+ * `keptAsDraft`: the form keeps a draft for the tab, so moving to another
+ * screen loses nothing and is not interrupted; a reload or closing the tab
+ * still is, because a draft lives in memory only.
+ */
+export function useUnsavedChanges(dirty: boolean, label: string, options?: { keptAsDraft?: boolean }): void {
   const id = useId();
+  const kept = options?.keptAsDraft ?? false;
   useEffect(() => {
     if (dirty) dirtyForms.set(id, label);
     else dirtyForms.delete(id);
+    if (dirty && kept) keptAsDraft.add(id);
+    else keptAsDraft.delete(id);
     listeners.forEach((l) => l());
     return () => {
       dirtyForms.delete(id);
+      keptAsDraft.delete(id);
     };
-  }, [dirty, id, label]);
+  }, [dirty, id, label, kept]);
 }
 
 /** Ask before discarding unsaved work; true when the user chose to leave. */
@@ -74,13 +92,14 @@ export function NavigationGuard({ children }: { children?: ReactNode }) {
 
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
-      if (dirtyForms.size === 0 || asking.current) return;
+      const losing = lostOnNavigation();
+      if (losing.length === 0 || asking.current) return;
       const target = internalTarget(event);
       if (!target) return;
       event.preventDefault();
       event.stopPropagation();
       asking.current = true;
-      const names = unsavedForms().join(', ');
+      const names = losing.join(', ');
       void confirmLeave(
         t('forms.leaveMessage', { forms: names }),
         t('forms.leaveTitle'),

@@ -4,6 +4,29 @@ Last updated: 2026-09-29.
 
 ---
 
+## 2026-11-06 — Unsaved work in clinical forms
+
+`useFormDraft` and `useUnsavedChanges` existed with no caller: no form kept a
+draft or warned before work was lost, and "Close patient" could never name
+one. Now:
+
+* **Twelve forms keep a full draft** for the tab (`useDraftFields`): vitals,
+  SOAP, progress note, e-prescribe, discharge, physician orders, intake/output,
+  wound care, care plan, specimen, critical value, chain of custody — each
+  role's "Common" list. Moving to another screen loses nothing and is not
+  interrupted; a reload or closing the tab still warns (drafts are memory-only,
+  by decision: no PHI in browser storage). Save clears the draft.
+* **Every other workspace form** is covered by `workspace/useTypingGuard.ts`:
+  typing marks it unsaved, so the leave-page warning and "Close patient" catch
+  it; it cannot restore what was typed.
+
+Open: the remaining ~33 forms can each move to `useDraftFields` with one call
+listing their fields. Not done in bulk: their state is dozens of separate
+`useState`s each, and guessing the list risks sweeping in loaded data, which
+would raise false "unsaved" warnings.
+
+---
+
 ## 2026-10-19 — Security pass: what remains after the fixes
 
 See `docs/SECURITY_HARDENING_2026-10-19.md` for everything that was fixed.

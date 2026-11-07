@@ -31,6 +31,8 @@ import {
   notifySuccess, ChoiceChips,
   submitOnce,
   useSubmission,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -201,6 +203,11 @@ const WoundCarePage: React.FC = () => {
     tissueTypes: [] as string[],
     notes: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const woundDraft = useDraftFields('wound-care', form.patientId || undefined, t('docWoundCare.formLabel'), {
+    ...draftFieldsOf(form, setForm, ['woundType', 'location', 'lengthCm', 'widthCm', 'depthCm', 'exudate', 'painLevel', 'tissueTypes', 'notes']),
+    photoHashes: [photoHashes, setPhotoHashes],
+  });
 
   // The patient picker used to be built from existing wound records, so a
   // patient with no wound yet could never be selected — i.e. a first assessment
@@ -246,6 +253,7 @@ const WoundCarePage: React.FC = () => {
       const outcome = await submitOnce(submission, wound, () => createWound(wound));
       if (outcome === 'busy') return;
       setSaveMessage(outcome === 'queued' ? t('forms.queued') : t('docWoundCare.savedOk'));
+      woundDraft.markSaved();
       setPhotoHashes([]);
       setForm({
         previousAssessmentId: '', patientId: '', woundType: '', location: '', lengthCm: '',

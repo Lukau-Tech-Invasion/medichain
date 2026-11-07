@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import { createOrder, listOrders, updateOrderStatus, useTranslation, ModalPanel,
   notifySuccess, submitForReply, useSubmission,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
@@ -66,6 +68,9 @@ function OrdersPage() {
     priority: 'routine',
     notes: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const orderDraft = useDraftFields('orders', newOrder.patient_id || undefined, t('docOrders.formLabel'),
+    draftFieldsOf(newOrder, setNewOrder, ['order_type', 'order_details', 'priority', 'notes']));
 
   // Auth redirect
   useEffect(() => {
@@ -125,6 +130,7 @@ function OrdersPage() {
       if (outcome.kind !== 'saved' || outcome.value.success) {
         await fetchOrders();
         setShowNewOrder(false);
+        orderDraft.markSaved();
         setNewOrder({
           patient_id: '',
           order_type: 'medication',

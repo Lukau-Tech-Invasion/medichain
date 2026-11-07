@@ -13,7 +13,7 @@ import {
   useTranslation,
   useValidatedForm,
   formatDateOnly,
-  notifySuccess, submitOnce, useSubmission } from '@medichain/shared';
+  notifySuccess, submitOnce, useSubmission, useDraftFields } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
   User, Activity, Stethoscope, Pill, Calendar
@@ -256,6 +256,22 @@ function SOAPNotePage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const draft = useDraftFields('soap', selectedPatientId || undefined, t('docSOAPNote.formLabel'), {
+    encounterType: [encounterType, setEncounterType], chiefComplaint: [chiefComplaint, setChiefComplaint],
+    hpi: [hpi, setHpi], symptoms: [symptoms, setSymptoms], symptomDuration: [symptomDuration, setSymptomDuration],
+    reviewOfSystems: [reviewOfSystems, setReviewOfSystems], modifyingFactors: [modifyingFactors, setModifyingFactors],
+    previousTreatments: [previousTreatments, setPreviousTreatments], generalAppearance: [generalAppearance, setGeneralAppearance],
+    physicalExams: [physicalExams, setPhysicalExams], labResults: [labResults, setLabResults],
+    imagingResults: [imagingResults, setImagingResults], primaryDiagnosis: [primaryDiagnosis, setPrimaryDiagnosis],
+    primaryICD10: [primaryICD10, setPrimaryICD10], primaryStatus: [primaryStatus, setPrimaryStatus],
+    clinicalSummary: [clinicalSummary, setClinicalSummary], severity: [severity, setSeverity],
+    treatmentPlan: [treatmentPlan, setTreatmentPlan], medications: [medications, setMedications],
+    procedures: [procedures, setProcedures], labOrders: [labOrders, setLabOrders], imagingOrders: [imagingOrders, setImagingOrders],
+    referrals: [referrals, setReferrals], patientEducation: [patientEducation, setPatientEducation], followUp: [followUp, setFollowUp],
+    returnPrecautions: [returnPrecautions, setReturnPrecautions], activityRestrictions: [activityRestrictions, setActivityRestrictions],
+  });
+
   // A template started from the template screen fills the note once, on arrival.
   useEffect(() => {
     const draft = takeNoteDraft();
@@ -412,8 +428,9 @@ function SOAPNotePage() {
       }
 
       if (outcome === 'queued') notifySuccess(t('forms.queued'));
+      draft.markSaved();
       setSuccess(true);
-      
+
       setTimeout(() => {
         navigate(`/patients/${selectedPatientId}`);
       }, 1500);
