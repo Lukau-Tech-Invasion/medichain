@@ -17,11 +17,13 @@ export function useTypingGuard(
   label: string,
   /** Mutations that are not the form being saved (notifications, scoring previews). */
   notASave: RegExp,
+  /** Changes when the form on screen is thrown away and remounted empty. */
+  resetKey?: unknown,
 ): void {
   const [typed, setTyped] = useState(false);
 
-  // A different form, or none: nothing typed there yet.
-  useEffect(() => setTyped(false), [formId]);
+  // A different form, none, or the same one emptied: nothing typed there yet.
+  useEffect(() => setTyped(false), [formId, resetKey]);
 
   useEffect(() => {
     const el = area.current;

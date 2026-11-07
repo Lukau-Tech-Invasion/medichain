@@ -4,10 +4,10 @@
  * closing the patient lists what was saved and warns about what was not.
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { I18nProvider, getApiClient, useUnsavedChanges } from '@medichain/shared';
+import { I18nProvider, clearAllDrafts, draftsForPatient, getApiClient, useUnsavedChanges, writeDraft } from '@medichain/shared';
 import { PatientWorkspace } from './PatientWorkspace';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
@@ -27,10 +27,14 @@ function answer(status: number, body: unknown) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
 }
 
+/** The clinician's booked day, as /api/dashboard/doctor/today answers it. */
+let todayBody: unknown = {};
+
 function server() {
   const fetchMock = vi.fn().mockImplementation((raw: unknown, init?: RequestInit) => {
     const url = String(raw);
     if (init?.method === 'POST' && url.includes('/api/clinical/soap')) return answer(201, { id: 'SOAP-1' });
+    if (url.includes('/api/dashboard/doctor/today')) return answer(200, todayBody);
     if (url.includes(`/api/patients/${PID}`)) {
       return answer(200, {
         patient_id: PID, full_name: 'Thandiwe Ndlovu', date_of_birth: '1992-03-12', gender: 'Female',
@@ -74,10 +78,15 @@ function PlainOrderForm() {
 
 const FORMS = { soap: <FakeSoapForm />, orders: <PlainOrderForm /> };
 
+function Where() {
+  return <p data-testid="where">{useLocation().pathname}</p>;
+}
+
 function renderAt(path: string) {
   return render(
     <I18nProvider>
       <MemoryRouter initialEntries={[path]}>
+        <Where />
         <Routes>
           <Route path="/patients/:patientId" element={<PatientWorkspace forms={FORMS} home={<p>Chart home</p>} />} />
           <Route path="/patients/:patientId/:form" element={<PatientWorkspace forms={FORMS} home={<p>Chart home</p>} />} />
@@ -96,6 +105,8 @@ describe('PatientWorkspace', () => {
   });
   afterEach(() => {
     clearVisit('doctor-1', PID);
+    clearAllDrafts();
+    todayBody = {};
   });
 
   it('shows the patient with two identifiers and their allergies in the banner', async () => {
@@ -148,5 +159,57 @@ describe('PatientWorkspace', () => {
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Physician Orders');
     fireEvent.click(within(dialog).getByRole('button', { name: /close and discard/i }));
     await screen.findByText('Dashboard');
+  });
+
+  it('discards the work in the form on screen, one item at a time', async () => {
+    renderAt(`/patients/${PID}/orders`);
+    fireEvent.input(await screen.findByLabelText('Order details'), { target: { value: 'CBC' } });
+    fireEvent.click(screen.getByRole('button', { name: /close patient/i }));
+    const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Discard Physician Orders' }));
+    await waitFor(() => expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument());
+    // Nothing left to lose: the plain close is offered again.
+    expect(within(dialog).getByRole('button', { name: 'Close patient' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /back to patient/i }));
+    // The form came back empty.
+    expect(await screen.findByLabelText('Order details')).toHaveValue('');
+  });
+
+  it('opens the form holding a draft so it can be saved there', async () => {
+    writeDraft('soap', PID, { subjective: 'Headache' });
+    renderAt(`/patients/${PID}/orders`);
+    fireEvent.click(await screen.findByRole('button', { name: /close patient/i }));
+    const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('SOAP Notes is not saved');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open SOAP Notes to save it' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(`/patients/${PID}/soap`));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(draftsForPatient(PID)).toEqual(['soap']);
+  });
+
+  it('discards a draft kept for another form without opening it', async () => {
+    writeDraft('soap', PID, { subjective: 'Headache' });
+    renderAt(`/patients/${PID}/orders`);
+    fireEvent.click(await screen.findByRole('button', { name: /close patient/i }));
+    const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Discard SOAP Notes' }));
+    await waitFor(() => expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument());
+    expect(draftsForPatient(PID)).toEqual([]);
+  });
+
+  it('goes straight on to the next booked patient', async () => {
+    const soon = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    todayBody = {
+      today: { date: '', patients: [], appointments: [
+        { id: 'A1', patient_id: 'PAT-NEXT', title: 'Appointment', detail: null, at: soon, urgency: 'routine' },
+      ], consults: [], refills: [], results_to_review: [], critical_values: [], unavailable: [] },
+      names: [{ patient_id: 'PAT-NEXT', full_name: 'Sipho Mabaso', date_of_birth: '1980-01-01', content_available: true }],
+    };
+    renderAt(`/patients/${PID}`);
+    fireEvent.click(await screen.findByRole('button', { name: /close patient/i }));
+    const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
+    expect(within(dialog).getByText(/opened .* min/)).toBeInTheDocument();
+    fireEvent.click(await within(dialog).findByRole('button', { name: /close · next: sipho mabaso/i }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/patients/PAT-NEXT'));
   });
 });

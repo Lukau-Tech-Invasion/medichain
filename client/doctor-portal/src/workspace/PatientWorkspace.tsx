@@ -11,19 +11,14 @@
  * it; errors rose with several records open in the JAMA 2019 trial's post hoc
  * analysis) and is paired with strong identity cues rather than relied on alone.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { AlertTriangle, ChevronDown, History, Menu, Search, X } from 'lucide-react';
 import {
-  ModalPanel,
-  draftsForPatient,
   formatDateOnly,
   formatTimestamp,
   getApiClient,
   getPatient,
-  unsavedForms,
-  clearUnsavedForms,
-  clearDraft,
   returnPathFrom,
   useMotionNavigate,
   useTranslation,
@@ -36,7 +31,8 @@ import { PatientWorkspaceContext } from './PatientWorkspaceContext';
 import { AdmissionControl } from './AdmissionControl';
 import { AmbulanceRunStrip } from '../ems/AmbulanceRunStrip';
 import { workspacePath, workspaceRail, type WorkspaceForm } from './forms';
-import { clearVisit, recordVisitEvent, useVisitEvents } from './visitLog';
+import { recordVisitEvent, useVisitEvents } from './visitLog';
+import { ClosePatientDialog } from './ClosePatientDialog';
 import { useTypingGuard } from './useTypingGuard';
 import { findDirectoryPatient, type Patient } from '../components/PatientSelect';
 import { useClinicianOffline } from '../offline/ClinicianOffline';
@@ -90,6 +86,9 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   const [directory, setDirectory] = useState<Patient | null>(null);
   const [closing, setClosing] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
+  // Bumped to remount the form on screen empty, when its work is discarded.
+  const [formEpoch, setFormEpoch] = useState(0);
+  const navigate = useMotionNavigate();
   // Choosing a form on a phone puts the form in view, not the list.
   useEffect(() => setRailOpen(false), [form]);
   const returnTo = useRef(returnPathFrom(location.state, '/dashboard'));
@@ -123,7 +122,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
 
   // Typing in a form that keeps no draft of its own still counts as unsaved work.
   const formArea = useRef<HTMLElement>(null);
-  useTypingGuard(formArea, form, currentForm?.label ?? '', NOT_CLINICAL);
+  useTypingGuard(formArea, form, currentForm?.label ?? '', NOT_CLINICAL, formEpoch);
 
   // No signal: the copy of this patient kept on the device stands in.
   const { online, roster } = useClinicianOffline();
@@ -217,7 +216,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
               <div role="alert" className="m-6 rounded-xl border border-border bg-surface p-6 text-content">
                 {t('workspace.formUnavailable')}
               </div>
-            ) : form ? forms[form] : home}
+            ) : <Fragment key={formEpoch}>{form ? forms[form] : home}</Fragment>}
           </section>
           <VisitPanel events={events} patientName={name} />
         </div>
@@ -233,6 +232,11 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
           userId={user?.userId}
           currentForm={form}
           labelOf={(id) => rail.byId.get(id)?.label ?? id}
+          onOpenForm={(formId) => {
+            setClosing(false);
+            navigate(workspacePath(patientId, formId));
+          }}
+          onDiscardOnScreen={() => setFormEpoch((n) => n + 1)}
         />
       )}
     </PatientWorkspaceContext.Provider>
@@ -341,73 +345,5 @@ function VisitPanel({ events, patientName }: { events: ReturnType<typeof useVisi
         ))}
       </ol>
     </aside>
-  );
-}
-
-function ClosePatientDialog(props: {
-  patientId: string;
-  patientName: string;
-  detail: string;
-  events: ReturnType<typeof useVisitEvents>;
-  returnTo: string;
-  userId?: string;
-  /** The form on screen: its own registration already names it. */
-  currentForm?: string;
-  labelOf: (formId: string) => string;
-  onCancel: () => void;
-}) {
-  const { t } = useTranslation();
-  const navigate = useMotionNavigate();
-  const saved = props.events.filter((e) => e.kind === 'saved');
-  const drafts = draftsForPatient(props.patientId);
-  const unsaved = unsavedForms();
-  // A draft is named by its form's menu label; the form on screen has already
-  // named itself through its unsaved-changes registration.
-  const pending = [...new Set([...unsaved, ...drafts.filter((d) => d !== props.currentForm).map(props.labelOf)])];
-
-  const close = () => {
-    drafts.forEach((formId) => clearDraft(formId, props.patientId));
-    clearUnsavedForms();
-    clearVisit(props.userId, props.patientId);
-    getApiClient().setPatientAccessContext(undefined);
-    navigate(props.returnTo);
-  };
-
-  return (
-    <ModalPanel
-      labelledBy="close-patient-title"
-      onClose={props.onCancel}
-      className="mc-rise w-full max-w-lg rounded-2xl bg-surface-raised p-6 text-content shadow-xl"
-    >
-      <h2 id="close-patient-title" className="text-xl font-bold">{t('workspace.closeTitle', { name: props.patientName })}</h2>
-      <p className="mt-1 text-sm text-content-muted">{props.detail}</p>
-      <h3 className="mt-5 text-sm font-semibold">{t('workspace.savedThisVisit')}</h3>
-      {saved.length ? (
-        <ul className="mt-2 divide-y divide-border">
-          {saved.map((e) => (
-            <li key={`${e.at}-${e.label}`} className="flex gap-3 py-2 text-sm">
-              <span className="w-12 shrink-0 tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
-              <span className="font-medium">{e.label}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-2 text-sm text-content-muted">{t('workspace.nothingSaved')}</p>
-      )}
-      {pending.length > 0 && (
-        <div role="alert" className="mt-4 rounded-lg border border-caution bg-caution-subtle p-3 text-sm text-caution-subtle-fg">
-          <p className="font-semibold">{t('workspace.unsavedWarning')}</p>
-          <p>{pending.join(', ')}</p>
-        </div>
-      )}
-      <div className="mt-6 flex flex-wrap justify-end gap-3">
-        <button type="button" onClick={props.onCancel} className="min-h-[44px] rounded-lg border border-border-interactive px-4 font-semibold hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-          {t('workspace.backToPatient')}
-        </button>
-        <button type="button" onClick={close} className="min-h-[44px] rounded-lg bg-brand px-4 font-semibold text-brand-fg hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-          {pending.length ? t('workspace.closeDiscarding') : t('workspace.closePatient')}
-        </button>
-      </div>
-    </ModalPanel>
   );
 }
