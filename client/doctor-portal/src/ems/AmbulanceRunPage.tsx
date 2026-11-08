@@ -27,6 +27,7 @@ import { usePatientStore } from '../store/patientStore';
 import { EntrySheet, type EntryKind } from './EntrySheet';
 import { LeaveSceneSheet } from './LeaveSceneSheet';
 import { describeEvent } from './runSummary';
+import { crewBody, readCrewDetails, saveCrewDetails, type CrewDetails } from './crewDetails';
 
 const OPEN: EmsRun['status'][] = ['in_progress', 'en_route', 'arrived'];
 
@@ -49,15 +50,21 @@ function StartRun() {
   }, [t]);
 
   const userId = useAuthStore((s) => s.user?.userId);
+  const [crewDetails, setCrewDetails] = useState<CrewDetails>(() => readCrewDetails(userId));
   const start = async (patientId?: string) => {
     // The id is chosen here so a run can start with no signal; the server
     // stores it insert-only, so a chosen id can never overwrite another run.
-    const body = { id: newRunId(), ...(patientId ? { patient_id: patientId } : {}) };
+    const crew = crewBody(crewDetails);
+    const body = { id: newRunId(), ...crew, ...(patientId ? { patient_id: patientId } : {}) };
+    saveCrewDetails(userId, crewDetails);
     const result = await submission.run(body, () => createEmsRun(body));
     if (result.kind === 'saved') putRun(result.value);
     if (result.kind === 'queued') {
       const now = new Date().toISOString();
-      putLocalRun({ id: body.id, status: 'in_progress', created_by: userId ?? '', crew: [], patient_id: patientId ?? null, created_at: now, updated_at: now });
+      putLocalRun({
+        id: body.id, status: 'in_progress', created_by: userId ?? '', crew: crew.crew ?? [], unit_number: crew.unit_number ?? null,
+        patient_id: patientId ?? null, created_at: now, updated_at: now,
+      });
     }
     if (result.kind === 'saved' || result.kind === 'queued') navigate(`/ems-run/${encodeURIComponent(body.id)}`);
   };
@@ -83,6 +90,23 @@ function StartRun() {
       )}
       <section aria-labelledby="start-run" className="space-y-3 rounded-2xl border border-border bg-surface p-4">
         <h2 id="start-run" className="text-lg font-semibold text-content">{t('ems.startTitle')}</h2>
+        {/* Shown to the receiving hospital; kept on this device for the next run.
+            ux-allow(no-form): two start buttons share these fields, so Enter has no single action to submit */}
+        <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
+          <label className="block text-sm font-semibold text-content">
+            {t('ems.unitLabel')}
+            <input value={crewDetails.unit} onChange={(e) => setCrewDetails((d) => ({ ...d, unit: e.target.value }))}
+              maxLength={40} autoComplete="off"
+              className="mt-1 min-h-[48px] w-full rounded-lg border border-border-interactive bg-surface px-3 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+          </label>
+          <label className="block text-sm font-semibold text-content">
+            {t('ems.crewLabel')}
+            <input value={crewDetails.crew} onChange={(e) => setCrewDetails((d) => ({ ...d, crew: e.target.value }))}
+              maxLength={300} autoComplete="off" aria-describedby="crew-hint"
+              className="mt-1 min-h-[48px] w-full rounded-lg border border-border-interactive bg-surface px-3 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+            <span id="crew-hint" className="mt-1 block text-xs font-normal text-content-muted">{t('ems.crewHint')}</span>
+          </label>
+        </div>
         {scanned ? (
           <button type="button" onClick={() => void start(scanned.patientId)}
             className="mc-press flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-lg font-semibold text-brand-fg hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
