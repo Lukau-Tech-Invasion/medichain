@@ -20,6 +20,10 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   listPatientSoapNotes: vi.fn(),
+  getPatientLatestVitals: vi.fn(),
+  getNoteTemplates: vi.fn(),
+  useNoteTemplate: vi.fn(),
+  createSoapNote: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -36,6 +40,7 @@ describe('SOAPNotePage', () => {
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
     vi.mocked(shared.listPatientSoapNotes).mockResolvedValue([]);
+    vi.mocked(shared.getPatientLatestVitals).mockResolvedValue({ reading: null });
   });
 
   it('renders SOAP note page', () => {
@@ -74,5 +79,33 @@ describe('SOAPNotePage', () => {
     expect(form.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(toggle);
     expect((await screen.findAllByText('Headache')).length).toBeGreaterThan(0);
+  });
+
+  it('adds an inserted template to what was written, replacing nothing', async () => {
+    vi.mocked(shared.getNoteTemplates).mockResolvedValue({ success: true, count: 1, templates: [{ template_id: 'T1', name: 'Chest pain', type: 'soap' }] });
+    vi.mocked(shared.useNoteTemplate).mockResolvedValue({
+      success: true, template_id: 'T1', timestamp: 0, rendered_content: {},
+      rendered_sections: [{ title: 'Subjective', content: 'Onset, character, radiation.' }, { title: 'Plan', content: 'ECG, troponin.' }],
+    });
+    render(<MemoryRouter initialEntries={['/soap?patientId=PAT-1']}><SOAPNotePage /></MemoryRouter>);
+    const hpi = screen.getByLabelText(/history of present illness/i);
+    fireEvent.change(hpi, { target: { value: 'Tight chest since 07:00.' } });
+    fireEvent.click(screen.getByRole('button', { name: /insert template/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Chest pain' }));
+    await vi.waitFor(() => expect(hpi).toHaveValue('Tight chest since 07:00.\n\nOnset, character, radiation.'));
+    expect(screen.getByText('Draft kept')).toBeInTheDocument();
+  });
+
+  it('"Save and stay" files the note and clears the form for the next one', async () => {
+    vi.mocked(shared.createSoapNote).mockResolvedValue({ note_id: 'SOAP-NEW' } as never);
+    render(<MemoryRouter initialEntries={['/soap?patientId=PAT-1']}><SOAPNotePage /></MemoryRouter>);
+    fireEvent.change(screen.getByLabelText(/chief complaint/i), { target: { value: 'Chest pain' } });
+    fireEvent.change(screen.getByLabelText(/clinical summary/i), { target: { value: 'Likely angina' } });
+    fireEvent.change(screen.getByLabelText(/treatment plan/i), { target: { value: 'ECG' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save and stay' }));
+    await vi.waitFor(() => expect(shared.createSoapNote).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(screen.getByLabelText(/chief complaint/i)).toHaveValue(''));
+    // Fetched again, so the note just filed is among the earlier ones.
+    expect(vi.mocked(shared.listPatientSoapNotes).mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

@@ -155,6 +155,14 @@ describe('PatientWorkspace', () => {
     await within(visit).findByText(/SOAP Notes saved/i);
   });
 
+  it('does not count rendering a note template as a save', async () => {
+    renderAt(`/patients/${PID}/soap`);
+    const visit = await screen.findByRole('complementary', { name: /this visit/i });
+    await within(visit).findByText('Chart opened');
+    await getApiClient().post('/api/templates/notes/use', { template_id: 'T1' });
+    expect(within(visit).queryByText(/SOAP Notes saved/)).not.toBeInTheDocument();
+  });
+
   it('closing lists what was saved and warns about unsaved work', async () => {
     renderAt(`/patients/${PID}/soap`);
     await waitFor(() => expect(screen.getByTestId('chosen')).toHaveTextContent(PID));

@@ -42,7 +42,9 @@ import { OfflineChartSummary } from '../offline/OfflineChartSummary';
 // ux-allow(no-form): the only field filters the list of forms as it is typed; there is nothing to submit.
 
 /** Mutations that are housekeeping, not something saved for this patient. */
-const NOT_CLINICAL = /^\/api\/(notifications|auth|events|access-contexts?|patients\/[^/]+\/access-context|session|clinical\/scoring\/)/;
+// Rendering a note template (`templates/notes/use`) only fills a form; nothing
+// about the patient is saved until the note is.
+const NOT_CLINICAL = /^\/api\/(notifications|auth|events|access-contexts?|patients\/[^/]+\/access-context|session|clinical\/scoring\/|templates\/notes\/use)/;
 
 export interface PatientWorkspaceProps {
   /** The form elements by route segment, built where the routes are declared. */

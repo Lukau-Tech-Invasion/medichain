@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
-import { takeNoteDraft } from '../utils/noteDraft';
+import { useState, useEffect, useRef } from 'react';
+import { takeNoteDraft, type SoapDraft } from '../utils/noteDraft';
+import { LatestVitalsStrip } from './soap/LatestVitalsStrip';
+import { InsertTemplateMenu } from './soap/InsertTemplateMenu';
 import { useAuthStore } from '../store';
 import {
   addSoapAddendum,
@@ -15,7 +17,7 @@ import {
   formatDateOnly,
   notifySuccess, submitOnce, useSubmission, useDraftFields } from '@medichain/shared';
 import { 
-  FileText, ArrowLeft, Check, Loader2, AlertCircle,
+  FileText, ArrowLeft, Check, Loader2, AlertCircle, Save,
   User, Activity, Stethoscope, Pill, Calendar
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
@@ -138,6 +140,8 @@ function SOAPNotePage() {
   const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}; [key: string]: unknown}>>([]);
   const [notesError, setNotesError] = useState('');
   const [showNotesList, setShowNotesList] = useState(false);
+  // Bumped after "Save and stay" so the note just filed joins the list below.
+  const [notesVersion, setNotesVersion] = useState(0);
 
   // --- Amending a note after the fact ----------------------------------------
   //
@@ -216,7 +220,7 @@ function SOAPNotePage() {
     };
     fetchNotes();
     return () => { active = false; };
-  }, [selectedPatientId, user]);
+  }, [selectedPatientId, user, notesVersion]);
   
   // SUBJECTIVE
   const [chiefComplaint, setChiefComplaint] = useState('');
@@ -339,6 +343,31 @@ function SOAPNotePage() {
     treatmentPlan,
   });
 
+  /** An empty note for the same patient, after "Save and stay". */
+  const blankNote = () => {
+    setEncounterType('initial');
+    setChiefComplaint(''); setHpi(''); setSymptoms(''); setSymptomDuration('');
+    setReviewOfSystems(''); setModifyingFactors(''); setPreviousTreatments('');
+    setGeneralAppearance(''); setPhysicalExams([]); setLabResults(''); setImagingResults('');
+    setPrimaryDiagnosis(''); setPrimaryICD10(''); setPrimaryStatus('confirmed');
+    setClinicalSummary(''); setSeverity('');
+    setTreatmentPlan(''); setMedications([]); setProcedures(''); setLabOrders(''); setImagingOrders('');
+    setReferrals(''); setPatientEducation(''); setFollowUp(''); setReturnPrecautions(''); setActivityRestrictions('');
+  };
+
+  /** A template adds to what is written; it never replaces a word of it. */
+  const insertTemplate = (tpl: SoapDraft) => {
+    const add = (text: string) => (current: string) => (text ? (current.trim() ? `${current}\n\n${text}` : text) : current);
+    setHpi(add(tpl.subjective));
+    setGeneralAppearance(add(tpl.objective));
+    setClinicalSummary(add(tpl.assessment));
+    setTreatmentPlan(add(tpl.plan));
+    notifySuccess(t('docNoteTemplates.templateApplied', { name: tpl.templateName }));
+  };
+
+  // Which submit button sent the form: "Save and stay" keeps the page open.
+  const stayAfterSave = useRef(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -429,6 +458,12 @@ function SOAPNotePage() {
 
       if (outcome === 'queued') notifySuccess(t('forms.queued'));
       draft.markSaved();
+      if (stayAfterSave.current) {
+        blankNote();
+        setNotesVersion((n) => n + 1);
+        notifySuccess(t('docSOAPNote.savedStay'));
+        return;
+      }
       setSuccess(true);
 
       setTimeout(() => {
@@ -454,13 +489,22 @@ function SOAPNotePage() {
           <ArrowLeft size={20} />
           {t('docSOAPNote.backButton')}
         </button>
-        <div className="flex items-center gap-3">
-          <FileText size={32} className="text-brand" />
-          <div>
+        <div className="flex items-start gap-3">
+          <FileText size={32} className="shrink-0 text-brand" />
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold text-content">{t('docSOAPNote.title')}</h1>
             <p className="text-content-muted mt-1">
               {t('docSOAPNote.subtitle')}
             </p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-3">
+            {draft.dirty && selectedPatientId && (
+              <span role="status" title={t('docSOAPNote.draftKeptHint')} className="inline-flex items-center gap-1 text-xs text-content-muted">
+                <Save size={14} aria-hidden="true" />
+                {t('docSOAPNote.draftKept')}
+              </span>
+            )}
+            <InsertTemplateMenu onInsert={insertTemplate} />
           </div>
         </div>
       </div>
@@ -649,6 +693,7 @@ function SOAPNotePage() {
             <span className="text-sm text-content-muted">{t('docSOAPNote.objectiveSubtitle')}</span>
           </div>
 
+          {selectedPatientId && <LatestVitalsStrip patientId={selectedPatientId} />}
           <div className="space-y-4">
             <div>
               <label htmlFor="soap-general-appearance" className="block text-sm font-medium text-content-secondary mb-2">
@@ -1076,6 +1121,15 @@ function SOAPNotePage() {
           </button>
           <button
             type="submit"
+            onClick={() => { stayAfterSave.current = true; }}
+            aria-disabled={submitting || undefined}
+            className="aria-disabled:cursor-wait px-6 py-3 border border-border-interactive text-content rounded-lg hover:bg-surface-sunken transition-colors"
+          >
+            {t('docSOAPNote.saveAndStay')}
+          </button>
+          <button
+            type="submit"
+            onClick={() => { stayAfterSave.current = false; }}
             aria-disabled={submitting || undefined}
             className="aria-disabled:cursor-wait px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors flex items-center gap-2"
           >
