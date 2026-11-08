@@ -9,11 +9,18 @@
  * Keyed by the signed-in account, the patient and the form, so one clinician's
  * half-written note never appears for another account or another patient.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getApiClient } from '../api/client';
 import { useUnsavedChanges } from './unsavedChanges';
 
 const drafts = new Map<string, unknown>();
+// Told when a draft starts or stops existing (not on every keystroke).
+const listeners = new Set<() => void>();
+let version = 0;
+function changed(): void {
+  version += 1;
+  listeners.forEach((l) => l());
+}
 
 function draftKey(formId: string, patientId: string | undefined): string {
   return `${getApiClient().getUserId() ?? 'anonymous'}|${patientId ?? '-'}|${formId}`;
@@ -24,11 +31,14 @@ export function readDraft<T>(formId: string, patientId?: string): T | undefined 
 }
 
 export function writeDraft(formId: string, patientId: string | undefined, value: unknown): void {
-  drafts.set(draftKey(formId, patientId), value);
+  const key = draftKey(formId, patientId);
+  const isNew = !drafts.has(key);
+  drafts.set(key, value);
+  if (isNew) changed();
 }
 
 export function clearDraft(formId: string, patientId?: string): void {
-  drafts.delete(draftKey(formId, patientId));
+  if (drafts.delete(draftKey(formId, patientId))) changed();
 }
 
 /** Every draft held for `patientId` by the signed-in account (for "Close patient"). */
@@ -40,6 +50,19 @@ export function draftsForPatient(patientId: string): string[] {
 /** Forget every draft (sign-out). */
 export function clearAllDrafts(): void {
   drafts.clear();
+  changed();
+}
+
+/** `draftsForPatient`, re-rendering when a draft for anyone starts or stops existing. */
+export function useDraftsForPatient(patientId: string): string[] {
+  useSyncExternalStore(
+    (onChange) => {
+      listeners.add(onChange);
+      return () => listeners.delete(onChange);
+    },
+    () => version,
+  );
+  return draftsForPatient(patientId);
 }
 
 /**

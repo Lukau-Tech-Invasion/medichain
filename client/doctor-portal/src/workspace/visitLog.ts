@@ -13,6 +13,8 @@ export interface VisitEvent {
   /** The form that was open, e.g. "Vital Signs"; or a fixed label for chart events. */
   label: string;
   kind: 'opened' | 'saved';
+  /** What it was: "Metformin 500 mg twice daily", or the reason the chart was opened. */
+  detail?: string;
 }
 
 const visits = new Map<string, VisitEvent[]>();

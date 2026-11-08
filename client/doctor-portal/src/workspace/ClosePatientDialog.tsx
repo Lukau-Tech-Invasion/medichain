@@ -23,6 +23,7 @@ import {
 import { clearVisit, type VisitEvent } from './visitLog';
 import { workspacePath } from './forms';
 import { nextPatient, type NextPatient } from './nextPatient';
+import { pendingWork, type PendingWork } from './pendingWork';
 
 export interface ClosePatientDialogProps {
   patientId: string;
@@ -39,25 +40,6 @@ export interface ClosePatientDialogProps {
   onOpenForm: (formId: string) => void;
   /** Throw away what is typed into the form on screen (it is remounted empty). */
   onDiscardOnScreen: () => void;
-}
-
-interface PendingWork {
-  key: string;
-  label: string;
-  formId?: string;
-  onScreen: boolean;
-}
-
-function pendingWork(props: ClosePatientDialogProps, onScreenDiscarded: boolean): PendingWork[] {
-  const drafts = draftsForPatient(props.patientId);
-  const elsewhere = drafts
-    .filter((d) => d !== props.currentForm)
-    .map((d) => ({ key: d, label: props.labelOf(d), formId: d, onScreen: false }));
-  const unsaved = unsavedForms();
-  const draftOnScreen = props.currentForm !== undefined && drafts.includes(props.currentForm);
-  if (onScreenDiscarded || (unsaved.length === 0 && !draftOnScreen)) return elsewhere;
-  const label = unsaved.length ? [...new Set(unsaved)].join(', ') : props.labelOf(props.currentForm ?? '');
-  return [{ key: `on-screen-${props.currentForm ?? ''}`, label, formId: props.currentForm, onScreen: true }, ...elsewhere];
 }
 
 function useNextPatient(patientId: string): NextPatient | null {
@@ -85,7 +67,13 @@ export function ClosePatientDialog(props: ClosePatientDialogProps) {
   const next = useNextPatient(props.patientId);
   const saved = props.events.filter((e) => e.kind === 'saved');
   const opened = props.events.find((e) => e.kind === 'opened');
-  const pending = pendingWork(props, onScreenDiscarded);
+  const pending = pendingWork({
+    drafts: draftsForPatient(props.patientId),
+    unsaved: unsavedForms(),
+    currentForm: props.currentForm,
+    labelOf: props.labelOf,
+    onScreenDiscarded,
+  });
 
   const discard = (item: PendingWork) => {
     if (item.formId) clearDraft(item.formId, props.patientId);

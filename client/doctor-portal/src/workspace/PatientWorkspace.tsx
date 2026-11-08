@@ -19,6 +19,9 @@ import {
   formatTimestamp,
   getApiClient,
   getPatient,
+  getPatientLabSubmissions,
+  useDraftsForPatient,
+  useUnsavedFormLabels,
   returnPathFrom,
   useMotionNavigate,
   useTranslation,
@@ -35,6 +38,9 @@ import { recordVisitEvent, useVisitEvents, visitEvents, type VisitEvent } from '
 import { declaredAccessFor, isReasonCode } from '../components/ChartAccess';
 import { ClosePatientDialog } from './ClosePatientDialog';
 import { useTypingGuard } from './useTypingGuard';
+import { describeSave } from './visitDetail';
+import { recentForms, rememberForm } from './recentForms';
+import { pendingWork, type PendingWork } from './pendingWork';
 import { findDirectoryPatient, type Patient } from '../components/PatientSelect';
 import { useClinicianOffline } from '../offline/ClinicianOffline';
 import { OfflineChartSummary } from '../offline/OfflineChartSummary';
@@ -112,7 +118,11 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   // double mount) would otherwise see the stale empty list and log it twice.
   useEffect(() => {
     if (visitEvents(user?.userId, patientId).length === 0) {
-      recordVisitEvent(user?.userId, patientId, { at: Date.now(), label: t('workspace.chartOpened'), kind: 'opened' });
+      const reason = declaredAccessFor(patientId)?.reason;
+      recordVisitEvent(user?.userId, patientId, {
+        at: Date.now(), label: t('workspace.chartOpened'), kind: 'opened',
+        detail: reason ? (isReasonCode(reason) ? t(`accessReason.${reason}`) : reason) : undefined,
+      });
     }
     // Once per workspace mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,10 +130,20 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
 
   // Every save while this patient is open lands in "This visit", attributed to
   // the form that was open when the server accepted it.
-  useEffect(() => getApiClient().onMutationSucceeded(({ path }) => {
+  useEffect(() => getApiClient().onMutationSucceeded(({ path, body, response }) => {
     if (NOT_CLINICAL.test(path)) return;
-    recordVisitEvent(user?.userId, patientId, { at: Date.now(), label: formRef.current.label, kind: 'saved' });
-  }), [patientId, user?.userId]);
+    recordVisitEvent(user?.userId, patientId, {
+      at: Date.now(), label: formRef.current.label, kind: 'saved', detail: describeSave(path, body, response, t),
+    });
+  }), [patientId, user?.userId, t]);
+
+  // The rail's "Recent" group: the forms this clinician opened last.
+  useEffect(() => { if (form) rememberForm(user?.userId, form); }, [form, user?.userId]);
+  const drafts = useDraftsForPatient(patientId);
+  const unsaved = useUnsavedFormLabels();
+  const labelOf = (id: string) => rail.byId.get(id)?.label ?? id;
+  const pending = pendingWork({ drafts, unsaved, currentForm: form, labelOf });
+  const labsToReview = useLabsAwaitingReview(patientId, role === 'Doctor' || role === 'Nurse' || role === 'Admin');
 
   // Typing in a form that keeps no draft of its own still counts as unsaved work.
   const formArea = useRef<HTMLElement>(null);
@@ -212,7 +232,15 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
         </header>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[232px_minmax(0,1fr)_280px]">
-          <ActionsRail patientId={patientId} rail={rail} current={form} open={railOpen} />
+          <ActionsRail
+            patientId={patientId}
+            rail={rail}
+            current={form}
+            open={railOpen}
+            recent={recentRail(rail, recentForms(user?.userId))}
+            drafts={new Set(drafts)}
+            badges={labsToReview ? new Map([['lab-results', labsToReview]]) : new Map()}
+          />
           {/* `relative`: an absolutely placed child (every `sr-only` label) is
               otherwise positioned against the page, escapes this scroll area and
               makes the whole window scroll again. */}
@@ -225,7 +253,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
               </div>
             ) : <Fragment key={formEpoch}>{form ? forms[form] : home}</Fragment>}
           </section>
-          <VisitPanel events={events} patientName={name} />
+          <VisitPanel events={events} patientName={name} pending={pending} patientId={patientId} />
         </div>
       </div>
       {closing && (
@@ -238,7 +266,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
           returnTo={returnTo.current}
           userId={user?.userId}
           currentForm={form}
-          labelOf={(id) => rail.byId.get(id)?.label ?? id}
+          labelOf={labelOf}
           onOpenForm={(formId) => {
             setClosing(false);
             navigate(workspacePath(patientId, formId));
@@ -268,7 +296,50 @@ function useOpenedLine(patientId: string, events: VisitEvent[]): string | null {
   return first ? t('workspace.openedReasonAt', { reason: label, time: formatTimestamp(first.at, { timeStyle: 'short' }) }) : label;
 }
 
-function ActionsRail({ patientId, rail, current, open }: { patientId: string; rail: ReturnType<typeof workspaceRail>; current?: string; open: boolean }) {
+/** Up to three recently opened forms that are not already among the common ones. */
+function recentRail(rail: ReturnType<typeof workspaceRail>, ids: string[]): WorkspaceForm[] {
+  const common = new Set(rail.common.map((f) => f.id));
+  return ids.filter((id) => !common.has(id)).map((id) => rail.byId.get(id))
+    .filter((f): f is WorkspaceForm => Boolean(f)).slice(0, 3);
+}
+
+/**
+ * Lab results for this patient waiting for review, for the rail's badge; null
+ * when the role does not review results or the count could not be read --
+ * no badge then, rather than a "0" that would claim none are waiting.
+ */
+function useLabsAwaitingReview(patientId: string, reviews: boolean): number | null {
+  const [count, setCount] = useState<number | null>(null);
+  const [version, setVersion] = useState(0);
+  // A review elsewhere in the workspace changes the count.
+  useEffect(() => getApiClient().onMutationSucceeded(({ path }) => {
+    if (path.startsWith('/api/lab/')) setVersion((n) => n + 1);
+  }), []);
+  useEffect(() => {
+    if (!reviews) return undefined;
+    let active = true;
+    getPatientLabSubmissions(patientId).then(
+      (rows) => { if (active) setCount(rows.filter((r) => r.status === 'pending').length); },
+      () => { if (active) setCount(null); },
+    );
+    return () => { active = false; };
+  }, [patientId, reviews, version]);
+  return reviews && count ? count : null;
+}
+
+interface ActionsRailProps {
+  patientId: string;
+  rail: ReturnType<typeof workspaceRail>;
+  current?: string;
+  open: boolean;
+  recent: WorkspaceForm[];
+  /** Forms holding an unsaved draft for this patient. */
+  drafts: Set<string>;
+  /** A count beside a form, e.g. results waiting for review. */
+  badges: Map<string, number>;
+}
+
+function ActionsRail({ patientId, rail, current, open, recent, drafts, badges }: ActionsRailProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
@@ -290,6 +361,17 @@ function ActionsRail({ patientId, rail, current, open }: { patientId: string; ra
       >
         <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="truncate">{f.label}</span>
+        {drafts.has(f.id) && (
+          <span className="h-2 w-2 shrink-0 rounded-full bg-caution" title={t('workspace.hasDraft')}>
+            <span className="sr-only">{t('workspace.hasDraft')}</span>
+          </span>
+        )}
+        {badges.get(f.id) ? (
+          <span className="ml-auto shrink-0 rounded-full bg-notice-subtle px-2 text-xs font-semibold text-notice-subtle-fg">
+            {badges.get(f.id)}
+            <span className="sr-only"> {t('workspace.toReview')}</span>
+          </span>
+        ) : null}
       </Link>
     );
   };
@@ -327,6 +409,12 @@ function ActionsRail({ patientId, rail, current, open }: { patientId: string; ra
               <div className="space-y-0.5">{rail.common.map(item)}</div>
             </>
           )}
+          {recent.length > 0 && (
+            <>
+              <p className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-content-muted">{t('workspace.recent')}</p>
+              <div className="space-y-0.5">{recent.map(item)}</div>
+            </>
+          )}
           <button
             type="button"
             aria-expanded={showAll}
@@ -348,27 +436,59 @@ function ActionsRail({ patientId, rail, current, open }: { patientId: string; ra
   );
 }
 
-function VisitPanel({ events, patientName }: { events: ReturnType<typeof useVisitEvents>; patientName: string }) {
+function VisitPanel({ events, patientName, pending, patientId }: {
+  events: VisitEvent[];
+  patientName: string;
+  pending: PendingWork[];
+  patientId: string;
+}) {
   const { t } = useTranslation();
+  const opens = events.filter((e) => e.kind === 'opened');
+  const since = opens[opens.length - 1];
   return (
     <aside aria-label={t('workspace.thisVisit')} className="hidden overflow-y-auto border-l border-border bg-surface p-4 xl:block">
       <h2 className="flex items-center gap-2 font-semibold text-content">
         <History className="h-4 w-4" aria-hidden="true" />
         {t('workspace.thisVisit')}
       </h2>
-      <p className="mb-3 text-xs text-content-muted">{t('workspace.thisVisitFor', { name: patientName })}</p>
+      <p className="mb-3 text-xs text-content-muted">
+        {since
+          ? t('workspace.thisVisitSince', { name: patientName, time: formatTimestamp(since.at, { timeStyle: 'short' }) })
+          : t('workspace.thisVisitFor', { name: patientName })}
+      </p>
       <ol className="space-y-0" aria-live="polite">
         {/* Two entries can share a time and a label (a form saved twice in a
             second); the position keeps each key unique. */}
         {events.map((e, i) => (
           <li key={`${e.at}-${e.label}-${i}`} className="mc-enter flex gap-3 border-t border-border py-2 first:border-t-0">
             <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
-            <span className={`text-sm ${e.kind === 'saved' ? 'font-semibold text-content' : 'text-content-secondary'}`}>
-              {e.kind === 'saved' ? t('workspace.savedEntry', { form: e.label }) : e.label}
-            </span>
+            {e.kind === 'saved' ? (
+              <span className="min-w-0 text-sm">
+                <span className="block font-semibold text-content">{e.label}</span>
+                {e.detail && <span className="block break-words text-xs text-content-muted">{e.detail}</span>}
+              </span>
+            ) : (
+              <span className="text-sm text-content-secondary">{e.detail ? `${e.label} · ${e.detail}` : e.label}</span>
+            )}
           </li>
         ))}
       </ol>
+      {pending.length > 0 && (
+        <section aria-labelledby="visit-not-saved" className="mt-3 rounded-lg border border-caution p-3">
+          <h3 id="visit-not-saved" className="text-sm font-semibold text-caution-subtle-fg">{t('workspace.notSavedYet')}</h3>
+          <ul className="mt-1 space-y-1">
+            {pending.map((p) => (
+              <li key={p.key} className="text-xs text-content-muted">
+                {p.onScreen || !p.formId ? t('workspace.pendingOnScreen', { form: p.label }) : (
+                  <Link to={workspacePath(patientId, p.formId)} className="text-brand hover:underline">
+                    {t('workspace.pendingDraft', { form: p.label })}
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </aside>
   );
 }

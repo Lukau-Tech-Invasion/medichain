@@ -4,6 +4,25 @@ Last updated: 2026-09-29.
 
 ---
 
+## 2026-11-08 — Seen during the c4 workspace pass, not fixed
+
+Two things noticed in the browser while checking the patient workspace against
+mockup c4 (commits `3585138`, `ee51b1e` and the batch-3 commit). Neither was
+investigated beyond what is written here.
+
+- **Lab review names the submitter by a raw id.** Each card in the Lab Results
+  review queue reads "by 00dd8ee7-4e62-…", the submitting account's UUID, not
+  a person's name. A reviewer cannot tell who entered the result. The account
+  directory can resolve ids to names; the page does not ask it.
+- **A paediatric assessment shows on an adult's chart.** The chart home for a
+  38-year-old (synthetic patient on the throwaway database) shows "Latest
+  pediatric assessment" with a weight of 14.2 kg. The card shows whenever such
+  a record exists, so the open question is whether the paediatric form should
+  accept an adult at all, and whether the card should appear for one. Probably
+  test data written by an earlier harness; not checked.
+
+---
+
 ## 2026-11-08 — Shift handoff drafted from the shift's records (mockup c2)
 
 `GET /api/shift-handoff/draft` used to say only which kinds of record the nurse

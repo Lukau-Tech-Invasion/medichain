@@ -15,7 +15,7 @@
  * The browser's Back button cannot be intercepted without a data router;
  * `useFormDraft` keeps the content in memory so returning restores it.
  */
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { confirmDialog } from '../components/Dialog';
 import { useTranslation } from '../i18n/react';
@@ -29,6 +29,11 @@ function lostOnNavigation(): string[] {
   return [...dirtyForms].filter(([id]) => !keptAsDraft.has(id)).map(([, label]) => label);
 }
 const listeners = new Set<() => void>();
+let version = 0;
+function changed(): void {
+  version += 1;
+  listeners.forEach((l) => l());
+}
 
 /** Labels of the forms with unsaved changes right now. */
 export function unsavedForms(): string[] {
@@ -39,7 +44,19 @@ export function unsavedForms(): string[] {
 export function clearUnsavedForms(): void {
   dirtyForms.clear();
   keptAsDraft.clear();
-  listeners.forEach((l) => l());
+  changed();
+}
+
+/** `unsavedForms`, re-rendering as forms gain or lose unsaved changes. */
+export function useUnsavedFormLabels(): string[] {
+  useSyncExternalStore(
+    (onChange) => {
+      listeners.add(onChange);
+      return () => listeners.delete(onChange);
+    },
+    () => version,
+  );
+  return unsavedForms();
 }
 
 /**
@@ -57,10 +74,11 @@ export function useUnsavedChanges(dirty: boolean, label: string, options?: { kep
     else dirtyForms.delete(id);
     if (dirty && kept) keptAsDraft.add(id);
     else keptAsDraft.delete(id);
-    listeners.forEach((l) => l());
+    changed();
     return () => {
       dirtyForms.delete(id);
       keptAsDraft.delete(id);
+      changed();
     };
   }, [dirty, id, label, kept]);
 }

@@ -34,12 +34,15 @@ function answer(status: number, body: unknown) {
 
 /** The clinician's booked day, as /api/dashboard/doctor/today answers it. */
 let todayBody: unknown = {};
+/** This patient's lab submissions, as /api/lab/patient/{id} answers them. */
+let labRows: unknown[] = [];
 
 function server() {
   const fetchMock = vi.fn().mockImplementation((raw: unknown, init?: RequestInit) => {
     const url = String(raw);
     if (init?.method === 'POST' && url.includes('/api/clinical/soap')) return answer(201, { id: 'SOAP-1' });
     if (url.includes('/api/dashboard/doctor/today')) return answer(200, todayBody);
+    if (url.includes(`/api/lab/patient/${PID}`)) return answer(200, { submissions: labRows, total: labRows.length });
     if (url.includes(`/api/patients/${PID}`)) {
       return answer(200, {
         patient_id: PID, full_name: 'Thandiwe Ndlovu', date_of_birth: '1992-03-12', gender: 'Female',
@@ -61,7 +64,7 @@ function FakeSoapForm() {
   const [text, setText] = useState('');
   useUnsavedChanges(text !== '', 'SOAP note');
   return (
-    <form onSubmit={(e) => { e.preventDefault(); void getApiClient().post('/api/clinical/soap', { patient_id: patientId }); }}>
+    <form onSubmit={(e) => { e.preventDefault(); void getApiClient().post('/api/clinical/soap', { patient_id: patientId, subjective: { chief_complaint: 'Chest tightness' } }); }}>
       <PatientSelect id="soap-patient" label="Patient" value={patientId} onChange={setPatientId} />
       <p data-testid="chosen">{patientId}</p>
       <label htmlFor="s">Subjective</label>
@@ -112,6 +115,9 @@ describe('PatientWorkspace', () => {
     clearVisit('doctor-1', PID);
     clearAllDrafts();
     todayBody = {};
+    labRows = [];
+    vi.mocked(localStorage.getItem).mockReset();
+    vi.mocked(localStorage.setItem).mockReset();
   });
 
   it('shows the patient with two identifiers and their allergies in the banner', async () => {
@@ -134,8 +140,8 @@ describe('PatientWorkspace', () => {
     // renderAt wraps in StrictMode, which runs every effect a second time.
     renderAt(`/patients/${PID}`);
     const visit = await screen.findByRole('complementary', { name: /this visit/i });
-    await within(visit).findByText('Chart opened');
-    expect(within(visit).getAllByText('Chart opened')).toHaveLength(1);
+    await within(visit).findByText('Chart opened · Treatment');
+    expect(within(visit).getAllByText(/Chart opened/)).toHaveLength(1);
   });
 
   it('offers the doctor’s common forms and opens one with the patient already chosen', async () => {
@@ -152,28 +158,70 @@ describe('PatientWorkspace', () => {
     await waitFor(() => expect(screen.getByTestId('chosen')).toHaveTextContent(PID));
     fireEvent.click(screen.getByRole('button', { name: 'Save SOAP' }));
     const visit = await screen.findByRole('complementary', { name: /this visit/i });
-    await within(visit).findByText(/SOAP Notes saved/i);
+    await within(visit).findByText('SOAP Notes');
+    // What was saved, read from the note itself.
+    expect(within(visit).getByText('Chest tightness')).toBeInTheDocument();
   });
 
   it('does not count rendering a note template as a save', async () => {
     renderAt(`/patients/${PID}/soap`);
     const visit = await screen.findByRole('complementary', { name: /this visit/i });
-    await within(visit).findByText('Chart opened');
+    await within(visit).findByText(/Chart opened/);
     await getApiClient().post('/api/templates/notes/use', { template_id: 'T1' });
-    expect(within(visit).queryByText(/SOAP Notes saved/)).not.toBeInTheDocument();
+    expect(within(visit).queryByText('SOAP Notes')).not.toBeInTheDocument();
+  });
+
+  it('lists work not saved yet in "This visit", as it is typed', async () => {
+    renderAt(`/patients/${PID}/soap`);
+    const visit = await screen.findByRole('complementary', { name: /this visit/i });
+    expect(within(visit).queryByText('Not saved yet')).not.toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText('Subjective'), { target: { value: 'Chest pain' } });
+    await within(visit).findByText('Not saved yet');
+    expect(within(visit).getByText(/SOAP Notes — on screen, not saved/)).toBeInTheDocument();
+  });
+
+  it('marks a form holding a draft, and links to it from "This visit"', async () => {
+    writeDraft('orders', PID, { text: 'CBC' });
+    renderAt(`/patients/${PID}`);
+    const visit = await screen.findByRole('complementary', { name: /this visit/i });
+    expect(await within(visit).findByRole('link', { name: /Physician Orders — draft/ })).toHaveAttribute('href', `/patients/${PID}/orders`);
+    const nav = screen.getByRole('navigation', { name: /forms for this patient/i });
+    expect(within(within(nav).getByRole('link', { name: /Physician Orders/ })).getByText('Draft not saved')).toBeInTheDocument();
+  });
+
+  it('counts lab results waiting for review beside Lab Results', async () => {
+    labRows = [{ submission_id: 'L1', patient_id: PID, status: 'pending' }, { submission_id: 'L2', patient_id: PID, status: 'approved' }];
+    renderAt(`/patients/${PID}`);
+    const nav = await screen.findByRole('navigation', { name: /forms for this patient/i });
+    const lab = within(nav).getByRole('link', { name: /Lab Results/ });
+    await waitFor(() => expect(lab).toHaveTextContent(/1\s*to review/));
+  });
+
+  it('keeps the forms opened last under "Recent"', async () => {
+    // The suite's localStorage is a stub that stores nothing; give it a memory.
+    const stored = new Map<string, string>();
+    vi.mocked(localStorage.getItem).mockImplementation((k: string) => stored.get(k) ?? null);
+    vi.mocked(localStorage.setItem).mockImplementation((k: string, v: string) => { stored.set(k, v); });
+    const { unmount } = renderAt(`/patients/${PID}/vitals`);
+    await screen.findByRole('navigation', { name: /forms for this patient/i });
+    unmount();
+    renderAt(`/patients/${PID}`);
+    const nav = await screen.findByRole('navigation', { name: /forms for this patient/i });
+    expect(within(nav).getByText('Recent')).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Vital Signs' })).toHaveAttribute('href', `/patients/${PID}/vitals`);
   });
 
   it('closing lists what was saved and warns about unsaved work', async () => {
     renderAt(`/patients/${PID}/soap`);
     await waitFor(() => expect(screen.getByTestId('chosen')).toHaveTextContent(PID));
     fireEvent.click(screen.getByRole('button', { name: 'Save SOAP' }));
-    await screen.findByText(/SOAP Notes saved/i);
+    await within(await screen.findByRole('complementary', { name: /this visit/i })).findByText('SOAP Notes');
     fireEvent.change(screen.getByLabelText('Subjective'), { target: { value: 'Chest pain' } });
 
     fireEvent.click(screen.getByRole('button', { name: /close patient/i }));
     const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
     expect(within(dialog).getByText("SOAP Notes")).toBeInTheDocument();
-    expect(within(dialog).getByRole('alert')).toHaveTextContent('SOAP note');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('SOAP Notes');
 
     fireEvent.click(within(dialog).getByRole('button', { name: /close and discard/i }));
     await screen.findByText('Dashboard');

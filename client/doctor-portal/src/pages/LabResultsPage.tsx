@@ -3,6 +3,7 @@ import {
   exportDocumentToPdf,
   getApiErrorMessage,
   getAllLabSubmissions,
+  getPatientLabSubmissions,
   getLabPanels,
   reviewLabResult,
   submitLabResults,
@@ -29,6 +30,7 @@ import {
 import { Link } from 'react-router-dom';
 import PatientSelect from '../components/PatientSelect';
 import { workspacePath } from '../workspace/forms';
+import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
 import { PatientName } from '../components/PatientName';
 
 interface LabTestResult {
@@ -180,13 +182,18 @@ function LabResultsPage() {
   };
 
 
+  // Inside a patient's workspace the queue is that patient's results only: the
+  // rail's "to review" count points here, and must not open on other people.
+  const workspacePatientId = usePatientWorkspace()?.patientId;
   const fetchSubmissions = useCallback(async () => {
     setIsLoading(true);
     try {
       // The shared client owns authentication, retries and response-envelope
       // normalization. It returns the server's submission array, not a
       // guessed browser-fetch shape.
-      const response = await getAllLabSubmissions();
+      const response = workspacePatientId
+        ? await getPatientLabSubmissions(workspacePatientId)
+        : await getAllLabSubmissions();
       setSubmissions(response);
       setWorkflowError(null);
     } catch (error) {
@@ -196,7 +203,7 @@ function LabResultsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [workspacePatientId]);
 
   useEffect(() => {
     fetchSubmissions();

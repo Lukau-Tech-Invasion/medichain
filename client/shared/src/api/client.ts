@@ -209,6 +209,18 @@ export interface PatientAccessContext {
   contextId?: string;
 }
 
+/**
+ * A write the server accepted. `body` and `response` are the objects as sent
+ * and as parsed, handed over in memory only; listeners must not store them
+ * anywhere that outlives the tab (they can carry clinical content).
+ */
+export interface SucceededMutation {
+  method: string;
+  path: string;
+  body?: unknown;
+  response?: unknown;
+}
+
 export class ApiClient {
   private baseUrl: string;
   private userId?: string;
@@ -596,7 +608,7 @@ export class ApiClient {
       : { 'X-Access-Reason': context.reason };
   }
 
-  private mutationListeners = new Set<(mutation: { method: string; path: string }) => void>();
+  private mutationListeners = new Set<(mutation: SucceededMutation) => void>();
 
   /**
    * Be told about every mutation the server accepted (2xx).
@@ -605,15 +617,15 @@ export class ApiClient {
    * without each of the 58 forms reporting it: whichever form is open when a
    * write succeeds is the form that wrote it. Returns an unsubscribe function.
    */
-  onMutationSucceeded(listener: (mutation: { method: string; path: string }) => void): () => void {
+  onMutationSucceeded(listener: (mutation: SucceededMutation) => void): () => void {
     this.mutationListeners.add(listener);
     return () => {
       this.mutationListeners.delete(listener);
     };
   }
 
-  private announceMutation(method: string, path: string): void {
-    const mutation = { method: method.toUpperCase(), path: path.split('?')[0] };
+  private announceMutation(method: string, path: string, body?: unknown, response?: unknown): void {
+    const mutation: SucceededMutation = { method: method.toUpperCase(), path: path.split('?')[0], body, response };
     this.mutationListeners.forEach((listener) => {
       try {
         listener(mutation);
@@ -904,7 +916,7 @@ export class ApiClient {
           );
         }
         // Return empty object for successful non-JSON responses
-        if (isMutationMethod(method)) this.announceMutation(method, path);
+        if (isMutationMethod(method)) this.announceMutation(method, path, body);
         return {} as T;
       }
 
@@ -922,7 +934,7 @@ export class ApiClient {
         );
       }
 
-      if (isMutationMethod(method)) this.announceMutation(method, path);
+      if (isMutationMethod(method)) this.announceMutation(method, path, body, data);
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
       if (!mode.keepEnvelope && data && typeof data === 'object' && !Array.isArray(data)) {
