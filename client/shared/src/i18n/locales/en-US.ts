@@ -8928,6 +8928,7 @@ const en_US: TranslationRecord = {
     noneIncoming: 'No ambulances are on their way right now.',
     arrivedAt: 'Arrived {{time}}',
     received: 'Received',
+    receivedEarly: 'Received early',
     receiveFailed: 'The patient could not be marked received.',
     notRecorded: 'Not recorded',
     noVitals: 'No vitals recorded',

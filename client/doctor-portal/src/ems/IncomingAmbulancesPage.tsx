@@ -25,6 +25,16 @@ import { workspacePath } from '../workspace/forms';
 
 const REFRESH_MS = 20_000;
 
+/**
+ * The board's order: ambulances at the door first (longest waiting at the
+ * top), then those on their way by arrival time; one with no ETA goes last.
+ */
+export function boardOrder(runs: EmsRunWithEvents[]): EmsRunWithEvents[] {
+  const arrived = (r: EmsRunWithEvents) => r.status === 'arrived';
+  const when = (r: EmsRunWithEvents) => (arrived(r) ? r.updated_at : r.eta) ?? '\uffff';
+  return [...runs].sort((a, b) => Number(arrived(b)) - Number(arrived(a)) || when(a).localeCompare(when(b)));
+}
+
 export default function IncomingAmbulancesPage() {
   const { t } = useTranslation();
   const [runs, setRuns] = useState<EmsRunWithEvents[] | null>(null);
@@ -60,7 +70,7 @@ export default function IncomingAmbulancesPage() {
         <p className="rounded-xl border border-border bg-surface p-4 text-content-secondary">{t('ems.noneIncoming')}</p>
       )}
       <ul className="space-y-4" aria-live="polite">
-        {runs?.map((run) => <IncomingCard key={run.id} run={run} onChanged={load} />)}
+        {runs && boardOrder(runs).map((run) => <IncomingCard key={run.id} run={run} onChanged={load} />)}
       </ul>
     </div>
   );
@@ -121,9 +131,13 @@ function IncomingCard({ run, onChanged }: { run: EmsRunWithEvents; onChanged: ()
         {submission.status === 'failed' && (
           <p role="alert" className="text-sm text-critical-subtle-fg">{getApiErrorMessage(submission.error, t('ems.receiveFailed'))}</p>
         )}
+        {/* An ambulance still on its way can be received too -- the crew may not
+            have tapped "handed over" -- but it is not the board's main action. */}
         <button type="button" onClick={() => void receive()} aria-disabled={submission.status === 'saving' || undefined}
-          className="mc-press mt-auto min-h-[52px] rounded-xl bg-brand px-4 text-lg font-semibold text-brand-fg hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-          {submission.status === 'saving' ? t('common.saving') : t('ems.received')}
+          className={arrived
+            ? 'mc-press mt-auto min-h-[52px] rounded-xl bg-brand px-4 text-lg font-semibold text-brand-fg hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+            : 'mt-auto min-h-[44px] rounded-lg border border-border-interactive px-3 text-sm font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'}>
+          {submission.status === 'saving' ? t('common.saving') : arrived ? t('ems.received') : t('ems.receivedEarly')}
         </button>
       </div>
     </li>
