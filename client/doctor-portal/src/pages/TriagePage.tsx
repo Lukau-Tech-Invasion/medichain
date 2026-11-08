@@ -61,9 +61,8 @@ interface TriageAssessment {
 interface Patient {
   patient_id: string;
   full_name: string;
-  // Only on a roster row whose profile could not be decrypted; a readable
-  // patient carries no health_id in the list response.
-  health_id?: string;
+  // The card's Health ID; null when none was issued.
+  health_id?: string | null;
   date_of_birth: string;
 }
 

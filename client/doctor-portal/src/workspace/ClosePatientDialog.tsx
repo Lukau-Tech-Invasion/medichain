@@ -136,7 +136,7 @@ export function ClosePatientDialog(props: ClosePatientDialogProps) {
         <ul className="mt-2 divide-y divide-border">
           {saved.map((e, i) => (
             <li key={`${e.at}-${e.label}-${i}`} className="flex gap-3 py-2 text-sm">
-              <span className="w-12 shrink-0 tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
+              <span className="shrink-0 whitespace-nowrap tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
               <span className="font-medium">{e.label}</span>
             </li>
           ))}

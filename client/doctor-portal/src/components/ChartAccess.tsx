@@ -14,6 +14,12 @@ import { DocumentAccessRequest } from './DocumentAccessRequest';
 
 /** Reason codes the server maps to fixed wording for the patient. */
 const REASON_CODES = ['treatment', 'referral', 'emergency', 'administrative'] as const;
+export type ReasonCode = typeof REASON_CODES[number];
+
+/** Whether a declared reason is one of the one-click codes rather than free text. */
+export function isReasonCode(reason: string): reason is ReasonCode {
+  return (REASON_CODES as readonly string[]).includes(reason);
+}
 
 /** Longest free-text reason accepted; the server caps at the same length. */
 const MAX_OTHER_REASON_CHARS = 140;

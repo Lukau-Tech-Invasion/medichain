@@ -31,7 +31,8 @@ import { PatientWorkspaceContext } from './PatientWorkspaceContext';
 import { AdmissionControl } from './AdmissionControl';
 import { AmbulanceRunStrip } from '../ems/AmbulanceRunStrip';
 import { workspacePath, workspaceRail, type WorkspaceForm } from './forms';
-import { recordVisitEvent, useVisitEvents } from './visitLog';
+import { recordVisitEvent, useVisitEvents, visitEvents, type VisitEvent } from './visitLog';
+import { declaredAccessFor, isReasonCode } from '../components/ChartAccess';
 import { ClosePatientDialog } from './ClosePatientDialog';
 import { useTypingGuard } from './useTypingGuard';
 import { findDirectoryPatient, type Patient } from '../components/PatientSelect';
@@ -104,9 +105,11 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
     return () => { active = false; };
   }, [patientId]);
 
-  // The chart was opened: the first entry of the visit.
+  // The chart was opened: the first entry of the visit. Read the store now, not
+  // the render's `events`: a second run of this effect (React's development
+  // double mount) would otherwise see the stale empty list and log it twice.
   useEffect(() => {
-    if (events.length === 0) {
+    if (visitEvents(user?.userId, patientId).length === 0) {
       recordVisitEvent(user?.userId, patientId, { at: Date.now(), label: t('workspace.chartOpened'), kind: 'opened' });
     }
     // Once per workspace mount.
@@ -140,6 +143,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   const allergies = info?.allergies ?? [];
   const restricted = form ? rolesOwningRoute(role, `/${form}`).length > 0 : false;
   const known = form ? Boolean(forms[form]) && rail.byId.has(form) : true;
+  const opened = useOpenedLine(patientId, events);
 
   const workspaceValue = useMemo(
     () => ({ patientId, patient: directory ?? (name ? { patient_id: patientId, full_name: name, date_of_birth: dob ?? '' } : null) }),
@@ -176,6 +180,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
                 healthId ? t('workspace.healthId', { id: healthId }) : null]
                 .filter(Boolean).join(' · ')}
             </p>
+            {opened && <p className="text-xs text-content-muted">{opened}</p>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {allergies.length > 0 ? (
@@ -241,6 +246,24 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
       )}
     </PatientWorkspaceContext.Provider>
   );
+}
+
+/**
+ * Why and when this chart was opened ("Opened for treatment · 08:58"), from the
+ * reason declared at the gate and the visit's first entry. Absent when no
+ * reason was declared here -- a chart read from the device copy while offline.
+ */
+function useOpenedLine(patientId: string, events: VisitEvent[]): string | null {
+  const { t } = useTranslation();
+  const reason = declaredAccessFor(patientId)?.reason;
+  if (!reason) return null;
+  const label = isReasonCode(reason)
+    ? t(`workspace.openedReason_${reason}`)
+    : t('workspace.openedReasonOther', { reason });
+  // Newest first: the last "opened" entry is when this visit began.
+  const opens = events.filter((e) => e.kind === 'opened');
+  const first = opens[opens.length - 1];
+  return first ? t('workspace.openedReasonAt', { reason: label, time: formatTimestamp(first.at, { timeStyle: 'short' }) }) : label;
 }
 
 function ActionsRail({ patientId, rail, current, open }: { patientId: string; rail: ReturnType<typeof workspaceRail>; current?: string; open: boolean }) {
@@ -337,7 +360,7 @@ function VisitPanel({ events, patientName }: { events: ReturnType<typeof useVisi
             second); the position keeps each key unique. */}
         {events.map((e, i) => (
           <li key={`${e.at}-${e.label}-${i}`} className="mc-enter flex gap-3 border-t border-border py-2 first:border-t-0">
-            <span className="w-12 shrink-0 text-xs tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
+            <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-content-muted">{formatTimestamp(e.at, { timeStyle: 'short' })}</span>
             <span className={`text-sm ${e.kind === 'saved' ? 'font-semibold text-content' : 'text-content-secondary'}`}>
               {e.kind === 'saved' ? t('workspace.savedEntry', { form: e.label }) : e.label}
             </span>

@@ -137,7 +137,7 @@ function SOAPNotePage() {
   // Existing SOAP notes
   const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}; [key: string]: unknown}>>([]);
   const [notesError, setNotesError] = useState('');
-  const [showNotesList, setShowNotesList] = useState(true);
+  const [showNotesList, setShowNotesList] = useState(false);
 
   // --- Amending a note after the fact ----------------------------------------
   //
@@ -489,106 +489,6 @@ function SOAPNotePage() {
         <p role="alert" className="mb-6 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{notesError}</p>
       )}
 
-      {/* Existing SOAP Notes */}
-      {existingNotes.length > 0 && (
-        <div className="bg-surface rounded-xl shadow mb-6">
-          <div className="p-4 border-b flex items-center justify-between">
-            <h2 className="font-semibold text-content flex items-center gap-2">
-              <FileText size={18} className="text-brand" />
-              {t('docSOAPNote.existingNotesHeading', { count: existingNotes.length })}
-            </h2>
-            <button
-              type="button"
-              onClick={() => setShowNotesList(!showNotesList)}
-              className="text-sm text-notice-subtle-fg hover:underline"
-            >
-              {showNotesList ? t('docSOAPNote.hideButton') : t('docSOAPNote.showButton')}
-            </button>
-          </div>
-          {showNotesList && (
-            <div className="divide-y">
-              {existingNotes.map((note) => (
-                <div key={note.note_id} className="p-4 hover:bg-surface-sunken">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-content text-sm">{note.subjective?.chief_complaint || t('docSOAPNote.noChiefComplaint')}</p>
-                      <p className="text-xs text-content-muted mt-0.5">
-                        {note.encounter_type} &bull; {note.created_at ? formatDateOnly(note.created_at * 1000) : t('docSOAPNote.notAvailable')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono text-content-muted">{note.note_id}</span>
-                      <button
-                        type="button"
-                        onClick={() => setPrintNote(note)}
-                        aria-label={t('docSOAPNote.printNote')}
-                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary min-h-[28px] whitespace-nowrap"
-                      >
-                        {t('docSOAPNote.printNote')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAddendumFor(addendumFor === note.note_id ? null : note.note_id);
-                          setAddendumText('');
-                          setAddendumError('');
-                          setAddendumNotice('');
-                        }}
-                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary min-h-[28px] whitespace-nowrap"
-                      >
-                        {t('docSOAPNote.addAddendum')}
-                      </button>
-                    </div>
-                  </div>
-
-                  <StoredSoapDetails note={note} />
-                  {addendumFor === note.note_id && (
-                    <div className="mt-3">
-                      {/* Deliberately an addendum and not an edit. A signed note
-                          is what a colleague acted on; correcting it in place
-                          would remove the evidence of what they saw. */}
-                      <p className="text-xs text-content-muted mb-2">
-                        {t('docSOAPNote.addendumExplainer')}
-                      </p>
-                      {addendumError && (
-                        <div role="alert" className="mb-2 bg-critical-subtle border border-critical rounded-lg p-2">
-                          <p className="text-xs text-critical-subtle-fg">{addendumError}</p>
-                        </div>
-                      )}
-                      {addendumNotice && (
-                        <div role="status" className="mb-2 bg-ok-subtle border border-ok rounded-lg p-2">
-                          <p className="text-xs text-ok-subtle-fg">{addendumNotice}</p>
-                        </div>
-                      )}
-                      <label htmlFor={`addendum-${note.note_id}`} className="sr-only">
-                        {t('docSOAPNote.addendumLabel')}
-                      </label>
-                      <textarea
-                        id={`addendum-${note.note_id}`}
-                        value={addendumText}
-                        onChange={(e) => setAddendumText(e.target.value)}
-                        rows={3}
-                        className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
-                        placeholder={t('docSOAPNote.addendumPlaceholder')}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void submitAddendum(note.note_id)}
-                        disabled={addendumBusy}
-                        className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
-                      >
-                        {addendumBusy
-                          ? t('docSOAPNote.addendumSaving')
-                          : t('docSOAPNote.addendumSave')}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Encounter Info */}
@@ -1195,6 +1095,108 @@ function SOAPNotePage() {
           </button>
         </div>
       </form>
+
+      {/* Earlier notes: below the new one and folded, so the form is what opens (c4). */}
+      {existingNotes.length > 0 && (
+        <div className="bg-surface rounded-xl shadow mt-6">
+          <div className="p-4 border-b flex items-center justify-between">
+            <h2 className="font-semibold text-content flex items-center gap-2">
+              <FileText size={18} className="text-brand" />
+              {t('docSOAPNote.existingNotesHeading', { count: existingNotes.length })}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowNotesList(!showNotesList)}
+              aria-expanded={showNotesList}
+              className="text-sm text-notice-subtle-fg hover:underline"
+            >
+              {showNotesList ? t('docSOAPNote.hideButton') : t('docSOAPNote.showButton')}
+            </button>
+          </div>
+          {showNotesList && (
+            <div className="divide-y">
+              {existingNotes.map((note) => (
+                <div key={note.note_id} className="p-4 hover:bg-surface-sunken">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-content text-sm">{note.subjective?.chief_complaint || t('docSOAPNote.noChiefComplaint')}</p>
+                      <p className="text-xs text-content-muted mt-0.5">
+                        {note.encounter_type} &bull; {note.created_at ? formatDateOnly(note.created_at * 1000) : t('docSOAPNote.notAvailable')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-mono text-content-muted">{note.note_id}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPrintNote(note)}
+                        aria-label={t('docSOAPNote.printNote')}
+                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary min-h-[28px] whitespace-nowrap"
+                      >
+                        {t('docSOAPNote.printNote')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddendumFor(addendumFor === note.note_id ? null : note.note_id);
+                          setAddendumText('');
+                          setAddendumError('');
+                          setAddendumNotice('');
+                        }}
+                        className="px-3 py-1 text-xs rounded-lg border border-border-interactive text-content-secondary min-h-[28px] whitespace-nowrap"
+                      >
+                        {t('docSOAPNote.addAddendum')}
+                      </button>
+                    </div>
+                  </div>
+
+                  <StoredSoapDetails note={note} />
+                  {addendumFor === note.note_id && (
+                    <div className="mt-3">
+                      {/* Deliberately an addendum and not an edit. A signed note
+                          is what a colleague acted on; correcting it in place
+                          would remove the evidence of what they saw. */}
+                      <p className="text-xs text-content-muted mb-2">
+                        {t('docSOAPNote.addendumExplainer')}
+                      </p>
+                      {addendumError && (
+                        <div role="alert" className="mb-2 bg-critical-subtle border border-critical rounded-lg p-2">
+                          <p className="text-xs text-critical-subtle-fg">{addendumError}</p>
+                        </div>
+                      )}
+                      {addendumNotice && (
+                        <div role="status" className="mb-2 bg-ok-subtle border border-ok rounded-lg p-2">
+                          <p className="text-xs text-ok-subtle-fg">{addendumNotice}</p>
+                        </div>
+                      )}
+                      <label htmlFor={`addendum-${note.note_id}`} className="sr-only">
+                        {t('docSOAPNote.addendumLabel')}
+                      </label>
+                      <textarea
+                        id={`addendum-${note.note_id}`}
+                        value={addendumText}
+                        onChange={(e) => setAddendumText(e.target.value)}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content"
+                        placeholder={t('docSOAPNote.addendumPlaceholder')}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void submitAddendum(note.note_id)}
+                        disabled={addendumBusy}
+                        className="mt-2 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+                      >
+                        {addendumBusy
+                          ? t('docSOAPNote.addendumSaving')
+                          : t('docSOAPNote.addendumSave')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

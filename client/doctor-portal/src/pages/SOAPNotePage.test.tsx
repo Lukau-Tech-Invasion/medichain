@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import SOAPNotePage from './SOAPNotePage';
 import { useAuthStore } from '../store/authStore';
@@ -18,6 +19,7 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  listPatientSoapNotes: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -33,6 +35,7 @@ describe('SOAPNotePage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.listPatientSoapNotes).mockResolvedValue([]);
   });
 
   it('renders SOAP note page', () => {
@@ -57,5 +60,19 @@ describe('SOAPNotePage', () => {
     // The SOAP sections are headings above their textareas; the generated
     // test treated the heading element itself as the input.
     expect(screen.getByText(/S - Subjective/i)).toBeInTheDocument();
+  });
+
+  it('opens on the new note, with earlier notes folded underneath it', async () => {
+    vi.mocked(shared.listPatientSoapNotes).mockResolvedValue([
+      { note_id: 'SOAP-OLD', encounter_type: 'Outpatient', created_at: 1_700_000_000, subjective: { chief_complaint: 'Headache' } },
+    ] as never);
+    render(<MemoryRouter initialEntries={['/soap?patientId=PAT-1']}><SOAPNotePage /></MemoryRouter>);
+    const toggle = await screen.findByRole('button', { name: /show/i, expanded: false });
+    expect(screen.queryByText('Headache')).not.toBeInTheDocument();
+    // The form comes first in reading order; the earlier notes follow it.
+    const form = document.querySelector('form')!;
+    expect(form.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(toggle);
+    expect((await screen.findAllByText('Headache')).length).toBeGreaterThan(0);
   });
 });

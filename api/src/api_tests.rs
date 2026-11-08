@@ -531,6 +531,10 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["patient_id"], patient_id);
         assert_eq!(rows[0]["full_name"], "Untyped Patient");
+        // The card's Health ID is a directory identifier: the open chart's
+        // banner shows it so the person can be matched to the record.
+        let health_id = rows[0]["health_id"].as_str().expect("health_id served");
+        assert!(health_id.starts_with("MCHI-"), "{health_id}");
         for forbidden in [
             "emergency_info",
             "national_id",

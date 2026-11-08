@@ -109,12 +109,24 @@ fn readable_patient_json(profile: &PatientProfile) -> serde_json::Value {
     value
 }
 
-/// Directory rows contain identifiers needed to select a chart, never clinical data.
-fn directory_patient_json(profile: &PatientProfile, facility: Option<String>) -> serde_json::Value {
+/// Directory rows contain identifiers needed to select a chart, never clinical
+/// data. The Health ID is one of those identifiers: it is what the card and the
+/// open chart's banner show, so a clinician can match the person to the record.
+fn directory_patient_json(
+    data: &web::Data<AppState>,
+    entity: &crate::repositories::traits::PatientEntity,
+    profile: &PatientProfile,
+) -> serde_json::Value {
+    let facility = entity
+        .registered_by
+        .as_deref()
+        .and_then(|registrar| data.identity_contexts.facility_for_user(registrar));
+    let health_id = Some(entity.health_id.trim()).filter(|id| !id.is_empty());
     serde_json::json!({
         "patient_id": profile.patient_id,
         "full_name": profile.full_name,
         "date_of_birth": profile.date_of_birth,
+        "health_id": health_id,
         "facility": facility,
         "content_available": true,
     })
@@ -272,12 +284,7 @@ pub async fn list_patients(
                 rows.push(RosterRow {
                     ts: entity.updated_at.timestamp_millis(),
                     id: profile.patient_id.clone(),
-                    value: directory_patient_json(
-                        &profile,
-                        entity.registered_by.as_deref().and_then(|registrar| {
-                            data.identity_contexts.facility_for_user(registrar)
-                        }),
-                    ),
+                    value: directory_patient_json(&data, entity, &profile),
                 });
             }
             None => {
@@ -343,11 +350,7 @@ fn paediatric_row(
     if months >= PAEDIATRIC_AGE_LIMIT_MONTHS {
         return None;
     }
-    let facility = entity
-        .registered_by
-        .as_deref()
-        .and_then(|registrar| data.identity_contexts.facility_for_user(registrar));
-    let mut row = directory_patient_json(profile, facility);
+    let mut row = directory_patient_json(data, entity, profile);
     row["age_months"] = serde_json::json!(months);
     Some(row)
 }

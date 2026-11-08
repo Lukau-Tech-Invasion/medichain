@@ -5,7 +5,7 @@
  */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider, clearAllDrafts, draftsForPatient, getApiClient, useUnsavedChanges, writeDraft } from '@medichain/shared';
 import { PatientWorkspace } from './PatientWorkspace';
@@ -19,6 +19,11 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 }));
 vi.mock('../components/AccessReasonGate', () => ({
   AccessReasonGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+// The reason the clinician gave at the (stubbed) gate.
+vi.mock('../components/ChartAccess', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  declaredAccessFor: () => ({ reason: 'treatment', contextId: 'ctx-1' }),
 }));
 
 const PID = 'PAT-WS-1';
@@ -43,7 +48,7 @@ function server() {
           current_medications: [], chronic_conditions: [], emergency_contacts: [], organ_donor: false, dnr_status: false, last_updated: '' },
       });
     }
-    if (url.includes('/api/patients')) return answer(200, { data: [{ patient_id: PID, full_name: 'Thandiwe Ndlovu', date_of_birth: '1992-03-12' }] });
+    if (url.includes('/api/patients')) return answer(200, { data: [{ patient_id: PID, full_name: 'Thandiwe Ndlovu', date_of_birth: '1992-03-12', health_id: 'MCHI-4471' }] });
     return answer(200, {});
   });
   global.fetch = fetchMock as typeof fetch;
@@ -84,7 +89,7 @@ function Where() {
 
 function renderAt(path: string) {
   return render(
-    <I18nProvider>
+    <StrictMode><I18nProvider>
       <MemoryRouter initialEntries={[path]}>
         <Where />
         <Routes>
@@ -93,7 +98,7 @@ function renderAt(path: string) {
           <Route path="/dashboard" element={<p>Dashboard</p>} />
         </Routes>
       </MemoryRouter>
-    </I18nProvider>,
+    </I18nProvider></StrictMode>,
   );
 }
 
@@ -116,6 +121,21 @@ describe('PatientWorkspace', () => {
     expect(within(banner).getByText(/born/)).toBeInTheDocument();
     expect(within(banner).getByText(/Penicillin/)).toBeInTheDocument();
     expect(screen.getByText('Chart home')).toBeInTheDocument();
+  });
+
+  it('names the Health ID and why and when the chart was opened', async () => {
+    renderAt(`/patients/${PID}`);
+    const banner = await screen.findByRole('banner', { name: /open patient/i });
+    await within(banner).findByText(/Health ID MCHI-4471/);
+    expect(within(banner).getByText(/^Opened for treatment · /)).toBeInTheDocument();
+  });
+
+  it('logs the chart opening once, though development mounts it twice', async () => {
+    // renderAt wraps in StrictMode, which runs every effect a second time.
+    renderAt(`/patients/${PID}`);
+    const visit = await screen.findByRole('complementary', { name: /this visit/i });
+    await within(visit).findByText('Chart opened');
+    expect(within(visit).getAllByText('Chart opened')).toHaveLength(1);
   });
 
   it('offers the doctor’s common forms and opens one with the patient already chosen', async () => {

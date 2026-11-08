@@ -45,7 +45,7 @@ if (typeof document !== 'undefined') {
 }
 
 /** A directory row, exactly as `getPatients` returns it; pages receive the whole entry. */
-export type Patient = PatientDirectoryEntry & { health_id?: string };
+export type Patient = PatientDirectoryEntry;
 
 /**
  * One patient's directory entry by id, searched on the server.
