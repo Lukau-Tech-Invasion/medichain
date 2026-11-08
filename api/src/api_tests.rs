@@ -1436,6 +1436,71 @@ mod tests {
         assert!(saved["phone"].is_null());
     }
 
+    /// The outgoing nurse's Stable/Watch/Unstable call and to-dos are kept (mockup c2).
+    #[actix_rt::test]
+    async fn shift_handoff_keeps_the_stability_call_and_to_dos() {
+        let state = setup_app_state().await;
+        let mut night = state.users.read().unwrap()[DOCTOR_ID].clone();
+        night.id = "QA-night".into();
+        night.role = Role::Nurse;
+        state.users.write().unwrap().insert(night.id.clone(), night);
+        crate::test_fixtures::seed_patient(&state, "QA-c2-patient").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(crate::clinical_endpoints::create_shift_handoff),
+        )
+        .await;
+        let post = |patient: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/emergency/handoff")
+                .insert_header(crate::test_fixtures::as_user(DOCTOR_ID))
+                .set_json(json!({"outgoing_nurse": DOCTOR_ID, "incoming_nurse": "QA-night", "patients": [patient]}))
+                .to_request()
+        };
+
+        let response = test::call_service(
+            &app,
+            post(json!({
+                "patientId": "QA-c2-patient", "stability": "watch",
+                "todos": ["Repeat BP at 20:00", "Call doctor if over 160/100"],
+            })),
+        )
+        .await;
+        assert_eq!(response.status().as_u16(), 201);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        let saved = state
+            .repositories
+            .shift_handoffs
+            .get_by_id(&format!("{}-QA-c2-patient", body["id"].as_str().unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(saved.data["patient"]["stability"], "watch");
+        assert_eq!(
+            saved.data["patient"]["todos"][1],
+            "Call doctor if over 160/100"
+        );
+
+        // Nobody made the call: nothing is stored, not "stable".
+        let response =
+            test::call_service(&app, post(json!({ "patientId": "QA-c2-patient" }))).await;
+        let body: serde_json::Value = test::read_body_json(response).await;
+        let saved = state
+            .repositories
+            .shift_handoffs
+            .get_by_id(&format!("{}-QA-c2-patient", body["id"].as_str().unwrap()))
+            .await
+            .unwrap();
+        assert!(saved.data["patient"].get("stability").is_none());
+
+        for bad in [json!({ "stability": "fine" }), json!({ "todos": ["  "] })] {
+            let mut patient = bad.clone();
+            patient["patientId"] = json!("QA-c2-patient");
+            let response = test::call_service(&app, post(patient)).await;
+            assert_eq!(response.status().as_u16(), 400, "{bad}");
+        }
+    }
+
     /// Receipt belongs only to its recipient and retries must retain the first timestamp.
     #[actix_rt::test]
     async fn shift_handoff_receipt_is_recipient_only_and_repeat_safe() {

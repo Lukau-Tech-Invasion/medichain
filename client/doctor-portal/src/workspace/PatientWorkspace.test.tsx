@@ -208,7 +208,7 @@ describe('PatientWorkspace', () => {
     renderAt(`/patients/${PID}`);
     fireEvent.click(await screen.findByRole('button', { name: /close patient/i }));
     const dialog = await screen.findByRole('dialog', { name: /close thandiwe ndlovu/i });
-    expect(within(dialog).getByText(/opened .* min/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/opened /)).toBeInTheDocument();
     fireEvent.click(await within(dialog).findByRole('button', { name: /close · next: sipho mabaso/i }));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/patients/PAT-NEXT'));
   });

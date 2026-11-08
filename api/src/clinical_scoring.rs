@@ -791,13 +791,30 @@ fn news2_temperature(t: f64) -> u8 {
 /// normal (rule 12): the result names it and says how many were measured.
 pub fn news2_score(inputs: &News2Inputs) -> News2Score {
     let parts: [(&'static str, Option<u8>); 7] = [
-        ("respiratory_rate", inputs.respiratory_rate.map(news2_respiratory_rate)),
-        ("oxygen_saturation", inputs.oxygen_saturation.map(news2_spo2_scale1)),
-        ("supplemental_oxygen", inputs.on_oxygen.map(|o| if o { 2 } else { 0 })),
+        (
+            "respiratory_rate",
+            inputs.respiratory_rate.map(news2_respiratory_rate),
+        ),
+        (
+            "oxygen_saturation",
+            inputs.oxygen_saturation.map(news2_spo2_scale1),
+        ),
+        (
+            "supplemental_oxygen",
+            inputs.on_oxygen.map(|o| if o { 2 } else { 0 }),
+        ),
         ("systolic_bp", inputs.systolic_bp.map(news2_systolic)),
         ("heart_rate", inputs.heart_rate.map(news2_pulse)),
-        ("consciousness", inputs.consciousness.map(|c| if c == Acvpu::Alert { 0 } else { 3 })),
-        ("temperature", inputs.temperature_celsius.map(news2_temperature)),
+        (
+            "consciousness",
+            inputs
+                .consciousness
+                .map(|c| if c == Acvpu::Alert { 0 } else { 3 }),
+        ),
+        (
+            "temperature",
+            inputs.temperature_celsius.map(news2_temperature),
+        ),
     ];
     let measured = parts.iter().filter(|(_, p)| p.is_some()).count() as u8;
     let total = (measured > 0).then(|| parts.iter().filter_map(|(_, p)| *p).sum::<u8>());
@@ -821,7 +838,11 @@ pub fn news2_score(inputs: &News2Inputs) -> News2Score {
         temperature: parts[6].1,
         parameters_measured: measured,
         complete: measured == NEWS2_PARAMETERS,
-        not_measured: parts.iter().filter(|(_, p)| p.is_none()).map(|(n, _)| (*n).to_string()).collect(),
+        not_measured: parts
+            .iter()
+            .filter(|(_, p)| p.is_none())
+            .map(|(n, _)| (*n).to_string())
+            .collect(),
     }
 }
 
@@ -853,22 +874,36 @@ mod news2_tests {
     #[test]
     fn a_complete_normal_set_scores_zero_and_low() {
         let s = news2_score(&all_normal());
-        assert_eq!((s.total, s.band, s.complete), (Some(0), Some(News2Band::Low), true));
+        assert_eq!(
+            (s.total, s.band, s.complete),
+            (Some(0), Some(News2Band::Low), true)
+        );
     }
 
     #[test]
     fn one_parameter_scoring_three_is_low_medium() {
-        let s = news2_score(&News2Inputs { consciousness: Some(Acvpu::NewConfusion), ..all_normal() });
+        let s = news2_score(&News2Inputs {
+            consciousness: Some(Acvpu::NewConfusion),
+            ..all_normal()
+        });
         assert_eq!((s.total, s.band), (Some(3), Some(News2Band::LowMedium)));
     }
 
     #[test]
     fn bands_follow_the_rcp_chart() {
         // RR 22 (2) + SpO2 93 (2) + oxygen (2) = 6: medium.
-        let medium = News2Inputs { respiratory_rate: Some(22), oxygen_saturation: Some(93), on_oxygen: Some(true), ..all_normal() };
+        let medium = News2Inputs {
+            respiratory_rate: Some(22),
+            oxygen_saturation: Some(93),
+            on_oxygen: Some(true),
+            ..all_normal()
+        };
         assert_eq!(news2_score(&medium).band, Some(News2Band::Medium));
         // + pulse 135 (3) = 9: high.
-        let high = News2Inputs { heart_rate: Some(135), ..medium };
+        let high = News2Inputs {
+            heart_rate: Some(135),
+            ..medium
+        };
         assert_eq!(news2_score(&high).band, Some(News2Band::High));
     }
 
@@ -894,9 +929,25 @@ mod news2_tests {
 
     #[test]
     fn a_partial_set_says_what_is_missing() {
-        let s = news2_score(&News2Inputs { systolic_bp: Some(148), heart_rate: Some(104), respiratory_rate: Some(20), ..Default::default() });
-        assert_eq!((s.total, s.parameters_measured, s.complete), (Some(1), 3, false));
-        assert_eq!(s.not_measured, vec!["oxygen_saturation", "supplemental_oxygen", "consciousness", "temperature"]);
+        let s = news2_score(&News2Inputs {
+            systolic_bp: Some(148),
+            heart_rate: Some(104),
+            respiratory_rate: Some(20),
+            ..Default::default()
+        });
+        assert_eq!(
+            (s.total, s.parameters_measured, s.complete),
+            (Some(1), 3, false)
+        );
+        assert_eq!(
+            s.not_measured,
+            vec![
+                "oxygen_saturation",
+                "supplemental_oxygen",
+                "consciousness",
+                "temperature"
+            ]
+        );
     }
 }
 

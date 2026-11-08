@@ -4,6 +4,48 @@ Last updated: 2026-09-29.
 
 ---
 
+## 2026-11-08 — Shift handoff drafted from the shift's records (mockup c2)
+
+`GET /api/shift-handoff/draft` used to say only which kinds of record the nurse
+wrote ("Vital signs ×2"), so the handoff itself was still retyped from memory.
+By owner decision (2026-11-08) it now also carries the content, as SBAR lines
+with a source and a time (`api/src/handlers/handoff_content.rs`):
+
+* **Situation:** the latest vitals this shift, with the first of the shift
+  beside them, and the latest pain score; every dose held or refused with its
+  reason, and the last three given.
+* **Background:** allergies ("No allergies recorded" when there are none,
+  never "No known allergies"), conditions, and a DNR only when one is on file.
+  Full code is never asserted: no DNR is not a documented full-code decision.
+* **Assessment:** fluids charted this shift (in, out, balance) and the latest
+  note, quoted.
+* **Recommendation:** open physician orders. These become the to-do list.
+
+The content goes only to a clinician with a treating link to the patient
+(`resolve_chart_access`: patient grant, care relationship, ward assignment or
+break-glass). Each patient whose content is released gets an access-log row
+first (`handoff_draft`), and a row that cannot be written withholds that
+patient's content. The page was rebuilt to match c2: the patients on the left
+with To review / Reviewed / Watch, the open patient's lines editable beside
+their source chips, Stable / Watch / Unstable (stored as `stability`, absent
+when nobody made the call), to-dos (stored as `todos`), Next patient, and the
+whole handoff kept as a tab draft. Every field the old form had is kept, folded
+under "More details".
+
+Open:
+
+* **Medicines due and not given** are not drafted. `scheduled_medications` on
+  the MAR record is written empty by every writer, so there is no schedule to
+  compare against; the ward medication chart would need one first.
+* **Draft line text is English**, built on the server. It is clinical free text
+  once the nurse edits it, but a non-English ward sees English prefills.
+* **Discharged patients** are not marked in the list (c2 shows "discharged
+  11:20"); the draft reads open admissions only.
+* `pages/ShiftDraftPanel.tsx` and `pages/handoffDraft.ts` (+ its test) lost
+  their caller in the rebuild and were deleted with the owner's approval.
+
+---
+
 ## 2026-11-06 — Unsaved work in clinical forms
 
 `useFormDraft` and `useUnsavedChanges` existed with no caller: no form kept a

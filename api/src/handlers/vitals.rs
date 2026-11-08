@@ -742,47 +742,84 @@ mod cds_wiring_tests {
         state
             .repositories
             .patients
-            .create(crate::patient_profile_to_entity(&profile, &state.encryption_keyring))
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
             .await
             .unwrap();
-        state.users.write().unwrap().insert("doctor_user".to_string(), test_doctor());
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
         let data = web::Data::new(state);
         let app = test::init_service(
-            App::new().app_data(data.clone()).service(add_vital_signs).service(preview_news2),
+            App::new()
+                .app_data(data.clone())
+                .service(add_vital_signs)
+                .service(preview_news2),
         )
         .await;
         let body = serde_json::json!({"patient_id": patient_id, "systolic_bp": 148, "diastolic_bp": 92,
             "heart_rate": 104, "respiratory_rate": 20, "consciousness": "new_confusion", "on_oxygen": true});
-        let response = test::call_service(&app, test::TestRequest::post()
-            .uri("/api/clinical/vitals")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
-            .set_json(body)
-            .to_request()).await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/vitals")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(body)
+                .to_request(),
+        )
+        .await;
         assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
         let saved: serde_json::Value = test::read_body_json(response).await;
         // Pulse 104 (1) + confusion (3) + oxygen (2) = 6, five of seven recorded.
         assert_eq!(saved["news2"]["total"], 6);
         assert_eq!(saved["news2"]["parameters_measured"], 5);
         assert_eq!(saved["news2"]["complete"], false);
-        let stored = data.repositories.vital_signs.get_latest_by_patient(patient_id).await.unwrap().unwrap();
+        let stored = data
+            .repositories
+            .vital_signs
+            .get_latest_by_patient(patient_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(stored.consciousness.as_deref(), Some("new_confusion"));
-        assert_eq!(stored.oxygen_delivery.as_deref(), Some("supplemental_oxygen"));
+        assert_eq!(
+            stored.oxygen_delivery.as_deref(),
+            Some("supplemental_oxygen")
+        );
         assert_eq!(vital_reading_json(stored)["on_oxygen"], true);
 
         // The live preview: same arithmetic, nothing stored.
-        let preview = test::call_service(&app, test::TestRequest::post()
-            .uri("/api/clinical/scoring/news2")
-            .insert_header(crate::test_fixtures::as_user("doctor_user"))
-            .set_json(serde_json::json!({"respiratory_rate": 26}))
-            .to_request()).await;
+        let preview = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/scoring/news2")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(serde_json::json!({"respiratory_rate": 26}))
+                .to_request(),
+        )
+        .await;
         assert_eq!(preview.status(), actix_web::http::StatusCode::OK);
         let scored: serde_json::Value = test::read_body_json(preview).await;
-        assert_eq!((scored["total"].as_u64(), scored["band"].as_str()), (Some(3), Some("low_medium")));
-        let anonymous = test::call_service(&app, test::TestRequest::post()
-            .uri("/api/clinical/scoring/news2")
-            .set_json(serde_json::json!({}))
-            .to_request()).await;
-        assert_eq!(anonymous.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            (scored["total"].as_u64(), scored["band"].as_str()),
+            (Some(3), Some("low_medium"))
+        );
+        let anonymous = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/scoring/news2")
+                .set_json(serde_json::json!({}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            anonymous.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
     }
 
     /// A recorded GCS preserves its explicit note along with all scored components.

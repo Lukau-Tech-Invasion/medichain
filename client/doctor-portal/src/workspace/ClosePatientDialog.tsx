@@ -112,7 +112,7 @@ export function ClosePatientDialog(props: ClosePatientDialogProps) {
   const minutes = opened ? Math.max(0, Math.round((Date.now() - opened.at) / 60000)) : null;
   const detail = [
     props.detail,
-    opened ? t('workspace.openedFor', { time: formatTimestamp(opened.at, { timeStyle: 'short' }), minutes: String(minutes) }) : null,
+    opened ? t(minutes ? 'workspace.openedFor' : 'workspace.openedAt', { time: formatTimestamp(opened.at, { timeStyle: 'short' }), minutes: String(minutes) }) : null,
   ].filter(Boolean).join(' · ');
   const nextLabel = next
     ? t(pending.length ? 'workspace.closeNextDiscarding' : 'workspace.closeNext', {

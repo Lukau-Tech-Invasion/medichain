@@ -1359,6 +1359,42 @@ pub struct HandoffPatientInput {
     pub family_updates: String,
     #[serde(rename = "additionalNotes", default)]
     pub additional_notes: String,
+    /// The outgoing nurse's call: `stable`, `watch` or `unstable` (mockup c2).
+    /// Absent when nobody made the call -- an unassessed patient is not a
+    /// stable one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stability: Option<String>,
+    /// What the next shift must do, one item each (mockup c2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub todos: Vec<String>,
+}
+
+/// Most to-dos one patient's handoff may carry, and the longest one.
+const HANDOFF_MAX_TODOS: usize = 20;
+const HANDOFF_TODO_MAX_CHARS: usize = 300;
+
+/// Why a patient's section of a handoff cannot be saved, if it cannot.
+fn handoff_patient_problem(patient: &HandoffPatientInput) -> Option<String> {
+    if let Some(level) = patient.stability.as_deref() {
+        if !matches!(level, "stable" | "watch" | "unstable") {
+            return Some(format!(
+                "stability must be stable, watch or unstable, not '{level}'"
+            ));
+        }
+    }
+    if patient.todos.len() > HANDOFF_MAX_TODOS {
+        return Some(format!("at most {HANDOFF_MAX_TODOS} to-dos per patient"));
+    }
+    if patient
+        .todos
+        .iter()
+        .any(|t| t.trim().is_empty() || t.chars().count() > HANDOFF_TODO_MAX_CHARS)
+    {
+        return Some(format!(
+            "each to-do needs text, at most {HANDOFF_TODO_MAX_CHARS} characters"
+        ));
+    }
+    None
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1458,6 +1494,12 @@ pub async fn create_shift_handoff(
     if handoff.patients.is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "a handoff must cover at least one patient".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if let Some(problem) = handoff.patients.iter().find_map(handoff_patient_problem) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: problem,
             code: "VALIDATION_ERROR".to_string(),
         });
     }

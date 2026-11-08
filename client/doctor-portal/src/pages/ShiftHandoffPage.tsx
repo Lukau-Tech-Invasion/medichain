@@ -1,86 +1,54 @@
-import { useState, useEffect } from 'react';
+/**
+ * Shift handoff (mockup c2). The patients the nurse cared for this shift load
+ * from the shift's own records, each drafted as SBAR lines beside the record
+ * they came from. The nurse reviews each patient in turn -- edits the lines,
+ * makes the Stable / Watch / Unstable call, adds to-dos -- and hands them all
+ * over at once. The handoff is kept as a draft on this tab until it is sent.
+ */
+import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
   createShiftHandoff,
   getApiClient,
+  getApiErrorMessage,
+  getShiftHandoffDraft,
+  useFormDraft,
   useTranslation,
-  clickable,
+  useUnsavedChanges,
   useValidatedForm,
   shiftHandoffSchema,
   localDateInput,
   formatTimestamp,
   ChoiceChips,
+  clearDraft,
   keepEnterInField,
 } from '@medichain/shared';
 import StaffName from '../components/StaffName';
 import StaffSelect from '../components/StaffSelect';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
-import {
-  ArrowRightLeft,
-  FileText,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Plus,
-  RefreshCw,
-  MessageSquare,
-  Pill,
-  Send,
-  Users,
-  History
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, History, RefreshCw, Send } from 'lucide-react';
 import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
-import { recordedSummary } from './handoffDraft';
-import { ShiftDraftPanel } from './ShiftDraftPanel';
-import type { HandoffDraftPatient } from '@medichain/shared';
+import { HandoffPatientList } from './handoff/HandoffPatientList';
+import { HandoffPatientEditor } from './handoff/HandoffPatientEditor';
+import {
+  blankPatient,
+  fromDraft,
+  nextToReview,
+  toPayload,
+  type PatientHandoff,
+  type Priority,
+} from './handoff/handoffModel';
 
 type ShiftType = 'day-to-evening' | 'evening-to-night' | 'night-to-day';
-type HandoffStatus = 'draft' | 'pending' | 'accepted' | 'acknowledged';
-type Priority = 'routine' | 'urgent' | 'critical';
 
-interface PatientHandoff {
-  patientId: string;
-  patientName: string;
-  room: string;
-  diagnosis: string;
-  codeStatus: string;
-  isolation?: string;
-  priority: Priority;
-  sbar: {
-    situation: string;
-    background: string;
-    assessment: string;
-    recommendation: string;
-  };
-  ivAccess: string;
-  diet: string;
-  activity: string;
-  pendingLabs: string;
-  pendingTests: string;
-  medications: {
-    scheduled: string;
-    prn: string;
-    drips: string;
-  };
-  safetyRisks: string[];
-  pendingOrders: string;
-  familyUpdates: string;
-  additionalNotes: string;
-}
-
-interface ShiftHandoff {
-  id: string;
+interface ShiftDetails {
   shiftType: ShiftType;
   handoffDate: string;
   handoffTime: string;
   outgoingNurse: string;
   incomingNurse: string;
   unit: string;
-  status: HandoffStatus;
-  patients: PatientHandoff[];
-  createdAt: string;
-  acknowledgedAt?: string;
 }
 
 const UNIT_KEYS: Record<string, string> = {
@@ -97,31 +65,6 @@ const UNIT_KEYS: Record<string, string> = {
   'Cardiology': 'cardiology',
   'Telemetry': 'telemetry'
 };
-
-const SAFETY_RISK_KEYS: Record<string, string> = {
-  'Fall Risk': 'fall-risk',
-  'Aspiration Risk': 'aspiration-risk',
-  'Elopement Risk': 'elopement-risk',
-  'Pressure Injury Risk': 'pressure-injury-risk',
-  'Suicide Precautions': 'suicide-precautions',
-  'Seizure Precautions': 'seizure-precautions',
-  'Bleeding Precautions': 'bleeding-precautions',
-  'DVT Risk': 'dvt-risk',
-  'MRSA': 'mrsa',
-  'C. Diff': 'c-diff',
-  'Contact Isolation': 'contact-isolation',
-  'Droplet Isolation': 'droplet-isolation'
-};
-
-const CODE_STATUS_KEYS: Record<string, string> = {
-  'Not recorded': 'not-recorded',
-  'Full Code': 'full-code',
-  'DNR': 'dnr',
-  'DNR/DNI': 'dnr-dni',
-  'Comfort Measures Only': 'comfort-measures-only',
-  'Limited Code': 'limited-code'
-};
-
 
 /**
  * What this endpoint returns, as this page already reads it.
@@ -146,13 +89,49 @@ interface SavedHandoff {
   recommendation: string;
   acknowledged_by_incoming: boolean;
   acknowledged_at?: string;
-  data?: { shift_direction?: ShiftType; patient?: Partial<PatientHandoff> & { patient_name?: string } };
+  data?: {
+    shift_direction?: ShiftType;
+    patient?: {
+      patientName?: string;
+      patient_name?: string;
+      room?: string;
+      diagnosis?: string;
+      priority?: string;
+      isolation?: string;
+      ivAccess?: string;
+      diet?: string;
+      activity?: string;
+      pendingLabs?: string;
+      pendingTests?: string;
+      pendingOrders?: string;
+      familyUpdates?: string;
+      additionalNotes?: string;
+      safetyRisks?: string[];
+      medications?: { scheduled?: string; prn?: string; drips?: string };
+      stability?: string;
+      todos?: string[];
+    };
+  };
 }
 
 type HandoffList = { handoffs?: SavedHandoff[] } | SavedHandoff[];
 
 /** How far back the History tab reaches. The API caps it at 30. */
 const HANDOFF_HISTORY_DAYS = 14;
+const DRAFT_ID = 'shift-handoff';
+
+interface KeptDraft {
+  handoff: ShiftDetails;
+  patients: PatientHandoff[];
+  selected: string[];
+  openId: string | null;
+}
+
+/** Patients from the server's draft that the page does not hold yet. */
+function mergeNew(current: PatientHandoff[], incoming: PatientHandoff[]): PatientHandoff[] {
+  const have = new Set(current.map((p) => p.patientId));
+  return [...current, ...incoming.filter((p) => !have.has(p.patientId))];
+}
 
 export default function ShiftHandoffPage() {
   const returnAfterSave = useReturnAfterSave();
@@ -162,30 +141,68 @@ export default function ShiftHandoffPage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'handoff' | 'history'>('handoff');
-  const [expandedPatient, setExpandedPatient] = useState<string | null>(null);
 
-  // Handoff data
-  const [handoff, setHandoff] = useState<Partial<ShiftHandoff>>({
+  const [handoff, setHandoff] = useState<ShiftDetails>({
     shiftType: 'day-to-evening',
     handoffDate: localDateInput(),
     handoffTime: new Date().toTimeString().slice(0, 5),
     outgoingNurse: user?.userId || '',
     incomingNurse: '',
     unit: 'Medical-Surgical',
-    patients: []
   });
+  const [patients, setPatients] = useState<PatientHandoff[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [openId, setOpenId] = useState<string | null>(null);
+  // Something the nurse did, not something the draft loaded.
+  const [touched, setTouched] = useState(false);
+  const [draftState, setDraftState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const [draftError, setDraftError] = useState('');
+  const [allReviewed, setAllReviewed] = useState(false);
 
-  const [patientHandoffs, setPatientHandoffs] = useState<PatientHandoff[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   // The directory entry the server's search returned for the chosen patient.
   const [selectedPatientEntry, setSelectedPatientEntry] = useState<PatientDirectoryEntry | null>(null);
   const [showAddPatient, setShowAddPatient] = useState(false);
+  const [newPatient, setNewPatient] = useState<{ room: string; diagnosis: string; priority: Priority }>({ room: '', diagnosis: '', priority: 'routine' });
   const [handoffHistory, setHandoffHistory] = useState<SavedHandoff[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [historyAttempt, setHistoryAttempt] = useState(0);
   const [receiptPending, setReceiptPending] = useState<string | null>(null);
   const [receiptError, setReceiptError] = useState('');
+
+  // Kept on this tab while it is being written (memory only, like every draft).
+  useFormDraft<KeptDraft>(DRAFT_ID, undefined, { handoff, patients, selected: [...selected], openId }, touched, (kept) => {
+    setHandoff(kept.handoff);
+    setPatients((now) => mergeNew(kept.patients, now));
+    setSelected(new Set(kept.selected));
+    setOpenId(kept.openId);
+    setTouched(true);
+  });
+  useUnsavedChanges(touched, t('docShiftHandoff.title'), { keptAsDraft: true });
+
+  const loadDraft = useCallback(() => {
+    setDraftState('loading');
+    setDraftError('');
+    getShiftHandoffDraft().then(
+      (r) => {
+        const drafted = r.patients.map((d) => fromDraft(d, t('today.unreadablePatient')));
+        setPatients((now) => mergeNew(now, drafted));
+        // Patients with something recorded this shift are handed over unless
+        // the nurse says otherwise; a ward patient nobody charted is listed,
+        // unticked, so leaving them out of the handoff is a choice.
+        setSelected((now) => (now.size ? now : new Set(drafted.filter((p) => p.entries > 0).map((p) => p.patientId))));
+        setOpenId((now) => now ?? drafted.find((p) => p.entries > 0)?.patientId ?? drafted[0]?.patientId ?? null);
+        setDraftState('loaded');
+      },
+      (e) => {
+        setDraftError(getApiErrorMessage(e, t('handoffDraft.loadFailed')));
+        setDraftState('failed');
+      },
+    );
+  }, [t]);
+
+  useEffect(loadDraft, [loadDraft]);
 
   /** Persist receipt for one saved record, then re-read authoritative history. */
   const acknowledgeReceipt = async (id: string) => {
@@ -203,52 +220,13 @@ export default function ShiftHandoffPage() {
     }
   };
 
-  // New patient form
-  const [newPatientHandoff, setNewPatientHandoff] = useState<Partial<PatientHandoff>>({
-    room: '',
-    diagnosis: '',
-    codeStatus: 'Not recorded',
-    priority: 'routine',
-    sbar: {
-      situation: '',
-      background: '',
-      assessment: '',
-      recommendation: ''
-    },
-    ivAccess: '',
-    diet: '',
-    activity: '',
-    pendingLabs: '',
-    pendingTests: '',
-    medications: {
-      scheduled: '',
-      prn: '',
-      drips: ''
-    },
-    safetyRisks: [],
-    pendingOrders: '',
-    familyUpdates: '',
-    additionalNotes: ''
-  });
-
   const shiftTypes: Record<ShiftType, { label: string; time: string }> = {
     'day-to-evening': { label: t('docShiftHandoff.shiftType_day-to-evening'), time: '15:00' },
     'evening-to-night': { label: t('docShiftHandoff.shiftType_evening-to-night'), time: '23:00' },
     'night-to-day': { label: t('docShiftHandoff.shiftType_night-to-day'), time: '07:00' }
   };
 
-  const units = [
-    'Medical-Surgical', 'ICU', 'CCU', 'PICU', 'NICU', 'L&D', 'ED',
-    'Oncology', 'Orthopedics', 'Neurology', 'Cardiology', 'Telemetry'
-  ];
-
-  const safetyRiskOptions = [
-    'Fall Risk', 'Aspiration Risk', 'Elopement Risk', 'Pressure Injury Risk',
-    'Suicide Precautions', 'Seizure Precautions', 'Bleeding Precautions',
-    'DVT Risk', 'MRSA', 'C. Diff', 'Contact Isolation', 'Droplet Isolation'
-  ];
-
-  const codeStatuses = ['Not recorded', 'Full Code', 'DNR', 'DNR/DNI', 'Comfort Measures Only', 'Limited Code'];
+  const units = Object.keys(UNIT_KEYS);
 
   useEffect(() => { setHandoffHistory([]); }, [user?.userId]);
 
@@ -259,7 +237,6 @@ export default function ShiftHandoffPage() {
         setHistoryLoading(true);
         setHistoryError('');
         try {
-          // Fetch recent handoffs (use user ID as the handoff ID reference)
           // The history tab asked for today only, because that was all the
           // endpoint could answer -- so yesterday's handover, the one a
           // clinician starting a shift most needs, was never on it.
@@ -281,143 +258,53 @@ export default function ShiftHandoffPage() {
     return () => { active = false; };
   }, [activeTab, user?.userId, historyAttempt, t]);
 
-  const getPriorityColor = (priority: Priority) => {
-    switch (priority) {
-      case 'critical': return 'bg-red-700 text-white';
-      case 'urgent': return 'bg-caution text-white';
-      default: return 'bg-green-700 text-white';
-    }
+  const edit = (patientId: string, updates: Partial<PatientHandoff>) => {
+    setTouched(true);
+    setPatients((prev) => prev.map((p) => (p.patientId === patientId ? { ...p, ...updates } : p)));
   };
 
-  const addPatientToHandoff = (patient: PatientDirectoryEntry) => {
-    const existingHandoff = patientHandoffs.find(p => p.patientId === patient.patient_id);
-    if (existingHandoff) {
-      setError(t('docShiftHandoff.errorPatientAlreadyAdded'));
-      return;
-    }
-
-    const newHandoff: PatientHandoff = {
-      patientId: patient.patient_id,
-      patientName: patient.full_name,
-      room: newPatientHandoff.room || '',
-      diagnosis: newPatientHandoff.diagnosis || '',
-      codeStatus: newPatientHandoff.codeStatus || 'Not recorded',
-      priority: newPatientHandoff.priority || 'routine',
-      sbar: {
-        situation: newPatientHandoff.sbar?.situation || '',
-        background: newPatientHandoff.sbar?.background || '',
-        assessment: newPatientHandoff.sbar?.assessment || '',
-        recommendation: newPatientHandoff.sbar?.recommendation || ''
-      },
-      ivAccess: newPatientHandoff.ivAccess || '',
-      diet: newPatientHandoff.diet || '',
-      activity: newPatientHandoff.activity || '',
-      pendingLabs: newPatientHandoff.pendingLabs || '',
-      pendingTests: newPatientHandoff.pendingTests || '',
-      medications: {
-        scheduled: newPatientHandoff.medications?.scheduled || '',
-        prn: newPatientHandoff.medications?.prn || '',
-        drips: newPatientHandoff.medications?.drips || ''
-      },
-      safetyRisks: newPatientHandoff.safetyRisks || [],
-      pendingOrders: newPatientHandoff.pendingOrders || '',
-      familyUpdates: newPatientHandoff.familyUpdates || '',
-      additionalNotes: newPatientHandoff.additionalNotes || ''
-    };
-
-    setPatientHandoffs(prev => [...prev, newHandoff]);
-    setShowAddPatient(false);
-    resetNewPatientForm();
-    setSelectedPatientId(null);
-    setSelectedPatientEntry(null);
-    setExpandedPatient(patient.patient_id);
-  };
-
-  /** Add every chosen patient from the shift draft, prefilled with what was recorded. */
-  const addFromDraft = (chosen: HandoffDraftPatient[]) => {
-    const fresh = chosen.filter((d) => !patientHandoffs.some((p) => p.patientId === d.patient_id));
-    setPatientHandoffs((prev) => [
-      ...prev,
-      ...fresh.map((d): PatientHandoff => ({
-        patientId: d.patient_id,
-        patientName: d.full_name ?? t('today.unreadablePatient'),
-        room: d.bed_label ?? '',
-        diagnosis: '',
-        codeStatus: 'Not recorded',
-        priority: 'routine',
-        sbar: {
-          situation: '',
-          background: '',
-          assessment: recordedSummary(d, t('handoffDraft.nothingRecorded'), t('handoffDraft.recordedThisShift')),
-          recommendation: '',
-        },
-        ivAccess: '', diet: '', activity: '', pendingLabs: '', pendingTests: '',
-        medications: { scheduled: '', prn: '', drips: '' },
-        safetyRisks: [], pendingOrders: '', familyUpdates: '', additionalNotes: '',
-      })),
-    ]);
-    if (fresh[0]) setExpandedPatient(fresh[0].patient_id);
-  };
-
-  const resetNewPatientForm = () => {
-    setNewPatientHandoff({
-      room: '',
-      diagnosis: '',
-      codeStatus: 'Not recorded',
-      priority: 'routine',
-      sbar: { situation: '', background: '', assessment: '', recommendation: '' },
-      ivAccess: '',
-      diet: '',
-      activity: '',
-      pendingLabs: '',
-      pendingTests: '',
-      medications: { scheduled: '', prn: '', drips: '' },
-      safetyRisks: [],
-      pendingOrders: '',
-      familyUpdates: '',
-      additionalNotes: ''
+  const toggleSelected = (patientId: string) => {
+    setTouched(true);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(patientId)) next.delete(patientId); else next.add(patientId);
+      return next;
     });
   };
 
-  const updatePatientHandoff = (patientId: string, updates: Partial<PatientHandoff>) => {
-    setPatientHandoffs(prev => prev.map(p => 
-      p.patientId === patientId ? { ...p, ...updates } : p
-    ));
+  const openPatient = (patientId: string) => {
+    setAllReviewed(false);
+    setOpenId(patientId);
   };
 
-  const updatePatientSbar = (patientId: string, field: keyof PatientHandoff['sbar'], value: string) => {
-    setPatientHandoffs(prev => prev.map(p => 
-      p.patientId === patientId 
-        ? { ...p, sbar: { ...p.sbar, [field]: value } }
-        : p
-    ));
+  const nextPatient = () => {
+    if (!openId) return;
+    const reviewed = patients.map((p) => (p.patientId === openId ? { ...p, reviewed: true } : p));
+    setTouched(true);
+    setPatients(reviewed);
+    const next = nextToReview(reviewed, selected, openId);
+    setAllReviewed(next === null);
+    if (next) setOpenId(next);
   };
 
-  const updatePatientMeds = (patientId: string, field: keyof PatientHandoff['medications'], value: string) => {
-    setPatientHandoffs(prev => prev.map(p => 
-      p.patientId === patientId 
-        ? { ...p, medications: { ...p.medications, [field]: value } }
-        : p
-    ));
-  };
-
-  const toggleSafetyRisk = (patientId: string, risk: string) => {
-    setPatientHandoffs(prev => prev.map(p => {
-      if (p.patientId !== patientId) return p;
-      const risks = p.safetyRisks.includes(risk)
-        ? p.safetyRisks.filter(r => r !== risk)
-        : [...p.safetyRisks, risk];
-      return { ...p, safetyRisks: risks };
-    }));
-  };
-
-  const removePatientFromHandoff = (patientId: string) => {
-    setPatientHandoffs(prev => prev.filter(p => p.patientId !== patientId));
-    if (expandedPatient === patientId) {
-      setExpandedPatient(null);
+  const addPatientToHandoff = (patient: PatientDirectoryEntry) => {
+    if (patients.some((p) => p.patientId === patient.patient_id)) {
+      setError(t('docShiftHandoff.errorPatientAlreadyAdded'));
+      return;
     }
+    const added = { ...blankPatient(patient.patient_id, patient.full_name, newPatient.room), diagnosis: newPatient.diagnosis, priority: newPatient.priority };
+    setTouched(true);
+    setPatients((prev) => [...prev, added]);
+    setSelected((prev) => new Set(prev).add(added.patientId));
+    setOpenId(added.patientId);
+    setShowAddPatient(false);
+    setNewPatient({ room: '', diagnosis: '', priority: 'routine' });
+    setSelectedPatientId(null);
+    setSelectedPatientEntry(null);
   };
 
+  const handingOver = patients.filter((p) => selected.has(p.patientId));
+  const open = patients.find((p) => p.patientId === openId) ?? null;
 
   const { errors, validate, clearField } = useValidatedForm(shiftHandoffSchema);
   const handleSave = async () => {
@@ -427,18 +314,14 @@ export default function ShiftHandoffPage() {
     if (!validate(handoff)) {
       return;
     }
-
-    if (patientHandoffs.length === 0) {
+    if (handingOver.length === 0) {
       setError(t('docShiftHandoff.errorNoPatients'));
       return;
     }
-
     setIsSubmitting(true);
     setError('');
-
     try {
-      const handoffData = {
-        handoff_id: `HO-${Date.now()}`,
+      await createShiftHandoff({
         shift_type: handoff.shiftType,
         handoff_date: handoff.handoffDate,
         handoff_time: handoff.handoffTime,
@@ -446,13 +329,10 @@ export default function ShiftHandoffPage() {
         outgoing_nurse: handoff.outgoingNurse,
         incoming_nurse: handoff.incomingNurse,
         unit: handoff.unit,
-        patients: patientHandoffs,
-        status: 'pending',
-        created_by: user?.userId,
-        created_at: Math.floor(Date.now() / 1000)
-      };
-
-      await createShiftHandoff(handoffData);
+        patients: handingOver.map(toPayload),
+      });
+      clearDraft(DRAFT_ID);
+      setTouched(false);
       setSuccess(t('docShiftHandoff.successMessage'));
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
@@ -463,608 +343,187 @@ export default function ShiftHandoffPage() {
     }
   };
 
+  const field = 'w-full rounded-lg border border-border-interactive bg-surface p-2 text-sm text-content';
+
   return (
-    <div className="min-h-screen bg-surface-sunken p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-purple-700 to-indigo-800 rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="p-3 bg-surface/20 rounded-full">
-                <ArrowRightLeft className="h-8 w-8 text-white" />
+    <div className="mx-auto max-w-7xl space-y-4 p-4">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold text-content">{t('docShiftHandoff.title')}</h1>
+          <p className="text-sm text-content-secondary">
+            {[t(`docShiftHandoff.unit_${UNIT_KEYS[handoff.unit]}`), shiftTypes[handoff.shiftType]?.label, user?.username].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        <div role="tablist" aria-label={t('docShiftHandoff.title')} className="flex gap-1 rounded-lg bg-surface-sunken p-1">
+          {(['handoff', 'history'] as const).map((tab) => (
+            <button key={tab} type="button" role="tab" aria-selected={activeTab === tab} onClick={() => setActiveTab(tab)}
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-md px-3 text-sm font-semibold text-content-secondary aria-selected:bg-surface aria-selected:text-content aria-selected:shadow">
+              {tab === 'handoff' ? <FileText className="h-4 w-4" aria-hidden="true" /> : <History className="h-4 w-4" aria-hidden="true" />}
+              {t(tab === 'handoff' ? 'docShiftHandoff.tabCreateHandoff' : 'docShiftHandoff.tabHandoffHistory')}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {success && (
+        <div className="flex items-center rounded-lg border border-ok bg-ok-subtle p-3 text-ok-subtle-fg">
+          <CheckCircle2 className="mr-2 h-5 w-5" aria-hidden="true" />
+          {success}
+        </div>
+      )}
+      {error && (
+        <div role="alert" className="flex items-center rounded-lg border border-critical bg-critical-subtle p-3 text-critical-subtle-fg">
+          <AlertTriangle className="mr-2 h-5 w-5" aria-hidden="true" />
+          {error}
+        </div>
+      )}
+
+      {activeTab === 'handoff' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} onKeyDown={keepEnterInField} noValidate className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 rounded-lg border border-border bg-surface p-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="lg:col-span-2">
+              <StaffSelect
+                id="handoff-incoming-nurse"
+                label={t('docShiftHandoff.incomingNurseLabel')}
+                roleFilter="Nurse"
+                value={handoff.incomingNurse}
+                onChange={(id) => { clearField('incomingNurse'); setTouched(true); setHandoff({ ...handoff, incomingNurse: id }); }}
+                placeholder={t('docShiftHandoff.incomingNursePlaceholder')}
+                required
+              />
+              {errors.incomingNurse && <p role="alert" className="mt-1 text-sm text-critical">{errors.incomingNurse}</p>}
+            </div>
+            <div>
+              <label htmlFor="handoff-shift-type" className="block text-xs font-medium text-content-secondary">{t('docShiftHandoff.shiftTypeLabel')}</label>
+              <select id="handoff-shift-type" value={handoff.shiftType} className={field}
+                onChange={(e) => setHandoff({ ...handoff, shiftType: e.target.value as ShiftType })}>
+                {Object.entries(shiftTypes).map(([value, { label }]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="handoff-unit" className="block text-xs font-medium text-content-secondary">{t('docShiftHandoff.unitLabel')}</label>
+              <select id="handoff-unit" value={handoff.unit} className={field} onChange={(e) => setHandoff({ ...handoff, unit: e.target.value })}>
+                {units.map((u) => <option key={u} value={u}>{t(`docShiftHandoff.unit_${UNIT_KEYS[u]}`)}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="handoff-date" className="block text-xs font-medium text-content-secondary">{t('docShiftHandoff.dateLabel')}</label>
+                <input id="handoff-date" type="date" value={handoff.handoffDate} className={field}
+                  onChange={(e) => setHandoff({ ...handoff, handoffDate: e.target.value })} />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">{t('docShiftHandoff.title')}</h1>
-                <p className="text-white">{t('docShiftHandoff.subtitle')}</p>
+                <label htmlFor="handoff-time" className="block text-xs font-medium text-content-secondary">{t('docShiftHandoff.timeLabel')}</label>
+                <input id="handoff-time" type="time" value={handoff.handoffTime} className={field}
+                  onChange={(e) => setHandoff({ ...handoff, handoffTime: e.target.value })} />
               </div>
             </div>
-            {activeTab === 'handoff' && <div className="text-right text-white">
-              <p className="font-medium">{new Date().toLocaleDateString()}</p>
-              <p className="text-sm">{shiftTypes[handoff.shiftType as ShiftType]?.label}</p>
-            </div>}
           </div>
-        </div>
 
-        {success && (
-          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
-            <CheckCircle2 className="h-5 w-5 mr-2" />
-            {success}
-          </div>
-        )}
-
-        {error && (
-          <div role="alert" className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
-            <AlertTriangle className="h-5 w-5 mr-2" />
-            {error}
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="bg-surface rounded-lg shadow mb-6">
-          <div className="border-b flex">
-            <button
-              onClick={() => setActiveTab('handoff')}
-              className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
-                activeTab === 'handoff' 
-                  ? 'border-b-2 border-purple-500 text-content-secondary' 
-                  : 'text-content-muted'
-              }`}
-            >
-              <FileText className="h-5 w-5" />
-              <span>{t('docShiftHandoff.tabCreateHandoff')}</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
-                activeTab === 'history'
-                  ? 'border-b-2 border-purple-500 text-content-secondary'
-                  : 'text-content-muted'
-              }`}
-            >
-              <History className="h-5 w-5" />
-              <span>{t('docShiftHandoff.tabHandoffHistory')}</span>
-            </button>
-          </div>
-        </div>
-
-        {activeTab === 'handoff' && (
-          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} onKeyDown={keepEnterInField} noValidate>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Handoff Details */}
-            <div className="lg:col-span-1">
-              <div className="bg-surface rounded-lg shadow p-4">
-                <h2 className="font-bold text-content mb-4 flex items-center">
-                  <Clock className="h-5 w-5 mr-2 text-purple-500" />
-                  {t('docShiftHandoff.handoffDetailsTitle')}
-                </h2>
-
-                <div className="space-y-4">
-                  <div>
-                    <label htmlFor="handoff-shift-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.shiftTypeLabel')}</label>
-                    <select
-                      id="handoff-shift-type"
-                      value={handoff.shiftType}
-                      onChange={(e) => setHandoff({ ...handoff, shiftType: e.target.value as ShiftType })}
-                      className="w-full p-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500"
-                    >
-                      {Object.entries(shiftTypes).map(([value, { label }]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label htmlFor="handoff-date" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.dateLabel')}</label>
-                      <input
-                        id="handoff-date"
-                        type="date"
-                        value={handoff.handoffDate}
-                        onChange={(e) => setHandoff({ ...handoff, handoffDate: e.target.value })}
-                        className="w-full p-2 border border-border-interactive rounded-lg"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="handoff-time" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.timeLabel')}</label>
-                      <input
-                        id="handoff-time"
-                        type="time"
-                        value={handoff.handoffTime}
-                        onChange={(e) => setHandoff({ ...handoff, handoffTime: e.target.value })}
-                        className="w-full p-2 border border-border-interactive rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="handoff-unit" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.unitLabel')}</label>
-                    <select
-                      id="handoff-unit"
-                      value={handoff.unit}
-                      onChange={(e) => setHandoff({ ...handoff, unit: e.target.value })}
-                      className="w-full p-2 border border-border-interactive rounded-lg"
-                    >
-                      {units.map(u => (
-                        <option key={u} value={u}>{t(`docShiftHandoff.unit_${UNIT_KEYS[u]}`)}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label htmlFor="handoff-outgoing-nurse" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.outgoingNurseLabel')}</label>
-                    <input
-                      id="handoff-outgoing-nurse"
-                      type="text"
-                      value={user?.username || handoff.outgoingNurse}
-                      className="w-full p-2 border border-border-interactive rounded-lg bg-surface-sunken text-content"
-                      readOnly
-                    />
-                  </div>
-
-                  <div>
-                    <StaffSelect
-                      id="handoff-incoming-nurse"
-                      label={t('docShiftHandoff.incomingNurseLabel')}
-                      roleFilter="Nurse"
-                      value={handoff.incomingNurse || ''}
-                      onChange={(id) => { clearField('incomingNurse'); setHandoff({ ...handoff, incomingNurse: id }); }}
-                      placeholder={t('docShiftHandoff.incomingNursePlaceholder')}
-                      required
-                    />
-                    {errors.incomingNurse && <p role="alert" className="mt-1 text-sm text-critical">{errors.incomingNurse}</p>}
-                  </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+            <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+              {draftState === 'loading' && <p className="text-sm text-content-muted">{t('docShiftHandoff.loadingShift')}</p>}
+              {draftState === 'failed' && (
+                <div role="alert" className="rounded-lg bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
+                  <p>{draftError}</p>
+                  <button type="button" onClick={loadDraft} className="mt-2 font-semibold underline">{t('docShiftHandoff.retryShift')}</button>
                 </div>
-              </div>
-
-              {/* Patient Summary */}
-              <div className="bg-surface rounded-lg shadow p-4 mt-4">
-                <h3 className="font-bold text-content mb-3 flex items-center">
-                  <Users className="h-5 w-5 mr-2 text-purple-500" />
-                  {t('docShiftHandoff.patientSummaryTitle')}
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-content-muted">{t('docShiftHandoff.totalPatients')}</span>
-                    <span className="font-bold">{patientHandoffs.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-content-muted">{t('docShiftHandoff.criticalLabel')}</span>
-                    <span className="font-bold text-critical-subtle-fg">
-                      {patientHandoffs.filter(p => p.priority === 'critical').length}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-content-muted">{t('docShiftHandoff.urgentLabel')}</span>
-                    <span className="font-bold text-caution-subtle-fg">
-                      {patientHandoffs.filter(p => p.priority === 'urgent').length}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-content-muted">{t('docShiftHandoff.routineLabel')}</span>
-                    <span className="font-bold text-ok-subtle-fg">
-                      {patientHandoffs.filter(p => p.priority === 'routine').length}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <ShiftDraftPanel onAdd={addFromDraft} alreadyAdded={patientHandoffs.map((p) => p.patientId)} />
-
-              {/* Add Patient Button */}
-              <button type="button"
-                onClick={() => setShowAddPatient(true)}
-                className="w-full mt-4 bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 flex items-center justify-center"
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                {t('docShiftHandoff.addPatientButton')}
-              </button>
-            </div>
-
-            {/* Patient Handoffs */}
-            <div className="lg:col-span-2">
+              )}
+              {draftState === 'loaded' && patients.length === 0 && <p className="text-sm text-content-muted">{t('handoffDraft.none')}</p>}
+              <HandoffPatientList
+                patients={patients}
+                selected={selected}
+                openId={openId}
+                onToggle={toggleSelected}
+                onSelectAll={() => { setTouched(true); setSelected(new Set(patients.map((p) => p.patientId))); }}
+                onOpen={openPatient}
+                onAddPatient={() => setShowAddPatient(true)}
+              />
               {showAddPatient && (
-                <div className="bg-surface rounded-lg shadow p-4 mb-6">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-content">{t('docShiftHandoff.selectPatientTitle')}</h3>
-                    <button type="button"
-                      onClick={() => setShowAddPatient(false)}
-                      className="text-content-muted hover:text-content-secondary"
-                    >
-                      ×
-                    </button>
-                  </div>
+                <div className="space-y-3 border-t border-border pt-3">
                   {/* Searched on the server: the list this replaced held only
-                      the first 50 patients. Adding one twice is refused by
-                      `addPatientToHandoff`. */}
-                  <div className="mb-4">
-                    <PatientSelect
-                      id="handoff-add-patient"
-                      label={t('docShiftHandoff.searchPatientsPlaceholder')}
-                      value={selectedPatientId ?? ''}
-                      onChange={(patientId, patient) => {
-                        setSelectedPatientId(patientId || null);
-                        setSelectedPatientEntry(patient ?? null);
-                      }}
-                    />
-                  </div>
-
+                      the first 50 patients. Adding one twice is refused. */}
+                  <PatientSelect
+                    id="handoff-add-patient"
+                    label={t('docShiftHandoff.searchPatientsPlaceholder')}
+                    value={selectedPatientId ?? ''}
+                    onChange={(patientId, patient) => {
+                      setSelectedPatientId(patientId || null);
+                      setSelectedPatientEntry(patient ?? null);
+                    }}
+                  />
                   {selectedPatientId && (
-                    <div className="border-t pt-4 space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label htmlFor="handoff-new-patient-room" className="block text-sm font-medium text-content-secondary">{t('docShiftHandoff.roomLabel')}</label>
-                          <input
-                            id="handoff-new-patient-room"
-                            type="text"
-                            value={newPatientHandoff.room}
-                            onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, room: e.target.value })}
-                            placeholder={t('docShiftHandoff.roomPlaceholder')}
-                            className="w-full p-2 border border-border-interactive rounded"
-                          />
-                        </div>
-                        <div>
-                          <ChoiceChips<Priority>
-                            id="handoff-new-patient-priority"
-                            label={t('docShiftHandoff.priorityLabel')}
-                            value={newPatientHandoff.priority}
-                            onChange={(priority) => priority && setNewPatientHandoff({ ...newPatientHandoff, priority })}
-                            options={[
-                              { value: 'routine', label: t('docShiftHandoff.priority_routine') },
-                              { value: 'urgent', label: t('docShiftHandoff.priority_urgent') },
-                              { value: 'critical', label: t('docShiftHandoff.priority_critical') },
-                            ]}
-                          />
-                        </div>
+                    <>
+                      <div>
+                        <label htmlFor="handoff-new-patient-room" className="block text-xs font-medium text-content-secondary">{t('docShiftHandoff.roomLabel')}</label>
+                        <input id="handoff-new-patient-room" type="text" value={newPatient.room} className={field}
+                          onChange={(e) => setNewPatient({ ...newPatient, room: e.target.value })} placeholder={t('docShiftHandoff.roomPlaceholder')} />
                       </div>
                       <div>
-                        <label htmlFor="handoff-new-patient-diagnosis" className="block text-sm font-medium text-content-secondary">{t('docShiftHandoff.diagnosisLabel')}</label>
-                        <input
-                          id="handoff-new-patient-diagnosis"
-                          type="text"
-                          value={newPatientHandoff.diagnosis}
-                          onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, diagnosis: e.target.value })}
-                          placeholder={t('docShiftHandoff.diagnosisPlaceholder')}
-                          className="w-full p-2 border border-border-interactive rounded"
-                        />
+                        <label htmlFor="handoff-new-patient-diagnosis" className="block text-xs font-medium text-content-secondary">{t('docShiftHandoff.diagnosisLabel')}</label>
+                        <input id="handoff-new-patient-diagnosis" type="text" value={newPatient.diagnosis} className={field}
+                          onChange={(e) => setNewPatient({ ...newPatient, diagnosis: e.target.value })} placeholder={t('docShiftHandoff.diagnosisPlaceholder')} />
                       </div>
-                      <button type="button"
-                        onClick={() => {
-                          if (selectedPatientEntry) addPatientToHandoff(selectedPatientEntry);
-                        }}
-                        className="w-full bg-purple-600 text-white py-2 rounded hover:bg-purple-700"
-                      >
-                        {t('docShiftHandoff.addToHandoffButton')}
-                      </button>
-                    </div>
+                      <ChoiceChips<Priority>
+                        id="handoff-new-patient-priority"
+                        label={t('docShiftHandoff.priorityLabel')}
+                        value={newPatient.priority}
+                        onChange={(priority) => priority && setNewPatient({ ...newPatient, priority })}
+                        options={[
+                          { value: 'routine', label: t('docShiftHandoff.priority_routine') },
+                          { value: 'urgent', label: t('docShiftHandoff.priority_urgent') },
+                          { value: 'critical', label: t('docShiftHandoff.priority_critical') },
+                        ]}
+                      />
+                    </>
                   )}
-                </div>
-              )}
-
-              {/* Patient Handoff Cards */}
-              <div className="space-y-4">
-                {patientHandoffs.map(patient => (
-                  <div key={patient.patientId} className="bg-surface rounded-lg shadow overflow-hidden">
-                    {/* Patient Header */}
-                    <div
-                      className={`p-4 cursor-pointer ${
-                        patient.priority === 'critical' ? 'bg-critical-subtle border-l-4 border-red-500' :
-                        patient.priority === 'urgent' ? 'bg-caution-subtle border-l-4 border-yellow-500' :
-                        'bg-ok-subtle border-l-4 border-green-500'
-                      }`}
-                      {...clickable(() => setExpandedPatient(expandedPatient === patient.patientId ? null : patient.patientId))}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center space-x-3">
-                            <h3 className="font-bold text-content">{patient.patientName}</h3>
-                            <span className="text-sm text-content-muted">{t('docShiftHandoff.roomPrefix', { room: patient.room || t('docShiftHandoff.roomTBD') })}</span>
-                            <span className={`px-2 py-0.5 rounded text-xs ${getPriorityColor(patient.priority)}`}>
-                              {t(`docShiftHandoff.priorityBadge_${patient.priority}`)}
-                            </span>
-                          </div>
-                          <p className="text-sm text-content-muted">{patient.diagnosis || t('docShiftHandoff.diagnosisPending')}</p>
-                          <div className="flex items-center space-x-3 mt-1 text-xs text-content-muted">
-                            <span>{t('docShiftHandoff.codePrefix', { status: t(`docShiftHandoff.codeStatus_${CODE_STATUS_KEYS[patient.codeStatus]}`) })}</span>
-                            {patient.isolation && <span className="inline-flex items-center gap-1 text-content-secondary"><AlertTriangle size={12} aria-hidden="true" /> {patient.isolation}</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-content-muted">
-                            {expandedPatient === patient.patientId ? '▼' : '▶'}
-                          </span>
-                          <button type="button"
-                            onClick={(e) => { e.stopPropagation(); removePatientFromHandoff(patient.patientId); }}
-                            className="text-critical hover:text-critical-subtle-fg p-1"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expanded Content */}
-                    {expandedPatient === patient.patientId && (
-                      <div className="p-4 border-t space-y-4">
-                        {/* SBAR Section */}
-                        <div className="bg-surface-sunken rounded-lg p-4">
-                          <h4 className="font-bold text-content-secondary mb-3 flex items-center">
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            {t('docShiftHandoff.sbarTitle')}
-                          </h4>
-                          <div className="space-y-3">
-                            <div>
-                              <label htmlFor={`handoff-sbar-situation-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.situationLabel')}</label>
-                              <textarea
-                                id={`handoff-sbar-situation-${patient.patientId}`}
-                                value={patient.sbar.situation}
-                                onChange={(e) => updatePatientSbar(patient.patientId, 'situation', e.target.value)}
-                                placeholder={t('docShiftHandoff.situationPlaceholder')}
-                                rows={2}
-                                className="w-full p-2 border border-purple-200 rounded"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor={`handoff-sbar-background-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.backgroundLabel')}</label>
-                              <textarea
-                                id={`handoff-sbar-background-${patient.patientId}`}
-                                value={patient.sbar.background}
-                                onChange={(e) => updatePatientSbar(patient.patientId, 'background', e.target.value)}
-                                placeholder={t('docShiftHandoff.backgroundPlaceholder')}
-                                rows={2}
-                                className="w-full p-2 border border-purple-200 rounded"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor={`handoff-sbar-assessment-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.assessmentLabel')}</label>
-                              <textarea
-                                id={`handoff-sbar-assessment-${patient.patientId}`}
-                                value={patient.sbar.assessment}
-                                onChange={(e) => updatePatientSbar(patient.patientId, 'assessment', e.target.value)}
-                                placeholder={t('docShiftHandoff.assessmentPlaceholder')}
-                                rows={2}
-                                className="w-full p-2 border border-purple-200 rounded"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor={`handoff-sbar-recommendation-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.recommendationLabel')}</label>
-                              <textarea
-                                id={`handoff-sbar-recommendation-${patient.patientId}`}
-                                value={patient.sbar.recommendation}
-                                onChange={(e) => updatePatientSbar(patient.patientId, 'recommendation', e.target.value)}
-                                placeholder={t('docShiftHandoff.recommendationPlaceholder')}
-                                rows={2}
-                                className="w-full p-2 border border-purple-200 rounded"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Quick Info Grid */}
-                        <div className="grid grid-cols-3 gap-3">
-                          <div>
-                            <label htmlFor={`handoff-code-status-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.codeStatusLabel')}</label>
-                            <select
-                              id={`handoff-code-status-${patient.patientId}`}
-                              value={patient.codeStatus}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { codeStatus: e.target.value })}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            >
-                              {codeStatuses.map(s => (
-                                <option key={s} value={s}>{t(`docShiftHandoff.codeStatus_${CODE_STATUS_KEYS[s]}`)}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label htmlFor={`handoff-iv-access-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.ivAccessLabel')}</label>
-                            <input
-                              id={`handoff-iv-access-${patient.patientId}`}
-                              type="text"
-                              value={patient.ivAccess}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { ivAccess: e.target.value })}
-                              placeholder={t('docShiftHandoff.ivAccessPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor={`handoff-diet-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.dietLabel')}</label>
-                            <input
-                              id={`handoff-diet-${patient.patientId}`}
-                              type="text"
-                              value={patient.diet}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { diet: e.target.value })}
-                              placeholder={t('docShiftHandoff.dietPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor={`handoff-activity-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.activityLabel')}</label>
-                            <input
-                              id={`handoff-activity-${patient.patientId}`}
-                              type="text"
-                              value={patient.activity}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { activity: e.target.value })}
-                              placeholder={t('docShiftHandoff.activityPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor={`handoff-pending-labs-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.pendingLabsLabel')}</label>
-                            <input
-                              id={`handoff-pending-labs-${patient.patientId}`}
-                              type="text"
-                              value={patient.pendingLabs}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { pendingLabs: e.target.value })}
-                              placeholder={t('docShiftHandoff.pendingLabsPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor={`handoff-pending-tests-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.pendingTestsLabel')}</label>
-                            <input
-                              id={`handoff-pending-tests-${patient.patientId}`}
-                              type="text"
-                              value={patient.pendingTests}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { pendingTests: e.target.value })}
-                              placeholder={t('docShiftHandoff.pendingTestsPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Medications */}
-                        <div className="bg-notice-subtle rounded-lg p-3">
-                          <h5 className="font-medium text-notice-subtle-fg mb-2 flex items-center">
-                            <Pill className="h-4 w-4 mr-2" />
-                            {t('docShiftHandoff.medicationsTitle')}
-                          </h5>
-                          <div className="grid grid-cols-3 gap-2 text-sm">
-                            <div>
-                              <label htmlFor={`handoff-meds-scheduled-${patient.patientId}`} className="block text-xs text-notice-subtle-fg">{t('docShiftHandoff.scheduledLabel')}</label>
-                              <input
-                                id={`handoff-meds-scheduled-${patient.patientId}`}
-                                type="text"
-                                value={patient.medications.scheduled}
-                                onChange={(e) => updatePatientMeds(patient.patientId, 'scheduled', e.target.value)}
-                                placeholder={t('docShiftHandoff.scheduledPlaceholder')}
-                                className="w-full p-1 border border-notice rounded"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor={`handoff-meds-prn-${patient.patientId}`} className="block text-xs text-notice-subtle-fg">{t('docShiftHandoff.prnLabel')}</label>
-                              <input
-                                id={`handoff-meds-prn-${patient.patientId}`}
-                                type="text"
-                                value={patient.medications.prn}
-                                onChange={(e) => updatePatientMeds(patient.patientId, 'prn', e.target.value)}
-                                placeholder={t('docShiftHandoff.prnPlaceholder')}
-                                className="w-full p-1 border border-notice rounded"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor={`handoff-meds-drips-${patient.patientId}`} className="block text-xs text-notice-subtle-fg">{t('docShiftHandoff.dripsLabel')}</label>
-                              <input
-                                id={`handoff-meds-drips-${patient.patientId}`}
-                                type="text"
-                                value={patient.medications.drips}
-                                onChange={(e) => updatePatientMeds(patient.patientId, 'drips', e.target.value)}
-                                placeholder={t('docShiftHandoff.dripsPlaceholder')}
-                                className="w-full p-1 border border-notice rounded"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Safety Risks */}
-                        <div className="bg-surface-sunken rounded-lg p-3">
-                          <h5 className="font-medium text-content-secondary mb-2 flex items-center">
-                            <AlertTriangle className="h-4 w-4 mr-2" />
-                            {t('docShiftHandoff.safetyRisksTitle')}
-                          </h5>
-                          <div className="flex flex-wrap gap-2">
-                            {safetyRiskOptions.map(risk => (
-                              <button
-                                key={risk}
-                                type="button"
-                                onClick={() => toggleSafetyRisk(patient.patientId, risk)}
-                                className={`px-2 py-1 rounded text-xs ${
-                                  patient.safetyRisks.includes(risk)
-                                    ? 'bg-orange-700 text-white'
-                                    : 'bg-surface-sunken text-content-secondary hover:bg-orange-800'
-                                }`}
-                              >
-                                {t(`docShiftHandoff.risk_${SAFETY_RISK_KEYS[risk]}`)}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Additional Notes */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label htmlFor={`handoff-pending-orders-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.pendingOrdersLabel')}</label>
-                            <input
-                              id={`handoff-pending-orders-${patient.patientId}`}
-                              type="text"
-                              value={patient.pendingOrders}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { pendingOrders: e.target.value })}
-                              placeholder={t('docShiftHandoff.pendingOrdersPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor={`handoff-family-updates-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.familyUpdatesLabel')}</label>
-                            <input
-                              id={`handoff-family-updates-${patient.patientId}`}
-                              type="text"
-                              value={patient.familyUpdates}
-                              onChange={(e) => updatePatientHandoff(patient.patientId, { familyUpdates: e.target.value })}
-                              placeholder={t('docShiftHandoff.familyUpdatesPlaceholder')}
-                              className="w-full p-2 border border-border-interactive rounded text-sm"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label htmlFor={`handoff-additional-notes-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.additionalNotesLabel')}</label>
-                          <textarea
-                            id={`handoff-additional-notes-${patient.patientId}`}
-                            value={patient.additionalNotes}
-                            onChange={(e) => updatePatientHandoff(patient.patientId, { additionalNotes: e.target.value })}
-                            placeholder={t('docShiftHandoff.additionalNotesPlaceholder')}
-                            rows={2}
-                            className="w-full p-2 border border-border-interactive rounded text-sm"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {patientHandoffs.length === 0 && !showAddPatient && (
-                  <div className="bg-surface rounded-lg shadow p-12 text-center">
-                    <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-content-muted" />
-                    <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docShiftHandoff.noPatientsTitle')}</h2>
-                    <p className="text-content-muted mb-4">{t('docShiftHandoff.noPatientsDesc')}</p>
-                    <button type="button"
-                      onClick={() => setShowAddPatient(true)}
-                      className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700"
-                    >
-                      {t('docShiftHandoff.addFirstPatientButton')}
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { if (selectedPatientEntry) addPatientToHandoff(selectedPatientEntry); }}
+                      aria-disabled={!selectedPatientEntry || undefined}
+                      className="min-h-[40px] flex-1 rounded-lg bg-brand px-3 text-sm font-semibold text-brand-fg hover:bg-brand-hover">
+                      {t('docShiftHandoff.addToHandoffButton')}
+                    </button>
+                    <button type="button" onClick={() => setShowAddPatient(false)}
+                      className="min-h-[40px] rounded-lg border border-border-interactive px-3 text-sm font-semibold text-content">
+                      {t('docShiftHandoff.cancelAdd')}
                     </button>
                   </div>
-                )}
-              </div>
-
-              {/* Submit Button */}
-              {patientHandoffs.length > 0 && (
-                <div className="mt-6 flex justify-end">
-                  <button type="submit"
-                    aria-disabled={isSubmitting || undefined}
-                    className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 aria-disabled:cursor-wait flex items-center"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <RefreshCw className="animate-spin h-5 w-5 mr-2" />
-                        {t('docShiftHandoff.submitting')}
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-5 w-5 mr-2" />
-                        {t('docShiftHandoff.submitHandoff')}
-                      </>
-                    )}
-                  </button>
                 </div>
               )}
             </div>
+
+            <div className="rounded-lg border border-border bg-surface p-4">
+              {open ? (
+                <HandoffPatientEditor patient={open} onChange={(updates) => edit(open.patientId, updates)} />
+              ) : (
+                <p className="text-sm text-content-muted">{t('docShiftHandoff.noPatientsDesc')}</p>
+              )}
+            </div>
           </div>
-          </form>
-        )}
+
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface p-3 shadow">
+            <p className="mr-auto text-sm text-content-muted" aria-live="polite">
+              {allReviewed ? t('docShiftHandoff.allReviewed') : touched ? t('docShiftHandoff.draftKept') : ''}
+            </p>
+            {open && (
+              <button type="button" onClick={nextPatient}
+                className="min-h-[44px] rounded-lg border border-border-interactive px-4 font-semibold text-content hover:bg-surface-sunken">
+                {t('docShiftHandoff.nextPatient')}
+              </button>
+            )}
+            <button type="submit" aria-disabled={isSubmitting || undefined}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-brand px-4 font-semibold text-brand-fg hover:bg-brand-hover aria-disabled:cursor-wait">
+              {isSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+              {isSubmitting ? t('docShiftHandoff.submitting') : (handingOver.length === 1 ? t('docShiftHandoff.handOverOne') : t('docShiftHandoff.handOverN', { n: handingOver.length }))}
+            </button>
+          </div>
+        </form>
+      )}
 
         {activeTab === 'history' && (
-          <div className="bg-surface rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-content mb-6 flex items-center">
-              <History className="h-6 w-6 mr-2 text-purple-500" />
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <h2 className="mb-4 flex items-center text-lg font-bold text-content">
+              <History className="mr-2 h-5 w-5" aria-hidden="true" />
               {t('docShiftHandoff.handoffHistoryTitle')}
             </h2>
             {historyError && <div role="alert" className="mb-4 rounded-lg border border-critical bg-critical-subtle p-4 text-critical-subtle-fg">
@@ -1122,6 +581,8 @@ export default function ShiftHandoffPage() {
                         ))}
                         <div><dt className="font-semibold">{t('docShiftHandoff.safetyRisksTitle')}</dt><dd>{h.data?.patient?.safetyRisks?.length ? h.data.patient.safetyRisks.join(', ') : t('docNursing.notRecorded')}</dd></div>
                         <div><dt className="font-semibold">{t('docShiftHandoff.isolationLabel')}</dt><dd>{h.data?.patient?.isolation || t('docNursing.notRecorded')}</dd></div>
+                        <div><dt className="font-semibold">{t('docShiftHandoff.stabilityLabel')}</dt><dd>{h.data?.patient?.stability ? t(`docShiftHandoff.stability_${h.data.patient.stability}`) : t('docNursing.notRecorded')}</dd></div>
+                        <div><dt className="font-semibold">{t('docShiftHandoff.todosLabel')}</dt><dd>{h.data?.patient?.todos?.length ? <ul className="list-disc pl-5">{h.data.patient.todos.map((todo, i) => <li key={i}>{todo}</li>)}</ul> : t('docNursing.notRecorded')}</dd></div>
                       </dl>
                     </details>
                   </div>
@@ -1130,7 +591,6 @@ export default function ShiftHandoffPage() {
             )}
           </div>
         )}
-      </div>
     </div>
   );
 }

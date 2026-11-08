@@ -5957,6 +5957,30 @@ export interface HandoffDraftPatient {
   date_of_birth: string | null;
   bed_label: string | null;
   recorded: Array<{ resource_type: string; count: number; last_at: string | null }>;
+  /**
+   * `included`: `sbar` holds the drafted lines. `not_permitted`: the caller
+   * has no treating link to this patient. `unavailable`: a record, or the
+   * audit row the read needs, could not be read or written.
+   */
+  content: 'included' | 'not_permitted' | 'unavailable';
+  sbar: HandoffDraftSbar | null;
+}
+
+/** Where a drafted handoff line came from (mockup c2's source chips). */
+export type HandoffLineSource = 'vitals' | 'mar' | 'chart' | 'io' | 'note' | 'order';
+
+export interface HandoffDraftLine {
+  text: string;
+  source: HandoffLineSource;
+  /** When the source was recorded; null for standing chart facts. */
+  at: string | null;
+}
+
+export interface HandoffDraftSbar {
+  situation: HandoffDraftLine[];
+  background: HandoffDraftLine[];
+  assessment: HandoffDraftLine[];
+  recommendation: HandoffDraftLine[];
 }
 
 export async function getShiftHandoffDraft(since?: string): Promise<{ since: string; patients: HandoffDraftPatient[] }> {

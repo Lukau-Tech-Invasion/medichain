@@ -38,6 +38,7 @@ mod emergency_grants;
 mod ems_runs;
 mod gcs;
 mod general;
+mod handoff_content;
 mod handoff_draft;
 mod identity_claim;
 mod identity_context;

@@ -23,6 +23,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   getProviders: vi.fn(),
   createShiftHandoff: vi.fn(),
+  getShiftHandoffDraft: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -47,6 +48,8 @@ describe('ShiftHandoffPage', () => {
       { user_id: 'qa-recipient-id', name: 'Nurse QA Recipient', role: 'Nurse' },
     ] });
     vi.mocked(shared.createShiftHandoff).mockResolvedValue({ success: true } as never);
+    vi.mocked(shared.getShiftHandoffDraft).mockResolvedValue({ since: '2026-11-08T05:00:00Z', patients: [] });
+    shared.clearAllDrafts();
   });
 
   it('acknowledges only incoming records and rereads the authoritative receipt', async () => {
@@ -58,7 +61,7 @@ describe('ShiftHandoffPage', () => {
     const write = vi.spyOn(shared.getApiClient(), 'put').mockResolvedValue({});
     try {
       render(<ShiftHandoffPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Handoff History' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Handoff History' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge receipt' }));
       await waitFor(() => expect(screen.queryByRole('button', { name: 'Acknowledge receipt' })).not.toBeInTheDocument());
       expect(write).toHaveBeenCalledWith('/api/emergency/handoff/QA-receipt/receipt', {});
@@ -74,7 +77,7 @@ describe('ShiftHandoffPage', () => {
     const write = vi.spyOn(shared.getApiClient(), 'put').mockRejectedValueOnce(new Error('QA outage')).mockResolvedValue({});
     try {
       render(<ShiftHandoffPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Handoff History' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Handoff History' }));
       fireEvent.click(await screen.findByRole('button', { name: 'Acknowledge receipt' }));
       expect(await screen.findByRole('alert')).toHaveTextContent('Receipt could not be confirmed');
       fireEvent.click(screen.getByRole('button', { name: 'Acknowledge receipt' }));
@@ -85,8 +88,10 @@ describe('ShiftHandoffPage', () => {
   it('renders shift handoff page', async () => {
     render(<ShiftHandoffPage />);
 
-    expect(screen.getByText(/Shift Handoff \(SBAR\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/Document comprehensive patient handoff information/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Shift Handoff \(SBAR\)/i })).toBeInTheDocument();
+    // Who is handing over is the signed-in nurse, named in the header.
+    expect(screen.getByText(/Nurse QA Sender/)).toBeInTheDocument();
+    expect(await screen.findByText('No other patients this shift.')).toBeInTheDocument();
   });
 
   it('reads the stored handoff DTO and displays its saved SBAR without crashing', async () => {
@@ -107,7 +112,7 @@ describe('ShiftHandoffPage', () => {
     }]);
     try {
       render(<ShiftHandoffPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Handoff History' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Handoff History' }));
       // The name saved with the handoff, not whatever the directory says today.
       await waitFor(() => expect(screen.getByText(/Synthetic Patient/)).toBeInTheDocument());
       expect(screen.queryByRole('button', { name: 'Acknowledge receipt' })).not.toBeInTheDocument();
@@ -125,57 +130,41 @@ describe('ShiftHandoffPage', () => {
     }
   });
 
-  it('displays ISBAR sections', async () => {
-    render(<ShiftHandoffPage />);
-
-    // Add a patient: the SBAR block is rendered per handoff entry.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Add Patient/i })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole('button', { name: /Add Patient/i }));
-    // The picker searches the server; the first-page roster it replaced held only 50.
+  /** Add a patient by hand, the way a nurse covering another bay would. */
+  async function addByHand() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Add another patient' }));
     await selectPatient('', 'Test Patient', 'handoff-add-patient');
     fireEvent.click(screen.getByRole('button', { name: /Add to Handoff/i }));
+  }
+
+  async function chooseRecipient() {
+    fireEvent.change(screen.getByRole('textbox', { name: /Incoming Nurse/ }), { target: { value: 'QA Recipient' } });
+    fireEvent.click(await screen.findByRole('button', { name: /Nurse QA Recipient/ }));
+  }
+
+  it('displays ISBAR sections, with the rest of the record folded beneath', async () => {
+    render(<ShiftHandoffPage />);
+    await addByHand();
+    for (const section of ['Situation', 'Background', 'Assessment', 'Recommendation']) {
+      expect(screen.getByRole('group', { name: new RegExp(section, 'i') })).toBeInTheDocument();
+    }
     expect(screen.getByRole('combobox', { name: 'Code Status' })).toHaveValue('Not recorded');
-
-
-    // Each SBAR heading also appears in the section legend, so a
-    // single-element matcher is ambiguous by construction.
-    await waitFor(() =>
-      expect(screen.getAllByText(/Situation/i).length).toBeGreaterThan(0)
-    );
-    expect(screen.getAllByText(/Background/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Assessment/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Recommendation/i).length).toBeGreaterThan(0);
   });
 
   it('allows entering situation', async () => {
     render(<ShiftHandoffPage />);
-
-    // Add a patient: the SBAR block is rendered per handoff entry.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Add Patient/i })).toBeInTheDocument()
-    );
-    fireEvent.click(screen.getByRole('button', { name: /Add Patient/i }));
-    // The picker searches the server; the first-page roster it replaced held only 50.
-    await selectPatient('', 'Test Patient', 'handoff-add-patient');
-    fireEvent.click(screen.getByRole('button', { name: /Add to Handoff/i }));
-
-
-    const input = screen.getByLabelText(/Situation/i);
+    await addByHand();
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Situation' }));
+    const input = screen.getByRole('textbox', { name: /Situation, line 1/i });
     fireEvent.change(input, { target: { value: 'Patient admitted with chest pain.' } });
     expect(input).toHaveValue('Patient admitted with chest pain.');
   });
 
   it('sends the selected nurse account and no uncollected admission date', async () => {
     render(<ShiftHandoffPage />);
-    expect(screen.getByLabelText('Outgoing Nurse')).toHaveValue('Nurse QA Sender');
-    fireEvent.change(screen.getByRole('textbox', { name: /Incoming Nurse/ }), { target: { value: 'QA Recipient' } });
-    fireEvent.click(await screen.findByRole('button', { name: /Nurse QA Recipient/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add First Patient' }));
-    await selectPatient('', 'Test Patient', 'handoff-add-patient');
-    fireEvent.click(screen.getByRole('button', { name: 'Add to Handoff' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Submit Handoff' }));
+    await chooseRecipient();
+    await addByHand();
+    fireEvent.click(screen.getByRole('button', { name: 'Hand over 1 patient' }));
     await waitFor(() => expect(shared.createShiftHandoff).toHaveBeenCalledOnce());
     const payload = vi.mocked(shared.createShiftHandoff).mock.calls[0][0] as {
       outgoing_nurse: string; incoming_nurse: string; patients: Record<string, unknown>[];
@@ -183,6 +172,53 @@ describe('ShiftHandoffPage', () => {
     expect(payload.outgoing_nurse).toBe(mockUser.userId);
     expect(payload.incoming_nurse).toBe('qa-recipient-id');
     expect(payload.patients[0]).not.toHaveProperty('admitDate');
+    // Nobody made the stability call or wrote a to-do: neither is sent.
+    expect(payload.patients[0]).not.toHaveProperty('stability');
+    expect(payload.patients[0]).not.toHaveProperty('todos');
+  });
+
+  it('drafts each patient from the shift, with where every line came from', async () => {
+    vi.mocked(shared.getShiftHandoffDraft).mockResolvedValue({ since: '2026-11-08T05:00:00Z', patients: [
+      { patient_id: 'PAT-A', full_name: 'Thandiwe Nkosi', date_of_birth: null, bed_label: '12',
+        recorded: [{ resource_type: 'vital_signs', count: 14, last_at: null }], content: 'included',
+        sbar: {
+          situation: [{ text: 'BP 148/92 · HR 104', source: 'vitals', at: '2026-11-08T14:00:00Z' }],
+          background: [{ text: 'Allergies: Penicillin', source: 'chart', at: null }],
+          assessment: [], recommendation: [{ text: 'HbA1c — lab order pending', source: 'order', at: null }],
+        } },
+      { patient_id: 'PAT-B', full_name: 'Sipho Mabaso', date_of_birth: null, bed_label: '14',
+        recorded: [{ resource_type: 'mar', count: 9, last_at: null }], content: 'included',
+        sbar: { situation: [], background: [], assessment: [], recommendation: [] } },
+      { patient_id: 'PAT-C', full_name: 'Lerato Molefe', date_of_birth: null, bed_label: '19',
+        recorded: [], content: 'not_permitted', sbar: null },
+    ] });
+    render(<ShiftHandoffPage />);
+    expect(await screen.findByRole('textbox', { name: /Situation, line 1/i })).toHaveValue('BP 148/92 · HR 104');
+    expect(screen.getByText(/^Vitals/)).toBeInTheDocument();
+    expect(screen.getByText('Chart')).toBeInTheDocument();
+    // Charted this shift: handed over unless unticked. Nothing charted: listed, not ticked.
+    expect(screen.getByRole('checkbox', { name: 'Hand over Thandiwe Nkosi' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Hand over Lerato Molefe' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Select all (2 of 3)' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Watch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add a to-do' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Recommendation, line 2/i }), { target: { value: 'Repeat BP at 20:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next patient' }));
+    // On to the next patient still to review.
+    expect(await screen.findByRole('heading', { name: /Sipho Mabaso/ })).toBeInTheDocument();
+    expect(screen.getByText('Draft kept on this tab')).toBeInTheDocument();
+
+    await chooseRecipient();
+    fireEvent.click(screen.getByRole('button', { name: 'Hand over 2 patients' }));
+    await waitFor(() => expect(shared.createShiftHandoff).toHaveBeenCalledOnce());
+    const payload = vi.mocked(shared.createShiftHandoff).mock.calls[0][0] as { patients: Array<Record<string, unknown>> };
+    expect(payload.patients.map((p) => p.patientId)).toEqual(['PAT-A', 'PAT-B']);
+    expect(payload.patients[0]).toMatchObject({
+      stability: 'watch',
+      todos: ['HbA1c — lab order pending', 'Repeat BP at 20:00'],
+      sbar: { situation: 'BP 148/92 · HR 104', background: 'Allergies: Penicillin' },
+    });
   });
 
   it('reports unavailable history without an empty claim and retries the read', async () => {
@@ -190,7 +226,7 @@ describe('ShiftHandoffPage', () => {
       .mockRejectedValueOnce(new Error('QA history outage')).mockResolvedValueOnce([]);
     try {
       render(<ShiftHandoffPage />);
-      fireEvent.click(screen.getByRole('button', { name: 'Handoff History' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Handoff History' }));
       expect(await screen.findByRole('alert')).toHaveTextContent('Handoff history could not be loaded');
       expect(screen.queryByText('No handoff history available.')).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Retry handoff history' }));
@@ -201,14 +237,11 @@ describe('ShiftHandoffPage', () => {
 
   it('requires a fresh recipient selection after the selected nurse is cleared', async () => {
     render(<ShiftHandoffPage />);
-    fireEvent.change(screen.getByRole('textbox', { name: /Incoming Nurse/ }), { target: { value: 'QA Recipient' } });
-    fireEvent.click(await screen.findByRole('button', { name: /Nurse QA Recipient/ }));
+    await chooseRecipient();
     fireEvent.click(screen.getByRole('button', { name: 'Clear selected staff' }));
     fireEvent.change(screen.getByRole('textbox', { name: /Incoming Nurse/ }), { target: { value: 'Unresolved QA recipient' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add First Patient' }));
-    await selectPatient('', 'Test Patient', 'handoff-add-patient');
-    fireEvent.click(screen.getByRole('button', { name: 'Add to Handoff' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Submit Handoff' }));
+    await addByHand();
+    fireEvent.click(screen.getByRole('button', { name: 'Hand over 1 patient' }));
     expect(await screen.findByRole('alert')).toBeVisible();
     expect(shared.createShiftHandoff).not.toHaveBeenCalled();
   });

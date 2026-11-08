@@ -110,7 +110,6 @@ BASELINE: dict[tuple[str, str], str] = {
     ("CriticalValuePage.tsx", "notificationStatus"): "'pending' — nobody has been notified yet.",
     ("FallRiskPage.tsx", "assessment_tool"): "'morse' — the page implements the Morse Fall Scale.",
     ("PathologyPage.tsx", "status"): "'received' — the specimen is being received on this form.",
-    ("ShiftHandoffPage.tsx", "status"): "'pending' — a handoff is pending until acknowledged.",
 }
 
 
