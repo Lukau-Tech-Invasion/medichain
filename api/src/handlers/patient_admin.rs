@@ -122,11 +122,19 @@ fn directory_patient_json(
         .as_deref()
         .and_then(|registrar| data.identity_contexts.facility_for_user(registrar));
     let health_id = Some(entity.health_id.trim()).filter(|id| !id.is_empty());
+    // Sex sits beside the date of birth: a receiving team matches a person to
+    // a record by both. Absent stays null, never a guess.
+    let gender = profile
+        .gender
+        .as_deref()
+        .map(str::trim)
+        .filter(|g| !g.is_empty());
     serde_json::json!({
         "patient_id": profile.patient_id,
         "full_name": profile.full_name,
         "date_of_birth": profile.date_of_birth,
         "health_id": health_id,
+        "gender": gender,
         "facility": facility,
         "content_available": true,
     })

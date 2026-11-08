@@ -535,6 +535,12 @@ mod tests {
         // banner shows it so the person can be matched to the record.
         let health_id = rows[0]["health_id"].as_str().expect("health_id served");
         assert!(health_id.starts_with("MCHI-"), "{health_id}");
+        // Served, and null when the registration recorded none.
+        assert!(
+            rows[0].get("gender").is_some_and(|g| g.is_null()),
+            "{}",
+            rows[0]
+        );
         for forbidden in [
             "emergency_info",
             "national_id",

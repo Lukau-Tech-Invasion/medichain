@@ -154,6 +154,8 @@ export interface PatientDirectoryEntry {
   date_of_birth: string;
   /** The MediChain Health ID on the patient's card; null when none was issued. */
   health_id?: string | null;
+  /** Administrative gender as registered; null when none was recorded. */
+  gender?: string | null;
   facility?: string | null;
   content_available?: boolean;
 }

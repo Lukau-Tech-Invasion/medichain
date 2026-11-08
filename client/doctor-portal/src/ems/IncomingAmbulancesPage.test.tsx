@@ -2,7 +2,7 @@
  * The incoming board (mockup c8): the ambulance at the door comes first and
  * carries the one big button; one still on its way can be received, quietly.
  */
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import * as shared from '@medichain/shared';
@@ -14,7 +14,10 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listIncomingEmsRuns: vi.fn(),
 }));
-vi.mock('../components/PatientSelect', () => ({ findDirectoryPatient: () => Promise.resolve(null) }));
+const directory = vi.hoisted(() => ({ rows: new Map<string, unknown>() }));
+vi.mock('../components/PatientSelect', () => ({
+  findDirectoryPatient: (id: string) => Promise.resolve(directory.rows.get(id) ?? null),
+}));
 
 function run(id: string, status: 'en_route' | 'arrived', extra: Partial<EmsRunWithEvents> = {}): EmsRunWithEvents {
   return {
@@ -44,5 +47,50 @@ describe('incoming board', () => {
     expect(within(cards[0]).getByRole('heading')).toHaveTextContent('Patient door');
     expect(within(cards[0]).getByRole('button', { name: 'Received' })).toBeInTheDocument();
     expect(within(cards[1]).getByRole('button', { name: 'Received early' })).toBeInTheDocument();
+  });
+
+  it('says who an identified patient is, and who brought them', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-08T14:40:00Z'));
+    directory.rows.set('P1', {
+      patient_id: 'P1', full_name: 'Thandiwe Ndlovu', date_of_birth: '1992-03-12', health_id: 'MCHI-48217703', gender: 'Female',
+    });
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({
+      facility_id: 'F1',
+      runs: [run('door', 'arrived', {
+        patient_id: 'P1', unidentified_description: null, unit_number: '14', crew: ['P. Mokoena'],
+        events: [
+          { id: 'e1', run_id: 'door', kind: 'dispatched', occurred_at: '2026-11-08T14:02:00Z', payload: null },
+          { id: 'e2', run_id: 'door', kind: 'treatment', occurred_at: '2026-11-08T14:13:00Z', payload: { name: 'Splint left forearm' } },
+        ],
+      } as Partial<EmsRunWithEvents>)],
+    });
+    render(<I18nProvider><MemoryRouter><IncomingAmbulancesPage /></MemoryRouter></I18nProvider>);
+    const card = (await screen.findAllByRole('listitem'))[0];
+    expect(await within(card).findByRole('heading', { name: 'Thandiwe Ndlovu' })).toBeInTheDocument();
+    expect(card).toHaveTextContent(/Female · 34 years · born .* · Health ID MCHI-48217703 · Unit 14 \(P\. Mokoena\)/);
+    expect(within(card).getByText('34 years · Female')).toBeInTheDocument();
+    vi.useRealTimers();
+
+    const toggle = within(card).getByRole('button', { name: 'Full timeline (2 entries)' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const entries = within(card).getAllByRole('listitem').map((li) => li.textContent);
+    expect(entries[0]).toMatch(/Dispatched/);
+    expect(entries[1]).toMatch(/Treatment · Splint left forearm/);
+  });
+
+  it('marks a patient nobody has identified yet, and records nothing about them', async () => {
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({
+      facility_id: 'F1',
+      runs: [run('road', 'en_route', { unidentified_description: 'Unknown man, about 40', unit_number: '22' })],
+    });
+    render(<I18nProvider><MemoryRouter><IncomingAmbulancesPage /></MemoryRouter></I18nProvider>);
+    const card = (await screen.findAllByRole('listitem'))[0];
+    expect(within(card).getByText('?')).toBeInTheDocument();
+    expect(card).toHaveTextContent(/Unit 22 · not yet identified — will link when scanned or registered/);
+    // No entries: no timeline link promising some.
+    expect(within(card).queryByRole('button', { name: /Full timeline/ })).not.toBeInTheDocument();
   });
 });

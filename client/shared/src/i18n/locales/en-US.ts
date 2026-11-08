@@ -8936,7 +8936,11 @@ const en_US: TranslationRecord = {
     timeCall: 'call {{time}}',
     timeScene: 'on scene {{time}}',
     timeLeft: 'left {{time}}',
-    atmist: { time: 'Time', mechanism: 'Mechanism or complaint', injuries: 'Injuries and findings', treatment: 'Treatment given' },
+    atmist: { age: 'Age and sex', time: 'Time', mechanism: 'Mechanism or complaint', injuries: 'Injuries and findings', treatment: 'Treatment given' },
+    unit: 'Unit {{unit}}',
+    notIdentifiedYet: 'not yet identified — will link when scanned or registered',
+    fullTimeline: 'Full timeline ({{n}} entries)',
+    hideTimeline: 'Hide timeline',
   },
 
   workspace: {

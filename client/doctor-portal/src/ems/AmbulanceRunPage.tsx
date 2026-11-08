@@ -20,13 +20,13 @@ import {
   useSubmission,
   useTranslation,
 } from '@medichain/shared';
-import type { AddEmsRunEventBody, EmsRun, EmsRunEvent } from '@medichain/shared';
+import type { AddEmsRunEventBody, EmsRun } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { addPendingEvent, newRunId, putLocalRun, putRun, useLocalRun, type LocalEvent } from './runStore';
 import { usePatientStore } from '../store/patientStore';
 import { EntrySheet, type EntryKind } from './EntrySheet';
 import { LeaveSceneSheet } from './LeaveSceneSheet';
-import { medicineText } from './runSummary';
+import { describeEvent } from './runSummary';
 
 const OPEN: EmsRun['status'][] = ['in_progress', 'en_route', 'arrived'];
 
@@ -224,26 +224,6 @@ function QuickButton({ icon: Icon, label, onClick }: { icon: typeof Activity; la
   );
 }
 
-function describe(e: EmsRunEvent): string {
-  const p = e.payload ?? {};
-  if (e.kind === 'vitals') {
-    const parts = [
-      p.systolic_bp !== undefined && p.diastolic_bp !== undefined ? `BP ${p.systolic_bp}/${p.diastolic_bp}` : null,
-      p.heart_rate !== undefined ? `HR ${p.heart_rate}` : null,
-      p.respiratory_rate !== undefined ? `RR ${p.respiratory_rate}` : null,
-      p.spo2 !== undefined ? `SpO₂ ${p.spo2}%` : null,
-      p.gcs !== undefined ? `GCS ${p.gcs}` : null,
-      p.temperature_c !== undefined ? `${p.temperature_c} °C` : null,
-      p.glucose_mmol !== undefined ? `Glucose ${p.glucose_mmol}` : null,
-    ].filter(Boolean);
-    return parts.join(' · ');
-  }
-  if (e.kind === 'medication') return medicineText(e.payload);
-  if (e.kind === 'treatment') return String(p.name ?? '');
-  if (e.kind === 'note' || e.kind === 'on_scene') return String(p.text ?? '');
-  return '';
-}
-
 function Timeline({ events }: { events: LocalEvent[] }) {
   const { t } = useTranslation();
   const newestFirst = useMemo(() => [...events].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at)), [events]);
@@ -259,7 +239,7 @@ function Timeline({ events }: { events: LocalEvent[] }) {
               {t(`ems.kind.${e.kind}`)}
               {e.pending && <span className="ml-2 rounded-full bg-caution-subtle px-2 py-0.5 text-xs font-semibold text-caution-subtle-fg">{t('ems.pending')}</span>}
             </p>
-            {describe(e) && <p className="text-sm tabular-nums text-content-secondary">{describe(e)}</p>}
+            {describeEvent(e) && <p className="text-sm tabular-nums text-content-secondary">{describeEvent(e)}</p>}
           </li>
         ))}
       </ol>

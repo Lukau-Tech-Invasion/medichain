@@ -41,6 +41,7 @@ import { useTypingGuard } from './useTypingGuard';
 import { describeSave } from './visitDetail';
 import { recentForms, rememberForm } from './recentForms';
 import { pendingWork, type PendingWork } from './pendingWork';
+import { ageInYears, initials } from './identity';
 import { findDirectoryPatient, type Patient } from '../components/PatientSelect';
 import { useClinicianOffline } from '../offline/ClinicianOffline';
 import { OfflineChartSummary } from '../offline/OfflineChartSummary';
@@ -66,22 +67,6 @@ export function PatientWorkspace(props: PatientWorkspaceProps) {
       {patientId ? <WorkspaceShell key={patientId} patientId={patientId} {...props} /> : null}
     </AccessReasonGate>
   );
-}
-
-function age(dateOfBirth: string | undefined): number | null {
-  if (!dateOfBirth) return null;
-  const born = new Date(dateOfBirth);
-  if (Number.isNaN(born.getTime())) return null;
-  const now = new Date();
-  let years = now.getFullYear() - born.getFullYear();
-  const beforeBirthday = now.getMonth() < born.getMonth()
-    || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate());
-  if (beforeBirthday) years -= 1;
-  return years >= 0 ? years : null;
-}
-
-function initials(name: string): string {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?';
 }
 
 function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { patientId: string }) {
@@ -154,7 +139,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   const kept = roster?.patients.find((p) => p.patient_id === patientId);
   const name = profile?.full_name ?? directory?.full_name ?? kept?.full_name ?? '';
   const dob = profile?.date_of_birth ?? directory?.date_of_birth ?? kept?.date_of_birth;
-  const years = age(dob);
+  const years = ageInYears(dob);
   const sex = profile?.gender ?? kept?.gender ?? undefined;
   const healthId = directory?.health_id ?? undefined;
   const info = profile?.emergency_info ?? (kept ? {

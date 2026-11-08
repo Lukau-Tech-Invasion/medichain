@@ -86,6 +86,27 @@ export function summariseRun(run: EmsRun, events: EmsRunEvent[]): RunSummary {
   return summary;
 }
 
+/** One timeline entry's content in a line: "BP 92/58 · HR 118", "Splint left forearm". */
+export function describeEvent(e: EmsRunEvent): string {
+  const p = e.payload ?? {};
+  if (e.kind === 'vitals') {
+    const parts = [
+      p.systolic_bp !== undefined && p.diastolic_bp !== undefined ? `BP ${p.systolic_bp}/${p.diastolic_bp}` : null,
+      p.heart_rate !== undefined ? `HR ${p.heart_rate}` : null,
+      p.respiratory_rate !== undefined ? `RR ${p.respiratory_rate}` : null,
+      p.spo2 !== undefined ? `SpO₂ ${p.spo2}%` : null,
+      p.gcs !== undefined ? `GCS ${p.gcs}` : null,
+      p.temperature_c !== undefined ? `${p.temperature_c} °C` : null,
+      p.glucose_mmol !== undefined ? `Glucose ${p.glucose_mmol}` : null,
+    ].filter(Boolean);
+    return parts.join(' · ');
+  }
+  if (e.kind === 'medication') return medicineText(e.payload);
+  if (e.kind === 'treatment') return String(p.name ?? '');
+  if (e.kind === 'note' || e.kind === 'on_scene') return String(p.text ?? '');
+  return '';
+}
+
 /** The latest reading of each vital, for pre-filling triage — with its time. */
 export function latestVitals(summary: RunSummary): (EmsRunVitals & { at: string }) | null {
   if (!summary.vitals.length) return null;

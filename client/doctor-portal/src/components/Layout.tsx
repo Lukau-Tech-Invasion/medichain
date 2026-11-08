@@ -113,6 +113,7 @@ const BADGE_MAPPINGS: Record<string, string> = {
   'pending-labs': 'pendingLabApprovals',
   'critical-labs': 'criticalValues',
   'code-blue': 'codeBlues',
+  'ems-incoming': 'incomingAmbulances',
   
   // Nurse badges
   'vitals': 'vitalsDue',
