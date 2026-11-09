@@ -188,7 +188,13 @@ export async function settle(page: Page, path: string) {
   // re-signing-in then goto-ing again just repeated the loop. Clicking the
   // in-app link keeps the React Router history and the in-memory session
   // intact, which is also what a real clinician does.
-  if (!page.url().includes(path)) {
+  // Already there only if the address IS the route. A substring test read a
+  // patient's chart at /patients/<id>/triage as "already on /triage" and left
+  // the test inside the chart, looking for the department's queue.
+  const here = new URL(page.url());
+  const target = portalPath(path);
+  const already = target.includes('?') ? `${here.pathname}${here.search}` === target : here.pathname === target;
+  if (!already) {
     // Expand any collapsed navigation sections first. The sidebar groups routes
     // under collapsible headers, so a link like /emergency is simply absent
     // from the DOM until its section is open — and the history-push fallback
@@ -561,4 +567,32 @@ export async function choose(
     : field.locator('label', { hasText: new RegExp(`^\\s*${wanted.label}\\s*$`) });
   await chip.click();
   await expect(chip.locator('input')).toBeChecked();
+}
+
+/**
+ * The vitals entry form (mockup c3). Opened from a patient's chart it is
+ * already open; on the standalone page it waits for "Record vitals". Its
+ * fields are found by label -- their ids are generated per form.
+ */
+export async function openVitalsForm(page: Page) {
+  const heartRate = page.getByLabel('Heart Rate (bpm)', { exact: true });
+  // Picking a patient on the standalone page moves into their chart, where the
+  // form opens by itself. Clicking the standalone button while that move is in
+  // flight hits a page that is being replaced; give the move time to land.
+  const opened = await heartRate.waitFor({ state: 'visible', timeout: 15000 }).then(() => true, () => false);
+  if (!opened) {
+    await page.getByRole('button', { name: /^record (first )?vitals$/i }).first().click();
+  }
+  await expect(heartRate).toBeVisible({ timeout: 20000 });
+  return {
+    field: (label: string) => page.getByLabel(label, { exact: true }),
+    /** Pain, glucose, weight, GCS and notes are folded under "More details". */
+    async more() {
+      const glucose = page.getByLabel('Blood Glucose (mmol/L)', { exact: true });
+      if (!(await glucose.isVisible().catch(() => false))) {
+        await page.locator('details summary').filter({ hasText: /more details/i }).first().click();
+      }
+      await expect(glucose).toBeVisible();
+    },
+  };
 }

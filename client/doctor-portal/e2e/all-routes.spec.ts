@@ -218,10 +218,17 @@ async function checkOwnedRoute(page: Page, requested: string, previous: string, 
     if (!routeOf(page.url()).startsWith(route)) add('forward', `forward landed on ${routeOf(page.url())}`);
   }
 
-  // A full reload of the deep link keeps the session and the page.
+  // A full reload of the deep link keeps the session and the page. A patient's
+  // chart replaces the sidebar with its own forms rail (one navigation at a
+  // time, c4), and a reload asks the access reason again -- declared reasons
+  // live in memory only, by design (ChartAccess.tsx) -- so any of the three
+  // standing means the session survived.
   await page.reload();
   const kept = await page
     .getByRole('navigation', { name: /sidebar/i })
+    .or(page.locator('nav#workspace-forms'))
+    .or(page.getByText(/why are you opening this record/i))
+    .first()
     .waitFor({ state: 'visible', timeout: 20000 })
     .then(() => true)
     .catch(() => false);

@@ -85,6 +85,14 @@
     @apply bg-app-bg text-content;
   }
 
+  /* A checkbox or radio's target is its label (WCAG 2.2 SC 2.5.8, 24px). A
+     one-line small-text label is 20px tall, so the cardiac, pre-op and
+     intubation checklists fell 4px short -- 49 targets. */
+  label:has(> input[type='checkbox']),
+  label:has(> input[type='radio']) {
+    min-height: 24px;
+  }
+
   /* The ".dark .bg-white { bg-slate-800 }" remap layer that lived here is gone.
      It repainted a fixed list of greys in dark mode -- bg-white, gray-50/100,
      text-gray-500/600/700/900 -- and nothing else, so `text-gray-800` or

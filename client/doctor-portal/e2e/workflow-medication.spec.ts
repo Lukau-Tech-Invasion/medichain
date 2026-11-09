@@ -101,7 +101,7 @@ test('a prescription reaches the bedside after dispensing, is given, and the pat
   await expect(reader).toHaveURL(/\/dashboard$/, { timeout: 30000 });
   await reader.goto(`${PATIENT_APP}/records`);
   await expect(
-    reader.getByRole('heading', { name: `Medication given: ${drug}` }),
+    reader.getByRole('button', { name: new RegExp(`Medication given: ${drug}`) }).first(),
     'the patient cannot see that the dose was given'
   ).toBeVisible({ timeout: 45000 });
   await context.close();

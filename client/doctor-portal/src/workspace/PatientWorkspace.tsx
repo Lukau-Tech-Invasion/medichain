@@ -219,8 +219,11 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
             ) : info ? (
               <span className="rounded-full bg-surface-sunken px-3 py-1 text-sm text-content-secondary">{t('ems.noAllergiesRecorded')}</span>
             ) : null}
-            {info?.blood_type && info.blood_type !== 'Unknown' && (
-              <span className="rounded-full bg-notice-subtle px-3 py-1 text-sm font-semibold text-notice-subtle-fg">{info.blood_type}</span>
+            {info?.blood_type && (
+              // An untyped patient says so on every form, not by leaving the group out.
+              <span className="rounded-full bg-notice-subtle px-3 py-1 text-sm font-semibold text-notice-subtle-fg">
+                {info.blood_type === 'Unknown' ? t('workspace.bloodUnknown') : info.blood_type}
+              </span>
             )}
             {info?.dnr_status && (
               <span className="rounded-full bg-caution-subtle px-3 py-1 text-sm font-semibold text-caution-subtle-fg">{t('workspace.dnr')}</span>
@@ -306,12 +309,16 @@ function useOpenedLine(patientId: string, events: VisitEvent[]): string | null {
 /**
  * "Saved" with a tick, for a moment, where the form is: it appears once and
  * does not move (c10: 150 ms tick); "This visit" takes the entry after it.
+ *
+ * Visual only. Each form already announces its own outcome ("Version 3 is now
+ * in force.", "GCS 12"); a second live region here made screen readers say
+ * "Saved" over it, and gave every page two status regions.
  */
 function SavedTick({ tick }: { tick: { at: number; label: string } | null }) {
   const { t } = useTranslation();
   return (
-    <div className="pointer-events-none sticky top-0 z-10 h-0">
-      <p role="status" className="flex justify-end px-4 pt-2 lg:px-6">
+    <div className="pointer-events-none sticky top-0 z-10 h-0" aria-hidden="true">
+      <p className="flex justify-end px-4 pt-2 lg:px-6">
         {tick && (
           <span key={tick.at} className="inline-flex items-center gap-1 rounded-full border border-ok bg-ok-subtle px-3 py-1 text-sm font-semibold text-ok-subtle-fg shadow-sm">
             <Check className="mc-pop h-4 w-4" aria-hidden="true" />

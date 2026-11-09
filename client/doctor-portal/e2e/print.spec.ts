@@ -60,6 +60,9 @@ const PRINTABLE: Printable[] = [
   { route: '/soap', role: 'Doctor', title: /soap note/i, open: async (p) => {
     // A patient's signed notes appear once the patient is chosen.
     await pickPatientById(p, '#soap-patient-id', fixturePatientId());
+    // The form comes first (c3); earlier notes are folded beneath it.
+    const earlier = p.getByRole('button', { name: /^show$/i }).first();
+    await earlier.click({ timeout: 30000 });
     await clickFirst(p, /print note/i);
   } },
   { route: '/consult', role: 'Doctor', title: /consultation/i, open: async (p) => {

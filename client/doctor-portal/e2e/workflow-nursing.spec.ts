@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
 import { readFixtures } from './identity';
-import { pickPatientById, settle, signIn } from './support';
+import { openVitalsForm, pickPatientById, settle, signIn } from './support';
 
 /**
  * Workflow 3 — nursing: a care plan and a critical observation, written by
@@ -52,10 +52,10 @@ test('a care plan and a critical reading reach the next nurse, and the plan reac
   // Nurse A: a critical oxygen saturation.
   await settle(first, '/vitals');
   await pickPatientById(first, '#vitals-patient-select', patient.linked_patient_id);
-  await first.getByRole('button', { name: /^record (first )?vitals$/i }).first().click();
-  await first.locator('#vitals-heart-rate').fill('104');
-  await first.locator('#vitals-respiratory-rate').fill('26');
-  await first.locator('#vitals-oxygen-saturation').fill('84');
+  const vitals = await openVitalsForm(first);
+  await vitals.field('Heart Rate (bpm)').fill('104');
+  await vitals.field('Resp Rate (/min)').fill('26');
+  await vitals.field('SpO2 (%)').fill('84');
   await first.getByRole('button', { name: /save vitals/i }).click();
   await expect(first.getByText(/vital signs recorded successfully/i)).toBeVisible({ timeout: 30000 });
   // The flag is in words: once on the tile, once in the flowsheet row.

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFixtures } from './identity';
-import { declareAccessReason, pickPatientById, settle, signIn } from './support';
+import { declareAccessReason, openVitalsForm, pickPatientById, settle, signIn } from './support';
 
 /**
  * Working without signal (owner request, 2026-11-04).
@@ -30,8 +30,8 @@ test('vital signs saved without signal reach the server, the chart and the patie
 
   await settle(page, '/vitals');
   await pickPatientById(page, '#vitals-patient-select', patientId);
-  await page.getByRole('button', { name: 'Record Vitals' }).click();
-  await page.locator('#vitals-heart-rate').fill(heartRate);
+  const vitals = await openVitalsForm(page);
+  await vitals.field('Heart Rate (bpm)').fill(heartRate);
 
   await context.setOffline(true);
   await page.getByRole('button', { name: 'Save Vitals' }).click();

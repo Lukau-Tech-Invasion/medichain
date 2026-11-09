@@ -81,10 +81,15 @@ interface SoapNoteResponse {
   }>;
 }
 
+/**
+ * The record's moment as a full ISO instant. Cut to the day, every record from
+ * today sorted level with every other, so a note written a minute ago could sit
+ * behind a page of this morning's lab results and never be seen.
+ */
 function timestampDate(value?: number | string): string {
   if (!value) return '';
   const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
 function medicalRecordType(value: string): MedicalRecord['type'] {
@@ -271,7 +276,7 @@ export function MyRecordsPage() {
           title: sub.test_name,
           description: `${sub.test_category} - ${sub.results.length} parameter(s)`,
           provider: sub.reviewed_by || sub.submitted_by,
-          date: new Date(sub.reviewed_at || sub.submitted_at).toISOString().split('T')[0],
+          date: new Date(sub.reviewed_at || sub.submitted_at).toISOString(),
           contentHash: sub.content_hash || `lab-${sub.id}`,
           metadataHash: sub.metadata_hash || `meta-${sub.id}`,
           labResults: sub.results,
@@ -291,7 +296,7 @@ export function MyRecordsPage() {
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
           description: t('records.defaultDescription'),
           provider: 'MediChain',
-          date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString().split('T')[0] : '',
+          date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString() : '',
           contentHash: rec.content_hash,
           metadataHash: rec.metadata_hash,
           sealStatus: rec.seal_status ?? null,

@@ -53,15 +53,29 @@ test('the offline medical ID is deleted from the device on sign-out', async ({ p
   await page.goto(portalPath('/emergency-card?view=medical-id'));
   await expect(page.locator('main').first()).toBeVisible({ timeout: 30000 });
 
-  const dataCaches = () =>
+  // Since 2026-11-05 the offline copy is sealed under the account's device key
+  // in IndexedDB; the service worker keeps no API response at all.
+  const offlineCopies = () =>
+    page.evaluate(() => new Promise<number>((resolve) => {
+      const open = indexedDB.open('MediChainOfflineDB');
+      open.onerror = () => resolve(0);
+      open.onsuccess = () => {
+        const db = open.result;
+        if (!db.objectStoreNames.contains('cachedData')) { db.close(); resolve(0); return; }
+        const count = db.transaction('cachedData').objectStore('cachedData').count();
+        count.onsuccess = () => { db.close(); resolve(count.result); };
+        count.onerror = () => { db.close(); resolve(0); };
+      };
+    }));
+  const workerDataCaches = () =>
     page.evaluate(async () => (await caches.keys()).filter((name) => /^medichain-.*data/.test(name)));
-  // The worker caches the medical ID when it serves it; wait for that write.
-  const controlled = await page.evaluate(() => Boolean(navigator.serviceWorker?.controller));
-  test.skip(!controlled, 'no service worker controls this page (dev server or blocked workers)');
-  await expect.poll(dataCaches, { timeout: 20000 }).not.toEqual([]);
+
+  await expect.poll(offlineCopies, { message: 'the medical ID was not kept for offline use', timeout: 20000 })
+    .toBeGreaterThan(0);
+  expect(await workerDataCaches(), 'the service worker kept an API response in plain Cache Storage').toEqual([]);
 
   await signOutFromSettings(page);
-  await expect.poll(dataCaches, { timeout: 20000 }).toEqual([]);
+  await expect.poll(offlineCopies, { message: 'the offline medical ID survived sign-out', timeout: 20000 }).toBe(0);
 });
 
 test.describe('after a deployment', () => {

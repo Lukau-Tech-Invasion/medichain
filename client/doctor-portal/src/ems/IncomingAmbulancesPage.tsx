@@ -184,7 +184,7 @@ function IncomingCard({ run, onChanged, isNew }: { run: IncomingEmsRun; onChange
           <div>
             <button type="button" onClick={() => setTimelineOpen((v) => !v)} aria-expanded={timelineOpen}
               aria-controls={`timeline-${run.id}`}
-              className="text-sm font-semibold text-brand hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+              className="inline-flex min-h-[44px] items-center text-sm font-semibold text-brand hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
               {timelineOpen ? t('ems.hideTimeline') : t('ems.fullTimeline', { n: String(run.events.length) })}
             </button>
             {timelineOpen && <RunTimeline id={`timeline-${run.id}`} run={run} />}

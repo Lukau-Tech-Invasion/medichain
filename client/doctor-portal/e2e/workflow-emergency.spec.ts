@@ -73,7 +73,8 @@ test('a code blue is finalised with a chosen outcome, seen by a colleague, and r
   await expect(reader).toHaveURL(/\/dashboard$/, { timeout: 30000 });
   await reader.goto(`${PATIENT_APP}/records`);
   await expect(
-    reader.getByRole('heading', { name: 'Resuscitation (code blue)' }).first(),
+    // A record is a row in the list (one tap opens it), not a heading.
+    reader.getByRole('button', { name: /Resuscitation \(code blue\)/ }).first(),
     'the patient cannot see the resuscitation'
   ).toBeVisible({ timeout: 45000 });
   await context.close();

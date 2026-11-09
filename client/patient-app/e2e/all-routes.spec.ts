@@ -13,7 +13,7 @@ import { requestPacer, signIn, testFixtures } from './support';
  */
 
 const PROTECTED_ROUTES = [
-  '/dashboard', '/me', '/profile', '/records', '/privacy', '/emergency-card', '/cards', '/medications',
+  '/dashboard', '/health', '/me', '/profile', '/records', '/privacy', '/emergency-card', '/cards', '/medications',
   '/appointments', '/messages', '/symptoms', '/settings', '/survey',
   '/vitals', '/lab-results', '/medical-history',
 ] as const;

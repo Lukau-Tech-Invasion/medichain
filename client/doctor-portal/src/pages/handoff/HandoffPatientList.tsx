@@ -48,11 +48,12 @@ export function HandoffPatientList(props: {
             <li key={p.patientId}
               className={`flex items-center gap-2 rounded-lg border px-2 py-1 ${open ? 'border-brand bg-selected' : 'border-border bg-surface'}`}>
               <input type="checkbox" checked={selected.has(p.patientId)} onChange={() => props.onToggle(p.patientId)}
-                aria-label={t('docShiftHandoff.handOverPatient', { name: p.patientName })} className="h-4 w-4" />
+                aria-label={t('docShiftHandoff.handOverPatient', { name: p.patientName })} className="h-6 w-6 shrink-0" />
               <button type="button" onClick={() => props.onOpen(p.patientId)} aria-current={open || undefined}
                 className="min-h-[44px] min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-                <span className="block truncate font-semibold text-content">{p.patientName}</span>
-                <span className="block text-xs text-content-muted">
+                <span className={`block truncate font-semibold ${open ? 'text-selected-fg' : 'text-content'}`}>{p.patientName}</span>
+                {/* On the selected row's background, the muted grey measured 4.08:1 in dark mode. */}
+                <span className={`block text-xs ${open ? 'text-selected-fg' : 'text-content-muted'}`}>
                   {[p.room ? t('myWard.bed', { bed: p.room }) : null, (p.entries === 1 ? t('docShiftHandoff.entriesOne') : t('docShiftHandoff.entries', { n: p.entries }))].filter(Boolean).join(' · ')}
                 </span>
               </button>

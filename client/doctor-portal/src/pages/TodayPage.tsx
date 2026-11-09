@@ -47,8 +47,16 @@ export default function TodayPage() {
 
   useEffect(load, [load]);
 
-  if (error) return <div className="p-4 sm:p-6"><StatusBanner kind="error" message={error} onRetry={load} /></div>;
-  if (!state) return <div className="p-4 sm:p-6"><StatusBanner kind="loading" /></div>;
+  // The page is named before its data arrives: a screen reader lands on "Today"
+  // either way, and a failed load still says which page failed.
+  if (error || !state) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-4 p-4">
+        <h1 className="text-xl font-bold text-content">{t('today.title')}</h1>
+        {error ? <StatusBanner kind="error" message={error} onRetry={load} /> : <StatusBanner kind="loading" />}
+      </div>
+    );
+  }
 
   const { today, names } = state;
   const who = (id: string) => {

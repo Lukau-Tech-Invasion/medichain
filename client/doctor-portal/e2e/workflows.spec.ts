@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
 import { readFixtures } from './identity';
-import { declareAccessReason, settle, signIn, type RoleName, choose } from './support';
+import { declareAccessReason, openVitalsForm, settle, signIn, type RoleName, choose } from './support';
 
 /**
  * Cross-role workflows, each proved by the person who needs to read the result.
@@ -75,7 +75,8 @@ async function patientSees(browser: Browser, route: string, text: string | RegEx
   // silently returns to sign-in, so follow the app's own router link.
   let link = page.locator(`a[href$="/${route}"]:visible`).first();
   if (!(await link.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: 'All pages' }).click();
+    // The top bar's page finder ("Find a page"), the same on every width.
+    await page.locator('button[aria-haspopup="dialog"]:visible').first().click();
     link = page.locator(`dialog[open] a[href$="/${route}"]`).first();
   }
   await link.click();
@@ -115,13 +116,11 @@ test('a nurse records vital signs and the patient sees them', async ({ page, bro
   await quickLogin(page, 'Nurse');
   await settle(page, '/vitals');
   await pickPatient(page, '#vitals-patient-select', PATIENT_A());
-  if (!(await page.locator('#vitals-heart-rate').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: /record|new|add/i }).first().click();
-  }
-  await page.locator('#vitals-heart-rate').fill('97');
-  await page.locator('#vitals-bp-systolic').fill('131');
-  await page.locator('#vitals-bp-diastolic').fill('84');
-  await page.locator('#vitals-temperature').fill('37.4');
+  const vitals = await openVitalsForm(page);
+  await vitals.field('Heart Rate (bpm)').fill('97');
+  await vitals.field('BP Systolic (mmHg)').fill('131');
+  await vitals.field('BP Diastolic (mmHg)').fill('84');
+  await vitals.field('Temperature (°C)').fill('37.4');
   await page.getByRole('button', { name: /save|record vital|submit/i }).last().click();
   await expect(page.getByText(/recorded|saved|success/i).first()).toBeVisible({ timeout: 20000 });
 
@@ -177,6 +176,9 @@ test('a nurse triages a patient and they join the triage queue', async ({ page }
   await page.locator('#triage-heart-rate').fill('102');
   await page.getByRole('button', { name: /complete triage assessment/i }).click();
   await expect(page.getByText(/complete|saved|recorded|success/i).first()).toBeVisible({ timeout: 20000 });
+  // Picking the patient opened their chart, which has no queue (c9); the
+  // queue is on the department's own triage page.
+  await settle(page, '/triage');
   await page.getByRole('button', { name: /triage queue/i }).click();
   await expect(page.locator('main')).toContainText('Thandiwe', { timeout: 20000 });
 });
@@ -270,7 +272,9 @@ test('a lab result is entered, approved, and reaches the patient and their trend
   await doctor.close();
 
   await patientSees(browser, 'lab-results', '5.4');
-  await patientSees(browser, 'lab-trends', /\S/);
+  // Trends were merged into the results screen (patient app, 2026-11-04);
+  // /lab-trends now redirects there.
+  await patientSees(browser, 'lab-results', /trend/i);
 });
 
 test('an untyped patient registers with blood group Unknown, not a guess', async ({ page }) => {
@@ -322,7 +326,8 @@ test('an untyped patient registers with blood group Unknown, not a guess', async
   await page.getByRole('link', { name: new RegExp(name) }).click();
   await expect(page.getByTestId('access-reason-gate')).toBeVisible({ timeout: 10000 });
   await declareAccessReason(page);
-  await expect(page.locator('#main-content')).toContainText('Blood: Unknown', { timeout: 20000 });
+  // Said in the chart header, on every form -- not left out, not guessed.
+  await expect(page.locator('#main-content header').first()).toContainText('Blood group unknown', { timeout: 20000 });
 });
 
 test('glucose is entered in mmol/L: 110 is refused as mg/dL, 5.4 is recorded', async ({ page }) => {
@@ -330,16 +335,14 @@ test('glucose is entered in mmol/L: 110 is refused as mg/dL, 5.4 is recorded', a
   await quickLogin(page, 'Nurse');
   await settle(page, '/vitals');
   await pickPatient(page, '#vitals-patient-select', PATIENT_A());
-  if (!(await page.locator('#vitals-blood-glucose').isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: /record|new|add/i }).first().click();
-  }
-  await expect(page.getByText('Blood Glucose (mmol/L)')).toBeVisible();
-  await page.locator('#vitals-heart-rate').fill('88');
-  await page.locator('#vitals-blood-glucose').fill('110');
+  const vitals = await openVitalsForm(page);
+  await vitals.more();
+  await vitals.field('Heart Rate (bpm)').fill('88');
+  await vitals.field('Blood Glucose (mmol/L)').fill('110');
   await page.getByRole('button', { name: /save|record vital|submit/i }).last().click();
   await expect(page.getByText(/not mg\/dL|not plausible/i).first()).toBeVisible({ timeout: 20000 });
 
-  await page.locator('#vitals-blood-glucose').fill('5.4');
+  await vitals.field('Blood Glucose (mmol/L)').fill('5.4');
   await page.getByRole('button', { name: /save|record vital|submit/i }).last().click();
   await expect(page.getByText(/recorded|saved|success/i).first()).toBeVisible({ timeout: 20000 });
 });
