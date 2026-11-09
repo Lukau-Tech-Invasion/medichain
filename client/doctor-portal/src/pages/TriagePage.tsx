@@ -1,3 +1,4 @@
+import { MotionLink } from '@medichain/shared';
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
@@ -10,6 +11,7 @@ import {
   submitForReply,
   useScoringCatalog,
   useSubmission,
+  SubmitButton,
   vitalFlag,
 } from '@medichain/shared';
 import { Link } from 'react-router-dom';
@@ -532,7 +534,7 @@ function TriagePage() {
               <Activity size={20} />
               {t('docTriage.vitalSignsTitle')}
               {hasCriticalVitals() && (
-                <span className="ml-2 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs font-medium rounded-full animate-pulse">
+                <span className="ml-2 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs font-medium rounded-full mc-rise">
                   {t('docTriage.criticalValuesDetected')}
                 </span>
               )}
@@ -729,23 +731,8 @@ function TriagePage() {
             >
               {t('docTriage.cancel')}
             </Link>
-            <button
-              type="submit"
-              aria-disabled={submitting || undefined}
-              className="aria-disabled:cursor-wait px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors flex items-center gap-2"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="animate-spin" size={20} />
-                  {t('docTriage.creatingAssessment')}
-                </>
-              ) : (
-                <>
-                  <CheckCircle size={20} />
-                  {t('docTriage.completeTriageAssessment')}
-                </>
-              )}
-            </button>
+            {/* The shared button: its tick confirms the save (c10). */}
+            <SubmitButton status={submitting ? 'saving' : submission.status} label={t('docTriage.completeTriageAssessment')} />
           </div>
         </form>
       ) : (
@@ -787,7 +774,7 @@ function TriagePage() {
                   const patient = patients.find(p => p.patient_id === assessment.patient_id);
                   
                   return (
-                    <Link
+                    <MotionLink opensPatient
                       key={assessment.assessment_id}
                       to={`/patients/${assessment.patient_id}`}
                       className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
@@ -815,7 +802,7 @@ function TriagePage() {
                         </div>
                         <ChevronRight className="text-content-muted" size={20} />
                       </div>
-                    </Link>
+                    </MotionLink>
                   );
                 })}
             </div>

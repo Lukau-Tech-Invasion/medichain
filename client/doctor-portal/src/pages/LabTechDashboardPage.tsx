@@ -406,6 +406,7 @@ export default function LabTechDashboardPage() {
                           urgencyLabel={item.priority}
                           meta={t('labQueue.open')}
                           to={item.patient_id ? workspacePath(item.patient_id, 'lab-results') : '/lab-results'}
+                          opensPatient={Boolean(item.patient_id)}
                           state={{ from: { pathname: '/dashboard' }, fromOrder: { id: item.id, test_name: item.test_name } }}
                         />
                       </li>

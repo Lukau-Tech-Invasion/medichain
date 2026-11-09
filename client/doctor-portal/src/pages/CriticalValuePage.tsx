@@ -445,7 +445,7 @@ const CriticalValuePage: React.FC = () => {
         </p>
         {pendingNotifications.length > 0 && (
           <div className="mt-4 bg-critical text-critical-fg rounded-lg p-3 flex items-center gap-2">
-            <Bell className="w-5 h-5 animate-pulse" />
+            <Bell className="w-5 h-5" />
             <span className="font-semibold">
               {pendingNotifications.length !== 1
                 ? t('docCriticalValue.pendingBannerPlural', { count: pendingNotifications.length })

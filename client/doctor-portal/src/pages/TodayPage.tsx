@@ -91,6 +91,7 @@ export default function TodayPage() {
                     urgency={item.urgency}
                     urgencyLabel={t(`today.urgency.${item.urgency}`)}
                     to={OPENS[section](item)}
+                    opensPatient
                     state={{ from: { pathname: '/today' } }}
                   />
                 </li>
@@ -116,6 +117,7 @@ export default function TodayPage() {
                   title={p.content_available ? p.full_name : t('today.unreadablePatient')}
                   patientDetail={p.date_of_birth ? `${t('patientSelect.born')} ${formatDateOnly(p.date_of_birth)}` : undefined}
                   to={workspacePath(p.patient_id)}
+                  opensPatient
                   state={{ from: { pathname: '/today' } }}
                 />
               </li>

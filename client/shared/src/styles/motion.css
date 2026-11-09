@@ -79,9 +79,10 @@
     animation: mc-fade var(--motion-short) linear both;
   }
   .mc-press, .mc-press:active { transition: none; transform: none; }
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) { animation: none !important; }
+  /* Nothing moves: the identity does not glide, the page cross-fades. */
+  ::view-transition-group(*) { animation: none !important; }
+  ::view-transition-old(*) { animation: mc-fade var(--motion-short) linear reverse both !important; }
+  ::view-transition-new(*) { animation: mc-fade var(--motion-short) linear both !important; }
 }
 
 /* --------------------------------------------------------------------------

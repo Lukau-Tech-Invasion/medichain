@@ -305,7 +305,7 @@ export function EmergencyCardPage() {
   // empty at the moment it matters.
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 animate-pulse" role="status" aria-live="polite">
+      <div className="p-6 space-y-4" role="status" aria-live="polite">
         <span className="sr-only">{t('emergency.loadingCard')}</span>
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="aspect-square max-w-xs mx-auto bg-surface-sunken rounded-3xl" />
@@ -488,7 +488,7 @@ export function EmergencyCardPage() {
             <h3 className="font-medium text-content">{t('emergency.nfcReady')}</h3>
             <p className="text-sm text-content-muted">{t('emergency.nfcTapHint')}</p>
           </div>
-          <div className="w-3 h-3 bg-success-500 rounded-full animate-pulse" />
+          <div className="w-3 h-3 bg-success-500 rounded-full" />
         </div>
         
         <div className="mt-4 p-3 bg-surface-sunken rounded-xl text-sm text-content-muted">

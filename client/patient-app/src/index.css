@@ -201,7 +201,7 @@ body {
 
 /* Loading skeleton animation */
 .skeleton {
-  @apply bg-border animate-pulse rounded;
+  @apply bg-border rounded;
 }
 
 /* Toast slide-in animation */

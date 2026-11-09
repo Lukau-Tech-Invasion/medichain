@@ -446,7 +446,7 @@ export function MyProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 animate-pulse">
+      <div className="p-6 space-y-6">
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="h-32 bg-surface-sunken rounded-xl" />
         <div className="h-48 bg-surface-sunken rounded-xl" />

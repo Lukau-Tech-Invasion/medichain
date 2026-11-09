@@ -171,7 +171,7 @@
 
   /* Skeleton loading */
   .skeleton {
-    @apply animate-pulse bg-border rounded;
+    @apply bg-border rounded;
   }
 
   /* Toast slide-in animation */

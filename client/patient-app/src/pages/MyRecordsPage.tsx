@@ -866,7 +866,7 @@ export function MyRecordsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 animate-pulse">
+      <div className="p-6 space-y-4">
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="h-12 bg-surface-sunken rounded-xl" />
         {[1, 2, 3].map(i => (

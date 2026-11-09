@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '../store';
-import { getPatients, clickable, getApiClient, useTranslation, formatDateOnly, ModalPanel, searchOfflineRoster } from '@medichain/shared';
+import { getPatients, clickable, getApiClient, useTranslation, formatDateOnly, ModalPanel, searchOfflineRoster, withViewTransition } from '@medichain/shared';
 import type { OfflineBundle, OfflinePatient } from '@medichain/shared';
 import { useClinicianOffline } from '../offline/ClinicianOffline';
 import type { PatientDirectoryEntry } from '@medichain/shared';
@@ -317,7 +317,8 @@ export default function PatientSelect({
     const form = location ? patientFormOfPath(location.pathname) : undefined;
     if (navigator && !workspace && requireChartAccess && form && !appearedAfterInteraction.current
       && !pageHasTypedContent(wrapperRef.current)) {
-      navigator.replace(workspacePath(patient.patient_id, form), { from: location });
+      // Into the chart by a cross-fade (c10); the picker has no row left to glide.
+      withViewTransition(() => navigator.replace(workspacePath(patient.patient_id, form), { from: location }));
     }
   };
 

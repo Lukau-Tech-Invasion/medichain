@@ -7,8 +7,7 @@
  * patient in the workspace at triage, with the ambulance story beside it.
  * Design: docs/FRONTEND_WORKFLOW_AND_MOTION_PLAN.md §3.3 (mockups c8, c9).
  */
-import { Fragment, useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Truck } from 'lucide-react';
 import {
   formatDateOnly,
@@ -17,6 +16,7 @@ import {
   listIncomingEmsRuns,
   receiveEmsRun,
   useSubmission,
+  useMotionNavigate,
   useTranslation,
 } from '@medichain/shared';
 import type { EmsRunWithEvents, EmsVitalChange, EmsVitalsTrend, IncomingEmsRun } from '@medichain/shared';
@@ -44,9 +44,16 @@ export default function IncomingAmbulancesPage() {
   const [facility, setFacility] = useState<string | null>(null);
   const [error, setError] = useState('');
 
+  // The runs already on the board when it opened: only an ambulance that
+  // arrives after that enters with motion (c10, "once") -- opening the page
+  // is not news.
+  const present = useRef<Set<string> | null>(null);
   const load = useCallback(() => {
     listIncomingEmsRuns().then(
-      (r) => { setRuns(r.runs); setFacility(r.facility_id); setError(''); },
+      (r) => {
+        present.current ??= new Set(r.runs.map((x) => x.id));
+        setRuns(r.runs); setFacility(r.facility_id); setError('');
+      },
       (e) => setError(getApiErrorMessage(e, t('ems.incomingFailed'))),
     );
   }, [t]);
@@ -73,15 +80,16 @@ export default function IncomingAmbulancesPage() {
         <p className="rounded-xl border border-border bg-surface p-4 text-content-secondary">{t('ems.noneIncoming')}</p>
       )}
       <ul className="space-y-4" aria-live="polite">
-        {runs && boardOrder(runs).map((run) => <IncomingCard key={run.id} run={run} onChanged={load} />)}
+        {runs && boardOrder(runs).map((run) => <IncomingCard key={run.id} run={run} onChanged={load} isNew={!present.current?.has(run.id)} />)}
       </ul>
     </div>
   );
 }
 
-function IncomingCard({ run, onChanged }: { run: IncomingEmsRun; onChanged: () => void }) {
+function IncomingCard({ run, onChanged, isNew }: { run: IncomingEmsRun; onChanged: () => void; isNew: boolean }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const navigate = useMotionNavigate();
+  const card = useRef<HTMLLIElement>(null);
   const [person, setPerson] = useState<Patient | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const submission = useSubmission(`ems-receive-${run.id}`);
@@ -99,7 +107,9 @@ function IncomingCard({ run, onChanged }: { run: IncomingEmsRun; onChanged: () =
     if (result.kind === 'failed') return;
     // One fewer ambulance: the sidebar's count should not wait for its next poll.
     window.dispatchEvent(new Event('medichain:sidebar-refresh'));
-    if (run.patient_id) navigate(workspacePath(run.patient_id, 'triage'), { state: { fromRun: run.id } });
+    // The patient's name glides from this card into the chart's banner.
+    const shared = card.current?.querySelector<HTMLElement>('[data-patient-identity]');
+    if (run.patient_id) navigate(workspacePath(run.patient_id, 'triage'), { state: { fromRun: run.id }, shared });
     else onChanged();
   };
 
@@ -118,9 +128,9 @@ function IncomingCard({ run, onChanged }: { run: IncomingEmsRun; onChanged: () =
     ? [years !== null ? t('workspace.years', { n: String(years) }) : null, sex].filter(Boolean).join(' · ')
     : run.unidentified_description ?? '';
   return (
-    <li className={`mc-slide-in grid gap-0 overflow-hidden rounded-2xl border bg-surface md:grid-cols-[minmax(0,1fr)_300px] ${arrived ? 'border-brand' : 'border-border'}`}>
+    <li ref={card} className={`${isNew ? 'mc-slide-in ' : ''}grid gap-0 overflow-hidden rounded-2xl border bg-surface md:grid-cols-[minmax(0,1fr)_300px] ${arrived ? 'border-brand' : 'border-border'}`}>
       <div className="space-y-3 p-4">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3" data-patient-identity={run.patient_id ? '' : undefined}>
           <span aria-hidden="true"
             className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-bold ${run.patient_id ? 'bg-brand-subtle text-brand-subtle-fg' : 'border-2 border-dashed border-border-strong text-content-muted'}`}>
             {run.patient_id ? initials(name ?? '') : '?'}

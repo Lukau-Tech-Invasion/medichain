@@ -13,7 +13,7 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { AlertTriangle, ChevronDown, History, Menu, Search, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, History, Menu, Search, X } from 'lucide-react';
 import {
   formatDateOnly,
   formatTimestamp,
@@ -118,12 +118,20 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
 
   // Every save while this patient is open lands in "This visit", attributed to
   // the form that was open when the server accepted it.
+  const [savedTick, setSavedTick] = useState<{ at: number; label: string } | null>(null);
   useEffect(() => getApiClient().onMutationSucceeded(({ path, body, response }) => {
     if (NOT_CLINICAL.test(path)) return;
     recordVisitEvent(user?.userId, patientId, {
       at: Date.now(), label: formRef.current.label, kind: 'saved', detail: describeSave(path, body, response, t),
     });
+    // Every form's save gets the same confirmation (c10), whatever button it has.
+    setSavedTick({ at: Date.now(), label: formRef.current.label });
   }), [patientId, user?.userId, t]);
+  useEffect(() => {
+    if (!savedTick) return undefined;
+    const id = window.setTimeout(() => setSavedTick(null), 2500);
+    return () => window.clearTimeout(id);
+  }, [savedTick]);
 
   // The rail's "Recent" group: the forms this clinician opened last.
   useEffect(() => { if (form) rememberForm(user?.userId, form); }, [form, user?.userId]);
@@ -187,7 +195,8 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
             <Menu className="h-4 w-4" aria-hidden="true" />
             {t('workspace.forms')}
           </button>
-          <span className="mc-patient-identity flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-base font-bold text-brand-subtle-fg" aria-hidden="true">
+          <div className="mc-patient-identity flex min-w-0 items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-base font-bold text-brand-subtle-fg" aria-hidden="true">
             {initials(name)}
           </span>
           <div className="min-w-0" aria-live="polite">
@@ -199,6 +208,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
             </p>
             {received && <p className="text-xs text-content-muted">{received}</p>}
             {opened && <p className="text-xs text-content-muted">{opened}</p>}
+          </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {allergies.length > 0 ? (
@@ -242,6 +252,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
               otherwise positioned against the page, escapes this scroll area and
               makes the whole window scroll again. */}
           <section ref={formArea} className="relative min-h-0 min-w-0 overflow-y-auto" aria-label={currentForm?.label ?? t('workspace.chartHome')}>
+            <SavedTick tick={savedTick} />
             {!form && !online && roster && kept && <OfflineChartSummary bundle={roster} patient={kept} />}
             {restricted || !known ? (
               <div role="alert" className="m-6 rounded-xl border border-border bg-surface p-6 text-content">
@@ -290,6 +301,26 @@ function useOpenedLine(patientId: string, events: VisitEvent[]): string | null {
   const opens = events.filter((e) => e.kind === 'opened');
   const first = opens[opens.length - 1];
   return first ? t('workspace.openedReasonAt', { reason: label, time: formatTimestamp(first.at, { timeStyle: 'short' }) }) : label;
+}
+
+/**
+ * "Saved" with a tick, for a moment, where the form is: it appears once and
+ * does not move (c10: 150 ms tick); "This visit" takes the entry after it.
+ */
+function SavedTick({ tick }: { tick: { at: number; label: string } | null }) {
+  const { t } = useTranslation();
+  return (
+    <div className="pointer-events-none sticky top-0 z-10 h-0">
+      <p role="status" className="flex justify-end px-4 pt-2 lg:px-6">
+        {tick && (
+          <span key={tick.at} className="inline-flex items-center gap-1 rounded-full border border-ok bg-ok-subtle px-3 py-1 text-sm font-semibold text-ok-subtle-fg shadow-sm">
+            <Check className="mc-pop h-4 w-4" aria-hidden="true" />
+            {t('workspace.savedTick', { form: tick.label })}
+          </span>
+        )}
+      </p>
+    </div>
+  );
 }
 
 /** "Received from Unit 14 (P. Mokoena) · 14:32", once the ED has received the run. */

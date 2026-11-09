@@ -222,7 +222,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           }`}
         >
           {tapState === 'idle' && <Smartphone className="text-brand" size={40} />}
-          {tapState === 'waiting' && <Wifi className="text-caution-subtle-fg animate-pulse" size={40} />}
+          {tapState === 'waiting' && <Wifi className="text-caution-subtle-fg" size={40} />}
           {tapState === 'success' && <CheckCircle className="text-ok-subtle-fg" size={40} />}
           {tapState === 'error' && <AlertCircle className="text-critical-subtle-fg" size={40} />}
         </div>

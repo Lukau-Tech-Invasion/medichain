@@ -1,5 +1,6 @@
+import { MotionLink } from '@medichain/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Loader2, Search, Users } from 'lucide-react';
 import { getApiClient, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store';
@@ -122,7 +123,7 @@ function PatientSearchPage() {
 function DirectoryRow({ patient }: { patient: DirectoryPatient }) {
   const { t } = useTranslation();
   const contents = <>
-    <strong className="text-content">{patient.full_name || t('docPatientSearch.recordUnreadable')}</strong>
+    <strong data-patient-identity className="text-content">{patient.full_name || t('docPatientSearch.recordUnreadable')}</strong>
     {/* ux-allow(raw-patient-id): second line under name and date of birth; the directory is searched by it. */}
     <span className="block text-sm text-content-muted">{patient.patient_id}</span>
     {patient.date_of_birth && <span className="block text-sm text-content-muted">
@@ -134,7 +135,7 @@ function DirectoryRow({ patient }: { patient: DirectoryPatient }) {
     </span>}
   </>;
   return patient.content_available
-    ? <Link to={`/patients/${encodeURIComponent(patient.patient_id)}`} className="block border-b border-border p-4 hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-primary-500">{contents}</Link>
+    ? <MotionLink opensPatient to={`/patients/${encodeURIComponent(patient.patient_id)}`} className="block border-b border-border p-4 hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-primary-500">{contents}</MotionLink>
     : <div className="border-b border-border p-4">{contents}</div>;
 }
 

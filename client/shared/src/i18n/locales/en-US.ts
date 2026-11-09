@@ -8970,6 +8970,7 @@ const en_US: TranslationRecord = {
   },
 
   workspace: {
+    savedTick: 'Saved · {{form}}',
     receivedFrom: 'Received from {{crew}} · {{time}}',
     receivedFromAmbulance: 'Received from the ambulance · {{time}}',
     receivedFromShort: 'Received from {{crew}}',

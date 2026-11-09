@@ -252,7 +252,7 @@ export function JitsiMeetComponent({
           )}
           {remoteActivity && (
             <span className="flex items-center gap-1 text-sky-300" title="Live session activity">
-              <Radio size={14} className="animate-pulse" /> {remoteActivity}
+              <Radio size={14} /> {remoteActivity}
             </span>
           )}
           <button

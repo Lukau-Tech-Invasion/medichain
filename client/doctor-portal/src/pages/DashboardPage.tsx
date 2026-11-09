@@ -1,3 +1,4 @@
+import { MotionLink } from '@medichain/shared';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
@@ -317,7 +318,7 @@ function DashboardPage() {
       {dashboard?.alerts && (dashboard.alerts.critical_values_count > 0 || dashboard.alerts.code_blues_count > 0) && (
         <div className="mb-6 bg-critical text-critical-fg rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Siren className="animate-pulse" size={24} />
+            <Siren size={24} />
             <div>
               <p className="font-bold">{t('docDashboard.criticalAlertsTitle')}</p>
               <p className="text-critical-fg text-sm">
@@ -427,7 +428,7 @@ function DashboardPage() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
               <h2 className="font-semibold text-critical-subtle-fg">{t('docDashboard.criticalLabValuesTitle')}</h2>
-              <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full animate-pulse">
+              <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full">
                 {t('docDashboard.urgentBadge', { count: dashboard.critical_values.length })}
               </span>
             </div>
@@ -632,7 +633,7 @@ function DashboardPage() {
         ) : dashboard?.patients?.list && dashboard.patients.list.length > 0 ? (
           <div className="divide-y divide-border">
             {dashboard.patients.list.slice(0, 8).map((patient) => (
-              <Link
+              <MotionLink opensPatient
                 key={patient.patient_id}
                 to={`/patients/${patient.patient_id}`}
                 className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
@@ -642,7 +643,7 @@ function DashboardPage() {
                     <Users className="text-brand" size={20} />
                   </div>
                   <div>
-                    <p className="font-medium text-content">{patient.full_name}</p>
+                    <p data-patient-identity className="font-medium text-content">{patient.full_name}</p>
                     <p className="text-sm text-content-muted">{patient.health_id}</p>
                   </div>
                 </div>
@@ -659,13 +660,13 @@ function DashboardPage() {
                   )}
                   <ArrowRight size={16} className="text-content-muted" />
                 </div>
-              </Link>
+              </MotionLink>
             ))}
           </div>
         ) : recentPatients.length > 0 ? (
           <div className="divide-y divide-border">
             {recentPatients.slice(0, 5).map((patient) => (
-              <Link
+              <MotionLink opensPatient
                 key={patient.patientId}
                 to={`/patients/${patient.patientId}`}
                 className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
@@ -675,7 +676,7 @@ function DashboardPage() {
                     <Users className="text-brand" size={20} />
                   </div>
                   <div>
-                    <p className="font-medium text-content">{patient.fullName}</p>
+                    <p data-patient-identity className="font-medium text-content">{patient.fullName}</p>
                     <p className="text-sm"><PatientName id={patient.patientId} dobOnly /></p>
                   </div>
                 </div>
@@ -683,7 +684,7 @@ function DashboardPage() {
                   <Clock size={14} />
                   <span>{patient.lastAccessed ? formatDateOnly(patient.lastAccessed) : t('docDashboard.naLabel')}</span>
                 </div>
-              </Link>
+              </MotionLink>
             ))}
           </div>
         ) : (

@@ -281,7 +281,7 @@ export function MedicalIdPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 animate-pulse">
+      <div className="p-6 space-y-4">
         <div className="h-10 bg-surface-sunken rounded w-48 mx-auto" />
         <div className="h-64 bg-surface-sunken rounded-3xl" />
         <div className="h-32 bg-surface-sunken rounded-xl" />

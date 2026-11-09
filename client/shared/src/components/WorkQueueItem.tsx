@@ -10,6 +10,7 @@
  */
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { MotionLink } from '../motion/MotionLink';
 import { ChevronRight } from 'lucide-react';
 
 export type QueueUrgency = 'critical' | 'urgent' | 'routine';
@@ -34,9 +35,11 @@ export interface WorkQueueItemProps {
   to?: string;
   state?: unknown;
   onOpen?: () => void;
+  /** The row opens this patient's chart: their name glides into its banner. */
+  opensPatient?: boolean;
 }
 
-export function WorkQueueItem({ title, patientName, patientDetail, when, urgency = 'routine', urgencyLabel, meta, to, state, onOpen }: WorkQueueItemProps) {
+export function WorkQueueItem({ title, patientName, patientDetail, when, urgency = 'routine', urgencyLabel, meta, to, state, onOpen, opensPatient }: WorkQueueItemProps) {
   const body = (
     <>
       <span className="min-w-0 flex-1">
@@ -46,13 +49,13 @@ export function WorkQueueItem({ title, patientName, patientDetail, when, urgency
               {urgencyLabel}
             </span>
           )}
-          <span className="font-semibold text-content">{title}</span>
+          <span className="font-semibold text-content" data-patient-identity={opensPatient && !patientName ? '' : undefined}>{title}</span>
         </span>
         {/* Who, then what was found, on one line: two lines a row, so a queue
             fits a screen instead of scrolling past three. */}
         {(patientName || patientDetail || meta) && (
           <span className="block truncate text-sm text-content-secondary">
-            {patientName}{patientName && patientDetail ? ' · ' : ''}{patientDetail}
+            {patientName && <span data-patient-identity={opensPatient ? '' : undefined}>{patientName}</span>}{patientName && patientDetail ? ' · ' : ''}{patientDetail}
             {meta && <span className="text-content-muted">{patientName || patientDetail ? ' · ' : ''}{meta}</span>}
           </span>
         )}
@@ -62,6 +65,7 @@ export function WorkQueueItem({ title, patientName, patientDetail, when, urgency
     </>
   );
   const className = `mc-press flex min-h-[48px] w-full items-center gap-3 rounded-lg border border-border border-l-4 ${URGENCY[urgency]} bg-surface px-3 py-2 text-left hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus`;
+  if (to && opensPatient) return <MotionLink opensPatient to={to} state={state} onClick={onOpen} className={className}>{body}</MotionLink>;
   if (to) return <Link to={to} state={state} onClick={onOpen} className={className}>{body}</Link>;
   return <button type="button" onClick={onOpen} className={className}>{body}</button>;
 }

@@ -1,3 +1,4 @@
+import { MotionLink } from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import { 
   Users, 
@@ -107,7 +108,7 @@ export default function PatientListPanel({
       ) : displayedPatients.length > 0 ? (
         <div className="divide-y divide-border">
           {displayedPatients.map((patient) => (
-            <Link
+            <MotionLink opensPatient
               key={patient.patient_id}
               to={`/patients/${patient.patient_id}`}
               className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
@@ -118,7 +119,7 @@ export default function PatientListPanel({
                 </div>
                 <div className="min-w-0 break-words">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-content">{patient.full_name}</p>
+                    <p data-patient-identity className="font-medium text-content">{patient.full_name}</p>
                     {showFlags && patient.flags?.fall_risk && (
                       <span title={`Fall risk: ${patient.flags.fall_risk}`}>
                         <Footprints
@@ -167,11 +168,11 @@ export default function PatientListPanel({
                   </span>
                 )}
                 {patient.last_vitals?.abnormal && (
-                  <Activity size={16} className="text-critical animate-pulse" />
+                  <Activity size={16} className="text-critical" />
                 )}
                 <ArrowRight size={16} className="text-content-muted" />
               </div>
-            </Link>
+            </MotionLink>
           ))}
         </div>
       ) : (

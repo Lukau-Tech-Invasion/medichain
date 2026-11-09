@@ -64,6 +64,7 @@ export default function MyWardPanel() {
                 patientDetail={p.date_of_birth ? `${t('patientSelect.born')} ${formatDateOnly(p.date_of_birth)}` : undefined}
                 meta={p.admission.bed_label ? t('myWard.bed', { bed: p.admission.bed_label }) : undefined}
                 to={workspacePath(p.admission.patient_id)}
+                opensPatient
                 state={{ from: { pathname: '/dashboard' } }}
               />
             </li>

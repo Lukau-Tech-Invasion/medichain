@@ -474,7 +474,7 @@ const BarcodePage: React.FC = () => {
                     
                     {/* Scan Line Animation */}
                     {isScanning && (
-                      <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-400 animate-pulse" 
+                      <div className="absolute inset-x-0 top-0 h-0.5 bg-blue-400" 
                            style={{ animation: 'scanLine 1.5s ease-in-out infinite' }} />
                     )}
                   </div>

@@ -135,4 +135,19 @@ describe('incoming board', () => {
     // No entries: no timeline link promising some.
     expect(within(card).queryByRole('button', { name: /Full timeline/ })).not.toBeInTheDocument();
   });
+
+  it('moves only an ambulance that arrives after the board opened (c10, once)', async () => {
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({ facility_id: 'F1', runs: [run('first', 'arrived')] });
+    render(<I18nProvider><MemoryRouter><IncomingAmbulancesPage /></MemoryRouter></I18nProvider>);
+    const [opened] = await screen.findAllByRole('listitem');
+    expect(opened.className).not.toContain('mc-slide-in');
+
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({
+      facility_id: 'F1', runs: [run('first', 'arrived'), run('next', 'en_route', { eta: '2026-11-08T15:00:00Z' })],
+    });
+    window.dispatchEvent(new Event('focus'));
+    const next = (await screen.findByRole('heading', { name: 'Patient next' })).closest('li')!;
+    expect(next.className).toContain('mc-slide-in');
+    expect(screen.getByRole('heading', { name: 'Patient first' }).closest('li')!.className).not.toContain('mc-slide-in');
+  });
 });

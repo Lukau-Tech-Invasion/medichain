@@ -556,7 +556,7 @@ const MedicationAdminPage: React.FC = () => {
                                   status === 'given' ? 'bg-ok-subtle text-ok-subtle-fg' :
                                   status === 'held' ? 'bg-caution-subtle text-caution-subtle-fg' :
                                   status === 'refused' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                  status === 'overdue' ? 'bg-critical-subtle text-critical-subtle-fg animate-pulse' :
+                                  status === 'overdue' ? 'bg-critical-subtle text-critical-subtle-fg' :
                                   'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                                 }`}
                               >

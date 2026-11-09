@@ -140,6 +140,11 @@ jobs:
             - name: No client calls a native browser dialog
               run: python scripts/check-native-dialogs.py
 
+            # Nothing pulses, bounces or pings: a critical alert rises once and
+            # stays still (c10). Spinners are kept, and reduced motion stops them.
+            - name: No looping animation in the clients
+              run: python scripts/check-looping-motion.py
+
             # A patient session is refused on any route the patient surface
             # does not list; a route the patient app newly calls must be added.
             - name: Every patient-app call is on the patient surface

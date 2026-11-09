@@ -268,7 +268,7 @@ export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
       </a>
       {/* Offline Banner */}
       {!isOnline && (
-        <div className="bg-caution text-caution-fg px-4 py-2 text-center text-sm font-medium animate-pulse flex items-center justify-center gap-2 sticky top-0 z-50">
+        <div className="bg-caution text-caution-fg px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2 sticky top-0 z-50">
           <WifiOff className="w-4 h-4" />
           <span>You are currently offline. Changes will be synced when connection is restored.</span>
           {queueSize > 0 && (

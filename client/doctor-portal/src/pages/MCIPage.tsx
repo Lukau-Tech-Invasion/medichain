@@ -403,7 +403,7 @@ export default function MCIPage() {
         <div className="bg-gradient-to-r from-red-700 to-orange-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-surface/20 rounded-full animate-pulse">
+              <div className="p-3 bg-surface/20 rounded-full">
                 <AlertTriangle className="h-10 w-10 text-white" />
               </div>
               <div>

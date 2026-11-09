@@ -1,3 +1,4 @@
+import { MotionLink } from '@medichain/shared';
 import { getEmergencyNumber, ModalPanel } from '@medichain/shared';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -39,7 +40,7 @@ import {
   draftFieldsOf,
 } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 interface DischargeInstruction {
   category: string;
@@ -737,9 +738,9 @@ function DischargePage() {
                       <Download size={16} />
                       {exportingId === discharge.id ? t('docDischarge.exportingPdf') : t('docDischarge.exportPdf')}
                     </button>
-                    <Link to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1 min-h-[24px] py-1">
+                    <MotionLink opensPatient to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1 min-h-[24px] py-1">
                       {t('docDischarge.viewPatientLink')} <ChevronRight size={16} />
-                    </Link>
+                    </MotionLink>
                   </div>
                 </div>
               </div>

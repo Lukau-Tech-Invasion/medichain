@@ -114,7 +114,7 @@ export function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="p-4 space-y-4 animate-pulse">
+      <div className="p-4 space-y-4">
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="h-36 bg-surface-sunken rounded-2xl" />
         <div className="h-40 bg-surface-sunken rounded-2xl" />

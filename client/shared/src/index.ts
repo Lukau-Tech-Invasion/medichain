@@ -117,3 +117,4 @@ export * from './components/ClinicalFields';
 export * from './components/StatusBanner';
 export * from './components/WorkQueueItem';
 export * from './motion/useMotionNavigate';
+export * from './motion/MotionLink';

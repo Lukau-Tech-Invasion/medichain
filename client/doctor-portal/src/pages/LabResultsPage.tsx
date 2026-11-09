@@ -1,3 +1,4 @@
+import { MotionLink } from '@medichain/shared';
 import { useState, useEffect, useCallback } from 'react';
 import {
   exportDocumentToPdf,
@@ -27,7 +28,6 @@ import {
   Download,
   Plus,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import PatientSelect from '../components/PatientSelect';
 import { workspacePath } from '../workspace/forms';
 import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
@@ -730,13 +730,13 @@ function LabResultsPage() {
                                     </span>
                                   )}
                                   {result.flag?.toLowerCase().startsWith('critical') && (
-                                    <Link
+                                    <MotionLink opensPatient
                                       to={workspacePath(submission.patient_id, 'critical-value')}
                                       state={{ criticalPrefill: { analyte: result.parameter, value: String(result.value), unit: result.unit } }}
                                       className="ml-2 inline-flex min-h-[32px] items-center rounded px-2 text-xs font-semibold text-critical-subtle-fg underline"
                                     >
                                       {t('labQueue.reportCritical')}
-                                    </Link>
+                                    </MotionLink>
                                   )}
                                 </td>
                               </tr>
