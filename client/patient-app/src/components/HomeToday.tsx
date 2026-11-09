@@ -23,12 +23,12 @@ export interface DueDose { reminderId: string; name: string; dosage: string; tim
 const CLOSED = new Set(['cancelled', 'canceled', 'completed', 'no_show', 'noshow', 'declined']);
 const RECENT_RESULT_DAYS = 14;
 
-/** Today's first dose of a reminder nobody has marked taken today. */
-export function nextDueDose(
+/** Today's doses of reminders nobody has marked taken today, earliest first. */
+export function remainingDoses(
   reminders: Awaited<ReturnType<typeof getPatientReminders>>,
   adherence: Awaited<ReturnType<typeof getPatientAdherence>>,
   today: string,
-): DueDose | null {
+): DueDose[] {
   const taken = new Set((adherence.logs ?? [])
     .filter((log) => (log.action_taken === 'taken' || log.action_taken === 'taken_late') && log.actual_time?.slice(0, 10) === today)
     .map((log) => log.reminder_id));
@@ -36,7 +36,16 @@ export function nextDueDose(
     .filter((r) => !taken.has(r.reminder_id))
     .flatMap((r) => r.reminder_times.map((time) => ({ reminderId: r.reminder_id, name: r.medication_name, dosage: r.dosage, time })));
   doses.sort((a, b) => a.time.localeCompare(b.time));
-  return doses[0] ?? null;
+  return doses;
+}
+
+/** Today's first dose of a reminder nobody has marked taken today. */
+export function nextDueDose(
+  reminders: Awaited<ReturnType<typeof getPatientReminders>>,
+  adherence: Awaited<ReturnType<typeof getPatientAdherence>>,
+  today: string,
+): DueDose | null {
+  return remainingDoses(reminders, adherence, today)[0] ?? null;
 }
 
 /** The earliest appointment from today on that is still going ahead. */
@@ -46,11 +55,16 @@ export function nextAppointment(items: PatientAppointmentListItem[], today: stri
   return open[0] ?? null;
 }
 
-/** The newest result the patient can see, if it is recent enough to be news. */
-export function latestResult(items: LabResultSubmission[], now: number): LabResultSubmission | null {
+/** The newest result the patient can see, however old. */
+export function newestResult(items: LabResultSubmission[]): LabResultSubmission | null {
   const dated = items.filter((s) => Number.isFinite(Date.parse(s.reviewed_at ?? s.submitted_at)));
   dated.sort((a, b) => Date.parse(b.reviewed_at ?? b.submitted_at) - Date.parse(a.reviewed_at ?? a.submitted_at));
-  const newest = dated[0];
+  return dated[0] ?? null;
+}
+
+/** The newest result the patient can see, if it is recent enough to be news. */
+export function latestResult(items: LabResultSubmission[], now: number): LabResultSubmission | null {
+  const newest = newestResult(items);
   if (!newest) return null;
   const ageDays = (now - Date.parse(newest.reviewed_at ?? newest.submitted_at)) / 86_400_000;
   return ageDays <= RECENT_RESULT_DAYS ? newest : null;

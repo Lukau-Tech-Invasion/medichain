@@ -790,6 +790,7 @@ const en_US: TranslationRecord = {
 
   // Break-glass chart access (WP9)
   breakGlass: {
+    unidentified: 'Patient ID {{id}}. Their name is shown once their card is read or they are chosen from the patient directory.',
     title: 'You have no care relationship with this patient',
     explainer: 'Only clinicians caring for this patient can open the chart. In an emergency you can break the glass: give a reason, and you will have access for one hour. The patient is told immediately, and everything you open is marked as emergency access in their history.',
     reasonLabel: 'Why do you need this chart now?',
@@ -8674,6 +8675,15 @@ const en_US: TranslationRecord = {
   },
 
   docVitalSigns: {
+    timeTaken: 'Time taken',
+    timeTakenNow: 'Now',
+    timeTakenEmpty: 'Not set: saved as the time you press Save',
+    lastRecorded: 'Last recorded {{when}} · {{values}}',
+    lastBp: 'BP {{bp}}',
+    lastPulse: 'Pulse {{n}}',
+    lastTemp: 'Temp {{n}} °C',
+    lastSpo2: 'SpO₂ {{n}}%',
+    lastNothing: 'no values',
     formLabel: 'Vital signs',
     draftKept: 'Draft kept on this tab',
     moreDetails: 'More details — pain, blood glucose, weight, GCS, note',
@@ -8863,6 +8873,9 @@ const en_US: TranslationRecord = {
     startUnidentified: 'Start without identifying the patient',
     unidentified: 'Patient not yet identified',
     identifiedPatient: 'Patient identified by card',
+    rescanCard: 'Scan card again to show details',
+    notKeptOnDevice: 'Name, allergies and blood group are not kept on this device.',
+    backToRun: 'Back to the ambulance run',
     eta: 'Arriving about {{time}}',
     preAlertSent: 'Pre-alert sent',
     arrivedOnScene: 'Arrived on scene',
@@ -9308,6 +9321,8 @@ const en_US: TranslationRecord = {
   },
 
   home: {
+    viewedAndChanged: 'Viewed and changed',
+    accessWhat: '{{verb}} your {{what}}',
     showParamedic: 'Show to a paramedic — QR or tap card',
     today: 'Today',
     due: 'Due {{time}}',
@@ -9325,6 +9340,9 @@ const en_US: TranslationRecord = {
     recordsDetail: 'Documents from your care',
     labResults: 'Lab results',
     labResultsDetail: 'Results and trends',
+    labResultsNone: 'No results yet',
+    dosesLeft: '{{n}} still to take today',
+    noDosesLeft: 'Nothing left to take today',
     medications: 'Medications',
     medicationsDetail: 'Medicines and reminders',
     vitals: 'Vital signs',

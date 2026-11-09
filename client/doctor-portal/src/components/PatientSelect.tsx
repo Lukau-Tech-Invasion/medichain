@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '../store';
 import { getPatients, clickable, getApiClient, useTranslation, formatDateOnly, ModalPanel, searchOfflineRoster, withViewTransition } from '@medichain/shared';
+import { rememberIdentified } from '../workspace/identifiedPatients';
 import type { OfflineBundle, OfflinePatient } from '@medichain/shared';
 import { useClinicianOffline } from '../offline/ClinicianOffline';
 import type { PatientDirectoryEntry } from '@medichain/shared';
@@ -309,6 +310,11 @@ export default function PatientSelect({
 
   const choose = (patient: Patient) => {
     setSelectedDirectoryPatient(patient);
+    // Chosen by name from the directory: the break-glass screen may say who
+    // this is without asking the server (identifiedPatients.ts).
+    if (patient.content_available !== false) {
+      rememberIdentified({ patientId: patient.patient_id, name: patient.full_name, dateOfBirth: patient.date_of_birth, gender: patient.gender });
+    }
     onChange(patient.patient_id, patient);
     setSearchTerm('');
     setIsOpen(false);
@@ -362,21 +368,10 @@ export default function PatientSelect({
   };
 
   if (workspace) {
-    // The banner above already names the patient; this line says the form is
-    // for them, without a control that could switch to somebody else.
-    return (
-      <div className={className}>
-        {label && <p className="block text-sm font-medium text-content-secondary mb-2">{label}</p>}
-        <div
-          id={id ? `${id}-selected` : undefined}
-          className="flex items-center gap-3 rounded-lg border border-border bg-surface-sunken px-4 py-2.5"
-        >
-          <User size={16} className="text-content-muted" aria-hidden="true" />
-          <span className="font-medium text-content">{workspace.patient?.full_name ?? ''}</span>
-          <span className="text-xs text-content-muted">{t('workspace.patientFromWorkspace')}</span>
-        </div>
-      </div>
-    );
+    // Inside a chart the patient is already chosen -- the banner names them and
+    // the access-reason gate has been passed for them. No control that could
+    // switch to somebody else, and no second copy of the name (c3).
+    return null;
   }
 
   return (

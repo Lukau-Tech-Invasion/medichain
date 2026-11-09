@@ -4,6 +4,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PatientSelect from './PatientSelect';
 import { resetDeclaredAccessForTests } from './ChartAccess';
 import { useAuthStore } from '../store/authStore';
+import { PatientWorkspaceContext } from '../workspace/PatientWorkspaceContext';
 
 vi.mock('../store/authStore', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -152,5 +153,21 @@ describe('PatientSelect access reason (WP10)', () => {
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('inside a patient chart (c3)', () => {
+  it('renders no picker and no second copy of the name, and still adopts the chart patient', async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <I18nProvider>
+        <PatientWorkspaceContext.Provider value={{ patientId: 'PAT-7', patient: { patient_id: 'PAT-7', full_name: 'Ayesha Patel' } as never }}>
+          <PatientSelect id="p" label="Patient" value="" onChange={onChange} />
+        </PatientWorkspaceContext.Provider>
+      </I18nProvider>,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByText('Ayesha Patel')).not.toBeInTheDocument();
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('PAT-7', expect.anything()));
   });
 });

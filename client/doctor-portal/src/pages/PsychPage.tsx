@@ -629,7 +629,7 @@ const PsychPage: React.FC = () => {
           <fieldset disabled={saving || saved} className="space-y-6" aria-busy={saving}>
             {saveError && <p role="alert" className="bg-critical-subtle text-critical-subtle-fg border border-critical rounded p-3">{saveError}</p>}
             {/* Patient Selection */}
-            <div className="bg-surface rounded-lg shadow p-4">
+            <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docPsych.patient')}
               </label>

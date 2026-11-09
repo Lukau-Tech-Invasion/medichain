@@ -9,7 +9,10 @@ import {
   Activity, BookOpen, Bell, ChevronRight, ClipboardCheck, FileText, FlaskConical,
   Pill, Thermometer, TrendingUp, Watch,
 } from 'lucide-react';
-import { formatTimestamp, getPatientVitals, useTranslation } from '@medichain/shared';
+import {
+  formatTimestamp, getPatientAdherence, getPatientLabSubmissions, getPatientReminders, getPatientVitals, useTranslation,
+} from '@medichain/shared';
+import { newestResult, remainingDoses } from '../components/HomeToday';
 import type { PatientVitalReading } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -44,6 +47,29 @@ export function MyHealthPage() {
   const patientId = usePatientAuthStore((s) => s.patient?.healthId);
   // undefined while loading; null when there is no reading to describe.
   const [latest, setLatest] = useState<string | null | undefined>(undefined);
+  // The patient's own figures (p2). Undefined until read, and left undefined
+  // when a read fails: the tile then just names the place, never a zero.
+  const [dosesLeft, setDosesLeft] = useState<number | undefined>(undefined);
+  const [newestLab, setNewestLab] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!patientId) return;
+    let cancelled = false;
+    const today = new Date().toISOString().slice(0, 10);
+    Promise.all([getPatientReminders(patientId), getPatientAdherence(patientId)])
+      .then(([reminders, adherence]) => { if (!cancelled) setDosesLeft(remainingDoses(reminders, adherence, today).length); })
+      .catch(() => undefined);
+    getPatientLabSubmissions(patientId)
+      .then((items) => {
+        if (cancelled) return;
+        const newest = newestResult(items);
+        setNewestLab(newest
+          ? [newest.test_name, formatTimestamp(newest.reviewed_at ?? newest.submitted_at, { day: 'numeric', month: 'short' })].join(' · ')
+          : null);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [patientId]);
 
   useEffect(() => {
     if (!patientId) return;
@@ -77,8 +103,11 @@ export function MyHealthPage() {
 
       <div className="grid grid-cols-2 gap-3">
         <Tile to="/records" label={t('myHealth.records')} detail={t('myHealth.recordsDetail')} icon={FileText} />
-        <Tile to="/lab-results" label={t('myHealth.labResults')} detail={t('myHealth.labResultsDetail')} icon={FlaskConical} />
-        <Tile to="/medications" label={t('myHealth.medications')} detail={t('myHealth.medicationsDetail')} icon={Pill} />
+        <Tile to="/lab-results" label={t('myHealth.labResults')}
+          detail={newestLab === undefined ? t('myHealth.labResultsDetail') : newestLab ?? t('myHealth.labResultsNone')} icon={FlaskConical} />
+        <Tile to="/medications" label={t('myHealth.medications')}
+          detail={dosesLeft === undefined ? t('myHealth.medicationsDetail')
+            : dosesLeft === 0 ? t('myHealth.noDosesLeft') : t('myHealth.dosesLeft', { n: String(dosesLeft) })} icon={Pill} />
         <Tile to="/vitals" label={t('myHealth.vitals')}
           detail={latest === undefined ? '' : latest ?? t('myHealth.vitalsNone')} icon={Activity} />
       </div>

@@ -57,6 +57,35 @@ pub fn clinical_time(req: &HttpRequest) -> chrono::DateTime<Utc> {
     }
 }
 
+/// When a clinician says a measurement was taken, if they said.
+///
+/// The same window as an offline replay ([`clinical_time`]): no later than now
+/// plus clock skew, no earlier than 72 hours ago. Unlike the header, a time the
+/// person typed that falls outside it is refused rather than replaced -- they
+/// would otherwise believe the record carries the time they entered. The audit
+/// trail keeps the server's own time either way, so a backdated entry is
+/// visible as one.
+pub fn stated_clinical_time(
+    req: &HttpRequest,
+    stated: Option<chrono::DateTime<Utc>>,
+) -> Result<chrono::DateTime<Utc>, HttpResponse> {
+    let Some(time) = stated else {
+        return Ok(clinical_time(req));
+    };
+    let now = Utc::now();
+    let too_late = time > now + chrono::Duration::minutes(OFFLINE_RECORDED_AT_SKEW_MINUTES);
+    let too_early = time < now - chrono::Duration::hours(OFFLINE_RECORDED_AT_MAX_HOURS);
+    if too_late || too_early {
+        return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
+            error: format!(
+                "The time taken must be within the last {OFFLINE_RECORDED_AT_MAX_HOURS} hours and not in the future"
+            ),
+            code: "TAKEN_AT_OUT_OF_RANGE".to_string(),
+        }));
+    }
+    Ok(time.min(now))
+}
+
 /// Persist an audit record required before a handler may report success or
 /// release protected health information.
 ///
@@ -1001,6 +1030,28 @@ mod attributed_provider_tests {
             r.actor_id(),
             "admin",
             "audit still names who actually filed it"
+        );
+    }
+
+    #[test]
+    fn a_stated_time_inside_the_window_is_kept_and_outside_it_is_refused() {
+        let req = actix_web::test::TestRequest::default().to_http_request();
+        let hour_ago = Utc::now() - chrono::Duration::hours(1);
+        assert_eq!(
+            stated_clinical_time(&req, Some(hour_ago)).unwrap(),
+            hour_ago
+        );
+        for out in [
+            Utc::now() + chrono::Duration::hours(1),
+            Utc::now() - chrono::Duration::hours(OFFLINE_RECORDED_AT_MAX_HOURS + 1),
+        ] {
+            let err = stated_clinical_time(&req, Some(out)).unwrap_err();
+            assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        }
+        let none = stated_clinical_time(&req, None).unwrap();
+        assert!(
+            (Utc::now() - none).num_seconds().abs() < 5,
+            "no stated time means now"
         );
     }
 

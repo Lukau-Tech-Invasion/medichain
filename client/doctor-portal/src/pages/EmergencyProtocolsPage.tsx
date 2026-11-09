@@ -343,7 +343,7 @@ function EmergencyProtocolsPage() {
       </div>
 
       {!routePatientId && (
-        <div className="bg-surface rounded-xl shadow p-4 mb-6 max-w-md">
+        <div data-patient-picker-card className="bg-surface rounded-xl shadow p-4 mb-6 max-w-md">
           <PatientSelect
             id="emergency-protocols-patient"
             label={t('docEmergProto.patientSelectLabel')}

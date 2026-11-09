@@ -12,12 +12,14 @@ interface PatientData {
   allergies: string[];
 }
 
-/** Repeated visits by the same person to the same records, as one line. */
+/** Everything one person did in the record lately, as one line. */
 export interface AccessGroup {
   key: string;
   who: string;
+  /** The parts of the record, in plain words, most recent first. */
   what: string;
-  kind: AccessKind;
+  kinds: AccessKind[];
+  /** Separate visits (access-history sessions), not rows. */
   count: number;
   first: string;
   last: string;
@@ -34,37 +36,66 @@ export function formatBloodType(bt: string | undefined | null): string | null {
   return BLOOD_TYPES[bt] ?? bt;
 }
 
-/** A stored category in words: `medical_document` reads "Medical document". */
-function readable(resource: string): string {
-  if (!resource.includes('_')) return resource;
-  const words = resource.replace(/_/g, ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
+/**
+ * The server's internal names for parts of a record, as a patient would say
+ * them. Anything not listed is still shown -- in words, never dropped: every
+ * access stays visible to the person it is about (Security Engineering 3e,
+ * ch. 10, p. 15, "Consent and notification", "Attribution").
+ */
+const PLAIN_RESOURCE: Record<string, string> = {
+  ems_run: 'ambulance record',
+  offline_summary: 'summary, saved for use without signal',
+  emergency_info: 'emergency information',
+  emergency_record: 'emergency record',
+  patient_record: 'record',
+  patient_chart: 'chart',
+  medical_document: 'documents',
+  handoff_draft: 'handover notes',
+  triage: 'triage assessment',
+  telehealth_session: 'video visit',
+  gcs: 'coma scale assessment',
+  research_export: 'research export',
+};
+
+/** A stored category in words: `medical_document` reads "documents". */
+export function plainResource(resource: string): string {
+  const known = PLAIN_RESOURCE[resource];
+  if (known) return known;
+  if (!resource.includes('_')) return resource.toLowerCase();
+  return resource.replace(/_/g, ' ').toLowerCase();
+}
+
+/** "a, b and 2 more" -- the list stays one line on a phone. */
+function shortList(items: string[]): string {
+  if (items.length <= 2) return items.join(' and ');
+  return `${items.slice(0, 2).join(', ')} and ${items.length - 2} more`;
 }
 
 /**
- * Who has looked at the record lately, as at most `limit` lines. Rows are the
- * access history's own sessions (`groupAccessSessions`), so Home and the full
- * history agree on what one visit is; consecutive sessions by the same person
- * over the same records then fold into one line with a count, so five visits
- * to one assessment read "· 5 times" (UX plan F14). The patient's own reads
- * are not news to them and are left out.
+ * Who has looked at the record lately: one line per person, at most `limit`
+ * people, newest first. Sessions are the access history's own
+ * (`groupAccessSessions`), so Home and the full history agree on what one visit
+ * is. A nurse who opened the ambulance record, the emergency information and the
+ * handover notes is one line, not three -- and each of those visits is still
+ * listed, separately, behind the line in the full history. The patient's own
+ * reads are not news to them and are left out.
  */
 export function groupAccess(logs: AccessLogEntry[], selfId: string | undefined, limit: number): AccessGroup[] {
-  const groups: AccessGroup[] = [];
+  const byPerson = new Map<string, AccessGroup & { parts: string[] }>();
   for (const s of groupAccessSessions(logs)) {
     if (s.accessorId === selfId) continue;
-    const what = s.resources.map(readable).join(', ');
-    const key = `${s.accessorId}|${s.kind}|${what}`;
-    const prev = groups[groups.length - 1];
-    if (prev && prev.key === key) {
-      prev.count += 1;
-      prev.first = s.startedAt;
-      continue;
+    let g = byPerson.get(s.accessorId);
+    if (!g) {
+      if (byPerson.size === limit) continue;
+      g = { key: s.accessorId, who: s.accessorName, what: '', kinds: [], parts: [], count: 0, first: s.startedAt, last: s.endedAt };
+      byPerson.set(s.accessorId, g);
     }
-    if (groups.length === limit) break;
-    groups.push({ key, who: s.accessorName, what, kind: s.kind, count: 1, first: s.startedAt, last: s.endedAt });
+    g.count += 1;
+    g.first = s.startedAt;
+    if (!g.kinds.includes(s.kind)) g.kinds.push(s.kind);
+    for (const r of s.resources.map(plainResource)) if (!g.parts.includes(r)) g.parts.push(r);
   }
-  return groups;
+  return [...byPerson.values()].map(({ parts, ...g }) => ({ ...g, what: shortList(parts) }));
 }
 
 /**
@@ -125,8 +156,10 @@ export function DashboardPage() {
   const firstName = patient?.firstName || patient?.fullName?.split(' ')[0] || '';
   const accessLine = (g: AccessGroup) => {
     const day = (at: string) => formatTimestamp(at, { day: 'numeric', month: 'short' });
-    const verb = g.kind === 'viewed' ? t('accessHistory.viewed') : t('home.changed');
-    const what = `${verb} ${g.what.toLowerCase()}`;
+    const viewed = g.kinds.includes('viewed');
+    const changed = g.kinds.includes('changed');
+    const verb = viewed && changed ? t('home.viewedAndChanged') : changed ? t('home.changed') : t('accessHistory.viewed');
+    const what = t('home.accessWhat', { verb, what: g.what });
     let when = formatTimestamp(g.last, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
     if (g.count > 1) {
       when = day(g.first) === day(g.last)
@@ -185,7 +218,7 @@ export function DashboardPage() {
         <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {access.length === 0 && <li className="px-4 py-3 text-sm text-content-muted">{t('dashboard.noRecentActivity')}</li>}
           {access.map((g) => (
-            <li key={`${g.key}-${g.last}`}>
+            <li key={g.key}>
               <Link to="/privacy?view=viewed"
                 className="flex min-h-[64px] items-center gap-3 px-4 py-3 hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-sunken text-brand" aria-hidden="true">

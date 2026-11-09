@@ -193,7 +193,7 @@ function RunView({ runId }: { runId: string }) {
             {t('ems.notSentYet', { n: String(unsent) })}
           </p>
         )}
-        <PatientCard run={run} patient={patient} />
+        <PatientCard run={run} patient={patient} closed={closed} />
         {run.destination_name && (
           <div className="flex items-center gap-3 rounded-xl border border-brand bg-surface p-3">
             <MapPin className="h-5 w-5 text-brand" aria-hidden="true" />
@@ -239,8 +239,13 @@ function RunView({ runId }: { runId: string }) {
   );
 }
 
-function PatientCard({ run, patient }: { run: EmsRun; patient: ReturnType<typeof usePatientStore.getState>['currentEmergency'] }) {
+function PatientCard({ run, patient, closed }: {
+  run: EmsRun;
+  patient: ReturnType<typeof usePatientStore.getState>['currentEmergency'];
+  closed: boolean;
+}) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   if (!run.patient_id) {
     return <div className="rounded-xl border border-border bg-surface p-3 text-content-secondary">{run.unidentified_description ?? t('ems.unidentified')}</div>;
   }
@@ -254,6 +259,20 @@ function PatientCard({ run, patient }: { run: EmsRun; patient: ReturnType<typeof
           ))}
           {patient.bloodType && <span className="rounded-full bg-notice-subtle px-3 py-1 text-sm font-semibold text-notice-subtle-fg">{patient.bloodType}</span>}
         </div>
+      )}
+      {/* Reopened, or after a reload: the name and allergies are not kept on
+          this device (ambulance devices are shared and get lost), so reading
+          the card again is the way back to them -- audited, and the patient
+          is told, like the first read. */}
+      {!patient && !closed && (
+        <>
+          <button type="button"
+            onClick={() => navigate('/emergency', { state: { returnTo: `/ems-run/${encodeURIComponent(run.id)}` } })}
+            className="inline-flex min-h-[44px] items-center rounded-lg border border-border-interactive px-3 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+            {t('ems.rescanCard')}
+          </button>
+          <p className="text-sm text-content-muted">{t('ems.notKeptOnDevice')}</p>
+        </>
       )}
     </div>
   );

@@ -59,6 +59,10 @@ test.describe('doctor', () => {
     }
 
     await settle(page, `/patients/${patientId}/vitals`);
+    // In the chart: no patient picker (the chart chose them), a time taken.
+    await expect(page.getByLabel('Time taken')).toBeVisible();
+    await expect(page.getByText('patient open in this workspace')).toHaveCount(0);
+    await expect(page.getByText('Back to Dashboard')).toHaveCount(0);
     await shot(page, 'c3-patient-first-form');
 
     await page.getByRole('button', { name: /close patient/i }).first().click();
@@ -91,6 +95,9 @@ test.describe('doctor', () => {
     // No care relationship: the declared reason is refused and break-glass is offered.
     await page.getByRole('button', { name: 'Emergency', exact: true }).click();
     await page.waitForTimeout(2500);
+    // Opened from a bare link: who it is was never established in this tab,
+    // so the screen names the id and asks the server nothing about them.
+    await expect(page.getByText(`Patient ID ${other}`)).toBeVisible();
     await shot(page, 'c1-break-glass');
   });
 });

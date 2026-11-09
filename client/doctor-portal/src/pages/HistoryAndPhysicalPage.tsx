@@ -685,7 +685,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 </button>
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 space-y-4">
-                    <div className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
+                    <div data-patient-picker-card className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
                       {/* Search by name or id. This was a dropdown of whatever
                           roster the page had fetched, with the id and the name
                           also free-typed beside it -- so an H&P could be filed

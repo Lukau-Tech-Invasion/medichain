@@ -29,6 +29,9 @@ pub struct AddVitalSignsRequest {
     /// Stable fixture key accepted only in explicit demo mode.
     #[serde(default)]
     pub demo_seed_key: Option<String>,
+    /// When the clinician says it was measured; absent means now (rule 9).
+    #[serde(default)]
+    pub taken_at: Option<chrono::DateTime<Utc>>,
 }
 
 impl AddVitalSignsRequest {
@@ -211,12 +214,17 @@ pub async fn add_vital_signs(
         ),
     };
 
+    // When it was measured: the time the clinician entered, or for a reading
+    // sent late from a device without signal, the time it was written.
+    let measured_at = match crate::support::stated_clinical_time(&http_req, req.taken_at) {
+        Ok(time) => time,
+        Err(refused) => return refused,
+    };
+
     // Create vital signs reading
     let reading = VitalSignsReading {
         reading_id: reading_id.clone(),
-        // When it was measured: a reading sent late from a device without
-        // signal keeps the time it was taken.
-        timestamp: crate::support::clinical_time(&http_req).timestamp(),
+        timestamp: measured_at.timestamp(),
         heart_rate: req.heart_rate,
         systolic_bp: req.systolic_bp,
         diastolic_bp: req.diastolic_bp,

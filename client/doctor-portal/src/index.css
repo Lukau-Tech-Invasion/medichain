@@ -85,6 +85,12 @@
     @apply bg-app-bg text-content;
   }
 
+  /* Inside a patient's chart, a card whose only job was choosing the patient
+     has nothing left to do: the chart has chosen them (c3). */
+  .mc-in-workspace [data-patient-picker-card] {
+    display: none;
+  }
+
   /* A checkbox or radio's target is its label (WCAG 2.2 SC 2.5.8, 24px). A
      one-line small-text label is 20px tall, so the cardiac, pre-op and
      intubation checklists fell 4px short -- 49 targets. */

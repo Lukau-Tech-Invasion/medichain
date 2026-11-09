@@ -52,6 +52,18 @@ interface VitalReading {
   notes?: string | null;
 }
 
+/** "Last recorded Nov 9, 9:41 AM · BP 128/82 · Pulse 88 · Temp 36.8 °C" -- only what was measured. */
+export function lastRecordedLine(r: VitalReading, t: (key: string, vars?: Record<string, string>) => string): string {
+  const parts = [
+    r.blood_pressure_systolic != null && r.blood_pressure_diastolic != null
+      ? t('docVitalSigns.lastBp', { bp: `${r.blood_pressure_systolic}/${r.blood_pressure_diastolic}` }) : null,
+    r.heart_rate != null ? t('docVitalSigns.lastPulse', { n: String(r.heart_rate) }) : null,
+    r.temperature_celsius != null ? t('docVitalSigns.lastTemp', { n: String(r.temperature_celsius) }) : null,
+    r.oxygen_saturation != null ? t('docVitalSigns.lastSpo2', { n: String(r.oxygen_saturation) }) : null,
+  ].filter(Boolean);
+  return t('docVitalSigns.lastRecorded', { when: formatTimestamp(r.recorded_at), values: parts.join(' · ') || t('docVitalSigns.lastNothing') });
+}
+
 interface VitalFlowsheet {
   patient_id: string;
   patient_name: string;
@@ -357,6 +369,7 @@ function VitalSignsPage() {
         <VitalsEntryForm
           key={selectedPatientId}
           patientId={selectedPatientId}
+          lastRecorded={lastReading ? lastRecordedLine(lastReading, t) : null}
           onCancel={() => setShowForm(false)}
           onSaved={(queued) => void refreshAfterSave(queued)}
         />

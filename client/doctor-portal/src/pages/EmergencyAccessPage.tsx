@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@medichain/shared';
 import { NFCTapSimulator, EmergencyPatientCard } from '../components';
 import { useAuthStore, usePatientStore } from '../store';
@@ -11,9 +11,20 @@ import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
  * Allows healthcare providers to quickly access patient emergency info
  * via NFC tap, QR code scan, or manual ID entry.
  */
+/**
+ * Where to go back to after a card read, from navigation state. Only an
+ * ambulance run of this app: anything else is ignored, so the state cannot be
+ * used to send someone elsewhere.
+ */
+export function runReturnPath(state: unknown): string | null {
+  const to = (state as { returnTo?: unknown } | null)?.returnTo;
+  return typeof to === 'string' && /^\/ems-run(\/(?!\.+$)[A-Za-z0-9._~%-]+)?$/.test(to) ? to : null;
+}
+
 function EmergencyAccessPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const backToRun = runReturnPath(useLocation().state);
   const { currentEmergency, emergencyExpiresAt, clearEmergencyAccess } = usePatientStore();
   const isParamedic = useAuthStore((state) => state.user?.role === 'Paramedic');
   const [now, setNow] = useState(() => Date.now());
@@ -77,6 +88,12 @@ function EmergencyAccessPage() {
         <div>
           {currentEmergency ? (
             <div className="space-y-4">
+              {backToRun && (
+                <button type="button" onClick={() => navigate(backToRun)}
+                  className="w-full min-h-[48px] rounded-xl bg-brand px-4 font-semibold text-brand-fg hover:bg-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  {t('ems.backToRun')}
+                </button>
+              )}
               {/* Access Timer */}
               <div className="bg-surface rounded-xl shadow p-4">
                 <div className="flex items-center justify-between">

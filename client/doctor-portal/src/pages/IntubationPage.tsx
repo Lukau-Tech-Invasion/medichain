@@ -287,7 +287,7 @@ const IntubationPage: React.FC = () => {
           <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient Selection */}
-            <div className="bg-surface rounded-lg shadow p-4">
+            <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>

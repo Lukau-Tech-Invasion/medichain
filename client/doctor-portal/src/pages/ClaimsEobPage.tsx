@@ -74,7 +74,7 @@ export default function ClaimsEobPage() {
         {t('docClaims.title')}
       </h1>
       <p className="mt-2 mb-6 text-content-muted">{t('docClaims.subtitle')}</p>
-      <div className="mb-6 bg-surface shadow rounded-lg p-6">
+      <div data-patient-picker-card className="mb-6 bg-surface shadow rounded-lg p-6">
         <PatientSelect id="claims-patient" value={patientId} onChange={setPatientId} label={t('docClaims.patient')} />
       </div>
       <ClaimList state={state} claims={claims} onAdded={added} />

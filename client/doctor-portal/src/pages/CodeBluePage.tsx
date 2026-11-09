@@ -233,7 +233,7 @@ export default function CodeBluePage() {
         {/* Left Column: Controls & Patient */}
         <div className="lg:col-span-2 space-y-6">
           {/* Patient Selection */}
-          <div className="bg-surface shadow rounded-lg p-6">
+          <div data-patient-picker-card className="bg-surface shadow rounded-lg p-6">
             <label htmlFor="code-blue-patient" className="block text-sm font-medium text-content-secondary mb-2">
               {t('docCodeBlue.selectPatient')}
             </label>

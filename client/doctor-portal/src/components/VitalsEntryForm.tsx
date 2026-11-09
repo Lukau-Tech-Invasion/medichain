@@ -8,7 +8,7 @@
  * critical alerts, and the page around this shows the server's bands.
  */
 import { useEffect, useId, useState } from 'react';
-import { CheckCircle, ChevronDown, Loader2, Save } from 'lucide-react';
+import { CheckCircle, ChevronDown, Clock, Loader2, Save } from 'lucide-react';
 import {
   ChoiceChips,
   addVitalSigns,
@@ -38,13 +38,21 @@ export interface VitalsDraft {
   /** '' until chosen: nothing is assumed (rule 9). */
   consciousness: Acvpu | '';
   breathing: 'room_air' | 'oxygen' | '';
+  /** `datetime-local` text; '' means "just now" and nothing is sent. */
+  taken_at: string;
 }
 
 const EMPTY: VitalsDraft = {
   heart_rate: '', respiratory_rate: '', bp_systolic: '', bp_diastolic: '', temperature: '',
   oxygen_saturation: '', pain_scale: '', gcs_total: '', blood_glucose: '', weight_kg: '', notes: '',
-  consciousness: '', breathing: '',
+  consciousness: '', breathing: '', taken_at: '',
 };
+
+/** The local minute as a `datetime-local` value. */
+function localMinute(date: Date): string {
+  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return shifted.toISOString().slice(0, 16);
+}
 
 /** Each field as the API names it: a number when entered, null when not. */
 export function vitalsPayload(patientId: string, v: VitalsDraft) {
@@ -64,6 +72,8 @@ export function vitalsPayload(patientId: string, v: VitalsDraft) {
     notes: v.notes.trim() || null,
     consciousness: v.consciousness || null,
     on_oxygen: v.breathing === '' ? null : v.breathing === 'oxygen',
+    // Only when somebody entered it: absent means the server's own time.
+    ...(v.taken_at ? { taken_at: new Date(v.taken_at).toISOString() } : {}),
   };
 }
 
@@ -83,8 +93,10 @@ function Field({ id, label, unit, value, onChange, step }: {
   );
 }
 
-export function VitalsEntryForm({ patientId, onSaved, onCancel }: {
+export function VitalsEntryForm({ patientId, onSaved, onCancel, lastRecorded }: {
   patientId: string;
+  /** The newest reading already on the chart, as one line, for comparison. */
+  lastRecorded?: string | null;
   /** Called after a save, with whether it waits on this device for a signal. */
   onSaved: (queued: boolean) => void;
   onCancel: () => void;
@@ -107,7 +119,7 @@ export function VitalsEntryForm({ patientId, onSaved, onCancel }: {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!Object.entries(v).some(([field, value]) => field !== 'notes' && value.trim() !== '')) {
+    if (!Object.entries(v).some(([field, value]) => field !== 'notes' && field !== 'taken_at' && value.trim() !== '')) {
       setError(t('docVitalSigns.errorMeasurementRequired'));
       return;
     }
@@ -145,6 +157,25 @@ export function VitalsEntryForm({ patientId, onSaved, onCancel }: {
             <Save className="h-4 w-4" aria-hidden="true" />{t('docVitalSigns.draftKept')}
           </span>
         )}
+      </div>
+
+      {lastRecorded && <p className="text-sm text-content-secondary">{lastRecorded}</p>}
+
+      {/* When it was taken (c3). Empty means just now; the server refuses a
+          time in the future or more than 72 hours ago, and keeps its own
+          time in the audit trail either way. */}
+      <div>
+        <label htmlFor={`${id}-taken`} className="mb-1 block text-sm font-medium text-content-secondary">{t('docVitalSigns.timeTaken')}</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input id={`${id}-taken`} type="datetime-local" value={v.taken_at} max={localMinute(new Date())}
+            onChange={(e) => set('taken_at')(e.target.value)}
+            className="min-h-[48px] rounded-lg border border-border-interactive bg-surface px-3 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+          <button type="button" onClick={() => set('taken_at')(localMinute(new Date()))}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-border-interactive px-3 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+            <Clock className="h-4 w-4" aria-hidden="true" />{t('docVitalSigns.timeTakenNow')}
+          </button>
+          {!v.taken_at && <span className="text-sm text-content-muted">{t('docVitalSigns.timeTakenEmpty')}</span>}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">

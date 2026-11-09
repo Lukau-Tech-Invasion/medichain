@@ -127,7 +127,7 @@ export default function TraumaPage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Patient Selection */}
-        <div className="bg-surface shadow rounded-lg p-6">
+        <div data-patient-picker-card className="bg-surface shadow rounded-lg p-6">
           <label htmlFor="trauma-patient" className="block text-sm font-medium text-content-secondary mb-2">
             {t('docTrauma.selectPatient')}
           </label>

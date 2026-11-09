@@ -479,7 +479,7 @@ export default function FallRiskPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Patient Selection */}
             <div className="lg:col-span-1">
-              <div className="bg-surface rounded-lg shadow p-4">
+              <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.selectPatientTitle')}

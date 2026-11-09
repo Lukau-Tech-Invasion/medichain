@@ -179,7 +179,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
     <PatientWorkspaceContext.Provider value={workspaceValue}>
       {/* Fixed frame: the banner, the form list and "This visit" stay put and
           only the middle column scrolls -- the chart moves, the navigation does not. */}
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="mc-in-workspace flex h-full min-h-0 flex-col overflow-hidden">
         <header
           className="z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-3 lg:px-6"
           aria-label={t('workspace.bannerLabel')}

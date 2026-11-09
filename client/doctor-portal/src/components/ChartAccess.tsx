@@ -4,11 +4,15 @@ import {
   ApiClientError,
   BreakGlassPanel,
   CARE_RELATIONSHIP_REQUIRED,
+  formatDateOnly,
   getApiClient,
   openAccessContext,
   useTranslation,
 } from '@medichain/shared';
 import { DocumentAccessRequest } from './DocumentAccessRequest';
+import { identifiedPatient } from '../workspace/identifiedPatients';
+import { ageInYears, initials } from '../workspace/identity';
+import { usePatientStore } from '../store/patientStore';
 
 // ux-allow(no-form): rendered inside other pages' forms, where a nested <form> is invalid; Enter is handled on the control itself.
 
@@ -134,6 +138,7 @@ export function ChartAccessPrompt({ patientId, title, onReady, onCancel }: Chart
     // Emergency first, one tap (mockup c1); asking the patient is the
     // non-emergency path, folded below it rather than stacked above it.
     return <div className="mx-auto max-w-xl space-y-4 px-4 py-4">
+      <BreakGlassIdentity patientId={patientId} />
       <BreakGlassPanel patientId={patientId} onOpened={() => void open(step.reason)} />
       <details aria-label="Patient-approved chart access" className="rounded-2xl border border-border bg-surface px-4 py-3">
         <summary className="cursor-pointer font-semibold text-content">{t('breakGlass.notEmergency')}</summary>
@@ -162,6 +167,34 @@ export function ChartAccessPrompt({ patientId, title, onReady, onCancel }: Chart
     );
   }
   return <ReasonPrompt title={title} onDeclare={(reason) => void open(reason)} onCancel={onCancel} />;
+}
+
+/**
+ * Who this is, before the glass is broken (c1) -- but only if this tab already
+ * knew: their card was read, or they were chosen from the directory. Nothing is
+ * fetched here; an id alone shows as an id. See identifiedPatients.ts.
+ */
+export function BreakGlassIdentity({ patientId }: { patientId: string }) {
+  const { t } = useTranslation();
+  const scanned = usePatientStore((s) => s.currentEmergency);
+  const fromCard = scanned && scanned.patientId === patientId && scanned.fullName
+    ? { name: scanned.fullName, dateOfBirth: scanned.dateOfBirth, gender: scanned.gender } : null;
+  const known = fromCard ?? identifiedPatient(patientId);
+  if (!known) {
+    return <p className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-content-secondary">
+      {t('breakGlass.unidentified', { id: patientId })}
+    </p>;
+  }
+  const years = ageInYears(known.dateOfBirth);
+  const line = [known.gender, years !== null ? t('workspace.years', { n: String(years) }) : null,
+    known.dateOfBirth ? t('workspace.born', { date: formatDateOnly(known.dateOfBirth) }) : null].filter(Boolean).join(' · ');
+  return <div className="flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3">
+    <span aria-hidden="true" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-subtle font-bold text-brand-subtle-fg">{initials(known.name)}</span>
+    <div className="min-w-0">
+      <p className="truncate font-semibold text-content">{known.name}</p>
+      {line && <p className="text-sm text-content-secondary">{line}</p>}
+    </div>
+  </div>;
 }
 
 const buttonClass =

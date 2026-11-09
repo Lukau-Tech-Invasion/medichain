@@ -3,7 +3,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { DashboardPage, groupAccess } from './DashboardPage';
-import { nextAppointment, nextDueDose, latestResult } from '../components/HomeToday';
+import { nextAppointment, nextDueDose, remainingDoses, latestResult } from '../components/HomeToday';
 import { usePatientAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 import type { AccessLogEntry } from '@medichain/shared';
@@ -107,11 +107,36 @@ describe('Home helpers', () => {
     ], 'me', 3);
     expect(groups).toHaveLength(2);
     expect(groups[0]).toMatchObject({ count: 3, first: '2026-10-12T09:00:00Z', last: '2026-10-13T12:00:00Z' });
-    expect(groups[1].what).toBe('Lab results');
+    expect(groups[1].what).toBe('lab results');
+  });
+
+  it('is one line per person, in plain words, and drops nothing it does not recognise', () => {
+    const groups = groupAccess([
+      log({ resource_type: 'handoff_draft', timestamp: '2026-11-09T19:12:00Z' }),
+      log({ resource_type: 'ems_run', timestamp: '2026-11-09T17:00:00Z' }),
+      log({ resource_type: 'Some new record type', timestamp: '2026-11-09T15:00:00Z' }),
+    ], 'me', 3);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].what).toContain('handover notes');
+    expect(groups[0].what).not.toContain('handoff_draft');
+    expect(groups[0].count).toBe(3);
+    expect(groups[0].what).toMatch(/and 1 more/);
   });
 
   it('leaves out the patient\'s own reads', () => {
     expect(groupAccess([log({ accessor_id: 'me' })], 'me', 3)).toEqual([]);
+  });
+
+  it('counts every dose still to take today for the My health tile (p2)', () => {
+    const left = remainingDoses(
+      { reminders: [
+        { reminder_id: 'a', medication_name: 'A', dosage: '', reminder_times: ['08:00'] },
+        { reminder_id: 'b', medication_name: 'B', dosage: '', reminder_times: ['20:00', '12:00'] },
+      ] } as never,
+      { logs: [{ reminder_id: 'a', action_taken: 'taken', actual_time: '2026-11-05T08:01:00Z' }] } as never,
+      '2026-11-05',
+    );
+    expect(left.map((d) => d.time)).toEqual(['12:00', '20:00']);
   });
 
   it('skips a dose already taken today and picks the earliest remaining', () => {
