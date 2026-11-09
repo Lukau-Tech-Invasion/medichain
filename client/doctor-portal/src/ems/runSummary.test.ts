@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EmsRun, EmsRunEvent } from '@medichain/shared';
 import { latestVitals, medicineText, summariseRun } from './runSummary';
-import { activeAlerts, eventLabel } from './runSummary';
+import { activeAlerts, eventLabel, firstAndLatest, handoverComplaint, latestReadings, runMilestones } from './runSummary';
 
 const run: EmsRun = {
   id: 'RUN-1', status: 'en_route', created_by: 'medic', crew: [], chief_complaint: 'Car crash, driver, airbag deployed',
@@ -72,5 +72,44 @@ describe('pre-alerts', () => {
     const t = (k: string, v?: Record<string, string>) => (v ? `${k}(${v.alert})` : k);
     expect(eventLabel(alert('stemi', true, false), t)).toBe('ems.alertRaised(ems.alerts.stemi)');
     expect(eventLabel(alert('stemi', false, false), t)).toBe('ems.alertWithdrawn(ems.alerts.stemi)');
+  });
+});
+
+describe('the hand-over to the receiving team', () => {
+  const events = [
+    ev('alert', '14:05', { alert: 'trauma', raised: true }),
+    ev('on_scene', '14:09', { text: 'left forearm deformity' }),
+    ev('note', '14:10', { text: 'chest wall tenderness', finding: true }),
+    ev('vitals', '14:12', { systolic_bp: 92, heart_rate: 118, glucose_mmol: 6.1 }),
+    ev('vitals', '14:24', { systolic_bp: 104, heart_rate: 106 }),
+    ev('handed_over', '14:31'),
+  ];
+
+  it('dates each vital by its own latest reading', () => {
+    const r = latestReadings(summariseRun(run, events));
+    expect(r.heart_rate).toEqual({ value: 106, at: '2026-10-30T14:24:00Z' });
+    expect(r.glucose_mmol).toEqual({ value: 6.1, at: '2026-10-30T14:12:00Z' });
+    expect(r.spo2).toBeUndefined();
+  });
+
+  it('gives first and latest, and nothing for a vital never taken', () => {
+    const s = summariseRun(run, events);
+    expect(firstAndLatest(s, 'systolic_bp')).toEqual({
+      first: { value: 92, at: '2026-10-30T14:12:00Z' }, latest: { value: 104, at: '2026-10-30T14:24:00Z' },
+    });
+    expect(firstAndLatest(s, 'gcs')).toBeNull();
+  });
+
+  it('tells the complaint the way the crew handed it over', () => {
+    expect(handoverComplaint(summariseRun(run, events)))
+      .toBe('Car crash, driver, airbag deployed — left forearm deformity, chest wall tenderness');
+    expect(handoverComplaint(summariseRun({ ...run, chief_complaint: null }, []))).toBeNull();
+  });
+
+  it('dates the pre-alert, the arrival and the hand-over', () => {
+    expect(runMilestones({ ...run, received_at: '2026-10-30T14:32:00Z' }, events)).toEqual({
+      preAlert: '2026-10-30T14:05:00Z', arrived: '2026-10-30T14:31:00Z', received: '2026-10-30T14:32:00Z',
+    });
+    expect(runMilestones(run, [])).toEqual({ preAlert: undefined, arrived: undefined, received: undefined });
   });
 });

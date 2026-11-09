@@ -8459,6 +8459,11 @@ const en_US: TranslationRecord = {
   },
 
   docTriage: {
+    fromAmbulance: 'From ambulance',
+    ambulanceAt: 'Ambulance {{time}}',
+    ambulanceValuesHint: 'Values from the ambulance are labelled — check and change before saving',
+    ambulanceValuesOffer: 'The ambulance crew recorded values for this patient.',
+    useAmbulanceValues: 'Use ambulance values',
     title: 'ESI Triage Assessment',
     subtitle: 'Emergency Severity Index (ESI) 5-level triage system',
     apiConnected: 'API Connected',
@@ -8965,6 +8970,13 @@ const en_US: TranslationRecord = {
   },
 
   workspace: {
+    receivedFrom: 'Received from {{crew}} · {{time}}',
+    receivedFromAmbulance: 'Received from the ambulance · {{time}}',
+    receivedFromShort: 'Received from {{crew}}',
+    receivedShort: 'Received from the ambulance',
+    preAlertReceived: 'Pre-alert received',
+    ambulanceArrived: 'Ambulance arrived',
+    byYou: 'by you',
     forms: 'Forms',
     healthId: 'Health ID {{id}}',
     bannerLabel: 'Open patient',
@@ -9308,6 +9320,8 @@ const en_US: TranslationRecord = {
     arrived: 'Arrived by ambulance {{time}}',
     lastVitals: 'Crew vitals at {{time}}: {{values}}',
     useVitals: 'Use crew vitals',
+    title: 'Ambulance',
+    fullTimeline: 'Full timeline',
   },
 
   kit: {

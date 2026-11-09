@@ -32,7 +32,10 @@ import { useAuthStore } from '../store/authStore';
 import { rolesOwningRoute } from '../config/navigation';
 import { PatientWorkspaceContext } from './PatientWorkspaceContext';
 import { AdmissionControl } from './AdmissionControl';
-import { AmbulanceRunStrip } from '../ems/AmbulanceRunStrip';
+import { AmbulanceBand, useFetchedRecentRun } from '../ems/AmbulanceRunStrip';
+import { crewLine } from '../ems/RunTimeline';
+import { runMilestones } from '../ems/runSummary';
+import type { EmsRunWithEvents } from '@medichain/shared';
 import { workspacePath, workspaceRail, type WorkspaceForm } from './forms';
 import { recordVisitEvent, useVisitEvents, visitEvents, type VisitEvent } from './visitLog';
 import { declaredAccessFor, isReasonCode } from '../components/ChartAccess';
@@ -151,10 +154,17 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
   const restricted = form ? rolesOwningRoute(role, `/${form}`).length > 0 : false;
   const known = form ? Boolean(forms[form]) && rail.byId.has(form) : true;
   const opened = useOpenedLine(patientId, events);
+  const ambulanceRun = useFetchedRecentRun(patientId);
+  const received = useReceivedLine(ambulanceRun);
+  const milestones = useAmbulanceMilestones(ambulanceRun, user?.userId);
 
   const workspaceValue = useMemo(
-    () => ({ patientId, patient: directory ?? (name ? { patient_id: patientId, full_name: name, date_of_birth: dob ?? '' } : null) }),
-    [patientId, directory, name, dob],
+    () => ({
+      patientId,
+      patient: directory ?? (name ? { patient_id: patientId, full_name: name, date_of_birth: dob ?? '' } : null),
+      ambulanceRun,
+    }),
+    [patientId, directory, name, dob, ambulanceRun],
   );
 
   return (
@@ -187,6 +197,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
                 healthId ? t('workspace.healthId', { id: healthId }) : null]
                 .filter(Boolean).join(' · ')}
             </p>
+            {received && <p className="text-xs text-content-muted">{received}</p>}
             {opened && <p className="text-xs text-content-muted">{opened}</p>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -196,7 +207,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
                 {allergies.map((a) => a.name).join(' · ')}
               </span>
             ) : info ? (
-              <span className="rounded-full bg-surface-sunken px-3 py-1 text-sm text-content-secondary">{t('workspace.noKnownAllergies')}</span>
+              <span className="rounded-full bg-surface-sunken px-3 py-1 text-sm text-content-secondary">{t('ems.noAllergiesRecorded')}</span>
             ) : null}
             {info?.blood_type && info.blood_type !== 'Unknown' && (
               <span className="rounded-full bg-notice-subtle px-3 py-1 text-sm font-semibold text-notice-subtle-fg">{info.blood_type}</span>
@@ -215,6 +226,7 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
             {t('workspace.closePatient')}
           </button>
         </header>
+        <AmbulanceBand run={ambulanceRun} />
 
         <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-rows-1 lg:grid-cols-[232px_minmax(0,1fr)] xl:grid-cols-[232px_minmax(0,1fr)_280px]">
           <ActionsRail
@@ -231,14 +243,13 @@ function WorkspaceShell({ patientId, forms, home }: PatientWorkspaceProps & { pa
               makes the whole window scroll again. */}
           <section ref={formArea} className="relative min-h-0 min-w-0 overflow-y-auto" aria-label={currentForm?.label ?? t('workspace.chartHome')}>
             {!form && !online && roster && kept && <OfflineChartSummary bundle={roster} patient={kept} />}
-            {!form && <div className="px-4 pt-4 lg:px-6"><AmbulanceRunStrip patientId={patientId} /></div>}
             {restricted || !known ? (
               <div role="alert" className="m-6 rounded-xl border border-border bg-surface p-6 text-content">
                 {t('workspace.formUnavailable')}
               </div>
             ) : <Fragment key={formEpoch}>{form ? forms[form] : home}</Fragment>}
           </section>
-          <VisitPanel events={events} patientName={name} pending={pending} patientId={patientId} />
+          <VisitPanel events={events} milestones={milestones} patientName={name} pending={pending} patientId={patientId} />
         </div>
       </div>
       {closing && (
@@ -279,6 +290,38 @@ function useOpenedLine(patientId: string, events: VisitEvent[]): string | null {
   const opens = events.filter((e) => e.kind === 'opened');
   const first = opens[opens.length - 1];
   return first ? t('workspace.openedReasonAt', { reason: label, time: formatTimestamp(first.at, { timeStyle: 'short' }) }) : label;
+}
+
+/** "Received from Unit 14 (P. Mokoena) · 14:32", once the ED has received the run. */
+function useReceivedLine(run: EmsRunWithEvents | null | undefined): string | null {
+  const { t } = useTranslation();
+  if (!run) return null;
+  const { received } = runMilestones(run, run.events);
+  if (!received) return null;
+  const time = formatTimestamp(received, { timeStyle: 'short' });
+  const crew = crewLine(run, t);
+  return crew ? t('workspace.receivedFrom', { crew, time }) : t('workspace.receivedFromAmbulance', { time });
+}
+
+/** The crew's pre-alert, arrival and the hand-over, for "This visit". */
+function useAmbulanceMilestones(run: EmsRunWithEvents | null | undefined, userId: string | undefined): VisitEvent[] {
+  const { t } = useTranslation();
+  return useMemo(() => {
+    if (!run) return [];
+    const m = runMilestones(run, run.events);
+    const crew = crewLine(run, t);
+    const out: VisitEvent[] = [];
+    if (m.preAlert) out.push({ at: Date.parse(m.preAlert), kind: 'ambulance', label: t('workspace.preAlertReceived') });
+    if (m.arrived) out.push({ at: Date.parse(m.arrived), kind: 'ambulance', label: t('workspace.ambulanceArrived') });
+    if (m.received) {
+      out.push({
+        at: Date.parse(m.received), kind: 'ambulance',
+        label: crew ? t('workspace.receivedFromShort', { crew }) : t('workspace.receivedShort'),
+        detail: run.received_by && run.received_by === userId ? t('workspace.byYou') : undefined,
+      });
+    }
+    return out.filter((e) => Number.isFinite(e.at));
+  }, [run, userId, t]);
 }
 
 /** Up to three recently opened forms that are not already among the common ones. */
@@ -421,15 +464,18 @@ function ActionsRail({ patientId, rail, current, open, recent, drafts, badges }:
   );
 }
 
-function VisitPanel({ events, patientName, pending, patientId }: {
+function VisitPanel({ events: saved, milestones, patientName, pending, patientId }: {
   events: VisitEvent[];
+  /** The ambulance's steps, merged in by time. */
+  milestones: VisitEvent[];
   patientName: string;
   pending: PendingWork[];
   patientId: string;
 }) {
   const { t } = useTranslation();
-  const opens = events.filter((e) => e.kind === 'opened');
+  const opens = saved.filter((e) => e.kind === 'opened');
   const since = opens[opens.length - 1];
+  const events = milestones.length ? [...saved, ...milestones].sort((a, b) => b.at - a.at) : saved;
   return (
     <aside aria-label={t('workspace.thisVisit')} className="hidden overflow-y-auto border-l border-border bg-surface p-4 xl:block">
       <h2 className="flex items-center gap-2 font-semibold text-content">

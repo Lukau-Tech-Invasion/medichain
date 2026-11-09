@@ -132,6 +132,58 @@ export function activeAlerts(run: EmsRun, events: Array<EmsRunEvent & { pending?
   return alerts;
 }
 
+export type VitalKey = keyof EmsRunVitals;
+
+/** One vital's reading and when the crew took it. */
+export interface TimedReading {
+  value: number;
+  at: string;
+}
+
+/**
+ * Each vital's latest reading with its own time: a crew that last measured the
+ * pressure at 14:24 and the glucose at 14:10 hands over both, each dated.
+ */
+export function latestReadings(summary: RunSummary): Partial<Record<VitalKey, TimedReading>> {
+  const out: Partial<Record<VitalKey, TimedReading>> = {};
+  for (const v of summary.vitals) {
+    for (const key of VITAL_KEYS) {
+      const value = v[key];
+      if (value !== undefined) out[key] = { value, at: v.at };
+    }
+  }
+  return out;
+}
+
+/** The first and the latest reading of one vital; null when it was never taken. */
+export function firstAndLatest(summary: RunSummary, key: VitalKey): { first: TimedReading; latest: TimedReading } | null {
+  const taken = summary.vitals.filter((v) => v[key] !== undefined);
+  if (!taken.length) return null;
+  const pick = (v: TimedVitals): TimedReading => ({ value: v[key] as number, at: v.at });
+  return { first: pick(taken[0]), latest: pick(taken[taken.length - 1]) };
+}
+
+/**
+ * The complaint as the crew handed it over: "Car crash, driver — left forearm
+ * deformity, chest wall tenderness". Null when they recorded neither part.
+ */
+export function handoverComplaint(summary: RunSummary): string | null {
+  const findings = summary.findings.map((f) => f.text).join(', ');
+  const parts = [summary.mechanism, findings].filter((p): p is string => Boolean(p));
+  return parts.length ? parts.join(' — ') : null;
+}
+
+/** When the run's milestones happened, for the receiving team's visit log. */
+export function runMilestones(run: EmsRun, events: EmsRunEvent[]): {
+  preAlert?: string; arrived?: string; received?: string;
+} {
+  const ordered = [...events].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+  const preAlert = ordered.find((e) => e.kind === 'alert' && e.payload?.raised === true)?.occurred_at;
+  const arrived = ordered.find((e) => e.kind === 'handed_over')?.occurred_at;
+  const received = run.received_at ?? ordered.find((e) => e.kind === 'received')?.occurred_at;
+  return { preAlert, arrived, received: received ?? undefined };
+}
+
 /** The latest reading of each vital, for pre-filling triage — with its time. */
 export function latestVitals(summary: RunSummary): (EmsRunVitals & { at: string }) | null {
   if (!summary.vitals.length) return null;

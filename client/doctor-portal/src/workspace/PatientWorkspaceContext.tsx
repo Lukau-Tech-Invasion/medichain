@@ -4,12 +4,18 @@
  * patient-first without each being rewritten.
  */
 import { createContext, useContext } from 'react';
+import type { EmsRunWithEvents } from '@medichain/shared';
 import type { Patient } from '../components/PatientSelect';
 
 export interface PatientWorkspaceValue {
   patientId: string;
   /** Directory identity, once loaded. */
   patient: Patient | null;
+  /**
+   * The patient's ambulance run from the last day, read once for the chart:
+   * `undefined` while it is read, `null` when there is none.
+   */
+  ambulanceRun?: EmsRunWithEvents | null;
 }
 
 export const PatientWorkspaceContext = createContext<PatientWorkspaceValue | null>(null);

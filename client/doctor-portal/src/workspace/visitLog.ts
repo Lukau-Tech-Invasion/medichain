@@ -12,7 +12,8 @@ export interface VisitEvent {
   at: number;
   /** The form that was open, e.g. "Vital Signs"; or a fixed label for chart events. */
   label: string;
-  kind: 'opened' | 'saved';
+  /** `ambulance`: the crew's run, read from the server -- never kept in this log. */
+  kind: 'opened' | 'saved' | 'ambulance';
   /** What it was: "Metformin 500 mg twice daily", or the reason the chart was opened. */
   detail?: string;
 }

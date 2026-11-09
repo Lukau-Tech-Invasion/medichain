@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import {
   createTriageAssessment,
@@ -14,7 +14,9 @@ import {
 } from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import PatientSelect from '../components/PatientSelect';
-import { AmbulanceRunStrip } from '../ems/AmbulanceRunStrip';
+import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
+import { useAmbulanceTriage, type Carried } from '../ems/useAmbulanceTriage';
+import type { ScoringCatalog } from '@medichain/shared';
 import {
   AlertTriangle,
   Activity,
@@ -75,6 +77,46 @@ export function triageLevel(value: TriageAssessment['esi_level']): number | null
   const level = typeof value === 'string' ? enumLevels[value]
     : typeof value === 'number' ? value : value?.level;
   return typeof level === 'number' && Number.isInteger(level) && level >= 1 && level <= 5 ? level : null;
+}
+
+/** A field's border: critical by the server's catalogue (rule 8), never by a literal here. */
+function flagClass(flag: ReturnType<typeof vitalFlag>): string {
+  return flag === 'critical' ? 'border-critical bg-critical-subtle' : 'border-border-interactive';
+}
+
+/** "60–100", the catalogue's reference range for a field's placeholder; empty until it loads. */
+function normalRange(key: string, catalog: ScoringCatalog | null): string {
+  const band = catalog?.vital_signs?.find((b) => b.key === key);
+  return band && band.normal_low !== null && band.normal_high !== null ? `${band.normal_low}–${band.normal_high}` : '';
+}
+
+/** Where a value came from: the crew's reading time, or "From ambulance". */
+function CarriedTag({ from }: { from: Carried[keyof Carried] }) {
+  const { t } = useTranslation();
+  if (!from) return null;
+  return (
+    <span className="ml-1 rounded-full bg-notice-subtle px-2 text-xs font-semibold text-notice-subtle-fg">
+      {from === true ? t('docTriage.fromAmbulance') : t('docTriage.ambulanceAt', { time: formatTimestamp(from, { timeStyle: 'short' }) })}
+    </span>
+  );
+}
+
+/** The crew's values: a tap to use them, and the reminder to check them once used. */
+function AmbulanceValuesBar({ available, carried, onUse }: { available: boolean; carried: Carried; onUse: () => void }) {
+  const { t } = useTranslation();
+  const used = Object.keys(carried).length > 0;
+  if (!available && !used) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-notice bg-notice-subtle p-3 text-sm text-notice-subtle-fg">
+      <p className="min-w-0 flex-1">{used ? t('docTriage.ambulanceValuesHint') : t('docTriage.ambulanceValuesOffer')}</p>
+      {available && (
+        <button type="button" onClick={onUse}
+          className="mc-press min-h-[44px] rounded-lg border border-current px-3 font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+          {t('docTriage.useAmbulanceValues')}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function TriagePage() {
@@ -225,6 +267,19 @@ function TriagePage() {
   // the copy that used to live here disagreed with it on four of six limits,
   // so an SpO2 the server alerted on raised no warning on this screen.
   const { catalog: scoringCatalog } = useScoringCatalog();
+  // Inside a patient's chart the patient is chosen already; the standalone
+  // page still asks.
+  const workspace = usePatientWorkspace();
+  const location = useLocation();
+  const patientId = workspace?.patientId ?? selectedPatientId;
+  const ambulance = useAmbulanceTriage({
+    patientId,
+    vitals: vitalSigns,
+    setVitals: setVitalSigns,
+    complaint: chiefComplaint,
+    setComplaint: setChiefComplaint,
+    fromRun: (location.state as { fromRun?: string } | null)?.fromRun ?? null,
+  });
   const hasCriticalVitals = (): boolean => {
     const readings: Array<[number | null, string]> = [
       [vitalSigns.heart_rate, 'heart_rate'],
@@ -243,7 +298,7 @@ function TriagePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedPatientId) {
+    if (!patientId) {
       setError(t('docTriage.errorSelectPatient'));
       return;
     }
@@ -264,7 +319,7 @@ function TriagePage() {
 
     try {
       const assessment = {
-        patient_id: selectedPatientId,
+        patient_id: patientId,
         esi_level: selectedESI as number,
         chief_complaint: chiefComplaint,
         vital_signs: vitalSigns,
@@ -280,6 +335,7 @@ function TriagePage() {
         : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       // Reset form
       setSelectedPatientId('');
+      ambulance.clear();
       setSelectedESI(null);
       setChiefComplaint('');
       setNotes('');
@@ -307,10 +363,12 @@ function TriagePage() {
   const updateVitalSign = (field: keyof VitalSigns, value: string) => {
     const numValue = value === '' ? null : parseFloat(value);
     setVitalSigns(prev => ({ ...prev, [field]: numValue }));
+    ambulance.forget(field as keyof Carried);
   };
 
   return (
     <div className="p-8">
+      {!workspace && (<>
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
@@ -357,6 +415,7 @@ function TriagePage() {
           {t('docTriage.tabTriageQueue')}
         </button>
       </div>
+      </>)}
 
       {/* Alerts */}
       {error && (
@@ -374,7 +433,10 @@ function TriagePage() {
 
       {activeTab === 'new' ? (
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Patient Selection */}
+          <AmbulanceValuesBar available={ambulance.available} carried={ambulance.carried} onUse={ambulance.apply} />
+
+          {/* Patient Selection: the chart has its patient already. */}
+          {!workspace && (
           <div className="bg-surface rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <User size={20} />
@@ -390,21 +452,6 @@ function TriagePage() {
               onChange={(patientId) => setSelectedPatientId(patientId)}
               required
             />
-            <div className="mt-3">
-              <AmbulanceRunStrip patientId={selectedPatientId} onUseVitals={(crew) => setVitalSigns((v) => ({
-                // The crew's value fills a field only where nothing is entered;
-                // what the nurse typed is never overwritten.
-                ...v,
-                heart_rate: v.heart_rate ?? crew.heart_rate ?? null,
-                respiratory_rate: v.respiratory_rate ?? crew.respiratory_rate ?? null,
-                bp_systolic: v.bp_systolic ?? crew.systolic_bp ?? null,
-                bp_diastolic: v.bp_diastolic ?? crew.diastolic_bp ?? null,
-                temperature_celsius: v.temperature_celsius ?? crew.temperature_c ?? null,
-                oxygen_saturation: v.oxygen_saturation ?? crew.spo2 ?? null,
-                gcs_score: v.gcs_score ?? crew.gcs ?? null,
-                blood_glucose: v.blood_glucose ?? crew.glucose_mmol ?? null,
-              }))} />
-            </div>
             {selectedPatientId && (
               <p className="mt-2 text-sm text-ok-subtle-fg flex items-center gap-1 min-h-[24px] py-1">
                 <CheckCircle size={16} />
@@ -412,6 +459,7 @@ function TriagePage() {
               </p>
             )}
           </div>
+          )}
 
           {/* ESI Level Selection */}
           <div className="bg-surface rounded-xl shadow p-6">
@@ -465,11 +513,12 @@ function TriagePage() {
               className="block text-lg font-semibold text-content mb-4"
             >
               {t('docTriage.chiefComplaintTitle')}
+              <CarriedTag from={ambulance.carried.chief_complaint} />
             </label>
             <textarea
               id="triage-chief-complaint"
               value={chiefComplaint}
-              onChange={(e) => setChiefComplaint(e.target.value)}
+              onChange={(e) => { setChiefComplaint(e.target.value); ambulance.forget('chief_complaint'); }}
               placeholder={t('docTriage.chiefComplaintPlaceholder')}
               rows={3}
               className="w-full px-4 py-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
@@ -494,18 +543,15 @@ function TriagePage() {
                 <label htmlFor="triage-heart-rate" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Heart size={14} className="text-critical" />
                   {t('docTriage.heartRateLabel')}
+                  <CarriedTag from={ambulance.carried.heart_rate} />
                 </label>
                 <input
                   id="triage-heart-rate"
                   type="number"
                   value={vitalSigns.heart_rate ?? ''}
                   onChange={(e) => updateVitalSign('heart_rate', e.target.value)}
-                  placeholder="60-100"
-                  className={`w-full px-3 py-2 border rounded-lg ${
-                    vitalSigns.heart_rate && (vitalSigns.heart_rate < 40 || vitalSigns.heart_rate > 150)
-                      ? 'border-red-500 bg-critical-subtle'
-                      : 'border-border-interactive'
-                  }`}
+                  placeholder={normalRange('heart_rate', scoringCatalog)}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.heart_rate, 'heart_rate', scoringCatalog))}`}
                 />
               </div>
               
@@ -514,18 +560,15 @@ function TriagePage() {
                 <label htmlFor="triage-respiratory-rate" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Wind size={14} className="text-notice-subtle-fg" />
                   {t('docTriage.respRateLabel')}
+                  <CarriedTag from={ambulance.carried.respiratory_rate} />
                 </label>
                 <input
                   id="triage-respiratory-rate"
                   type="number"
                   value={vitalSigns.respiratory_rate ?? ''}
                   onChange={(e) => updateVitalSign('respiratory_rate', e.target.value)}
-                  placeholder="12-20"
-                  className={`w-full px-3 py-2 border rounded-lg ${
-                    vitalSigns.respiratory_rate && (vitalSigns.respiratory_rate < 8 || vitalSigns.respiratory_rate > 35)
-                      ? 'border-red-500 bg-critical-subtle'
-                      : 'border-border-interactive'
-                  }`}
+                  placeholder={normalRange('respiratory_rate', scoringCatalog)}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.respiratory_rate, 'respiratory_rate', scoringCatalog))}`}
                 />
               </div>
               
@@ -534,32 +577,30 @@ function TriagePage() {
                 <label htmlFor="triage-bp-systolic" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Activity size={14} className="text-purple-500" />
                   {t('docTriage.bpSystolicLabel')}
+                  <CarriedTag from={ambulance.carried.bp_systolic} />
                 </label>
                 <input
                   id="triage-bp-systolic"
                   type="number"
                   value={vitalSigns.bp_systolic ?? ''}
                   onChange={(e) => updateVitalSign('bp_systolic', e.target.value)}
-                  placeholder="90-120"
-                  className={`w-full px-3 py-2 border rounded-lg ${
-                    vitalSigns.bp_systolic && (vitalSigns.bp_systolic < 80 || vitalSigns.bp_systolic > 220)
-                      ? 'border-red-500 bg-critical-subtle'
-                      : 'border-border-interactive'
-                  }`}
+                  placeholder={normalRange('bp_systolic', scoringCatalog)}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.bp_systolic, 'bp_systolic', scoringCatalog))}`}
                 />
               </div>
               
               <div>
                 <label htmlFor="triage-bp-diastolic" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.bpDiastolicLabel')}
+                  <CarriedTag from={ambulance.carried.bp_diastolic} />
                 </label>
                 <input
                   id="triage-bp-diastolic"
                   type="number"
                   value={vitalSigns.bp_diastolic ?? ''}
                   onChange={(e) => updateVitalSign('bp_diastolic', e.target.value)}
-                  placeholder="60-80"
-                  className="w-full px-3 py-2 border border-border-interactive rounded-lg"
+                  placeholder={normalRange('bp_diastolic', scoringCatalog)}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.bp_diastolic, 'bp_diastolic', scoringCatalog))}`}
                 />
               </div>
               
@@ -568,6 +609,7 @@ function TriagePage() {
                 <label htmlFor="triage-temperature" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Thermometer size={14} className="text-caution" />
                   {t('docTriage.temperatureLabel')}
+                  <CarriedTag from={ambulance.carried.temperature_celsius} />
                 </label>
                 <input
                   id="triage-temperature"
@@ -575,12 +617,8 @@ function TriagePage() {
                   step="0.1"
                   value={vitalSigns.temperature_celsius ?? ''}
                   onChange={(e) => updateVitalSign('temperature_celsius', e.target.value)}
-                  placeholder="36.1-37.2"
-                  className={`w-full px-3 py-2 border rounded-lg ${
-                    vitalSigns.temperature_celsius && (vitalSigns.temperature_celsius < 35 || vitalSigns.temperature_celsius > 40)
-                      ? 'border-red-500 bg-critical-subtle'
-                      : 'border-border-interactive'
-                  }`}
+                  placeholder={normalRange('temperature', scoringCatalog)}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.temperature_celsius, 'temperature', scoringCatalog))}`}
                 />
               </div>
               
@@ -589,18 +627,15 @@ function TriagePage() {
                 <label htmlFor="triage-oxygen-saturation" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Droplet size={14} className="text-brand" />
                   {t('docTriage.o2SatLabel')}
+                  <CarriedTag from={ambulance.carried.oxygen_saturation} />
                 </label>
                 <input
                   id="triage-oxygen-saturation"
                   type="number"
                   value={vitalSigns.oxygen_saturation ?? ''}
                   onChange={(e) => updateVitalSign('oxygen_saturation', e.target.value)}
-                  placeholder="95-100"
-                  className={`w-full px-3 py-2 border rounded-lg ${
-                    vitalSigns.oxygen_saturation && vitalSigns.oxygen_saturation < 90
-                      ? 'border-red-500 bg-critical-subtle'
-                      : 'border-border-interactive'
-                  }`}
+                  placeholder={normalRange('oxygen_saturation', scoringCatalog)}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.oxygen_saturation, 'oxygen_saturation', scoringCatalog))}`}
                 />
               </div>
               
@@ -625,6 +660,7 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-gcs-score" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.gcsLabel')}
+                  <CarriedTag from={ambulance.carried.gcs_score} />
                 </label>
                 <input
                   id="triage-gcs-score"
@@ -634,11 +670,7 @@ function TriagePage() {
                   value={vitalSigns.gcs_score ?? ''}
                   onChange={(e) => updateVitalSign('gcs_score', e.target.value)}
                   placeholder={t('docTriage.gcsPlaceholder')}
-                  className={`w-full px-3 py-2 border rounded-lg ${
-                    vitalSigns.gcs_score && vitalSigns.gcs_score < 9
-                      ? 'border-red-500 bg-critical-subtle'
-                      : 'border-border-interactive'
-                  }`}
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.gcs_score, 'gcs', scoringCatalog))}`}
                 />
               </div>
               
@@ -646,15 +678,16 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-blood-glucose" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.bloodGlucoseLabel')}
+                  <CarriedTag from={ambulance.carried.blood_glucose} />
                 </label>
                 <input
                   id="triage-blood-glucose"
                   type="number"
                   value={vitalSigns.blood_glucose ?? ''}
                   onChange={(e) => updateVitalSign('blood_glucose', e.target.value)}
-                  placeholder="3.9-5.6"
+                  placeholder={normalRange('blood_glucose', scoringCatalog)}
                   step="0.1"
-                  className="w-full px-3 py-2 border border-border-interactive rounded-lg"
+                  className={`w-full px-3 py-2 border rounded-lg ${flagClass(vitalFlag(vitalSigns.blood_glucose, 'blood_glucose', scoringCatalog))}`}
                 />
               </div>
               
