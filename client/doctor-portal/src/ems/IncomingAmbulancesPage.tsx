@@ -62,7 +62,13 @@ export default function IncomingAmbulancesPage() {
     load();
     const timer = window.setInterval(load, REFRESH_MS);
     window.addEventListener('focus', load);
-    return () => { window.clearInterval(timer); window.removeEventListener('focus', load); };
+    // The server's push when an ambulance heads here or arrives (Layout relays it).
+    window.addEventListener('medichain:ems-incoming', load);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', load);
+      window.removeEventListener('medichain:ems-incoming', load);
+    };
   }, [load]);
 
   return (

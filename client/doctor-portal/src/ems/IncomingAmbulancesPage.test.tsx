@@ -150,4 +150,13 @@ describe('incoming board', () => {
     expect(next.className).toContain('mc-slide-in');
     expect(screen.getByRole('heading', { name: 'Patient first' }).closest('li')!.className).not.toContain('mc-slide-in');
   });
+
+  it('reloads at once when the server says an ambulance is coming', async () => {
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({ facility_id: 'F1', runs: [] });
+    render(<I18nProvider><MemoryRouter><IncomingAmbulancesPage /></MemoryRouter></I18nProvider>);
+    await screen.findByText(/No ambulances|nothing|none/i).catch(() => undefined);
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({ facility_id: 'F1', runs: [run('pushed', 'en_route')] });
+    window.dispatchEvent(new Event('medichain:ems-incoming'));
+    expect(await screen.findByRole('heading', { name: 'Patient pushed' })).toBeInTheDocument();
+  });
 });

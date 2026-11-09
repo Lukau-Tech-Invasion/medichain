@@ -658,6 +658,8 @@ const CriticalValuePage: React.FC = () => {
                         const reason = await promptDialog({
                           message: t('docCriticalValue.cancelReasonPrompt'),
                           required: true,
+                          choices: [t('docCriticalValue.cancelReasonEnteredInError'), t('docCriticalValue.cancelReasonDuplicate'),
+                            t('docCriticalValue.cancelReasonSpecimen'), t('docCriticalValue.cancelReasonAlreadyActed')],
                         });
                         if (reason) {
                           void handleCancelNotification(notification.notificationId, reason);

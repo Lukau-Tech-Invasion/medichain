@@ -10,7 +10,10 @@ import {
   refreshNotificationBadges,
   NavigationGuard,
   confirmSignOutWithUnsent,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
+import { findDirectoryPatient } from './PatientSelect';
 import { clearLocalRuns } from '../ems/runStore';
 import {
   LogOut,
@@ -370,6 +373,13 @@ function Layout() {
     30000 // Refresh every 30 seconds
   );
 
+  /** "Thandiwe Ndlovu, born 12 Mar 1992" -- or "a patient" when the directory cannot say. */
+  const patientLabel = useCallback(async (patientId: string | null | undefined): Promise<string> => {
+    const p = patientId ? await findDirectoryPatient(patientId).catch(() => null) : null;
+    if (!p?.full_name) return t('liveEvents.aPatient');
+    return p.date_of_birth ? t('liveEvents.patientBorn', { name: p.full_name, dob: formatDateOnly(p.date_of_birth) }) : p.full_name;
+  }, [t]);
+
   // Handle incoming real-time events
   useEffect(() => {
     if (events.length > 0) {
@@ -390,23 +400,34 @@ function Layout() {
             );
             window.dispatchEvent(new Event('medichain:messages-refresh'));
             break;
-          case 'cds_alert':
-            showWarning(
-              latestEvent.payload.title || 'Clinical Alert',
-              // An absent severity used to interpolate as the literal string
-              // "undefined severity" into a clinical alert. Say nothing about
-              // the severity rather than say that.
-              latestEvent.payload.severity
-                ? `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
-                : `Patient ${latestEvent.patient_id}`
-            );
+          case 'cds_alert': {
+            const { title, severity } = latestEvent.payload;
+            // The patient by name and date of birth, never by record id. An
+            // absent severity used to read "undefined severity"; it is left out.
+            void patientLabel(latestEvent.patient_id).then((who) => showWarning(
+              severity ? t('liveEvents.cdsAlertSeverity', { who, severity }) : t('liveEvents.cdsAlert', { who }),
+              title || t('liveEvents.cdsAlertTitle'),
+            ));
             break;
+          }
           case 'lab_result':
-            showSuccess(
-              `New lab results available for patient ${latestEvent.patient_id}`,
-              'Lab Result Ready'
-            );
+            void patientLabel(latestEvent.patient_id).then((who) => showSuccess(
+              t('liveEvents.labResult', { who }), t('liveEvents.labResultTitle'),
+            ));
             break;
+          case 'ems_incoming': {
+            // An ambulance is heading here or has arrived: the board reloads
+            // now rather than at its next poll, and staff elsewhere are told.
+            window.dispatchEvent(new Event('medichain:ems-incoming'));
+            const status = latestEvent.payload.status as string | undefined;
+            const eta = latestEvent.payload.eta as string | null | undefined;
+            if (status === 'arrived') showWarning(t('liveEvents.ambulanceArrived'), t('liveEvents.ambulanceTitle'));
+            else if (status === 'en_route') {
+              showInfo(eta ? t('liveEvents.ambulanceEta', { time: formatTimestamp(eta, { timeStyle: 'short' }) }) : t('liveEvents.ambulanceComing'),
+                t('liveEvents.ambulanceTitle'));
+            }
+            break;
+          }
           case 'reminder_due':
             showInfo(
               latestEvent.payload.message || 'Medication reminder due',
@@ -424,7 +445,7 @@ function Layout() {
         refetchBadges();
       }
     }
-  }, [events, showInfo, showWarning, showSuccess, refetchBadges]);
+  }, [events, showInfo, showWarning, showSuccess, refetchBadges, t, patientLabel]);
 
   // Get role-specific configuration
   const theme = useMemo(() => getThemeForRole(userRole), [userRole]);

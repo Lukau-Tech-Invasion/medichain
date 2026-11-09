@@ -258,7 +258,12 @@ export default function AppointmentSchedulerPage() {
     try {
       let reason: string | undefined;
       if (to === 'cancelled') {
-        reason = (await promptDialog({ message: t('docAppointments.cancelReasonPrompt'), required: true })) ?? '';
+        reason = (await promptDialog({
+          message: t('docAppointments.cancelReasonPrompt'),
+          required: true,
+          choices: [t('docAppointments.cancelReasonPatient'), t('docAppointments.cancelReasonClinician'),
+            t('docAppointments.cancelReasonAdmitted'), t('docAppointments.cancelReasonInError')],
+        })) ?? '';
         if (!reason.trim()) {
           return; // Dismissed the prompt; leave the appointment alone.
         }
