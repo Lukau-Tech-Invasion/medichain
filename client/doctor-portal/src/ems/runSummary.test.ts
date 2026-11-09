@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EmsRun, EmsRunEvent } from '@medichain/shared';
 import { latestVitals, medicineText, summariseRun } from './runSummary';
+import { activeAlerts, eventLabel } from './runSummary';
 
 const run: EmsRun = {
   id: 'RUN-1', status: 'en_route', created_by: 'medic', crew: [], chief_complaint: 'Car crash, driver, airbag deployed',
@@ -48,5 +49,28 @@ describe('summariseRun', () => {
   it('writes a medicine as name, dose and route', () => {
     expect(medicineText({ name: 'Adrenaline', dose: '0.5 mg', route: 'IM' })).toBe('Adrenaline 0.5 mg IM');
     expect(medicineText({ name: 'Aspirin' })).toBe('Aspirin');
+  });
+});
+
+describe('pre-alerts', () => {
+  const base: EmsRun = { id: 'R', status: 'en_route', created_by: 'm', crew: [], created_at: '', updated_at: '' };
+  const alert = (alert: string, raised: boolean, pending: boolean) => ({
+    id: `${alert}-${raised}`, run_id: 'R', kind: 'alert' as const, occurred_at: '', recorded_by: 'm', payload: { alert, raised }, pending,
+  });
+
+  it("applies alerts still queued on the device to the server's set", () => {
+    const run = { ...base, alerts: ['trauma' as const] };
+    expect(activeAlerts(run, [alert('stemi', true, true), alert('trauma', false, true)])).toEqual(['stemi']);
+  });
+
+  it('does not apply an entry the server already counted twice', () => {
+    const run = { ...base, alerts: ['stemi' as const] };
+    expect(activeAlerts(run, [alert('stemi', true, false)])).toEqual(['stemi']);
+  });
+
+  it('names which alert was raised or withdrawn', () => {
+    const t = (k: string, v?: Record<string, string>) => (v ? `${k}(${v.alert})` : k);
+    expect(eventLabel(alert('stemi', true, false), t)).toBe('ems.alertRaised(ems.alerts.stemi)');
+    expect(eventLabel(alert('stemi', false, false), t)).toBe('ems.alertWithdrawn(ems.alerts.stemi)');
   });
 });

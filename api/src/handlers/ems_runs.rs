@@ -31,6 +31,9 @@ const MAX_PAYLOAD_BYTES: usize = 8_192;
 const MAX_EVENTS_PER_RUN: usize = 500;
 /// Runs shown on a crew's own list.
 const MAX_OWN_RUNS: usize = 50;
+/// The pre-alerts a crew can raise. A fixed list: a hospital activates a
+/// specific team for each, so free text could not be acted on.
+pub const RUN_ALERTS: [&str; 5] = ["trauma", "stemi", "stroke", "sepsis", "cardiac_arrest"];
 
 /// Where a run is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +85,8 @@ pub enum EventKind {
     Received,
     Cancelled,
     NoTransport,
+    /// A pre-alert raised or withdrawn: `{"alert": "stemi", "raised": true}`.
+    Alert,
 }
 
 /// The status `kind` moves a run in `from` to: `Ok(None)` for an event that
@@ -124,6 +129,9 @@ pub struct EmsRun {
     pub unidentified_description: Option<String>,
     pub chief_complaint: Option<String>,
     pub incident_id: Option<String>,
+    /// Pre-alerts currently raised, from `RUN_ALERTS`, in the order raised.
+    #[serde(default)]
+    pub alerts: Vec<String>,
     pub destination_facility_id: Option<String>,
     pub destination_name: Option<String>,
     pub eta: Option<DateTime<Utc>>,
@@ -437,6 +445,7 @@ async fn new_run(
         unidentified_description: text(&request.unidentified_description)?,
         chief_complaint: text(&request.chief_complaint)?,
         incident_id: text(&request.incident_id)?,
+        alerts: Vec::new(),
         destination_facility_id: None,
         destination_name: None,
         eta: None,
@@ -603,6 +612,9 @@ async fn plan_event(
             .filter(|m| (0..=24 * 60).contains(m))
             .map(|m| Utc::now() + Duration::minutes(m));
     }
+    if matches!(request.kind, EventKind::Alert) {
+        apply_alert(&mut next.alerts, &request.payload)?;
+    }
     if matches!(request.kind, EventKind::Identified) {
         let patient =
             text(&request.patient_id)?.ok_or_else(|| bad_request("Scan or choose the patient"))?;
@@ -610,6 +622,24 @@ async fn plan_event(
         next.patient_id = Some(patient);
     }
     Ok(next)
+}
+
+/// Raise or withdraw one pre-alert on the run's current set.
+fn apply_alert(alerts: &mut Vec<String>, payload: &Value) -> Result<(), HttpResponse> {
+    let alert = payload
+        .get("alert")
+        .and_then(Value::as_str)
+        .filter(|a| RUN_ALERTS.contains(a))
+        .ok_or_else(|| bad_request("Choose one of the pre-alerts"))?;
+    let raised = payload
+        .get("raised")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| bad_request("Say whether the pre-alert is raised or withdrawn"))?;
+    alerts.retain(|a| a != alert);
+    if raised {
+        alerts.push(alert.to_string());
+    }
+    Ok(())
 }
 
 async fn commit_event(
@@ -635,7 +665,8 @@ async fn commit_event(
     let changed = run.status != next.status
         || run.destination_facility_id != next.destination_facility_id
         || run.patient_id != next.patient_id
-        || run.chief_complaint != next.chief_complaint;
+        || run.chief_complaint != next.chief_complaint
+        || run.alerts != next.alerts;
     if changed {
         match data
             .repositories
@@ -720,17 +751,121 @@ pub async fn list_incoming_ems_runs(
         .collect();
     let mut runs = Vec::with_capacity(active.len());
     for run in active {
-        if let Err(response) =
-            crate::support::require_durable_audit(&data, audit(&caller, "view", &run)).await
-        {
-            return response;
-        }
-        match load_events(&data, &run.id).await {
-            Ok(events) => runs.push(RunWithEvents { run, events }),
+        match incoming_run(&data, &caller, run).await {
+            Ok(entry) => runs.push(entry),
             Err(response) => return response,
         }
     }
     HttpResponse::Ok().json(serde_json::json!({ "facility_id": facility, "runs": runs }))
+}
+
+/// What the door needs before the chart is open: allergies by name and
+/// severity, and a known blood group. Nothing else from the emergency record.
+#[derive(Debug, Serialize)]
+pub struct IncomingEmergencySummary {
+    pub allergies: Vec<IncomingAllergy>,
+    /// `None` when the group is not known -- never a guessed one.
+    pub blood_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IncomingAllergy {
+    pub name: String,
+    pub severity: crate::AllergySeverity,
+}
+
+/// A run as the receiving board sees it.
+#[derive(Debug, Serialize)]
+pub struct IncomingRun {
+    #[serde(flatten)]
+    pub run: RunWithEvents,
+    /// From the first reading to the latest; `None` with fewer than two to compare.
+    pub vitals_trend: Option<crate::clinical_scoring::VitalsTrend>,
+    /// For an identified patient whose record could be read; otherwise `None`.
+    pub emergency: Option<IncomingEmergencySummary>,
+}
+
+async fn incoming_run(
+    data: &web::Data<AppState>,
+    caller: &crate::User,
+    run: EmsRun,
+) -> Result<IncomingRun, HttpResponse> {
+    crate::support::require_durable_audit(data, audit(caller, "view", &run)).await?;
+    let events = load_events(data, &run.id).await?;
+    let emergency = match &run.patient_id {
+        Some(patient_id) => emergency_summary(data, caller, &run, patient_id).await?,
+        None => None,
+    };
+    Ok(IncomingRun {
+        vitals_trend: vitals_trend(&events),
+        emergency,
+        run: RunWithEvents { run, events },
+    })
+}
+
+/// The patient's allergies and blood group for the board, with the read
+/// logged as its own entry: it is emergency information shown before anyone
+/// opened the chart. A record that cannot be read is no summary, not an error.
+async fn emergency_summary(
+    data: &web::Data<AppState>,
+    caller: &crate::User,
+    run: &EmsRun,
+    patient_id: &str,
+) -> Result<Option<IncomingEmergencySummary>, HttpResponse> {
+    let entity = match data.repositories.patients.get_by_id(patient_id).await {
+        Ok(entity) => entity,
+        Err(RepositoryError::NotFound(_)) => return Ok(None),
+        Err(e) => return Err(unavailable("patient lookup", e)),
+    };
+    let Some(profile) = crate::patient_entity_to_profile(&entity, &data.encryption_keyring) else {
+        return Ok(None);
+    };
+    let mut entry = audit(caller, "emergency", run);
+    entry.resource_type = "emergency_info".to_string();
+    crate::support::require_durable_audit(data, entry).await?;
+    let info = &profile.emergency_info;
+    Ok(Some(IncomingEmergencySummary {
+        allergies: info
+            .allergies
+            .iter()
+            .map(|a| IncomingAllergy {
+                name: a.name.clone(),
+                severity: a.severity.clone(),
+            })
+            .collect(),
+        blood_type: (info.blood_type != crate::BloodType::Unknown)
+            .then(|| info.blood_type.to_string()),
+    }))
+}
+
+/// The crew's vitals entries as observations, oldest first.
+fn prehospital_readings(events: &[EmsRunEvent]) -> Vec<crate::clinical_scoring::PrehospitalVitals> {
+    let int = |p: &Value, k: &str| p.get(k).and_then(Value::as_f64).map(|v| v.round() as i32);
+    let mut vitals: Vec<&EmsRunEvent> = events
+        .iter()
+        .filter(|e| e.kind == EventKind::Vitals)
+        .collect();
+    vitals.sort_by_key(|e| e.occurred_at);
+    vitals
+        .iter()
+        .map(|e| crate::clinical_scoring::PrehospitalVitals {
+            respiratory_rate: int(&e.payload, "respiratory_rate"),
+            spo2: int(&e.payload, "spo2"),
+            systolic_bp: int(&e.payload, "systolic_bp"),
+            heart_rate: int(&e.payload, "heart_rate"),
+            temperature_celsius: e.payload.get("temperature_c").and_then(Value::as_f64),
+            gcs: int(&e.payload, "gcs"),
+        })
+        .filter(|v| *v != crate::clinical_scoring::PrehospitalVitals::default())
+        .collect()
+}
+
+fn vitals_trend(events: &[EmsRunEvent]) -> Option<crate::clinical_scoring::VitalsTrend> {
+    let readings = prehospital_readings(events);
+    match readings.as_slice() {
+        [first, .., latest] => crate::clinical_scoring::prehospital_vitals_trend(first, latest),
+        _ => None,
+    }
 }
 
 /// One tap by the receiving clinician: the run is received, and they may
@@ -1094,6 +1229,120 @@ mod api_tests {
             0,
             "received runs leave the board"
         );
+    }
+
+    #[actix_rt::test]
+    async fn the_board_shows_alerts_trend_and_a_logged_emergency_summary() {
+        let data = state().await;
+        let app = app!(data);
+        let (_, run) = call!(
+            app,
+            MEDIC,
+            "POST",
+            "/api/ems/runs",
+            json!({ "patient_id": PATIENT })
+        );
+        let id = run["id"].as_str().unwrap().to_string();
+        let events = format!("/api/ems/runs/{id}/events");
+        let (status, _) = call!(
+            app,
+            MEDIC,
+            "POST",
+            &events,
+            json!({ "kind": "alert", "payload": { "alert": "rumour", "raised": true } })
+        );
+        assert_eq!(status, 400, "only the listed pre-alerts");
+        let (status, _) = call!(
+            app,
+            MEDIC,
+            "POST",
+            &events,
+            json!({ "kind": "alert", "payload": { "alert": "stemi" } })
+        );
+        assert_eq!(status, 400, "raised or withdrawn must be said");
+        for (alert, raised) in [("trauma", true), ("stemi", true), ("trauma", false)] {
+            let (status, body) = call!(
+                app,
+                MEDIC,
+                "POST",
+                &events,
+                json!({ "kind": "alert", "payload": { "alert": alert, "raised": raised } })
+            );
+            assert_eq!(status, 201, "{body}");
+        }
+        for (sbp, hr) in [(92, 118), (104, 106)] {
+            call!(
+                app,
+                MEDIC,
+                "POST",
+                &events,
+                json!({ "kind": "vitals", "payload": { "systolic_bp": sbp, "heart_rate": hr } })
+            );
+        }
+        call!(
+            app,
+            MEDIC,
+            "POST",
+            &events,
+            json!({ "kind": "left_scene", "destination_facility_id": "fac-riverside" })
+        );
+
+        let (_, board) = call!(app, ED_NURSE, "GET", "/api/ems/incoming", Value::Null);
+        let entry = &board["runs"][0];
+        assert_eq!(
+            entry["alerts"],
+            json!(["stemi"]),
+            "withdrawn alerts are gone"
+        );
+        assert_eq!(entry["vitals_trend"]["direction"], "improving");
+        assert_eq!(entry["vitals_trend"]["heart_rate"], "better");
+        assert_eq!(entry["emergency"]["blood_type"], "O+");
+        assert_eq!(entry["emergency"]["allergies"], json!([]));
+        let logs = data
+            .repositories
+            .access_logs
+            .get_by_patient(PATIENT, crate::repositories::traits::Pagination::new(0, 50))
+            .await
+            .unwrap();
+        assert!(
+            logs.items.iter().any(|l| l.action == "emergency"
+                && l.accessor_id == ED_NURSE
+                && l.resource_type == "emergency_info"),
+            "the board's read of emergency information is logged"
+        );
+    }
+
+    #[actix_rt::test]
+    async fn an_unidentified_patient_has_no_summary_and_one_reading_has_no_trend() {
+        let data = state().await;
+        let app = app!(data);
+        let (_, run) = call!(
+            app,
+            MEDIC,
+            "POST",
+            "/api/ems/runs",
+            json!({ "unidentified_description": "Man, about 40" })
+        );
+        let id = run["id"].as_str().unwrap().to_string();
+        let events = format!("/api/ems/runs/{id}/events");
+        call!(
+            app,
+            MEDIC,
+            "POST",
+            &events,
+            json!({ "kind": "vitals", "payload": { "heart_rate": 98 } })
+        );
+        call!(
+            app,
+            MEDIC,
+            "POST",
+            &events,
+            json!({ "kind": "left_scene", "destination_facility_id": "fac-riverside" })
+        );
+        let (_, board) = call!(app, ED_NURSE, "GET", "/api/ems/incoming", Value::Null);
+        assert!(board["runs"][0]["emergency"].is_null());
+        assert!(board["runs"][0]["vitals_trend"].is_null());
+        assert_eq!(board["runs"][0]["alerts"], json!([]));
     }
 
     #[actix_rt::test]

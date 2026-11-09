@@ -19,9 +19,9 @@ import {
   useSubmission,
   useTranslation,
 } from '@medichain/shared';
-import type { EmsRunWithEvents } from '@medichain/shared';
+import type { EmsRunWithEvents, EmsVitalChange, EmsVitalsTrend, IncomingEmsRun } from '@medichain/shared';
 import { findDirectoryPatient, type Patient } from '../components/PatientSelect';
-import { describeEvent, summariseRun } from './runSummary';
+import { describeEvent, eventLabel, summariseRun } from './runSummary';
 import { workspacePath } from '../workspace/forms';
 import { ageInYears, initials } from '../workspace/identity';
 
@@ -39,7 +39,7 @@ export function boardOrder(runs: EmsRunWithEvents[]): EmsRunWithEvents[] {
 
 export default function IncomingAmbulancesPage() {
   const { t } = useTranslation();
-  const [runs, setRuns] = useState<EmsRunWithEvents[] | null>(null);
+  const [runs, setRuns] = useState<IncomingEmsRun[] | null>(null);
   const [facility, setFacility] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -78,7 +78,7 @@ export default function IncomingAmbulancesPage() {
   );
 }
 
-function IncomingCard({ run, onChanged }: { run: EmsRunWithEvents; onChanged: () => void }) {
+function IncomingCard({ run, onChanged }: { run: IncomingEmsRun; onChanged: () => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [person, setPerson] = useState<Patient | null>(null);
@@ -138,6 +138,7 @@ function IncomingCard({ run, onChanged }: { run: EmsRunWithEvents; onChanged: ()
               : run.eta ? t('ems.eta', { time: formatTimestamp(run.eta, { timeStyle: 'short' }) }) : t('ems.status.en_route')}
           </span>
         </div>
+        <DoorChips run={run} />
         <dl className="grid grid-cols-[1.5rem_1fr] gap-x-3 gap-y-1 text-sm">
           <dt className="font-bold text-brand" title={t('ems.atmist.age')}>A</dt>
           <dd className="text-content">{ageLine || t('ems.notRecorded')}</dd>
@@ -152,6 +153,11 @@ function IncomingCard({ run, onChanged }: { run: EmsRunWithEvents; onChanged: ()
           <dd className="text-content">{summary.mechanism ?? t('ems.notRecorded')}</dd>
           <dt className="font-bold text-brand" title={t('ems.atmist.injuries')}>I</dt>
           <dd className="text-content">{summary.findings.map((f) => f.text).join(' · ') || t('ems.notRecorded')}</dd>
+          <dt className="font-bold text-brand" title={t('ems.atmist.signs')}>S</dt>
+          <dd className="text-content">
+            {run.vitals_trend ? t(`ems.trend.${run.vitals_trend.direction}`)
+              : summary.vitals.length ? t('ems.trendFew') : t('ems.notRecorded')}
+          </dd>
           <dt className="font-bold text-brand" title={t('ems.atmist.treatment')}>T</dt>
           <dd className="text-content">
             {summary.treatments.map((x) => `${x.text} ${formatTimestamp(x.at, { timeStyle: 'short' })}`).join(' · ') || t('ems.notRecorded')}
@@ -169,7 +175,7 @@ function IncomingCard({ run, onChanged }: { run: EmsRunWithEvents; onChanged: ()
         )}
       </div>
       <div className="flex flex-col gap-3 border-t border-border p-4 md:border-l md:border-t-0">
-        <VitalsTrend summary={summary} />
+        <VitalsTrend summary={summary} trend={run.vitals_trend ?? null} />
         {submission.status === 'failed' && (
           <p role="alert" className="text-sm text-critical-subtle-fg">{getApiErrorMessage(submission.error, t('ems.receiveFailed'))}</p>
         )}
@@ -202,7 +208,7 @@ function RunTimeline({ id, run }: { id: string; run: EmsRunWithEvents }) {
       {ordered.map((e) => (
         <li key={e.id}>
           <span className="mr-2 tabular-nums text-content-muted">{formatTimestamp(e.occurred_at, { timeStyle: 'short' })}</span>
-          <span className="font-semibold text-content">{t(`ems.kind.${e.kind}`)}</span>
+          <span className="font-semibold text-content">{eventLabel(e, t)}</span>
           {describeEvent(e) && <span className="text-content-secondary"> · {describeEvent(e)}</span>}
         </li>
       ))}
@@ -210,14 +216,67 @@ function RunTimeline({ id, run }: { id: string; run: EmsRunWithEvents }) {
   );
 }
 
-function VitalsTrend({ summary }: { summary: ReturnType<typeof summariseRun> }) {
+/**
+ * What the door must know before the chart is open: the crew's pre-alerts,
+ * and the patient's allergies and blood group when the server could read them
+ * (that read is logged as its own access).
+ */
+function DoorChips({ run }: { run: IncomingEmsRun }) {
+  const { t } = useTranslation();
+  const alerts = run.alerts ?? [];
+  const info = run.emergency;
+  if (!alerts.length && !info) return null;
+  const chip = 'inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold';
+  return (
+    <div className="flex flex-wrap gap-2">
+      {alerts.map((a) => <span key={a} className={`${chip} bg-critical text-critical-fg`}>{t(`ems.alerts.${a}`)}</span>)}
+      {info && (info.allergies.length > 0 ? (
+        <span className={`${chip} bg-critical-subtle text-critical-subtle-fg`}>
+          <span className="sr-only">{t('ems.allergiesLabel')}: </span>{info.allergies.map((a) => a.name).join(' · ')}
+        </span>
+      ) : (
+        <span className={`${chip} bg-surface-sunken font-normal text-content-secondary`}>{t('ems.noAllergiesRecorded')}</span>
+      ))}
+      {info?.blood_type && <span className={`${chip} bg-surface-sunken text-content`}>{t('ems.bloodType', { type: info.blood_type })}</span>}
+    </div>
+  );
+}
+
+/** An arrow on the latest reading: its direction from the numbers, its colour from the server's verdict. */
+function ChangeMark({ change, rising }: { change: EmsVitalChange | null | undefined; rising: boolean | null }) {
+  const { t } = useTranslation();
+  if (!change || change === 'same' || rising === null) return null;
+  return (
+    <span className={`ml-1 ${change === 'better' ? 'text-ok' : 'text-critical'}`}>
+      <span aria-hidden="true">{rising ? '▲' : '▼'}</span>
+      <span className="sr-only"> {t(`ems.change.${change}`)}</span>
+    </span>
+  );
+}
+
+function VitalsTrend({ summary, trend }: { summary: ReturnType<typeof summariseRun>; trend: EmsVitalsTrend | null }) {
   const { t } = useTranslation();
   const rows = summary.vitals.slice(-3);
   if (!rows.length) return <p className="text-sm text-content-muted">{t('ems.noVitals')}</p>;
-  const line = (label: string, pick: (v: (typeof rows)[number]) => string | undefined) => (
+  const first = summary.vitals[0];
+  const latestAt = rows[rows.length - 1].at;
+  const rising = (key: 'systolic_bp' | 'heart_rate' | 'spo2' | 'gcs') => {
+    const a = first[key];
+    const b = summary.vitals[summary.vitals.length - 1][key];
+    return a === undefined || b === undefined || a === b ? null : b > a;
+  };
+  const line = (
+    label: string, pick: (v: (typeof rows)[number]) => string | undefined,
+    key: 'systolic_bp' | 'heart_rate' | 'spo2' | 'gcs',
+  ) => (
     <tr>
       <th scope="row" className="pr-3 text-left font-normal text-content-muted">{label}</th>
-      {rows.map((v) => <td key={v.at} className="px-2 text-right tabular-nums text-content">{pick(v) ?? '—'}</td>)}
+      {rows.map((v) => (
+        <td key={v.at} className="whitespace-nowrap px-2 text-right tabular-nums text-content">
+          {pick(v) ?? '—'}
+          {v.at === latestAt && <ChangeMark change={trend?.[key]} rising={rising(key)} />}
+        </td>
+      ))}
     </tr>
   );
   return (
@@ -227,10 +286,10 @@ function VitalsTrend({ summary }: { summary: ReturnType<typeof summariseRun> }) 
         <tr><td />{rows.map((v) => <th key={v.at} scope="col" className="px-2 text-right font-semibold text-content-muted">{formatTimestamp(v.at, { timeStyle: 'short' })}</th>)}</tr>
       </thead>
       <tbody>
-        {line('BP', (v) => (v.systolic_bp !== undefined && v.diastolic_bp !== undefined ? `${v.systolic_bp}/${v.diastolic_bp}` : undefined))}
-        {line('HR', (v) => v.heart_rate?.toString())}
-        {line('SpO₂', (v) => (v.spo2 !== undefined ? `${v.spo2}%` : undefined))}
-        {line('GCS', (v) => v.gcs?.toString())}
+        {line('BP', (v) => (v.systolic_bp !== undefined && v.diastolic_bp !== undefined ? `${v.systolic_bp}/${v.diastolic_bp}` : undefined), 'systolic_bp')}
+        {line('HR', (v) => v.heart_rate?.toString(), 'heart_rate')}
+        {line('SpO₂', (v) => (v.spo2 !== undefined ? `${v.spo2}%` : undefined), 'spo2')}
+        {line('GCS', (v) => v.gcs?.toString(), 'gcs')}
       </tbody>
     </table>
   );

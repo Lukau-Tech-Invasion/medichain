@@ -9,7 +9,7 @@
  *
  * Nothing is inferred: a section with nothing recorded says so (rule 12).
  */
-import type { EmsRun, EmsRunEvent, EmsRunVitals } from '@medichain/shared';
+import type { EmsRun, EmsRunAlert, EmsRunEvent, EmsRunVitals } from '@medichain/shared';
 
 export interface TimedVitals extends EmsRunVitals {
   at: string;
@@ -105,6 +105,31 @@ export function describeEvent(e: EmsRunEvent): string {
   if (e.kind === 'treatment') return String(p.name ?? '');
   if (e.kind === 'note' || e.kind === 'on_scene') return String(p.text ?? '');
   return '';
+}
+
+type Translate = (key: string, values?: Record<string, string>) => string;
+
+/** A timeline entry's heading: its kind, or which pre-alert was raised or withdrawn. */
+export function eventLabel(e: EmsRunEvent, t: Translate): string {
+  if (e.kind !== 'alert') return t(`ems.kind.${e.kind}`);
+  const alert = t(`ems.alerts.${String(e.payload?.alert ?? '')}`);
+  return e.payload?.raised === false ? t('ems.alertWithdrawn', { alert }) : t('ems.alertRaised', { alert });
+}
+
+/**
+ * The pre-alerts raised: the server's set, with any entries still queued on
+ * this device applied in order -- a crew with no signal sees what they tapped.
+ */
+export function activeAlerts(run: EmsRun, events: Array<EmsRunEvent & { pending?: boolean }>): EmsRunAlert[] {
+  const alerts = [...(run.alerts ?? [])];
+  for (const e of events) {
+    if (e.kind !== 'alert' || !e.pending) continue;
+    const alert = e.payload?.alert as EmsRunAlert;
+    const at = alerts.indexOf(alert);
+    if (at >= 0) alerts.splice(at, 1);
+    if (e.payload?.raised === true) alerts.push(alert);
+  }
+  return alerts;
 }
 
 /** The latest reading of each vital, for pre-filling triage — with its time. */

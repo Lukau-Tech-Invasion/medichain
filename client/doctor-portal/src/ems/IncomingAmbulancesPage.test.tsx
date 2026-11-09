@@ -81,6 +81,48 @@ describe('incoming board', () => {
     expect(entries[1]).toMatch(/Treatment · Splint left forearm/);
   });
 
+  it("shows the pre-alerts, allergies, blood group and the server's trend", async () => {
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({
+      facility_id: 'F1',
+      runs: [{
+        ...run('door', 'arrived', {
+          patient_id: 'P9', alerts: ['stemi'],
+          events: [
+            { id: 'v1', run_id: 'door', kind: 'vitals', occurred_at: '2026-11-08T14:12:00Z', recorded_by: 'm', payload: { heart_rate: 118 } },
+            { id: 'v2', run_id: 'door', kind: 'vitals', occurred_at: '2026-11-08T14:24:00Z', recorded_by: 'm', payload: { heart_rate: 106 } },
+          ],
+        } as Partial<EmsRunWithEvents>),
+        emergency: { allergies: [{ name: 'Penicillin', severity: 'Severe' }, { name: 'Latex', severity: 'Mild' }], blood_type: 'O+' },
+        vitals_trend: {
+          direction: 'improving', heart_rate: 'better', systolic_bp: null, spo2: null, gcs: null,
+          respiratory_rate: null, temperature: null, parameters_compared: 1,
+        },
+      }],
+    });
+    render(<I18nProvider><MemoryRouter><IncomingAmbulancesPage /></MemoryRouter></I18nProvider>);
+    const card = (await screen.findAllByRole('listitem'))[0];
+    expect(within(card).getByText('STEMI alert')).toBeInTheDocument();
+    expect(card).toHaveTextContent('Penicillin · Latex');
+    expect(within(card).getByText('Blood O+')).toBeInTheDocument();
+    expect(within(card).getByText('Improving since the first reading')).toBeInTheDocument();
+    // The arrow is on the latest heart rate, coloured by the server's verdict.
+    expect(within(card).getByText('▼').parentElement).toHaveClass('text-ok');
+    expect(card).toHaveTextContent('106▼ better');
+  });
+
+  it('says there is no trend from one set of readings, rather than none', async () => {
+    vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({
+      facility_id: 'F1',
+      runs: [{ ...run('road', 'en_route', {
+        events: [{ id: 'v1', run_id: 'road', kind: 'vitals', occurred_at: '2026-11-08T14:12:00Z', recorded_by: 'm', payload: { heart_rate: 98 } }],
+      } as Partial<EmsRunWithEvents>), vitals_trend: null, emergency: null }],
+    });
+    render(<I18nProvider><MemoryRouter><IncomingAmbulancesPage /></MemoryRouter></I18nProvider>);
+    const card = (await screen.findAllByRole('listitem'))[0];
+    expect(within(card).getByText('One set of readings — no trend yet')).toBeInTheDocument();
+    expect(within(card).queryByText(/allergies recorded/)).not.toBeInTheDocument();
+  });
+
   it('marks a patient nobody has identified yet, and records nothing about them', async () => {
     vi.mocked(shared.listIncomingEmsRuns).mockResolvedValue({
       facility_id: 'F1',

@@ -20,13 +20,14 @@ import {
   useSubmission,
   useTranslation,
 } from '@medichain/shared';
-import type { AddEmsRunEventBody, EmsRun } from '@medichain/shared';
+import { EMS_RUN_ALERTS } from '@medichain/shared';
+import type { AddEmsRunEventBody, EmsRun, EmsRunAlert } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { addPendingEvent, newRunId, putLocalRun, putRun, useLocalRun, type LocalEvent } from './runStore';
 import { usePatientStore } from '../store/patientStore';
 import { EntrySheet, type EntryKind } from './EntrySheet';
 import { LeaveSceneSheet } from './LeaveSceneSheet';
-import { describeEvent } from './runSummary';
+import { activeAlerts, describeEvent, eventLabel } from './runSummary';
 import { crewBody, readCrewDetails, saveCrewDetails, type CrewDetails } from './crewDetails';
 
 const OPEN: EmsRun['status'][] = ['in_progress', 'en_route', 'arrived'];
@@ -51,11 +52,14 @@ function StartRun() {
 
   const userId = useAuthStore((s) => s.user?.userId);
   const [crewDetails, setCrewDetails] = useState<CrewDetails>(() => readCrewDetails(userId));
+  const [description, setDescription] = useState('');
   const start = async (patientId?: string) => {
     // The id is chosen here so a run can start with no signal; the server
     // stores it insert-only, so a chosen id can never overwrite another run.
     const crew = crewBody(crewDetails);
-    const body = { id: newRunId(), ...crew, ...(patientId ? { patient_id: patientId } : {}) };
+    // A description is for a patient nobody has identified; a scanned card names them.
+    const described = !patientId && description.trim() ? { unidentified_description: description.trim() } : {};
+    const body = { id: newRunId(), ...crew, ...described, ...(patientId ? { patient_id: patientId } : {}) };
     saveCrewDetails(userId, crewDetails);
     const result = await submission.run(body, () => createEmsRun(body));
     if (result.kind === 'saved') putRun(result.value);
@@ -63,7 +67,8 @@ function StartRun() {
       const now = new Date().toISOString();
       putLocalRun({
         id: body.id, status: 'in_progress', created_by: userId ?? '', crew: crew.crew ?? [], unit_number: crew.unit_number ?? null,
-        patient_id: patientId ?? null, created_at: now, updated_at: now,
+        patient_id: patientId ?? null, unidentified_description: described.unidentified_description ?? null,
+        created_at: now, updated_at: now,
       });
     }
     if (result.kind === 'saved' || result.kind === 'queued') navigate(`/ems-run/${encodeURIComponent(body.id)}`);
@@ -118,10 +123,19 @@ function StartRun() {
             {t('ems.scanCard')}
           </button>
         )}
-        <button type="button" onClick={() => void start()}
-          className="min-h-[48px] w-full rounded-xl border border-border-interactive px-4 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
-          {t('ems.startUnidentified')}
-        </button>
+        <div className="space-y-2 rounded-xl border border-border p-3">
+          <label className="block text-sm font-semibold text-content">
+            {t('ems.descriptionLabel')}
+            <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={200} autoComplete="off"
+              aria-describedby="description-hint"
+              className="mt-1 min-h-[48px] w-full rounded-lg border border-border-interactive bg-surface px-3 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus" />
+            <span id="description-hint" className="mt-1 block text-xs font-normal text-content-muted">{t('ems.descriptionHint')}</span>
+          </label>
+          <button type="button" onClick={() => void start()}
+            className="min-h-[48px] w-full rounded-xl border border-border-interactive px-4 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+            {t('ems.startUnidentified')}
+          </button>
+        </div>
         {submission.status === 'failed' && (
           <p role="alert" className="text-sm text-critical-subtle-fg">{getApiErrorMessage(submission.error, t('ems.saveFailed'))}</p>
         )}
@@ -200,6 +214,8 @@ function RunView({ runId }: { runId: string }) {
               <QuickButton icon={Syringe} label={t('ems.entry.medication')} onClick={() => setEntry('medication')} />
               <QuickButton icon={FileText} label={t('ems.entry.note')} onClick={() => setEntry('note')} />
             </div>
+            <PreAlerts raised={activeAlerts(run, run.events)}
+              onToggle={(alert, raise) => void record({ kind: 'alert', payload: { alert, raised: raise } })} />
           </>
         )}
         {submission.status === 'failed' && (
@@ -238,6 +254,29 @@ function PatientCard({ run, patient }: { run: EmsRun; patient: ReturnType<typeof
   );
 }
 
+/** The hospital activates a team for each; tapping again withdraws it. */
+function PreAlerts({ raised, onToggle }: { raised: EmsRunAlert[]; onToggle: (alert: EmsRunAlert, raise: boolean) => void }) {
+  const { t } = useTranslation();
+  return (
+    <section aria-labelledby="pre-alerts" className="space-y-2">
+      <h2 id="pre-alerts" className="text-sm font-semibold uppercase tracking-wide text-content-muted">{t('ems.preAlerts')}</h2>
+      <div className="flex flex-wrap gap-2">
+        {EMS_RUN_ALERTS.map((alert) => {
+          const on = raised.includes(alert);
+          return (
+            <button key={alert} type="button" aria-pressed={on} onClick={() => onToggle(alert, !on)}
+              className={`mc-press min-h-[44px] rounded-full border-2 px-4 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${on
+                ? 'border-critical bg-critical-subtle text-critical-subtle-fg'
+                : 'border-border-interactive text-content hover:bg-surface-sunken'}`}>
+              {t(`ems.alerts.${alert}`)}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function QuickButton({ icon: Icon, label, onClick }: { icon: typeof Activity; label: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick}
@@ -260,7 +299,7 @@ function Timeline({ events }: { events: LocalEvent[] }) {
           <li key={e.id} className="mc-enter">
             <p className="text-sm font-semibold text-content">
               <span className="mr-2 tabular-nums text-content-muted">{formatTimestamp(e.occurred_at, { timeStyle: 'short' })}</span>
-              {t(`ems.kind.${e.kind}`)}
+              {eventLabel(e, t)}
               {e.pending && <span className="ml-2 rounded-full bg-caution-subtle px-2 py-0.5 text-xs font-semibold text-caution-subtle-fg">{t('ems.pending')}</span>}
             </p>
             {describeEvent(e) && <p className="text-sm tabular-nums text-content-secondary">{describeEvent(e)}</p>}

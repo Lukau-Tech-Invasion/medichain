@@ -5666,7 +5666,11 @@ export type EmsRunStatus = 'in_progress' | 'en_route' | 'arrived' | 'received' |
 export type EmsRunEventKind =
   | 'dispatched' | 'on_scene' | 'patient_contact' | 'identified' | 'vitals' | 'treatment'
   | 'medication' | 'note' | 'left_scene' | 'destination_changed' | 'handed_over'
-  | 'received' | 'cancelled' | 'no_transport';
+  | 'received' | 'cancelled' | 'no_transport' | 'alert';
+
+/** The pre-alerts a crew can raise; the server refuses any other. */
+export const EMS_RUN_ALERTS = ['trauma', 'stemi', 'stroke', 'sepsis', 'cardiac_arrest'] as const;
+export type EmsRunAlert = (typeof EMS_RUN_ALERTS)[number];
 
 export interface EmsRun {
   id: string;
@@ -5679,6 +5683,8 @@ export interface EmsRun {
   unidentified_description?: string | null;
   chief_complaint?: string | null;
   incident_id?: string | null;
+  /** Pre-alerts currently raised, in the order raised. */
+  alerts?: EmsRunAlert[];
   destination_facility_id?: string | null;
   destination_name?: string | null;
   eta?: string | null;
@@ -5712,6 +5718,33 @@ export interface EmsRunEvent {
 
 export interface EmsRunWithEvents extends EmsRun {
   events: EmsRunEvent[];
+}
+
+/** How one observation moved, judged by the server (NEWS2 points; GCS higher is better). */
+export type EmsVitalChange = 'better' | 'worse' | 'same';
+
+/** First reading against the latest, computed in clinical_scoring.rs. */
+export interface EmsVitalsTrend {
+  direction: 'improving' | 'worsening' | 'mixed' | 'unchanged';
+  respiratory_rate: EmsVitalChange | null;
+  spo2: EmsVitalChange | null;
+  systolic_bp: EmsVitalChange | null;
+  heart_rate: EmsVitalChange | null;
+  temperature: EmsVitalChange | null;
+  gcs: EmsVitalChange | null;
+  parameters_compared: number;
+}
+
+/** A run on the receiving board. */
+export interface IncomingEmsRun extends EmsRunWithEvents {
+  /** Null with fewer than two readings to compare. */
+  vitals_trend?: EmsVitalsTrend | null;
+  /** For an identified patient whose record could be read; the read is logged. */
+  emergency?: {
+    allergies: Array<{ name: string; severity: string }>;
+    /** Null when the group is not known. */
+    blood_type: string | null;
+  } | null;
 }
 
 export interface CreateEmsRunBody {
@@ -5773,7 +5806,7 @@ export async function listEmsDestinations(): Promise<{ facilities: Array<{ id: s
 }
 
 /** Ambulances coming to the caller's own facility: the incoming board. */
-export async function listIncomingEmsRuns(): Promise<{ facility_id: string | null; runs: EmsRunWithEvents[] }> {
+export async function listIncomingEmsRuns(): Promise<{ facility_id: string | null; runs: IncomingEmsRun[] }> {
   return getApiClient().get('/api/ems/incoming');
 }
 

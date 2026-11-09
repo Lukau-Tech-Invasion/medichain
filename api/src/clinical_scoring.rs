@@ -846,6 +846,198 @@ pub fn news2_score(inputs: &News2Inputs) -> News2Score {
     }
 }
 
+// ============================================================================
+// PRE-HOSPITAL VITALS TREND
+// ============================================================================
+
+/// One set of observations an ambulance crew recorded. Every reading optional.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PrehospitalVitals {
+    pub respiratory_rate: Option<i32>,
+    pub spo2: Option<i32>,
+    pub systolic_bp: Option<i32>,
+    pub heart_rate: Option<i32>,
+    pub temperature_celsius: Option<f64>,
+    pub gcs: Option<i32>,
+}
+
+/// How one observation moved between the first reading and the latest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VitalChange {
+    Better,
+    Worse,
+    Same,
+}
+
+/// The direction of the whole set: each observation measured both times,
+/// judged by the points NEWS2 gives it (GCS: by itself, higher is better).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VitalsDirection {
+    /// At least one better and none worse.
+    Improving,
+    /// At least one worse and none better.
+    Worsening,
+    /// Some better, some worse: the reader must look at the numbers.
+    Mixed,
+    /// Nothing moved by a NEWS2 band (or GCS point).
+    Unchanged,
+}
+
+/// The trend across an ambulance run's observations, with the working shown.
+///
+/// Compares the earliest reading with the latest, parameter by parameter,
+/// counting only parameters recorded in both: a reading taken once has no
+/// trend (rule 12). Change is measured in NEWS2 points (RCP 2017, SpO2 scale 1),
+/// so a pulse moving from 118 to 106 is "better" because it leaves the 111-130
+/// band, while 80 to 88 is "same". GCS is not a NEWS2 parameter; a rise is
+/// better. `None` means there is nothing to compare.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VitalsTrend {
+    pub direction: VitalsDirection,
+    pub respiratory_rate: Option<VitalChange>,
+    pub spo2: Option<VitalChange>,
+    pub systolic_bp: Option<VitalChange>,
+    pub heart_rate: Option<VitalChange>,
+    pub temperature: Option<VitalChange>,
+    pub gcs: Option<VitalChange>,
+    /// How many parameters were recorded in both readings.
+    pub parameters_compared: u8,
+}
+
+/// Lower points (or, for GCS, a higher score) is better.
+fn change_by_points(first: u8, latest: u8) -> VitalChange {
+    match latest.cmp(&first) {
+        std::cmp::Ordering::Less => VitalChange::Better,
+        std::cmp::Ordering::Greater => VitalChange::Worse,
+        std::cmp::Ordering::Equal => VitalChange::Same,
+    }
+}
+
+fn change_in<T: Copy>(
+    first: Option<T>,
+    latest: Option<T>,
+    points: fn(T) -> u8,
+) -> Option<VitalChange> {
+    Some(change_by_points(points(first?), points(latest?)))
+}
+
+/// Trend from the first to the latest reading; `None` when no parameter was
+/// recorded in both.
+pub fn prehospital_vitals_trend(
+    first: &PrehospitalVitals,
+    latest: &PrehospitalVitals,
+) -> Option<VitalsTrend> {
+    let gcs = match (first.gcs, latest.gcs) {
+        (Some(a), Some(b)) => Some(match b.cmp(&a) {
+            std::cmp::Ordering::Greater => VitalChange::Better,
+            std::cmp::Ordering::Less => VitalChange::Worse,
+            std::cmp::Ordering::Equal => VitalChange::Same,
+        }),
+        _ => None,
+    };
+    let changes = [
+        change_in(
+            first.respiratory_rate,
+            latest.respiratory_rate,
+            news2_respiratory_rate,
+        ),
+        change_in(first.spo2, latest.spo2, news2_spo2_scale1),
+        change_in(first.systolic_bp, latest.systolic_bp, news2_systolic),
+        change_in(first.heart_rate, latest.heart_rate, news2_pulse),
+        change_in(
+            first.temperature_celsius,
+            latest.temperature_celsius,
+            news2_temperature,
+        ),
+        gcs,
+    ];
+    let compared = changes.iter().flatten().count() as u8;
+    if compared == 0 {
+        return None;
+    }
+    let better = changes.contains(&Some(VitalChange::Better));
+    let worse = changes.contains(&Some(VitalChange::Worse));
+    let direction = match (better, worse) {
+        (true, false) => VitalsDirection::Improving,
+        (false, true) => VitalsDirection::Worsening,
+        (true, true) => VitalsDirection::Mixed,
+        (false, false) => VitalsDirection::Unchanged,
+    };
+    Some(VitalsTrend {
+        direction,
+        respiratory_rate: changes[0],
+        spo2: changes[1],
+        systolic_bp: changes[2],
+        heart_rate: changes[3],
+        temperature: changes[4],
+        gcs: changes[5],
+        parameters_compared: compared,
+    })
+}
+
+#[cfg(test)]
+mod prehospital_trend_tests {
+    use super::*;
+
+    fn reading(sbp: i32, hr: i32, spo2: i32, gcs: i32) -> PrehospitalVitals {
+        PrehospitalVitals {
+            systolic_bp: Some(sbp),
+            heart_rate: Some(hr),
+            spo2: Some(spo2),
+            gcs: Some(gcs),
+            ..PrehospitalVitals::default()
+        }
+    }
+
+    #[test]
+    fn a_patient_leaving_the_danger_bands_is_improving() {
+        // The c8 run: BP 92 -> 104, HR 118 -> 106, SpO2 91 -> 96, GCS 14 -> 15.
+        let t = prehospital_vitals_trend(&reading(92, 118, 91, 14), &reading(104, 106, 96, 15))
+            .unwrap();
+        assert_eq!(t.direction, VitalsDirection::Improving);
+        assert_eq!(t.systolic_bp, Some(VitalChange::Better));
+        assert_eq!(t.gcs, Some(VitalChange::Better));
+        assert_eq!(t.parameters_compared, 4);
+    }
+
+    #[test]
+    fn a_move_within_one_band_is_not_a_change() {
+        let t =
+            prehospital_vitals_trend(&reading(120, 80, 98, 15), &reading(130, 88, 97, 15)).unwrap();
+        assert_eq!(t.direction, VitalsDirection::Unchanged);
+    }
+
+    #[test]
+    fn one_better_and_one_worse_is_mixed() {
+        let t =
+            prehospital_vitals_trend(&reading(92, 80, 98, 15), &reading(120, 120, 98, 15)).unwrap();
+        assert_eq!(t.direction, VitalsDirection::Mixed);
+        assert_eq!(t.heart_rate, Some(VitalChange::Worse));
+    }
+
+    #[test]
+    fn falling_consciousness_is_worsening() {
+        let t =
+            prehospital_vitals_trend(&reading(120, 80, 98, 15), &reading(120, 80, 98, 12)).unwrap();
+        assert_eq!(t.direction, VitalsDirection::Worsening);
+    }
+
+    #[test]
+    fn a_parameter_recorded_once_is_not_compared() {
+        let first = PrehospitalVitals {
+            heart_rate: Some(118),
+            ..PrehospitalVitals::default()
+        };
+        let latest = PrehospitalVitals {
+            systolic_bp: Some(104),
+            ..PrehospitalVitals::default()
+        };
+        assert_eq!(prehospital_vitals_trend(&first, &latest), None);
+    }
+}
+
 #[cfg(test)]
 mod news2_tests {
     use super::*;
