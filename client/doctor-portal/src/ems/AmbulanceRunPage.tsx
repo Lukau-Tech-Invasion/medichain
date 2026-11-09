@@ -28,6 +28,7 @@ import { usePatientStore } from '../store/patientStore';
 import { EntrySheet, type EntryKind } from './EntrySheet';
 import { LeaveSceneSheet } from './LeaveSceneSheet';
 import { activeAlerts, describeEvent, eventLabel } from './runSummary';
+import { crewLine } from './RunTimeline';
 import { crewBody, readCrewDetails, saveCrewDetails, type CrewDetails } from './crewDetails';
 
 const OPEN: EmsRun['status'][] = ['in_progress', 'en_route', 'arrived'];
@@ -179,7 +180,11 @@ function RunView({ runId }: { runId: string }) {
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col">
       <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface px-4 py-3">
-        <p className="flex items-center gap-2 font-bold text-content"><Truck className="h-5 w-5 text-critical" aria-hidden="true" />{t('ems.runLabel')}</p>
+        {/* Unit and crew under the title (c6): the crew sees what the hospital sees. */}
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 font-bold text-content"><Truck className="h-5 w-5 shrink-0 text-critical" aria-hidden="true" />{t('ems.runLabel')}</p>
+          {crewLine(run, t) && <p className="truncate pl-7 text-sm text-content-secondary">{crewLine(run, t)}</p>}
+        </div>
         <span className="rounded-full bg-caution-subtle px-3 py-1 text-sm font-semibold text-caution-subtle-fg">{t(`ems.status.${run.status}`)}</span>
       </header>
       <div className="flex-1 space-y-4 p-4 pb-32">

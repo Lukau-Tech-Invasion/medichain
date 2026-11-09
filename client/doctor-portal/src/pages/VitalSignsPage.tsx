@@ -302,16 +302,32 @@ function VitalSignsPage() {
           </h1>
           <p className="text-content-muted mt-1">{t('docVitalSigns.subtitle')}</p>
         </div>
-        <Link
-          to="/dashboard"
-          className="text-content-muted hover:text-content flex items-center gap-2"
-        >
-          {t('docVitalSigns.backToDashboard')}
-        </Link>
+        {/* Inside a chart, "Close patient" is the way out (c3/c5). */}
+        {!workspace && (
+          <Link
+            to="/dashboard"
+            className="text-content-muted hover:text-content flex items-center gap-2"
+          >
+            {t('docVitalSigns.backToDashboard')}
+          </Link>
+        )}
       </div>
 
+      {/* Inside a chart the banner already names the patient (c3): no picker,
+          only the way back into the form after a save or cancel. */}
+      {workspace && !showForm && (
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="mb-6 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-brand px-6 py-3 text-brand-fg hover:bg-brand"
+        >
+          <Plus size={20} />
+          {t('docVitalSigns.recordVitalsButton')}
+        </button>
+      )}
+
       {/* Patient Selection */}
-      <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
+      <div className={`bg-surface rounded-xl shadow-sm border border-border p-6 mb-6 ${workspace ? 'hidden' : ''}`}>
         <label htmlFor="vitals-patient-select" className="block text-sm font-medium text-content-secondary mb-2">
           {t('docVitalSigns.selectPatientLabel')}
         </label>

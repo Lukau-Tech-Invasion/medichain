@@ -86,6 +86,13 @@ interface SoapNoteResponse {
  * today sorted level with every other, so a note written a minute ago could sit
  * behind a page of this morning's lab results and never be seen.
  */
+/** "Level3Urgent" is the server's enum name; a patient reads "Triage level 3". */
+export function triageLevelLabel(level: string | null | undefined): string | null {
+  if (!level) return null;
+  const n = /^Level([1-5])/.exec(level)?.[1];
+  return n ? `Triage level ${n}` : level;
+}
+
 function timestampDate(value?: number | string): string {
   if (!value) return '';
   const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
@@ -332,7 +339,7 @@ export function MyRecordsPage() {
         id: assessment.assessment_id,
         type: 'consultation' as const,
         title: 'Triage Assessment',
-        description: [assessment.chief_complaint, assessment.esi_level].filter(Boolean).join(' — '),
+        description: [assessment.chief_complaint, triageLevelLabel(assessment.esi_level)].filter(Boolean).join(' — '),
         provider: assessment.performed_by || 'MediChain provider',
         date: timestampDate(assessment.performed_at),
         contentHash: `triage-${assessment.assessment_id}`,
@@ -942,7 +949,7 @@ export function MyRecordsPage() {
         )}
 
         {/* Filter chips stay in reach while the list scrolls. */}
-        <div className="sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto bg-surface-sunken px-4 py-2 md:-mx-5 md:px-5">
+        <div className="sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto bg-surface-sunken lg:flex-wrap lg:overflow-visible px-4 py-2 md:-mx-5 md:px-5">
           {recordTypes.map(type => (
             <button
               key={type}

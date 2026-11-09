@@ -482,7 +482,7 @@ function TriagePage() {
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={`w-8 h-8 rounded-full ${esi.color} text-white flex items-center justify-center font-bold`}>
+                    <span className={`w-8 h-8 shrink-0 rounded-full ${esi.color} text-white flex items-center justify-center font-bold`}>
                       {esi.level}
                     </span>
                     <span className={`font-semibold ${esi.textColor}`}>{esi.name}</span>

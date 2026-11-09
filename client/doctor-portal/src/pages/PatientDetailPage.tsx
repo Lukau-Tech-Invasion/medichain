@@ -32,6 +32,7 @@ import {
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
 import { useAuthStore } from '../store';
+import { ageInYears } from '../workspace/identity';
 import { 
   User, 
   Heart, 
@@ -698,7 +699,9 @@ function PatientDetailPage() {
           </div>
 
           <PatientAdministrativeDetails details={patient.administrative ?? {}} />
-          <LatestPediatricAssessment patientId={patientId!} />
+          {/* Children only: an adult's chart is no place for a paediatric panel. An
+              unknown age is not taken to mean adult. */}
+          {(ageInYears(patient.dateOfBirth) ?? 0) < 18 && <LatestPediatricAssessment patientId={patientId!} />}
           {/* Dedicated vital-sign chart: separate encounters retain their own observations. */}
           <div className="bg-surface rounded-lg border border-border p-4">
             <div className="flex items-center gap-2 mb-2">

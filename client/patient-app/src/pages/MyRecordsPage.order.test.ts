@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupByMonth } from './MyRecordsPage';
+import { groupByMonth, triageLevelLabel } from './MyRecordsPage';
 
 describe('records are newest first', () => {
   it('orders records from the same day by their time, not by where they came from', () => {
@@ -11,5 +11,12 @@ describe('records are newest first', () => {
     ]);
     expect(groups.map((g) => g.key)).toEqual(['2026-11', 'undated']);
     expect(groups[0].records.map((r) => r.id)).toEqual(['code-blue', 'lab', 'yesterday']);
+  });
+});
+
+describe('triage level', () => {
+  it('reads as a level, not as the server enum', () => {
+    expect(triageLevelLabel('Level3Urgent')).toBe('Triage level 3');
+    expect(triageLevelLabel(undefined)).toBeNull();
   });
 });

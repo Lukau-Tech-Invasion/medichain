@@ -694,7 +694,13 @@ async fn download_vitals(
     };
     let mut body = format!("Vital signs {vitals_id}\n\n");
     body.push_str(&format!("Patient:          {}\n", v.patient_id));
-    body.push_str(&format!("Recorded by:      {}\n", v.recorded_by));
+    // A name, not an account id: the patient reads this sheet. The id stands
+    // only when no account answers to it.
+    let recorded_by = crate::get_user(data, &v.recorded_by)
+        .map(|u| u.name)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| v.recorded_by.clone());
+    body.push_str(&format!("Recorded by:      {recorded_by}\n"));
     body.push_str(&format!(
         "Recorded:         {}\n",
         v.recorded_at.format("%Y-%m-%d %H:%M UTC")

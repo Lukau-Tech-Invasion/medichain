@@ -53,7 +53,14 @@ const ROLE_PLURAL: Record<Role, string> = {
   Patient: 'patients',
 };
 
-const PARAMEDIC_ALLOWED_ROUTES = new Set(['/dashboard', '/emergency', '/ems-handoff', '/mci', '/settings']);
+const PARAMEDIC_ALLOWED_ROUTES = new Set(['/dashboard', '/emergency', '/ems-handoff', '/ems-run', '/mci', '/settings']);
+
+/** The ambulance run is the paramedic's home screen (the dashboard redirects
+ *  there), including one run opened by id. It was missing from the list, so
+ *  every paramedic landed on a refusal. */
+function paramedicMayOpen(pathname: string): boolean {
+  return PARAMEDIC_ALLOWED_ROUTES.has(pathname) || pathname.startsWith('/ems-run/');
+}
 
 /** "nurses", or "doctors and nurses" — never "doctors, nurses". */
 function formatRoleList(names: string[]): string {
@@ -470,7 +477,7 @@ function Layout() {
     [userRole, location.pathname]
   );
   const paramedicRestricted = userRole === 'Paramedic'
-    && !PARAMEDIC_ALLOWED_ROUTES.has(location.pathname);
+    && !paramedicMayOpen(location.pathname);
   // Under "More", every section starts folded: the screens used most are
   // already above it, and an open section would only repeat them.
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());

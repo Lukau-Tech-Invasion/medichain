@@ -52,6 +52,8 @@ export function parseDocument(text: string): ParsedDocument {
     const label = colon > 0 ? trimmed.slice(0, colon).trim() : '';
     const value = colon > 0 ? trimmed.slice(colon + 1).trim() : '';
     const isLabel = label.length > 0 && label.length <= 40 && !/^https?$/i.test(label);
+    // "Patient: PAT-..." -- the reader is the patient; their record id is noise.
+    if (isLabel && label === 'Patient' && /^PAT-/.test(value)) continue;
     if (isLabel && label === 'Not recorded' && value) {
       doc.notRecorded = value.split(',').map((s) => s.trim()).filter(Boolean);
     } else if (isLabel && value) {

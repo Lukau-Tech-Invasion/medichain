@@ -233,7 +233,8 @@ async fn critical_values(
                 id: c.id,
                 patient_id: c.patient_id,
                 title: c.test_name,
-                detail: Some(format!("{} {}", c.value, c.unit)),
+                // normalize(): the column's scale would print 6.9 as "6.9000".
+                detail: Some(format!("{} {}", c.value.normalize(), c.unit)),
                 at: c.created_at,
                 urgency: "critical",
             })

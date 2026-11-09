@@ -497,7 +497,7 @@ export async function patientJourney(
   j.status("a patient cannot read another patient's access log", theirLogs.status, [403, 404], theirLogs.json);
 
   // The arrival the patient does themselves, at the door, on their phone.
-  await runSelfCheckInSteps(j, patient, id);
+  await runSelfCheckInSteps(j, patient, clinician, id);
 
   // --- What the hospital wrote about them ---------------------------------
   await runDischargeVisibilitySteps(j, patient, clinician, id, other);
@@ -529,6 +529,7 @@ export async function patientJourney(
 export async function runSelfCheckInSteps(
   j: Journal,
   patient: Session,
+  clinician: Session,
   id: string
 ): Promise<void> {
   // Every run books against the same provider, so a slot is only free once.
@@ -546,6 +547,9 @@ export async function runSelfCheckInSteps(
       token: patient.token,
       body: {
         patient_id: id,
+        // The patient chooses whom to see, as AppointmentsPage does. Naming
+        // nobody once booked the patient as their own clinician; it is a 400 now.
+        provider_id: clinician.userId,
         appointment_type: 'FollowUp',
         reason: `Journey self check-in ${Date.now()}`,
         // Tomorrow, not today: a slot in the past behaves differently and the
@@ -566,7 +570,7 @@ export async function runSelfCheckInSteps(
   const apptId = String(booked.json.appointment_id ?? booked.json.id ?? '');
 
   if (!bookedOk || !apptId) {
-    j.skip('the patient confirms the time they were offered', 'the appointment was not booked');
+    j.skip('the clinician confirms the time the patient asked for', 'the appointment was not booked');
     j.skip('the patient checks themselves in', 'the appointment was not booked');
     return;
   }
@@ -574,13 +578,15 @@ export async function runSelfCheckInSteps(
   // Confirm first. `is_valid_transition` deliberately refuses
   // `Scheduled -> CheckedIn`: a booking is a proposal until the party who did
   // not make it agrees, and allowing check-in straight from Scheduled would
-  // make confirmation decorative. The journey follows the real path rather
-  // than asking for the shortcut.
+  // make confirmation decorative. The patient booked it, so the clinician is
+  // the party who agrees. (This step once had the patient confirm their own
+  // booking -- possible only because, naming no clinician, they had been
+  // booked as their own provider.)
   const confirm = await http('POST', `/appointments/${apptId}/status`, {
-    token: patient.token,
+    token: clinician.token,
     body: { status: 'Confirmed' },
   });
-  const confirmed = j.status('the patient confirms the time they were offered', confirm.status, [200, 201], confirm.json);
+  const confirmed = j.status('the clinician confirms the time the patient asked for', confirm.status, [200, 201], confirm.json);
 
   if (!confirmed) {
     j.skip('the patient checks themselves in', 'the appointment was not confirmed');

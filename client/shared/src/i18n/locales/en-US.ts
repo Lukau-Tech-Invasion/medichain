@@ -8942,7 +8942,7 @@ const en_US: TranslationRecord = {
     etaMinutes: 'About how long?',
     minutes: '{{n}} min',
     incomingTitle: 'Incoming ambulances',
-    incomingSubtitle: 'Only patients coming to your hospital. Updates every 20 seconds.',
+    incomingSubtitle: 'Live: only patients coming to your hospital.',
     incomingFailed: 'The incoming list could not be loaded.',
     noFacility: 'Your account is not assigned to a hospital, so no ambulances can be shown. Ask an administrator to assign you.',
     noneIncoming: 'No ambulances are on their way right now.',

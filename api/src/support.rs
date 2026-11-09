@@ -730,19 +730,24 @@ pub fn resolve_attributed_provider(
     let caller = require_registered_caller(data, req)?;
 
     let requested = requested.map(str::trim).filter(|s| !s.is_empty());
-    let Some(requested) = requested else {
-        return Ok(AttributedProvider {
-            provider: caller,
-            filed_by: None,
-        });
+    // Filing under your own name: only a provider can be the provider. A
+    // patient who named nobody was booked as their own clinician, and their
+    // home screen then listed the appointment under their own name.
+    let requested = match requested {
+        Some(r) if r != caller.id => r,
+        _ => {
+            if !caller.role.is_healthcare_provider() {
+                return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
+                    error: "Choose the clinician this is with".to_string(),
+                    code: "PROVIDER_REQUIRED".to_string(),
+                }));
+            }
+            return Ok(AttributedProvider {
+                provider: caller,
+                filed_by: None,
+            });
+        }
     };
-
-    if requested == caller.id {
-        return Ok(AttributedProvider {
-            provider: caller,
-            filed_by: None,
-        });
-    }
 
     // Naming someone else. Resolve them, and require that they really are a
     // provider — otherwise a record could be attributed to a patient account
@@ -997,6 +1002,16 @@ mod attributed_provider_tests {
             "admin",
             "audit still names who actually filed it"
         );
+    }
+
+    /// A patient who names nobody, or themselves, is not the clinician.
+    #[test]
+    fn a_patient_must_name_a_provider() {
+        let s = state();
+        for named in [None, Some("patient")] {
+            let err = resolve_attributed_provider(&s, &req_as("patient"), named).unwrap_err();
+            assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        }
     }
 
     /// A patient choosing whom to see is legitimate — `provider_id` is a target
