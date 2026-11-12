@@ -265,7 +265,7 @@ const PathologyPage: React.FC = () => {
     } finally {
       setSlideImagesLoading(false);
     }
-  }, []);
+  }, [t]);
 
   /** Encrypt and store one captured slide image against the open specimen. */
   const attachSlideImage = async (file: File) => {

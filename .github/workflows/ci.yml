@@ -265,6 +265,20 @@ jobs:
             - name: Every page payload fits the type its handler takes
               run: python scripts/check-payload-contracts.py
 
+            # The TypeScript request types are generated from the Rust structs
+            # the handlers deserialise. A struct changed without regenerating
+            # leaves the client typed against a shape the server no longer
+            # takes, and nothing else here would notice.
+            - name: Generated request types match the Rust structs
+              run: python scripts/gen-request-types.py --check
+
+            # Both gates below existed and passed locally but never ran here.
+            - name: Every column that can hold a user is in the actor registry
+              run: python scripts/check-actor-columns.py
+
+            - name: No migration seeds accounts, patients or identities
+              run: python scripts/check-no-migration-seeds.py
+
             # An INSERT whose column list and bind chain have drifted apart.
             #
             # `QueryBuilder` joins a string literal to a sequence of method

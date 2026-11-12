@@ -4708,3 +4708,56 @@ appointments, the same list the offline bundle carries), keeps each patient only
 when `resolve_chart_access` grants a treating authority now, and filters the
 other three panels to those patients (`nurse_list_tests`). The page labels the
 list "My Patients" and says why it is empty when it is.
+
+## 2026-11-12 — OPEN: the sepsis fluid hint assumes every patient weighs 70 kg
+
+`SepsisPage.tsx` shows the 30 mL/kg crystalloid target as `Math.round(70 * 30)`
+(2,100 mL) for every patient. A 45 kg woman is told to give 2,100 mL instead of
+1,350; a 110 kg man 2,100 instead of 3,300. The page has no weight input and the
+target is not computed by the server. Fix: take the patient's recorded weight
+(or a weight entered on the form), compute the target in
+`api/src/clinical_scoring.rs`, and show nothing when no weight is known (rule
+12). The same hint ticks the "30 mL/kg" bundle item at a flat 2,000 mL.
+
+## 2026-11-12 — OPEN: the sepsis lactate colour bands are literals in the page
+
+`SepsisPage.tsx` colours each lactate reading critical at `>= 4` and caution at
+`>= 2` mmol/L, written into the component. Rule 8 says thresholds a page needs
+come from `GET /api/clinical/scoring/catalog`; the qSOFA preview on the same
+page was moved there on 2026-11-12. Fix: add the two cut-points to the catalog
+and read them, as the qSOFA preview does.
+
+## 2026-11-12 — OPEN: two API wrappers with no screen, which look unfinished rather than dead
+
+Found by a scan for `client/shared/src/api/endpoints/` functions named nowhere
+else. Neither is removed: each is a capability a person needs.
+
+  * `reissuePatientActivationCode` -> `POST /api/patients/{id}/activation-code`.
+    A patient who loses or never received their activation code cannot be given
+    a new one from any screen.
+  * `getPatientEmsHandoffs` -> `GET /api/clinical/patient/{id}/ems-handoffs`.
+    The patient-scoped read of ambulance handovers (rule 10) exists; no patient
+    screen lists them.
+
+## 2026-11-12 — Phase 6 clean-up: what was removed and what was kept
+
+  * **Removed:** `quick-start.bat`, `start-api-bg.bat`, `start-server.ps1`. All
+    three started the API from a OneDrive WSL path that no longer exists, and
+    nothing referred to them.
+  * **Archived** to `docs/archive/` (with a README): the September open-work
+    register (`handoff.md`) and the two October full-application reports.
+  * **In-memory store locks:** 146 `.read()/.write().unwrap()` calls in
+    `api/src/repositories/memory/` now return `RepositoryError::Internal` through
+    one `lock_poisoned` function, as do the 82 calls that spelled the same error
+    out inline. One panicking request used to make every later request on that
+    store panic until restart. Still open: about 270 lock calls there map the
+    error with a differently worded `Internal`/`Database` message (consistent
+    enough to leave), and 10 `unwrap`s on `AppState` locks in `telehealth.rs`,
+    `websocket.rs` and `handlers/account_directory.rs`.
+  * **CI:** `gen-request-types.py --check`, `check-actor-columns.py` and
+    `check-no-migration-seeds.py` now run in `ci.yml`. The last two existed and
+    passed locally but were never wired in.
+  * **Kept, though they looked like candidates:** `client/landing.html` (the
+    image serves it at `/`), `run-api.bat` (three documents use it),
+    `docker-compose.awards-demo.yml`, `docker-compose.horizon-isolated.yml`, and
+    the 110 uncalled routes already triaged as UI-less by design.
