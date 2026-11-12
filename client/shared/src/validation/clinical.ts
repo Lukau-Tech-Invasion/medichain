@@ -698,6 +698,10 @@ export const pathologyRequestSchema = z.object({
   collectionDate: requiredText('the collection date', 32),
   site: requiredText('the anatomical site', 200),
   clinician: requiredText('the ordering clinician', 200),
+  // Chosen, not defaulted: an order nobody typed used to be filed as a
+  // routine surgical specimen.
+  specimenType: requiredText('the specimen type', 32),
+  priority: requiredText('the priority', 32),
 });
 
 /**

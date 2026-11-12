@@ -16,27 +16,32 @@ describe('pathologyOrderReducer', () => {
     expect(before.site).toBe('');
   });
 
-  it('reset clears the order but keeps the specimen type', () => {
+  it('a new order has nothing chosen for it', () => {
+    const { specimenType, laterality, priority, fixative } = emptyPathologyOrder();
+    expect([specimenType, laterality, priority, fixative]).toEqual(['', '', '', '']);
+  });
+
+  it('reset clears the order, including the choices made for the last one', () => {
     let order = emptyPathologyOrder();
     order = pathologyOrderReducer(order, { type: 'set', field: 'specimenType', value: 'biopsy' });
     order = pathologyOrderReducer(order, { type: 'set', field: 'site', value: 'Liver' });
     order = pathologyOrderReducer(order, { type: 'set', field: 'priority', value: 'stat' });
-    expect(pathologyOrderReducer(order, { type: 'reset' }))
-      .toEqual({ ...emptyPathologyOrder(), specimenType: 'biopsy' });
+    expect(pathologyOrderReducer(order, { type: 'reset' })).toEqual(emptyPathologyOrder());
   });
 });
 
 describe('toPathologyOrder', () => {
-  it('submits exactly the specimen the page used to assemble by hand', () => {
+  it('submits what was entered, and no accession number', () => {
     const order = {
       ...emptyPathologyOrder(),
       selectedPatientId: 'PAT-1', collectionDate: '2026-11-12', collectionTime: '09:30',
       clinician: 'Dr A', site: 'Left breast', laterality: 'left' as const,
+      specimenType: 'surgical' as const, priority: 'routine' as const, fixative: '10% formalin',
       clinicalHistory: 'Lump', clinicalDiagnosis: 'Query carcinoma', container: 'Pot A',
     };
-    const receipt = { specimenId: 'S24-004', patientName: 'Jane Doe', receivedDate: '2026-11-12', receivedBy: 'lab-1' };
+    const receipt = { patientName: 'Jane Doe', receivedDate: '2026-11-12', receivedBy: 'lab-1' };
     expect(toPathologyOrder(order, receipt)).toEqual({
-      specimenId: 'S24-004', patientId: 'PAT-1', patientName: 'Jane Doe',
+      patientId: 'PAT-1', patientName: 'Jane Doe',
       collectionDate: '2026-11-12', collectionTime: '09:30', clinician: 'Dr A',
       specimenType: 'surgical', site: 'Left breast', laterality: 'left',
       clinicalHistory: 'Lump', clinicalDiagnosis: 'Query carcinoma', priority: 'routine',
@@ -45,9 +50,18 @@ describe('toPathologyOrder', () => {
     });
   });
 
-  it('does not send the form-only name of the patient id', () => {
-    const receipt = { specimenId: 'S', patientName: 'N', receivedDate: 'D', receivedBy: 'B' };
-    expect(toPathologyOrder(emptyPathologyOrder(), receipt)).not.toHaveProperty('selectedPatientId');
+  it('sends neither an accession number nor the form-only name of the patient id', () => {
+    const receipt = { patientName: 'N', receivedDate: 'D', receivedBy: 'B' };
+    const order = toPathologyOrder(emptyPathologyOrder(), receipt);
+    expect(order).not.toHaveProperty('selectedPatientId');
+    expect(order).not.toHaveProperty('specimenId');
+  });
+
+  it('a choice nobody made is absent, not a default', () => {
+    const receipt = { patientName: 'N', receivedDate: 'D', receivedBy: 'B' };
+    const order = toPathologyOrder(emptyPathologyOrder(), receipt);
+    expect([order.specimenType, order.laterality, order.priority, order.fixative])
+      .toEqual([undefined, undefined, undefined, undefined]);
   });
 });
 

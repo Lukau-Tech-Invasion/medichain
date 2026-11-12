@@ -950,8 +950,8 @@ export async function runPathologyVisibilitySteps(
   // why the API accepts this shape rather than demanding a completed report.
   const accession = await http('POST', '/surgical/pathology', {
     token: clinician.token,
+    // No accession number: the server mints it and returns it as `id`.
     body: {
-      specimenId: `S-${stamp}`,
       patientId: id,
       patientName: 'Journey Patient',
       collectionDate: new Date().toISOString().slice(0, 10),

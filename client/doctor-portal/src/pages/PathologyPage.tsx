@@ -182,7 +182,7 @@ const PathologyPage: React.FC = () => {
     pathologyRequestSchema
   );
 
-  const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician });
+  const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician, specimenType, priority });
 
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
   const handleSubmitOrder = guardSubmit(async (e: React.FormEvent) => {
@@ -200,15 +200,17 @@ const PathologyPage: React.FC = () => {
     const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
-    const newSpecimen: PathologySpecimen = toPathologyOrder(order, {
-      specimenId: `S24-${String(specimens.length + 1).padStart(3, '0')}`,
+    const newOrder = toPathologyOrder(order, {
       patientName: patient.full_name,
       receivedDate: new Date().toISOString().split('T')[0],
       receivedBy: user?.userId || 'Unknown',
     });
 
+    // The accession number is the server's. The page used to build one from
+    // the length of its own worklist, which two people ordering at once shared.
+    let accession: string;
     try {
-      await createPathology(newSpecimen);
+      accession = (await createPathology(newOrder)).id;
     } catch (err) {
       console.error('Failed to save pathology specimen:', err);
       // Stop here. Falling through announced success for a write that
@@ -217,8 +219,9 @@ const PathologyPage: React.FC = () => {
       return;
     }
 
-    setSpecimens([...specimens, newSpecimen]);
-    showSuccess(t('docPathology.submittedSuccess', { id: newSpecimen.specimenId }));
+    showSuccess(t('docPathology.submittedSuccess', { id: accession }));
+    // Read back rather than appended: the row on screen is the one stored.
+    await fetchSpecimens();
 
     dispatchOrder({ type: 'reset' });
     setActiveTab('worklist');
@@ -612,8 +615,9 @@ const PathologyPage: React.FC = () => {
                 <ChoiceChips
                   id="path-specimen-type"
                   label={t('docPathology.specimenTypeRequired')}
-                  value={specimenType}
-                  onChange={(next) => { if (next === undefined) return; setOrderField('specimenType', next as typeof specimenType); }}
+                  value={specimenType || undefined}
+                  error={errors.specimenType}
+                  onChange={(next) => { clearField('specimenType'); setOrderField('specimenType', next ?? ''); }}
                   options={[
                     { value: 'surgical', label: t('docPathology.specimenType_surgical') },
                     { value: 'biopsy', label: t('docPathology.specimenType_biopsy') },
@@ -673,8 +677,8 @@ const PathologyPage: React.FC = () => {
                 <ChoiceChips
                   id="path-laterality"
                   label={t('docPathology.lateralityLabel')}
-                  value={laterality}
-                  onChange={(next) => { if (next === undefined) return; setOrderField('laterality', next as typeof laterality); }}
+                  value={laterality || undefined}
+                  onChange={(next) => setOrderField('laterality', next ?? '')}
                   options={[
                     { value: 'n/a', label: t('docPathology.laterality_na') },
                     { value: 'left', label: t('docPathology.laterality_left') },
@@ -706,8 +710,9 @@ const PathologyPage: React.FC = () => {
                 <ChoiceChips
                   id="path-priority"
                   label={t('docPathology.priorityLabel')}
-                  value={priority}
-                  onChange={(next) => { if (next === undefined) return; setOrderField('priority', next as typeof priority); }}
+                  value={priority || undefined}
+                  error={errors.priority}
+                  onChange={(next) => { clearField('priority'); setOrderField('priority', next ?? ''); }}
                   options={[
                     { value: 'routine', label: t('docPathology.priority_routine') },
                     { value: 'urgent', label: t('docPathology.priority_urgent') },
@@ -734,8 +739,8 @@ const PathologyPage: React.FC = () => {
                 <ChoiceChips
                   id="path-fixative"
                   label={t('docPathology.fixativeLabel')}
-                  value={fixative}
-                  onChange={(next) => { if (next === undefined) return; setOrderField('fixative', next); }}
+                  value={fixative || undefined}
+                  onChange={(next) => setOrderField('fixative', next ?? '')}
                   options={[
                     { value: '10% formalin', label: t('docPathology.fixative_formalin') },
                     { value: '95% alcohol', label: t('docPathology.fixative_alcohol') },

@@ -1,8 +1,8 @@
 /**
  * The two pathology forms: the specimen order a clinician submits and the
- * report a pathologist writes against it. Pure: the specimen id, the patient's
- * name, the receiving user and today's date are passed in, so each rule can be
- * tested without mounting the page or reading the clock.
+ * report a pathologist writes against it. Pure: the patient's name, the
+ * receiving user and today's date are passed in, so each rule can be tested
+ * without mounting the page or reading the clock.
  */
 import type { updatePathologyReport } from '@medichain/shared';
 
@@ -47,12 +47,16 @@ export interface PathologyOrderForm {
   collectionDate: string;
   collectionTime: string;
   clinician: string;
-  specimenType: PathologySpecimen['specimenType'];
+  // Nothing is pre-selected. The form used to open on "surgical, n/a, routine,
+  // 10% formalin" and file all four whether or not anyone had looked at them
+  // (rule 9). Type and priority must be chosen; laterality and fixative are
+  // sent only when they were.
+  specimenType: PathologySpecimen['specimenType'] | '';
   site: string;
-  laterality: PathologySpecimen['laterality'];
+  laterality: PathologySpecimen['laterality'] | '';
   clinicalHistory: string;
   clinicalDiagnosis: string;
-  priority: PathologySpecimen['priority'];
+  priority: PathologySpecimen['priority'] | '';
   container: string;
   fixative: string;
 }
@@ -60,9 +64,9 @@ export interface PathologyOrderForm {
 export function emptyPathologyOrder(): PathologyOrderForm {
   return {
     selectedPatientId: '', collectionDate: '', collectionTime: '', clinician: '',
-    specimenType: 'surgical', site: '', laterality: 'n/a',
-    clinicalHistory: '', clinicalDiagnosis: '', priority: 'routine',
-    container: '', fixative: '10% formalin',
+    specimenType: '', site: '', laterality: '',
+    clinicalHistory: '', clinicalDiagnosis: '', priority: '',
+    container: '', fixative: '',
   };
 }
 
@@ -75,23 +79,33 @@ export function pathologyOrderReducer(form: PathologyOrderForm, action: Patholog
     case 'set':
       return { ...form, [action.field]: action.value };
     case 'reset':
-      // The specimen type survives a submit, as it always has on this page:
-      // a run of orders from one list is usually all the same type.
-      return { ...emptyPathologyOrder(), specimenType: form.specimenType };
+      return emptyPathologyOrder();
   }
 }
 
-/** The specimen the order is submitted as. */
+/** What an order is submitted as: a specimen without its accession number. */
+export type PathologyOrder =
+  Omit<PathologySpecimen, 'specimenId' | 'specimenType' | 'laterality' | 'priority' | 'fixative'>
+  & Partial<Pick<PathologySpecimen, 'specimenType' | 'laterality' | 'priority'>>
+  & { fixative?: string };
+
+/**
+ * The order as submitted. It carries no accession number: the server mints
+ * one and returns it. A choice nobody made is absent, not a default.
+ */
 export function toPathologyOrder(
   form: PathologyOrderForm,
-  receipt: { specimenId: string; patientName: string; receivedDate: string; receivedBy: string },
-): PathologySpecimen {
-  const { selectedPatientId, ...order } = form;
+  receipt: { patientName: string; receivedDate: string; receivedBy: string },
+): PathologyOrder {
+  const { selectedPatientId, specimenType, laterality, priority, fixative, ...order } = form;
   return {
-    specimenId: receipt.specimenId,
     patientId: selectedPatientId,
     patientName: receipt.patientName,
     ...order,
+    specimenType: specimenType || undefined,
+    laterality: laterality || undefined,
+    priority: priority || undefined,
+    fixative: fixative || undefined,
     status: 'received',
     receivedDate: receipt.receivedDate,
     receivedBy: receipt.receivedBy,
