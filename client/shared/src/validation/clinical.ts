@@ -775,6 +775,8 @@ export const amaDetailsSchema = amaCapacitySchema.extend({
   patientName: requiredText("the patient's name", 200),
   diagnosis: requiredText('the diagnosis', 500),
   recommendedTreatment: requiredText('the treatment you recommended', 2_000),
+  // Chosen, not defaulted: "moderate" used to be pre-selected for everyone.
+  riskLevel: requiredText('the risk level', 16),
 });
 
 /**

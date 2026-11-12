@@ -18,6 +18,11 @@ describe('amaFormReducer', () => {
     expect([form.hasCapacity, form.amaFormSigned, form.witnessAttested, form.providerAttested]).toEqual([false, false, false, false]);
   });
 
+  it('a new record has no risk level until the clinician chooses one', () => {
+    expect(emptyAmaForm().riskLevel).toBe('');
+    expect(toAmaDischargeRequest(emptyAmaForm(), filing).risk_level).toBeUndefined();
+  });
+
   it('sets one field without mutating the previous form', () => {
     const before = emptyAmaForm();
     const next = amaFormReducer(before, { type: 'set', field: 'diagnosis', value: 'Pneumonia' });
@@ -93,6 +98,7 @@ describe('toAmaDischargeRequest', () => {
       { type: 'set', field: 'patientStatement', value: 'I need to go home' },
       { type: 'set', field: 'capacityBasis', value: 'Oriented, repeats the risks back' },
       { type: 'set', field: 'witnessName', value: 'Nurse B' },
+      { type: 'set', field: 'riskLevel', value: 'high' },
       { type: 'toggle', field: 'hasCapacity' },
       { type: 'toggle', field: 'patientRefusedAlternatives' },
       { type: 'toggle', field: 'amaFormSigned' },
@@ -105,6 +111,7 @@ describe('toAmaDischargeRequest', () => {
       discharge_datetime: '2026-11-12T08:00:00.000Z',
       attending_physician_id: 'doc-1',
       reason_for_leaving: 'I need to go home',
+      risk_level: 'high',
       risks_explained: defaultRiskDisclosures().map(({ category, risk, id }) =>
         ({ category, risk, acknowledged: id === 'r1' || id === 'r4' })),
       specific_risks_discussed: 'Condition may worsen without treatment\nRisk of permanent disability or death',

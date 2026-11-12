@@ -55,7 +55,8 @@ interface AMARecord {
   mrn: string;
   dateCreated: Date;
   status: AMAStatus;
-  riskLevel: RiskLevel;
+  /** Absent on a record filed before the level was stored. */
+  riskLevel?: RiskLevel;
   provider: string;
   diagnosis: string;
   recommendedTreatment: string;
@@ -64,6 +65,14 @@ interface AMARecord {
   witnessSigned: boolean;
   witnessName?: string;
   providerSigned: boolean;
+}
+
+const RISK_LEVELS: readonly RiskLevel[] = ['low', 'moderate', 'high', 'critical'];
+
+/** The risk level a register row carries, or nothing: never a guessed one. */
+function storedRiskLevel(row: unknown): RiskLevel | undefined {
+  const stored = (row as { risk_level?: unknown }).risk_level;
+  return RISK_LEVELS.find((level) => level === stored);
 }
 
 const AMAPage: React.FC = () => {
@@ -113,6 +122,7 @@ const AMAPage: React.FC = () => {
         // Convert date strings to Date objects
         const amaRecords = (data as unknown[]).map((r) => ({
           ...(r as AMARecord),
+          riskLevel: storedRiskLevel(r),
           dateCreated: new Date((r as { dateCreated?: string }).dateCreated || Date.now()),
         }));
         setRecords(amaRecords);
@@ -146,6 +156,7 @@ const AMAPage: React.FC = () => {
     patientName,
     diagnosis,
     recommendedTreatment,
+    riskLevel,
     hasCapacity,
     capacityBasis,
   });
@@ -202,6 +213,7 @@ const AMAPage: React.FC = () => {
       const updatedData = await listAMADischarges();
       const amaRecords = (updatedData as unknown[]).map((r) => ({
         ...(r as AMARecord),
+        riskLevel: storedRiskLevel(r),
         dateCreated: new Date((r as { dateCreated?: string }).dateCreated || Date.now()),
       }));
       setRecords(amaRecords);
@@ -233,7 +245,9 @@ const AMAPage: React.FC = () => {
     );
   };
 
-  const getRiskBadge = (level: RiskLevel) => {
+  const getRiskBadge = (level: RiskLevel | undefined) => {
+    // No badge for a record with no stored level: a blank one read as a level.
+    if (!level) return null;
     const styles = {
       'low': 'bg-ok-subtle text-ok-subtle-fg',
       'moderate': 'bg-caution-subtle text-caution-subtle-fg',
@@ -661,10 +675,11 @@ const AMAPage: React.FC = () => {
                       {t('docAMA.riskLevelLabel')} <span className="text-critical">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-3">
-                      {(['low', 'moderate', 'high', 'critical'] as RiskLevel[]).map(level => (
+                      {RISK_LEVELS.map(level => (
                         <button type="button"
                           key={level}
-                          onClick={() => setField('riskLevel', level)}
+                          aria-pressed={riskLevel === level}
+                          onClick={() => { clearField('riskLevel'); setField('riskLevel', level); }}
                           className={`py-2 px-4 rounded-lg border-2 capitalize font-medium ${
                             riskLevel === level
                               ? level === 'critical' ? 'border-red-500 bg-critical-subtle text-critical-subtle-fg' :
@@ -678,6 +693,9 @@ const AMAPage: React.FC = () => {
                         </button>
                       ))}
                     </div>
+                    {errors.riskLevel && (
+                      <p role="alert" className="mt-1 text-sm text-critical-subtle-fg">{errors.riskLevel}</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-3 mt-6">

@@ -23,7 +23,12 @@ export interface AmaForm {
   diagnosis: string;
   recommendedTreatment: string;
   patientStatement: string;
-  riskLevel: RiskLevel;
+  /**
+   * The clinician's judgement of the risk of leaving. Unchosen until they
+   * make it: the form used to open on "moderate", mark the field required,
+   * and then never send it.
+   */
+  riskLevel: RiskLevel | '';
   riskDisclosures: RiskDisclosure[];
   witnessName: string;
   // Decision-making capacity is the legal precondition for an AMA discharge:
@@ -61,7 +66,7 @@ export function defaultRiskDisclosures(): RiskDisclosure[] {
 export function emptyAmaForm(): AmaForm {
   return {
     formStep: 1, patientId: '', patientName: '', mrn: '', diagnosis: '',
-    recommendedTreatment: '', patientStatement: '', riskLevel: 'moderate',
+    recommendedTreatment: '', patientStatement: '', riskLevel: '',
     riskDisclosures: defaultRiskDisclosures(), witnessName: '',
     hasCapacity: false, capacityBasis: '', patientRefusedAlternatives: false,
     amaFormSigned: false, witnessAttested: false, providerAttested: false,
@@ -127,6 +132,7 @@ export function toAmaDischargeRequest(
     discharge_datetime: filing.dischargeDatetime,
     attending_physician_id: filing.attendingPhysicianId,
     reason_for_leaving: form.patientStatement,
+    risk_level: form.riskLevel || undefined,
     risks_explained: form.riskDisclosures.map(({ category, risk, acknowledged }) => ({ category, risk, acknowledged })),
     specific_risks_discussed: form.riskDisclosures.filter((r) => r.acknowledged).map((r) => r.risk).join('\n'),
     patient_verbalized_understanding: allRisksAcknowledged(form),

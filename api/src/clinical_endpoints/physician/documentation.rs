@@ -173,6 +173,27 @@ pub async fn collect_ama_signatures(
 }
 
 /// Create AMA discharge
+/// The levels a clinician can grade the risk of leaving at.
+const AMA_RISK_LEVELS: [&str; 4] = ["low", "moderate", "high", "critical"];
+
+/// The risk level a request names, if it names one.
+///
+/// Kept in the record's `data` document, which `create_ama` stores whole and
+/// the register serves back at the top level of each row -- so it needs no
+/// column. What it does need is this check: the register shows the level as a
+/// badge, and a document is not the place to discover someone filed `"hgih"`.
+/// Absent is allowed (the form requires it; other callers predate it); a value
+/// outside the list is refused rather than stored.
+fn ama_risk_level(body: &serde_json::Value) -> Result<Option<&str>, ()> {
+    match body.get("risk_level") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => match value.as_str() {
+            Some(level) if AMA_RISK_LEVELS.contains(&level) => Ok(Some(level)),
+            _ => Err(()),
+        },
+    }
+}
+
 #[post("/api/clinical/ama")]
 pub async fn create_ama(
     data: web::Data<AppState>,
@@ -254,6 +275,12 @@ pub async fn create_ama(
                 code: "CAPACITY_DETERMINATION_REQUIRED".to_string(),
             })
         }
+    }
+    if ama_risk_level(&body).is_err() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "risk_level must be one of low, moderate, high or critical".to_string(),
+            code: "INVALID_RISK_LEVEL".to_string(),
+        });
     }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
@@ -1987,5 +2014,35 @@ mod hp_amendment_tests {
             stored.data["status"], "signed",
             "an addendum unsigned the record"
         );
+    }
+}
+
+#[cfg(test)]
+mod ama_risk_level_tests {
+    use super::ama_risk_level;
+    use serde_json::json;
+
+    #[test]
+    fn a_listed_level_is_accepted() {
+        for level in super::AMA_RISK_LEVELS {
+            assert_eq!(
+                ama_risk_level(&json!({ "risk_level": level })),
+                Ok(Some(level))
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_level_is_absent_not_a_default() {
+        assert_eq!(ama_risk_level(&json!({})), Ok(None));
+        assert_eq!(ama_risk_level(&json!({ "risk_level": null })), Ok(None));
+    }
+
+    #[test]
+    fn anything_else_is_refused() {
+        assert!(ama_risk_level(&json!({ "risk_level": "hgih" })).is_err());
+        assert!(ama_risk_level(&json!({ "risk_level": "High" })).is_err());
+        assert!(ama_risk_level(&json!({ "risk_level": "" })).is_err());
+        assert!(ama_risk_level(&json!({ "risk_level": 3 })).is_err());
     }
 }
