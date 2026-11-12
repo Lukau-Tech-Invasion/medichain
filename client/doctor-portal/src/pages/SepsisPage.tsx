@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useReducer } from 'react';
 import {
   emptySepsisForm, sepsisFormReducer, toSepsisRequest,
-  type SepsisForm, type SepsisFormAction, type SofaField,
+  type SepsisClassification, type SepsisForm, type SepsisFormAction, type SofaField,
 } from './SepsisPage.form';
 import { useAuthStore } from '../store/authStore';
 import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest } from '@medichain/shared';
@@ -178,6 +178,12 @@ export default function SepsisPage() {
       setError(t('docSepsis.errorSelectPatient'));
       return;
     }
+    // Nothing is pre-selected, and the server files an absent severity as
+    // "sepsis" -- so an assessment nobody classified must not be sent.
+    if (!classification) {
+      setError(t('docSepsis.errorSelectClassification'));
+      return;
+    }
 
     setIsSubmitting(true);
     setError('');
@@ -346,7 +352,7 @@ export default function SepsisPage() {
                     <button
                       key={cls.value}
                       type="button"
-                      onClick={() => setField('classification', cls.value as typeof classification)}
+                      onClick={() => setField('classification', cls.value as SepsisClassification)}
                       className={`w-full p-3 rounded-lg text-left font-medium transition-all ${
                         classification === cls.value
                           ? cls.color
@@ -698,15 +704,15 @@ export default function SepsisPage() {
                       type="number"
                       value={fluidVolume}
                       onChange={(e) => {
-                        setField('fluidVolume', parseInt(e.target.value));
-                        if (parseInt(e.target.value) >= 2000) {
+                        setField('fluidVolume', e.target.value);
+                        if (Number(e.target.value) >= 2000) {
                           completeBundleItem('hour1', 'fluids');
                         }
                       }}
                       placeholder={t('docSepsis.fluidVolumePlaceholder')}
                       className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
-                    {selectedPatientData && fluidVolume > 0 && (
+                    {selectedPatientData && Number(fluidVolume) > 0 && (
                       <p className="text-xs text-content-muted mt-1">
                         {t('docSepsis.fluidTarget', { volume: Math.round(70 * 30) })}
                       </p>

@@ -97,7 +97,13 @@ describe('toSepsisRequest', () => {
     });
   });
 
-  it('files exactly the request the page used to assemble by hand', () => {
+  it('an unclassified assessment with no fluid recorded sends neither', () => {
+    const request = toSepsisRequest(emptySepsisForm(), filing);
+    expect(request.severity).toBeUndefined();
+    expect(request.treatment).toEqual({ fluid_volume_ml: undefined, vasopressor: '' });
+  });
+
+  it('files exactly what was entered', () => {
     const form = after(emptySepsisForm(),
       { type: 'set', field: 'respiratoryRate', value: 24 },
       { type: 'set', field: 'systolicBP', value: 88 },
@@ -109,7 +115,7 @@ describe('toSepsisRequest', () => {
       { type: 'set', field: 'infectionSource', value: 'Pneumonia' },
       { type: 'set', field: 'suspectedOrganism', value: 'S. pneumoniae' },
       { type: 'set', field: 'antibioticsGiven', value: ['Ceftriaxone'] },
-      { type: 'set', field: 'fluidVolume', value: 2000 },
+      { type: 'set', field: 'fluidVolume', value: '2000' },
       { type: 'set', field: 'vasopressorType', value: 'norepinephrine' },
       { type: 'set', field: 'narrative', value: 'Deteriorating' });
     expect(toSepsisRequest(form, filing)).toEqual({

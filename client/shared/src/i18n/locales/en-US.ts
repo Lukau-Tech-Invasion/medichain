@@ -8196,6 +8196,7 @@ const en_US: TranslationRecord = {
     startProtocolTimer: 'Start Protocol Timer',
     successMessage: 'Sepsis protocol documented successfully! Redirecting...',
     errorSelectPatient: 'Please select a patient',
+    errorSelectClassification: 'Choose a sepsis classification before saving.',
     errorSaveFailed: 'Failed to save sepsis protocol. Please try again.',
     patientSelection: 'Patient Selection',
     searchPatients: 'Search patients',

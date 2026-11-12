@@ -44,13 +44,15 @@ export interface SepsisForm {
   lactateReadings: LactateReading[];
   /** The lactate value being typed, before it is added. */
   newLactate: string;
-  classification: SepsisClassification;
+  /** Unchosen until the clinician picks one; the form does not save without it. */
+  classification: SepsisClassification | '';
   hour1Bundle: BundleItem[];
   hour3Bundle: BundleItem[];
   infectionSource: string;
   suspectedOrganism: string;
   antibioticsGiven: string[];
-  fluidVolume: number;
+  /** Millilitres, kept as typed. An empty box is "not recorded", not 0 mL. */
+  fluidVolume: string;
   vasopressorType: string;
   narrative: string;
 }
@@ -64,7 +66,7 @@ export function emptySepsisForm(): SepsisForm {
     pao2fio2: '', respiratorySupport: false, platelets: '', bilirubin: '', map: '',
     creatinine: '', urineOutput: '', noradrenaline: '',
     lactateReadings: [], newLactate: '',
-    classification: 'sepsis',
+    classification: '',
     hour1Bundle: [
       { id: 'lactate', label: 'Measure Lactate Level', description: 'Draw initial lactate level', completed: false },
       { id: 'blood_cultures', label: 'Obtain Blood Cultures', description: 'Before antibiotics if possible', completed: false },
@@ -79,7 +81,7 @@ export function emptySepsisForm(): SepsisForm {
       { id: 'perfusion_check', label: 'Reassess Tissue Perfusion', description: 'Check cap refill, skin mottling', completed: false },
     ],
     infectionSource: '', suspectedOrganism: '', antibioticsGiven: [],
-    fluidVolume: 0, vasopressorType: '', narrative: '',
+    fluidVolume: '', vasopressorType: '', narrative: '',
   };
 }
 
@@ -146,7 +148,7 @@ export function toSepsisRequest(
 ): Parameters<typeof createSepsis>[0] {
   return {
     patient_id: filing.patientId,
-    severity: form.classification,
+    severity: form.classification || undefined,
     suspected_source: form.infectionSource,
     vital_signs: {
       respiratory_rate: form.respiratoryRate,
@@ -181,7 +183,7 @@ export function toSepsisRequest(
       all_hour3_complete: form.hour3Bundle.every((item) => item.completed),
     },
     treatment: {
-      fluid_volume_ml: form.fluidVolume,
+      fluid_volume_ml: measured(form.fluidVolume),
       vasopressor: form.vasopressorType,
     },
     vasopressors_required: Boolean(form.vasopressorType),
