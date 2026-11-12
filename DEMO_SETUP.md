@@ -40,8 +40,9 @@ database and remove these environment values from the shell after the run.
 **Provisioning status (2026-10-05):** historical migrations still insert
 credentialless demo accounts, and the source repair for first-admin bootstrap
 has not been verified in a rebuilt runtime. Existing-database cleanup is also
-pending. See [FULL_APPLICATION_VERIFICATION_REPORT.md](FULL_APPLICATION_VERIFICATION_REPORT.md)
-before relying on these steps for a demo.
+pending. The October verification report that recorded this is archived at
+[docs/archive/FULL_APPLICATION_VERIFICATION_REPORT-2026-10.md](docs/archive/FULL_APPLICATION_VERIFICATION_REPORT-2026-10.md);
+for current status read `docs/TECHNICAL_DEBT_REGISTER.md` before relying on these steps for a demo.
 
 ## Browser verification
 

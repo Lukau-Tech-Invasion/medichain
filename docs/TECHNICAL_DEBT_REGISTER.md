@@ -363,7 +363,7 @@ endpoints, which no screen used, went: SAMPLE travels inside the handover.
     there is a rule for which facility a reading belongs to.
   * **Insurance claims and eligibility.** Nothing writes an insurance record,
     so eligibility can only answer "none on file". Waits on the card-versus-
-    payer-policy decision already in `handoff.md`.
+    payer-policy decision already in `docs/archive/handoff-2026-09-20.md`.
   * **Clinical translation.** Complete behind `TRANSLATION_PROVIDER`; blocked on
     the provider agreement.
   * **ADR-0008 Class B/C signature authorisation** (`/api/auth/step-up/*`,

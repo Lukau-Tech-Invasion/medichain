@@ -50,8 +50,9 @@ insert credentialless demo accounts and patients. Those rows cause first-admin
 bootstrap to be refused on a fresh database. A provisional source repair exists,
 but a rebuilt runtime and the requested cleanup of existing databases are not
 yet verified. Do not treat this guide as proof that new account provisioning is
-working. The current verification status is in
-[FULL_APPLICATION_VERIFICATION_REPORT.md](FULL_APPLICATION_VERIFICATION_REPORT.md).
+working. Current status is in `docs/TECHNICAL_DEBT_REGISTER.md`; the October
+verification report is archived at
+[docs/archive/FULL_APPLICATION_VERIFICATION_REPORT-2026-10.md](docs/archive/FULL_APPLICATION_VERIFICATION_REPORT-2026-10.md).
 
 For synthetic browser testing, use an isolated development database and
 `scripts/seed-browser-test-fixtures.ts`. The script requires a configured

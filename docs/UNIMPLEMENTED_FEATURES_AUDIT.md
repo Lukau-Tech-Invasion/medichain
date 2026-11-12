@@ -20,8 +20,9 @@ later source changes have closed or narrowed a finding:
 | §9, unsupported transcription providers silently fall back | Partially resolved: `aws`, `azure`, invalid providers, and an unconfigured Google key all log an explicit warning before transcription is disabled. Recording upload, consent, and BAA-backed transcription remain open scope. | `api/src/services/transcription.rs` |
 
 All other entries below remain open unless a newer evidence-backed register
-states otherwise. `handoff.md` is the active implementation register for this
-continuation.
+states otherwise. The active register is `docs/TECHNICAL_DEBT_REGISTER.md`; the
+September implementation register this once pointed to is archived at
+`docs/archive/handoff-2026-09-20.md`.
 
 Severity is about **clinical and regulatory consequence**, not effort:
 
