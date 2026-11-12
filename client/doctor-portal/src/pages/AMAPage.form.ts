@@ -19,7 +19,6 @@ export interface AmaForm {
   formStep: number;
   patientId: string;
   patientName: string;
-  mrn: string;
   diagnosis: string;
   recommendedTreatment: string;
   patientStatement: string;
@@ -65,7 +64,7 @@ export function defaultRiskDisclosures(): RiskDisclosure[] {
 
 export function emptyAmaForm(): AmaForm {
   return {
-    formStep: 1, patientId: '', patientName: '', mrn: '', diagnosis: '',
+    formStep: 1, patientId: '', patientName: '', diagnosis: '',
     recommendedTreatment: '', patientStatement: '', riskLevel: '',
     riskDisclosures: defaultRiskDisclosures(), witnessName: '',
     hasCapacity: false, capacityBasis: '', patientRefusedAlternatives: false,

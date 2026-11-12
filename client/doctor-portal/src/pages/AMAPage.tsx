@@ -23,6 +23,9 @@ import {
   Loader2
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
+import StaffName from '../components/StaffName';
+import { matchesSearch, toAmaRecord, type AmaRecord, type AmaStatus } from './AMAPage.register';
 import {
   listAMADischarges,
   createAMADischarge,
@@ -34,7 +37,7 @@ import {
   Input,
   amaDetailsSchema,
   collectAmaSignatures,
-  getApiErrorMessage, ModalPanel, ChoiceChips
+  getApiErrorMessage, ModalPanel, ChoiceChips, formatDateOnly, formatTimestamp
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -46,50 +49,23 @@ import { useToastActions } from '../components/Toast';
  * Captures legal language, witness signatures, and required documentation.
  */
 
-type AMAStatus = 'draft' | 'pending-signatures' | 'completed' | 'voided';
-
-interface AMARecord {
-  id: string;
-  patientId: string;
-  patientName: string;
-  mrn: string;
-  dateCreated: Date;
-  status: AMAStatus;
-  /** Absent on a record filed before the level was stored. */
-  riskLevel?: RiskLevel;
-  provider: string;
-  diagnosis: string;
-  recommendedTreatment: string;
-  patientStatement: string;
-  patientSigned: boolean;
-  witnessSigned: boolean;
-  witnessName?: string;
-  providerSigned: boolean;
-}
-
 const RISK_LEVELS: readonly RiskLevel[] = ['low', 'moderate', 'high', 'critical'];
-
-/** The risk level a register row carries, or nothing: never a guessed one. */
-function storedRiskLevel(row: unknown): RiskLevel | undefined {
-  const stored = (row as { risk_level?: unknown }).risk_level;
-  return RISK_LEVELS.find((level) => level === stored);
-}
 
 const AMAPage: React.FC = () => {
   const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'view'>('list');
-  const [records, setRecords] = useState<AMARecord[]>([]);
-  const [selectedRecord, setSelectedRecord] = useState<AMARecord | null>(null);
+  const [records, setRecords] = useState<AmaRecord[]>([]);
+  const [selectedRecord, setSelectedRecord] = useState<AmaRecord | null>(null);
   // Signatures are taken at the bedside after the form is written, which is
   // why they are a separate step rather than a field on the create payload.
-  const [signingRecord, setSigningRecord] = useState<AMARecord | null>(null);
+  const [signingRecord, setSigningRecord] = useState<AmaRecord | null>(null);
   const [signatureText, setSignatureText] = useState('');
   const [signatureRefusedReason, setSignatureRefusedReason] = useState('');
   const [signatureWitness, setSignatureWitness] = useState('');
   const [signatureBusy, setSignatureBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<AMAStatus | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<AmaStatus | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +77,7 @@ const AMAPage: React.FC = () => {
   // Everything the clinician enters is one object; AMAPage.form.ts owns its rules.
   const [form, dispatch] = useReducer(amaFormReducer, undefined, emptyAmaForm);
   const {
-    formStep, patientId, patientName, mrn, diagnosis, recommendedTreatment,
+    formStep, patientId, patientName, diagnosis, recommendedTreatment,
     patientStatement, riskLevel, riskDisclosures, witnessName, hasCapacity, capacityBasis,
     patientRefusedAlternatives, amaFormSigned, witnessAttested, providerAttested, followUpOffered, patientContactInfoVerified,
   } = form;
@@ -118,14 +94,7 @@ const AMAPage: React.FC = () => {
       }
 
       try {
-        const data = await listAMADischarges();
-        // Convert date strings to Date objects
-        const amaRecords = (data as unknown[]).map((r) => ({
-          ...(r as AMARecord),
-          riskLevel: storedRiskLevel(r),
-          dateCreated: new Date((r as { dateCreated?: string }).dateCreated || Date.now()),
-        }));
-        setRecords(amaRecords);
+        setRecords((await listAMADischarges()).map(toAmaRecord));
         setError(null);
       } catch (err) {
         console.error('Error fetching AMA records:', err);
@@ -209,14 +178,8 @@ const AMAPage: React.FC = () => {
       await createAMADischarge(newRecord);
       showSuccess(t('docAMA.successCreated'));
       
-      // Refresh list
-      const updatedData = await listAMADischarges();
-      const amaRecords = (updatedData as unknown[]).map((r) => ({
-        ...(r as AMARecord),
-        riskLevel: storedRiskLevel(r),
-        dateCreated: new Date((r as { dateCreated?: string }).dateCreated || Date.now()),
-      }));
-      setRecords(amaRecords);
+      // Read back rather than appended: the row on screen is the one stored.
+      setRecords((await listAMADischarges()).map(toAmaRecord));
       setActiveTab('list');
       resetForm();
     } catch (err) {
@@ -231,12 +194,10 @@ const AMAPage: React.FC = () => {
     dispatch({ type: 'reset' });
   };
 
-  const getStatusBadge = (status: AMAStatus) => {
-    const styles = {
-      'draft': 'bg-surface-sunken text-content-secondary',
+  const getStatusBadge = (status: AmaStatus) => {
+    const styles: Record<AmaStatus, string> = {
       'pending-signatures': 'bg-caution-subtle text-caution-subtle-fg',
       'completed': 'bg-ok-subtle text-ok-subtle-fg',
-      'voided': 'bg-critical-subtle text-critical-subtle-fg'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
@@ -261,13 +222,8 @@ const AMAPage: React.FC = () => {
     );
   };
 
-  const filteredRecords = records.filter(r => {
-    const matchesSearch = (r.patientName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-      (r.mrn?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-      (r.id?.toLowerCase() || '').includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredRecords = records.filter(r =>
+    matchesSearch(r, searchQuery) && (statusFilter === 'all' || r.status === statusFilter));
 
   const handleRiskAcknowledge = (id: string) => {
     dispatch({ type: 'acknowledgeRisk', id });
@@ -353,13 +309,11 @@ const AMAPage: React.FC = () => {
                   <ChoiceChips
                     label={t('common.filterByStatus')}
                     value={statusFilter}
-                    onChange={(next) => { if (next === undefined) return; setStatusFilter(next as AMAStatus | 'all'); }}
+                    onChange={(next) => { if (next === undefined) return; setStatusFilter(next as AmaStatus | 'all'); }}
                     options={[
                       { value: 'all', label: t('docAMA.filterAll') },
-                      { value: 'draft', label: t('docAMA.status_draft') },
                       { value: 'pending-signatures', label: t('docAMA.status_pending-signatures') },
                       { value: 'completed', label: t('docAMA.status_completed') },
-                      { value: 'voided', label: t('docAMA.status_voided') },
                     ]}
                   />
             </div>
@@ -395,9 +349,9 @@ const AMAPage: React.FC = () => {
                           }`} />
                         </div>
                         <div>
-                          <h3 className="font-medium text-content">{record.patientName}</h3>
-                          <p className="text-sm text-content-muted">{t('docAMA.mrnLine', { mrn: record.mrn, id: record.id })}</p>
-                          <p className="text-sm text-content-muted mt-1">{record.diagnosis}</p>
+                          <h3 className="font-medium text-content"><PatientName id={record.patientId} /></h3>
+                          <p className="text-sm text-content-muted">{record.id}</p>
+                          {record.diagnosis && <p className="text-sm text-content-muted mt-1">{record.diagnosis}</p>}
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -408,11 +362,11 @@ const AMAPage: React.FC = () => {
                     <div className="flex items-center gap-4 mt-3 text-xs text-content-muted">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
-                        {record.dateCreated.toLocaleDateString()}
+                        {record.filedAt ? formatDateOnly(record.filedAt) : '—'}
                       </span>
                       <span className="flex items-center gap-1">
                         <User className="w-3 h-3" />
-                        {record.provider}
+                        <StaffName id={record.providerId} />
                       </span>
                       <div className="flex items-center gap-2">
                         <span className={`flex items-center gap-1 ${record.patientSigned ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
@@ -421,7 +375,7 @@ const AMAPage: React.FC = () => {
                         <span className={`flex items-center gap-1 ${record.witnessSigned ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
                           <Users className="w-3 h-3" /> {t('docAMA.sigWitness')}
                         </span>
-                        <span className={`flex items-center gap-1 ${record.providerSigned ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
+                        <span className={`flex items-center gap-1 ${record.providerAttested ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
                           <Pen className="w-3 h-3" /> {t('docAMA.sigProvider')}
                         </span>
                       </div>
@@ -451,10 +405,10 @@ const AMAPage: React.FC = () => {
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <h2 className="text-xl font-bold text-content">{selectedRecord.patientName}</h2>
+                    <h2 className="text-xl font-bold text-content"><PatientName id={selectedRecord.patientId} /></h2>
                     {getStatusBadge(selectedRecord.status)}
                   </div>
-                  <p className="text-content-muted">{t('docAMA.mrnLine', { mrn: selectedRecord.mrn, id: selectedRecord.id })}</p>
+                  <p className="text-content-muted">{selectedRecord.id}</p>
                 </div>
                 {getRiskBadge(selectedRecord.riskLevel)}
               </div>
@@ -462,19 +416,19 @@ const AMAPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-content-muted">{t('docAMA.lblDateCreated')}</p>
-                  <p className="font-medium">{selectedRecord.dateCreated.toLocaleString()}</p>
+                  <p className="font-medium">{selectedRecord.filedAt ? formatTimestamp(selectedRecord.filedAt) : '—'}</p>
                 </div>
                 <div>
                   <p className="text-content-muted">{t('docAMA.lblProvider')}</p>
-                  <p className="font-medium">{selectedRecord.provider}</p>
+                  <p className="font-medium"><StaffName id={selectedRecord.providerId} /></p>
                 </div>
                 <div className="col-span-2">
                   <p className="text-content-muted">{t('docAMA.lblDiagnosis')}</p>
-                  <p className="font-medium">{selectedRecord.diagnosis}</p>
+                  <p className="font-medium">{selectedRecord.diagnosis ?? '—'}</p>
                 </div>
                 <div className="col-span-2">
                   <p className="text-content-muted">{t('docAMA.lblRecommendedTreatment')}</p>
-                  <p className="font-medium">{selectedRecord.recommendedTreatment}</p>
+                  <p className="font-medium">{selectedRecord.recommendedTreatment ?? '—'}</p>
                 </div>
               </div>
             </div>
@@ -510,7 +464,7 @@ const AMAPage: React.FC = () => {
                     <Pen className="w-5 h-5 text-content-muted" />
                     <span>{t('docAMA.lblProviderSignature')}</span>
                   </div>
-                  {selectedRecord.providerSigned ? (
+                  {selectedRecord.providerAttested ? (
                     <CheckCircle className="w-6 h-6 text-ok" />
                   ) : (
                     <XCircle className="w-6 h-6 text-content-muted" />
@@ -608,25 +562,12 @@ const AMAPage: React.FC = () => {
                       {t('docAMA.patientNameLabel')}: <span className="text-content font-medium">{patientName}</span>
                     </p>
                   )}
-                  <div>
-                    <label htmlFor="ama-mrn" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docAMA.mrnLabel')} <span className="text-critical">*</span>
-                    </label>
-                    <input
-                      id="ama-mrn"
-                      type="text"
-                      value={mrn}
-                      onChange={(e) => setField('mrn', e.target.value)}
-                      placeholder={t('docAMA.mrnPh')}
-                      className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
                 </div>
                 <button type="button"
                   onClick={() => setField('formStep', 2)}
-                  disabled={!patientId || !patientName || !mrn}
+                  disabled={!patientId || !patientName}
                   className={`w-full mt-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
-                    patientId && patientName && mrn
+                    patientId && patientName
                       ? 'bg-critical text-critical-fg hover:bg-critical'
                       : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                   }`}
@@ -1061,6 +1002,9 @@ const AMAPage: React.FC = () => {
                     showSuccess(t('docAMA.sigRecorded'));
                     setSigningRecord(null);
                     setSelectedRecord(null);
+                    setActiveTab('list');
+                    // The register is the record of whether it was signed; re-read it.
+                    setRecords((await listAMADischarges()).map(toAmaRecord));
                   } catch (err) {
                     showError(getApiErrorMessage(err, t('docAMA.sigFailed')));
                   } finally {

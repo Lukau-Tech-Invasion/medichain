@@ -5,7 +5,7 @@
 import type * as Requests from '../request-types.generated';
 import { getApiClient } from '../client';
 import type {
-  AMADischarge,
+  AmaRegisterRow,
   AmaCreateResult,
   ClinicalCreateResult,
   ConsultCreateResult,
@@ -200,8 +200,8 @@ export async function createAMADischarge(data: unknown): Promise<AmaCreateResult
   return getApiClient().post('/api/clinical/ama', data);
 }
 
-export async function listAMADischarges(): Promise<AMADischarge[]> {
-  const response = await getApiClient().get<AMADischarge[]>('/api/platform/list/ama-discharges');
+export async function listAMADischarges(): Promise<AmaRegisterRow[]> {
+  const response = await getApiClient().get<AmaRegisterRow[]>('/api/platform/list/ama-discharges');
   return response || [];
 }
 

@@ -41,18 +41,16 @@ describe('amaFormReducer', () => {
     expect(form.riskDisclosures.filter((r) => r.acknowledged).map((r) => r.id)).toEqual(['r2']);
   });
 
-  it('starting a new record clears who and what, and nothing else', () => {
+  it('starting a new record clears who and what, and keeps the assessment', () => {
     const filled = after(emptyAmaForm(),
       { type: 'set', field: 'formStep', value: 3 },
       { type: 'set', field: 'patientId', value: 'PAT-1' },
       { type: 'set', field: 'patientName', value: 'Jane Doe' },
-      { type: 'set', field: 'mrn', value: 'MRN-9' },
       { type: 'set', field: 'diagnosis', value: 'Pneumonia' },
       { type: 'toggle', field: 'hasCapacity' },
       { type: 'acknowledgeRisk', id: 'r1' });
     const started = amaFormReducer(filled, { type: 'startNew' });
     expect(started).toEqual({ ...filled, formStep: 1, patientId: '', patientName: '', diagnosis: '' });
-    expect(started.mrn).toBe('MRN-9');
     expect(started.hasCapacity).toBe(true);
   });
 
@@ -92,7 +90,6 @@ describe('toAmaDischargeRequest', () => {
     const form = after(emptyAmaForm(),
       { type: 'set', field: 'patientId', value: 'PAT-1' },
       { type: 'set', field: 'patientName', value: 'Jane Doe' },
-      { type: 'set', field: 'mrn', value: 'MRN-9' },
       { type: 'set', field: 'diagnosis', value: 'Pneumonia' },
       { type: 'set', field: 'recommendedTreatment', value: 'IV antibiotics' },
       { type: 'set', field: 'patientStatement', value: 'I need to go home' },

@@ -524,7 +524,14 @@ pub async fn list_ama_discharges(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
+        // The register's own row, not the stored record: see `AmaRegisterRow`.
+        Ok(result) => HttpResponse::Ok().json(
+            result
+                .items
+                .iter()
+                .map(AmaRegisterRow::from)
+                .collect::<Vec<_>>(),
+        ),
         Err(e) => registry_read_error(&http_req, e),
     }
 }

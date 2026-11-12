@@ -210,24 +210,29 @@ export interface DischargeSummary {
   signature_time: number | null;
 }
 
-export interface AMADischarge {
-  ama_id: string;
+/**
+ * One row of `GET /api/platform/list/ama-discharges` -- the Rust
+ * `AmaRegisterRow`. Absent text is `null`, never an empty placeholder.
+ */
+export interface AmaRegisterRow {
+  id: string;
   patient_id: string;
-  recommended_treatment: string;
-  risks_explained: string[];
-  potential_consequences: string[];
-  patient_understands: boolean;
-  patient_competent: boolean;
-  capacity_assessment: boolean;
+  /** RFC 3339. */
+  created_at: string;
+  discharge_datetime: string;
+  attending_physician_id: string;
+  diagnosis: string | null;
+  recommended_treatment: string | null;
+  patient_statement: string | null;
+  risk_level: string | null;
+  /** Signatures are taken after filing; `completed` once they are. */
+  status: 'pending-signatures' | 'completed';
   patient_signed: boolean;
-  signature_refused: boolean;
-  witness: string;
-  physician: string;
-  follow_up_offered: boolean;
-  prescriptions_offered: boolean;
-  ama_time: number;
-  documentation_time: number;
-  documented_by: string;
+  signature_refused_reason: string | null;
+  signatures_collected_at: string | null;
+  witness_name: string | null;
+  witness_signed: boolean;
+  provider_attested: boolean;
 }
 
 export interface HistoryAndPhysical {

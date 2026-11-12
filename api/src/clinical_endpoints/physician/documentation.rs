@@ -194,6 +194,93 @@ fn ama_risk_level(body: &serde_json::Value) -> Result<Option<&str>, ()> {
     }
 }
 
+/// Where a discharge stands. Signatures are taken at the bedside after the
+/// record is filed, so every discharge starts `PendingSignatures` and becomes
+/// `Completed` once the patient has signed or their refusal is recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AmaStatus {
+    PendingSignatures,
+    Completed,
+}
+
+/// One discharge as the AMA register shows it.
+///
+/// The register used to serve the stored row and the page spread it into its
+/// own shape, under names the row does not have: every record showed no
+/// patient statement, no diagnosis, nobody signed and today's date, and with
+/// no `status` the bedside signature step could not be reached at all. This
+/// is the shape the screen needs, assembled from the record in one place.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AmaRegisterRow {
+    pub id: String,
+    pub patient_id: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub discharge_datetime: chrono::DateTime<chrono::Utc>,
+    pub attending_physician_id: String,
+    pub diagnosis: Option<String>,
+    pub recommended_treatment: Option<String>,
+    /// What the patient said, in their words. Absent when nothing was written.
+    pub patient_statement: Option<String>,
+    pub risk_level: Option<String>,
+    pub status: AmaStatus,
+    pub patient_signed: bool,
+    /// Why the patient would not sign, when they would not.
+    pub signature_refused_reason: Option<String>,
+    pub signatures_collected_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub witness_name: Option<String>,
+    pub witness_signed: bool,
+    /// The attending's attestation that the documentation is complete.
+    pub provider_attested: bool,
+}
+
+/// A trimmed, non-empty string, or nothing.
+fn present(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_string)
+}
+
+impl From<&AmaDischargeEntity> for AmaRegisterRow {
+    fn from(record: &AmaDischargeEntity) -> Self {
+        // The form files what was refused as the first of the alternatives
+        // offered: the diagnosis and the treatment recommended for it.
+        let refused = record
+            .alternatives_offered
+            .as_ref()
+            .and_then(|offered| offered.get(0));
+        let refused_field =
+            |key: &str| present(refused.and_then(|r| r.get(key)).and_then(|v| v.as_str()));
+        AmaRegisterRow {
+            id: record.id.clone(),
+            patient_id: record.patient_id.clone(),
+            created_at: record.created_at,
+            discharge_datetime: record.discharge_datetime,
+            attending_physician_id: record.attending_physician_id.clone(),
+            diagnosis: refused_field("diagnosis"),
+            recommended_treatment: refused_field("recommended_treatment"),
+            patient_statement: present(Some(&record.reason_for_leaving)),
+            // A stored level outside the list is not shown as one.
+            risk_level: ama_risk_level(&record.data)
+                .ok()
+                .flatten()
+                .map(str::to_string),
+            status: if record.patient_signature_at.is_some() {
+                AmaStatus::Completed
+            } else {
+                AmaStatus::PendingSignatures
+            },
+            patient_signed: present(record.patient_signature.as_deref()).is_some(),
+            signature_refused_reason: present(record.ama_form_refused_reason.as_deref()),
+            signatures_collected_at: record.patient_signature_at,
+            witness_name: present(record.witness_name.as_deref()),
+            witness_signed: record.witness_signature_at.is_some(),
+            provider_attested: record.documentation_complete,
+        }
+    }
+}
+
 #[post("/api/clinical/ama")]
 pub async fn create_ama(
     data: web::Data<AppState>,
@@ -281,6 +368,28 @@ pub async fn create_ama(
             error: "risk_level must be one of low, moderate, high or critical".to_string(),
             code: "INVALID_RISK_LEVEL".to_string(),
         });
+    }
+    // The patient must exist. PostgreSQL refused an unknown id with a foreign
+    // key error that surfaced as a 500, and the in-memory store filed it.
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    match data.repositories.patients.get_by_id(patient_id).await {
+        Ok(_) => {}
+        Err(RepositoryError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: format!("Patient '{patient_id}' not found"),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("AMA discharge: patient lookup failed: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The patient record could not be checked".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            });
+        }
     }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
@@ -2044,5 +2153,167 @@ mod ama_risk_level_tests {
         assert!(ama_risk_level(&json!({ "risk_level": "High" })).is_err());
         assert!(ama_risk_level(&json!({ "risk_level": "" })).is_err());
         assert!(ama_risk_level(&json!({ "risk_level": 3 })).is_err());
+    }
+}
+
+#[cfg(test)]
+mod ama_register_tests {
+    use super::consult_response_tests::{register, seed_patient};
+    use super::*;
+    use actix_web::test;
+
+    /// What `AMAPage` files, by way of `toAmaDischargeRequest`.
+    fn filed(patient_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "patient_id": patient_id,
+            "discharge_datetime": "2026-11-12T08:00:00Z",
+            "attending_physician_id": "doctor_a",
+            "reason_for_leaving": "I need to get home to my children",
+            "risk_level": "high",
+            "risks_explained": [],
+            "specific_risks_discussed": "",
+            "patient_verbalized_understanding": true,
+            "decision_making_capacity": true,
+            "capacity_assessment": "Alert and oriented",
+            "alternatives_offered": [{ "diagnosis": "Pneumonia", "recommended_treatment": "IV antibiotics" }],
+            "patient_refused_alternatives": true,
+            "witness_name": "Nurse B",
+            "documentation_complete": true,
+        })
+    }
+
+    macro_rules! app {
+        ($state:expr) => {
+            test::init_service(
+                actix_web::App::new()
+                    .app_data($state.clone())
+                    .service(create_ama)
+                    .service(collect_ama_signatures)
+                    .service(crate::clinical_endpoints::list_ama_discharges),
+            )
+            .await
+        };
+    }
+
+    async fn state() -> web::Data<AppState> {
+        let state = crate::AppState::new();
+        register(&state, "doctor_a", crate::Role::Doctor);
+        seed_patient(&state, "PAT-AMA-1").await;
+        web::Data::new(state)
+    }
+
+    /// The register as a clinician reads it.
+    macro_rules! register_rows {
+        ($app:expr) => {{
+            let rows: Vec<serde_json::Value> = test::call_and_read_body_json(
+                $app,
+                test::TestRequest::get()
+                    .uri("/api/platform/list/ama-discharges")
+                    .insert_header(crate::test_fixtures::as_user("doctor_a"))
+                    .to_request(),
+            )
+            .await;
+            rows
+        }};
+    }
+
+    #[actix_rt::test]
+    async fn the_register_shows_what_was_filed_and_that_it_awaits_signatures() {
+        let state = state().await;
+        let app = app!(state);
+        let created = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/ama")
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
+                .set_json(filed("PAT-AMA-1"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(created.status().as_u16(), 201);
+
+        let rows = register_rows!(&app);
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row["patient_id"], "PAT-AMA-1");
+        assert_eq!(row["diagnosis"], "Pneumonia");
+        assert_eq!(row["recommended_treatment"], "IV antibiotics");
+        assert_eq!(
+            row["patient_statement"],
+            "I need to get home to my children"
+        );
+        assert_eq!(row["risk_level"], "high");
+        assert_eq!(row["status"], "pending-signatures");
+        assert_eq!(row["patient_signed"], false);
+        assert_eq!(row["witness_name"], "Nurse B");
+        assert_eq!(row["provider_attested"], true);
+        assert_eq!(row["discharge_datetime"], "2026-11-12T08:00:00Z");
+    }
+
+    #[actix_rt::test]
+    async fn collecting_signatures_completes_the_discharge() {
+        let state = state().await;
+        let app = app!(state);
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/ama")
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
+                .set_json(filed("PAT-AMA-1"))
+                .to_request(),
+        )
+        .await;
+        let id = created["ama_id"].as_str().expect("ama id");
+        let signed = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri(&format!("/api/clinical/ama/{id}/signatures"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
+                .set_json(serde_json::json!({
+                    "patientSignature": "J. Doe", "witnessName": "Nurse B", "witnessSignature": "Nurse B"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(signed.status().as_u16(), 200);
+
+        let row = &register_rows!(&app)[0];
+        assert_eq!(row["status"], "completed");
+        assert_eq!(row["patient_signed"], true);
+        assert_eq!(row["witness_signed"], true);
+        assert!(row["signatures_collected_at"].is_string());
+    }
+
+    #[actix_rt::test]
+    async fn an_unknown_patient_is_refused_not_filed() {
+        let state = state().await;
+        let app = app!(state);
+        let refused = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/ama")
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
+                .set_json(filed("PAT-NOBODY"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(refused.status().as_u16(), 404);
+        assert!(register_rows!(&app).is_empty());
+    }
+
+    #[core::prelude::v1::test]
+    fn a_row_with_nothing_written_shows_nothing_not_blanks() {
+        let record = AmaDischargeEntity {
+            reason_for_leaving: "   ".to_string(),
+            alternatives_offered: Some(serde_json::json!([])),
+            data: serde_json::json!({ "risk_level": "hgih" }),
+            ..Default::default()
+        };
+        let row = AmaRegisterRow::from(&record);
+        assert_eq!(row.patient_statement, None);
+        assert_eq!(row.diagnosis, None);
+        assert_eq!(row.risk_level, None);
+        assert_eq!(row.status, AmaStatus::PendingSignatures);
+        assert!(!row.patient_signed);
     }
 }
