@@ -15,6 +15,7 @@ import {
   type StrokeListRow,
   type CardiacEventListRow,
   type SepsisListRow,
+  useLatestRequest,
 } from '@medichain/shared';
 import {
   AlertCircle,
@@ -138,8 +139,11 @@ function EmergencyProtocolsPage() {
     }
   }, [isAuthenticated, navigate]);
 
+  const beginRecordsRead = useLatestRequest();
   const fetchEmergencyRecords = useCallback(async () => {
     if (!user) return;
+    // Patient and tab both change under this read; only the latest may answer.
+    const current = beginRecordsRead();
     // No patient chosen yet means there is nothing to ask for; asking about
     // the empty id 404s, which reads as "this patient has none".
     if (!patientId) {
@@ -168,16 +172,17 @@ function EmergencyProtocolsPage() {
           next.sepsis = await getPatientSepsisAssessments(patientId);
           break;
       }
-      setRecords(next);
+      if (current()) setRecords(next);
     } catch (err) {
+      if (!current()) return;
       // A failed read used to leave the empty-state card up, which says the
       // patient has no such records. This says the page could not look.
       setRecords(NO_RECORDS);
       setLoadError(getApiErrorMessage(err, t('docEmergProto.loadFailed')));
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [activeTab, patientId, user, t]);
+  }, [activeTab, patientId, user, t, beginRecordsRead]);
 
   useEffect(() => {
     if (user) {

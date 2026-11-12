@@ -1,4 +1,4 @@
-import { MotionLink } from '@medichain/shared';
+import { MotionLink, useLatestRequest } from '@medichain/shared';
 import { useState, useEffect, useCallback } from 'react';
 import {
   exportDocumentToPdf,
@@ -185,7 +185,11 @@ function LabResultsPage() {
   // Inside a patient's workspace the queue is that patient's results only: the
   // rail's "to review" count points here, and must not open on other people.
   const workspacePatientId = usePatientWorkspace()?.patientId;
+  const beginSubmissionsRead = useLatestRequest();
   const fetchSubmissions = useCallback(async () => {
+    // Opening a chart while the whole-ward list is still loading must not let
+    // that list land inside the chart.
+    const current = beginSubmissionsRead();
     setIsLoading(true);
     try {
       // The shared client owns authentication, retries and response-envelope
@@ -194,16 +198,18 @@ function LabResultsPage() {
       const response = workspacePatientId
         ? await getPatientLabSubmissions(workspacePatientId)
         : await getAllLabSubmissions();
+      if (!current()) return;
       setSubmissions(response);
       setWorkflowError(null);
     } catch (error) {
       console.error('Error fetching lab submissions:', error);
+      if (!current()) return;
       setSubmissions([]);
       setWorkflowError(getApiErrorMessage(error, 'Laboratory results could not be loaded.'));
     } finally {
-      setIsLoading(false);
+      if (current()) setIsLoading(false);
     }
-  }, [workspacePatientId]);
+  }, [workspacePatientId, beginSubmissionsRead]);
 
   useEffect(() => {
     fetchSubmissions();

@@ -9,6 +9,7 @@ import {
   checkDrugInteractions,
   getDrugInteractionHistory, ChoiceChips,
   keepEnterInField,
+  useLatestRequest,
 } from '@medichain/shared';
 import {
   AlertTriangle,
@@ -203,15 +204,18 @@ const DrugInteractionsPage: React.FC = () => {
   // Load drug database from API
   // The history tab used to hold only this session's checks, so it was empty
   // after every reload although the server had filed each one to the chart.
+  const beginHistoryRead = useLatestRequest();
   const loadHistory = useCallback(async (patientId: string) => {
+    const current = beginHistoryRead();
     try {
       const body = await getDrugInteractionHistory(patientId);
+      if (!current()) return;
       setChecks((body.checks ?? []).map(fromStoredCheck));
       setHistoryUnknown(false);
     } catch {
-      setHistoryUnknown(true);
+      if (current()) setHistoryUnknown(true);
     }
-  }, []);
+  }, [beginHistoryRead]);
 
   useEffect(() => {
     if (patientContext.patientId) void loadHistory(patientContext.patientId);

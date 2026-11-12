@@ -9,7 +9,8 @@ import {
   getTelehealthJoinQr,
   listMyTelehealthSessions,
   useTranslation,
-  formatTimestamp, ChoiceChips
+  formatTimestamp, ChoiceChips,
+  useLatestRequest,
 } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2, QrCode } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
@@ -71,24 +72,28 @@ export default function TelehealthPage() {
   // used to render an empty list until a patient id was typed in, so a
   // clinician opening their own telehealth list saw nothing and had no way to
   // discover what they were seeing today.
+  const beginSessionsRead = useLatestRequest();
   const fetchSessions = useCallback(async (pid: string) => {
     if (!user) return;
+    const current = beginSessionsRead();
     setLoading(true);
     try {
       const data = pid
         ? await getPatientTelehealthSessions(pid)
         : await listMyTelehealthSessions();
+      if (!current()) return;
       setSessions(data.sessions ?? []);
       setError('');
     } catch (e) {
       console.error(e);
+      if (!current()) return;
       // Said out loud. A failed fetch used to leave the previous list on
       // screen with no indication it was stale.
       setError(getApiErrorMessage(e, t('docTelehealth.errLoad')));
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [user, t]);
+  }, [user, t, beginSessionsRead]);
 
   useEffect(() => {
     void fetchSessions(patientId);

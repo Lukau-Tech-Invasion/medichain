@@ -3,7 +3,7 @@ import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError, ChoiceChips } from '@medichain/shared';
+import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError, ChoiceChips, useLatestRequest } from '@medichain/shared';
 
 type RiskLevel = 'unknown' | 'none' | 'low' | 'moderate' | 'high' | 'imminent';
 type LegalStatus = '' | 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
@@ -336,15 +336,20 @@ const PsychPage: React.FC = () => {
 
   const [safetyPlan, setSafetyPlan] = useState<string[]>([]);
 
+  const beginHistoryRead = useLatestRequest();
   const refreshAssessments = useCallback(async () => {
     if (!selectedPatient) return false;
+    // A previous patient's history must not arrive under this patient's name.
+    const current = beginHistoryRead();
     try {
       const { assessments: saved } = await getPsychForPatient(selectedPatient);
+      if (!current()) return false;
       setAssessments(saved.map(toStoredAssessment()));
       setHistoryError('');
       return true;
     } catch (err) {
       console.error('Failed to load psychiatric assessments:', err);
+      if (!current()) return false;
       // Said out loud rather than left as an empty tab. "No prior
       // assessments" and "the history could not be loaded" are opposite
       // findings for a patient being assessed for suicide risk, and an empty
@@ -352,7 +357,7 @@ const PsychPage: React.FC = () => {
       setHistoryError(t('docPsych.historyLoadFailed'));
       return false;
     }
-  }, [selectedPatient, t]);
+  }, [selectedPatient, t, beginHistoryRead]);
 
   useEffect(() => {
     void refreshAssessments();

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, getPatientStrokes, formatTimestamp, notifySuccess, useTranslation, type StrokeListRow, ChoiceChips, submitOnce, useSubmission } from '@medichain/shared';
+import { createStroke, getPatients, getPatientStrokes, formatTimestamp, notifySuccess, useTranslation, type StrokeListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -61,18 +61,24 @@ export default function StrokePage() {
     }
   };
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
     setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientStrokes(patientId));
+      const history = await getPatientStrokes(patientId);
+      if (current()) setEmergencyHistory(history);
     } catch {
+      if (!current()) return;
       // Not "no events": a history that could not be read is unknown.
       setEmergencyHistory([]);
       setHistoryError(t('docStroke.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 

@@ -11,6 +11,7 @@ import {
   familyHistoryMemberSchema,
   formatDateOnly, ChoiceChips,
   keepEnterInField,
+  useLatestRequest,
 } from '@medichain/shared';
 import type {
   FamilyMedicalHistory,
@@ -209,7 +210,9 @@ const FamilyHistoryPage: React.FC = () => {
   };
 
   // Fetch family history for selected patient
+  const beginFamilyRead = useLatestRequest();
   const fetchFamilyHistory = useCallback(async (patientId: string) => {
+    const current = beginFamilyRead();
     if (!patientId) {
       setFamilyMembers([]);
       return;
@@ -218,16 +221,17 @@ const FamilyHistoryPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
       const response = await getFamilyHistory(patientId);
+      if (!current()) return;
       const patientName = patients.find((patient) => patient.patient_id === patientId)?.full_name
         ?? t('docFamilyHistory.patientFallback');
       setFamilyMembers(toPortalFamilyMembers(response, patientId, patientName));
     } catch (err) {
       console.error('Error fetching family history:', err);
-      setError(t('docFamilyHistory.errorLoadHistory'));
+      if (current()) setError(t('docFamilyHistory.errorLoadHistory'));
     } finally {
-      setIsLoading(false);
+      if (current()) setIsLoading(false);
     }
-  }, [t, patients]);
+  }, [t, patients, beginFamilyRead]);
 
   // Load family history when patient is selected
   useEffect(() => {

@@ -12,6 +12,7 @@ import {
   formatTimestamp,
   notifySuccess,
   ChoiceChips,
+  useLatestRequest,
 } from '@medichain/shared';
 import type { BookableProvider } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
@@ -300,7 +301,11 @@ export function AppointmentsPage() {
    * whenever the provider or the date changes. Any previously chosen time is
    * cleared: it belonged to a different day and may no longer be free.
    */
+  const beginSlotsRead = useLatestRequest();
   const refreshSlots = async (providerId: string, date: string) => {
+    // Changing the date or the provider while slots load: the times offered
+    // must be the ones for what is chosen now, not for the earlier choice.
+    const current = beginSlotsRead();
     setBooking(prev => ({ ...prev, time: '' }));
     if (!providerId || !date) {
       setSlots([]);
@@ -309,6 +314,7 @@ export function AppointmentsPage() {
     setSlotsLoading(true);
     try {
       const result = await getAvailableSlots(providerId, date);
+      if (!current()) return;
       setSlots(result.available_slots ?? []);
       // `default_clinic_hours` means nobody stored this provider's working
       // hours, so these are standard hours rather than their diary. Real
@@ -319,10 +325,11 @@ export function AppointmentsPage() {
         (result as { slots_source?: string }).slots_source === 'default_clinic_hours'
       );
     } catch {
+      if (!current()) return;
       setSlots([]);
       setBookingError(t('appointments.bookLoadSlotsFailed'));
     } finally {
-      setSlotsLoading(false);
+      if (current()) setSlotsLoading(false);
     }
   };
 

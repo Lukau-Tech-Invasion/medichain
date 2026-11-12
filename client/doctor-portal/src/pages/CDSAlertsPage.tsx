@@ -19,6 +19,7 @@ import {
   confirmDialog,
   notifySuccess, ChoiceChips,
   keepEnterInField,
+  useLatestRequest,
 } from '@medichain/shared';
 import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -133,10 +134,14 @@ const CDSAlertsPage: React.FC = () => {
   const [auditUnknown, setAuditUnknown] = useState(false);
   const [auditPatient, setAuditPatient] = useState('');
 
+  const beginAuditRead = useLatestRequest();
   const loadAudit = useCallback(
     async (cursor?: string) => {
+      // The patient filter re-reads on every keystroke; replies can cross.
+      const current = beginAuditRead();
       try {
         const body = await getCdsAudit(auditPatient.trim() || undefined, { cursor, limit: 50 });
+        if (!current()) return;
         const rows = (body.entries ?? []) as Record<string, unknown>[];
         setAuditEntries((previous) => (cursor ? [...previous, ...rows] : rows));
         // The handler pages; carrying the cursor is what makes the second page
@@ -144,12 +149,12 @@ const CDSAlertsPage: React.FC = () => {
         setAuditCursor(body.next_cursor ?? null);
         setAuditUnknown(false);
       } catch {
-        setAuditUnknown(true);
+        if (current()) setAuditUnknown(true);
       } finally {
-        setAuditLoaded(true);
+        if (current()) setAuditLoaded(true);
       }
     },
-    [auditPatient]
+    [auditPatient, beginAuditRead]
   );
 
   useEffect(() => {

@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getNurseDashboard, getNurseTasks, type NurseDashboardResponse, type NursingOrderTask } from '@medichain/shared';
+import { getNurseDashboard, getNurseTasks, useAsyncRead, type NurseDashboardResponse, type NursingOrderTask } from '@medichain/shared';
 
 export interface NurseRead<T> {
   data: T | null;
@@ -24,24 +23,18 @@ async function readOrders(): Promise<NursingOrderTask[]> {
   return data.tasks;
 }
 
-/** Load one account-scoped resource and invalidate obsolete reads on retry, account change and unmount. */
+/** Load one account-scoped resource; obsolete reads are dropped on retry, account change and unmount. */
 function useNurseRead<T>(load: () => Promise<T>, owner: string): NurseRead<T> {
-  const generation = useRef(0);
-  const [state, setState] = useState<{ owner: string; data: T | null; status: NurseRead<T>['status'] }>({ owner, data: null, status: 'loading' });
-  const reload = useCallback(async () => {
-    if (!owner) return;
-    const request = ++generation.current;
-    setState({ owner, data: null, status: 'loading' });
+  const read = useAsyncRead(owner, async () => {
     try {
-      const data = await load();
-      if (request === generation.current) setState({ owner, data, status: 'ready' });
+      return await load();
     } catch (error) {
       console.error('Nursing dashboard resource read failed:', error);
-      if (request === generation.current) setState({ owner, data: null, status: 'failed' });
+      throw error;
     }
-  }, [load, owner]);
-  useEffect(() => { void reload(); return () => { generation.current += 1; }; }, [reload]);
-  return { ...(state.owner === owner ? state : { data: null, status: 'loading' as const }), reload };
+  });
+  // No account yet is still "loading" to this screen: it has nothing to show.
+  return { data: read.data, status: read.status === 'idle' ? 'loading' : read.status, reload: read.reload };
 }
 
 /** Keep dashboard and nursing-order success, failure and retries independent. */

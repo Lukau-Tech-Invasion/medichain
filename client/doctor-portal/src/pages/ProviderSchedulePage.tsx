@@ -34,6 +34,7 @@ import {
   useTranslation,
   formatTimestamp,
   keepEnterInField,
+  useLatestRequest,
 } from '@medichain/shared';
 import type { ProviderBlockedTime, ProviderWorkingDay } from '@medichain/shared';
 import { CalendarClock, Clock, Plus, Save, Trash2 } from 'lucide-react';
@@ -111,13 +112,17 @@ const ProviderSchedulePage: React.FC = () => {
   const [previewSource, setPreviewSource] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
 
+  const beginScheduleRead = useLatestRequest();
   const loadSchedule = useCallback(
     async (id: string) => {
       if (!id) return;
+      // Another provider's week must not arrive after this one's and be saved over it.
+      const current = beginScheduleRead();
       setIsLoading(true);
       setFormError(null);
       try {
         const response = await getProviderSchedule(id);
+        if (!current()) return;
         setHasSchedule(Boolean(response.has_schedule));
         const next = emptyWeek();
         if (response.has_schedule && response.schedule) {
@@ -150,12 +155,12 @@ const ProviderSchedulePage: React.FC = () => {
         setWeek(next);
         setErrors({});
       } catch {
-        setFormError(t('docProviderSchedule.loadFailed'));
+        if (current()) setFormError(t('docProviderSchedule.loadFailed'));
       } finally {
-        setIsLoading(false);
+        if (current()) setIsLoading(false);
       }
     },
-    [t]
+    [t, beginScheduleRead]
   );
 
   useEffect(() => {

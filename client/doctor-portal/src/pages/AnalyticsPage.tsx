@@ -15,6 +15,7 @@ import {
   type DashboardMetricsResponse,
   type OperationalMetrics as SharedOperationalMetrics,
   type QualityMetricsResponse,
+  useLatestRequest,
 } from '@medichain/shared';
 import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, Calendar, Loader2 } from 'lucide-react';
 import { PatientName } from '../components/PatientName';
@@ -203,7 +204,10 @@ const AnalyticsPage: React.FC = () => {
       .catch(() => setPopulationUnknown(true));
   }, [isAdministrator]);
 
+  const beginAnalyticsRead = useLatestRequest();
   useEffect(() => {
+    // Switching period while one is loading: only the period now selected may answer.
+    const current = beginAnalyticsRead();
     const fetchAnalytics = async () => {
       // Skip the fetch rather than skip the hook: a non-administrator would
       // otherwise spend a request to be told 403 on a screen they cannot see.
@@ -250,6 +254,7 @@ const AnalyticsPage: React.FC = () => {
 
         // Clinical-alert counts live on the quality endpoint.
         const quality: Partial<QualityMetricsResponse> = await getQualityMetrics().catch(() => ({}));
+        if (!current()) return;
 
         const telehealthPct = appts.telehealth_percentage;
 
@@ -319,9 +324,12 @@ const AnalyticsPage: React.FC = () => {
         // aggregated over the selected period, and a failure here must not
         // blank the metrics above.
         try {
-          setOperations(await getOperationalMetrics());
+          const operations = await getOperationalMetrics();
+          if (!current()) return;
+          setOperations(operations);
 
           const { items } = await listCriticalValues();
+          if (!current()) return;
           const rows = items as Array<Record<string, unknown>>;
           setRecentEvents(
             rows
@@ -338,22 +346,23 @@ const AnalyticsPage: React.FC = () => {
               })
           );
         } catch {
-          setOpsError(t('docAnalytics.errorOperations'));
+          if (current()) setOpsError(t('docAnalytics.errorOperations'));
         }
 
       } catch (err) {
         console.error('Error fetching analytics:', err);
+        if (!current()) return;
         setError(err instanceof Error ? err.message : t('docAnalytics.errorTitle'));
         setMetrics([]);
         setDepartmentData([]);
         setPatientFlow([]);
       } finally {
-        setLoading(false);
+        if (current()) setLoading(false);
       }
     };
 
     fetchAnalytics();
-  }, [user, selectedPeriod, isAdministrator, t]);
+  }, [user, selectedPeriod, isAdministrator, t, beginAnalyticsRead]);
 
   const getColorClasses = (color: string) => {
     switch (color) {

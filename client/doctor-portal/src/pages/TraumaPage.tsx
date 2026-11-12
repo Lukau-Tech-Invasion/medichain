@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, notifySuccess, useTranslation, type TraumaListRow, ChoiceChips, submitOnce, useSubmission } from '@medichain/shared';
+import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, notifySuccess, useTranslation, type TraumaListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   AlertCircle,
@@ -58,18 +58,24 @@ export default function TraumaPage() {
     }
   };
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
     setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientTraumas(patientId));
+      const history = await getPatientTraumas(patientId);
+      if (current()) setEmergencyHistory(history);
     } catch {
+      if (!current()) return;
       // Not "no events": a history that could not be read is unknown.
       setEmergencyHistory([]);
       setHistoryError(t('docTrauma.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 

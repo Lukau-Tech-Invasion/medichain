@@ -1,5 +1,10 @@
 import RecordPrintPreview from '../components/RecordPrintPreview';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useReducer } from 'react';
+import {
+  amaFormReducer, emptyAmaForm,
+  readyForSignatures as signaturesMayBeCollected, signaturesComplete as signaturesAreComplete,
+  toAmaDischargeRequest, type AmaFlag, type AmaForm, type AmaFormAction, type RiskLevel,
+} from './AMAPage.form';
 import {
   FileWarning,
   AlertTriangle,
@@ -42,7 +47,6 @@ import { useToastActions } from '../components/Toast';
  */
 
 type AMAStatus = 'draft' | 'pending-signatures' | 'completed' | 'voided';
-type RiskLevel = 'low' | 'moderate' | 'high' | 'critical';
 
 interface AMARecord {
   id: string;
@@ -60,13 +64,6 @@ interface AMARecord {
   witnessSigned: boolean;
   witnessName?: string;
   providerSigned: boolean;
-}
-
-interface RiskDisclosure {
-  id: string;
-  category: string;
-  risk: string;
-  acknowledged: boolean;
 }
 
 const AMAPage: React.FC = () => {
@@ -92,30 +89,16 @@ const AMAPage: React.FC = () => {
   // The roster this held existed only to fill a patient dropdown;
   // `PatientSelect` queries the server as the clinician types.
 
-  // Form state
-  const [formStep, setFormStep] = useState(1);
-  const [patientId, setPatientId] = useState('');
-  const [patientName, setPatientName] = useState('');
-  const [mrn, setMrn] = useState('');
-  const [diagnosis, setDiagnosis] = useState('');
-  const [recommendedTreatment, setRecommendedTreatment] = useState('');
-  const [patientStatement, setPatientStatement] = useState('');
-  const [riskLevel, setRiskLevel] = useState<RiskLevel>('moderate');
-  const [riskDisclosures, setRiskDisclosures] = useState<RiskDisclosure[]>([]);
-  const [witnessName, setWitnessName] = useState('');
-  // Decision-making capacity is the legal precondition for an AMA discharge:
-  // a refusal is only informed if the patient could understand the risks they
-  // are accepting. The form captured the risk disclosures but never recorded
-  // whether the clinician assessed capacity at all, so a record could assert a
-  // valid refusal by a patient nobody had established could give one.
-  const [hasCapacity, setHasCapacity] = useState(false);
-  const [capacityBasis, setCapacityBasis] = useState('');
-  const [patientRefusedAlternatives, setPatientRefusedAlternatives] = useState(false);
-  const [amaFormSigned, setAmaFormSigned] = useState(false);
-  const [witnessAttested, setWitnessAttested] = useState(false);
-  const [providerAttested, setProviderAttested] = useState(false);
-  const [followUpOffered, setFollowUpOffered] = useState(false);
-  const [patientContactInfoVerified, setPatientContactInfoVerified] = useState(false);
+  // Everything the clinician enters is one object; AMAPage.form.ts owns its rules.
+  const [form, dispatch] = useReducer(amaFormReducer, undefined, emptyAmaForm);
+  const {
+    formStep, patientId, patientName, mrn, diagnosis, recommendedTreatment,
+    patientStatement, riskLevel, riskDisclosures, witnessName, hasCapacity, capacityBasis,
+    patientRefusedAlternatives, amaFormSigned, witnessAttested, providerAttested, followUpOffered, patientContactInfoVerified,
+  } = form;
+  const setField = <K extends keyof AmaForm>(field: K, value: AmaForm[K]) =>
+    dispatch({ type: 'set', field, value } as AmaFormAction);
+  const toggleField = (field: AmaFlag) => dispatch({ type: 'toggle', field });
 
   useEffect(() => {
     const fetchAMARecords = async () => {
@@ -150,16 +133,6 @@ const AMAPage: React.FC = () => {
         console.error('Error fetching patients:', err);
       }
     };
-
-    // Default risk disclosures for new records
-    setRiskDisclosures([
-      { id: 'r1', category: 'General', risk: 'Condition may worsen without treatment', acknowledged: false },
-      { id: 'r2', category: 'General', risk: 'Complications may become life-threatening', acknowledged: false },
-      { id: 'r3', category: 'General', risk: 'Delayed treatment may reduce effectiveness of future care', acknowledged: false },
-      { id: 'r4', category: 'Medical', risk: 'Risk of permanent disability or death', acknowledged: false },
-      { id: 'r5', category: 'Medical', risk: 'May require emergency care in the future', acknowledged: false },
-      { id: 'r6', category: 'Legal', risk: 'Insurance may not cover future related treatments', acknowledged: false }
-    ]);
 
     fetchAMARecords();
     fetchPatients();
@@ -217,25 +190,10 @@ const AMAPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const newRecord = {
-        patient_id: patientId,
-        discharge_datetime: new Date().toISOString(),
-        attending_physician_id: user?.userId || '',
-        reason_for_leaving: patientStatement,
-        risks_explained: riskDisclosures.map(({ category, risk, acknowledged }) => ({ category, risk, acknowledged })),
-        specific_risks_discussed: riskDisclosures.filter(risk => risk.acknowledged).map(risk => risk.risk).join('\n'),
-        patient_verbalized_understanding: allRisksAcknowledged,
-        decision_making_capacity: hasCapacity,
-        capacity_assessment: capacityBasis,
-        alternatives_offered: [{ diagnosis, recommended_treatment: recommendedTreatment }],
-        patient_refused_alternatives: patientRefusedAlternatives,
-        ama_form_signed: amaFormSigned,
-        witness_present: witnessAttested,
-        witness_name: witnessName || undefined,
-        follow_up_offered: followUpOffered,
-        patient_contact_info_verified: patientContactInfoVerified,
-        documentation_complete: providerAttested,
-      };
+      const newRecord = toAmaDischargeRequest(form, {
+        attendingPhysicianId: user?.userId || '',
+        dischargeDatetime: new Date().toISOString(),
+      });
 
       await createAMADischarge(newRecord);
       showSuccess(t('docAMA.successCreated'));
@@ -258,24 +216,7 @@ const AMAPage: React.FC = () => {
   };
 
   const resetForm = () => {
-    setFormStep(1);
-    setPatientId('');
-    setPatientName('');
-    setMrn('');
-    setDiagnosis('');
-    setRecommendedTreatment('');
-    setPatientStatement('');
-    setRiskLevel('moderate');
-    setWitnessName('');
-    setHasCapacity(false);
-    setCapacityBasis('');
-    setPatientRefusedAlternatives(false);
-    setAmaFormSigned(false);
-    setWitnessAttested(false);
-    setProviderAttested(false);
-    setFollowUpOffered(false);
-    setPatientContactInfoVerified(false);
-    setRiskDisclosures(prev => prev.map(r => ({ ...r, acknowledged: false })));
+    dispatch({ type: 'reset' });
   };
 
   const getStatusBadge = (status: AMAStatus) => {
@@ -315,17 +256,11 @@ const AMAPage: React.FC = () => {
   });
 
   const handleRiskAcknowledge = (id: string) => {
-    setRiskDisclosures(prev => prev.map(r =>
-      r.id === id ? { ...r, acknowledged: !r.acknowledged } : r
-    ));
+    dispatch({ type: 'acknowledgeRisk', id });
   };
 
-  const allRisksAcknowledged = riskDisclosures.every(r => r.acknowledged);
-  // Signatures may only be collected once capacity is affirmed AND every risk
-  // is acknowledged — an unassessed patient cannot give an informed refusal.
-  const readyForSignatures = allRisksAcknowledged && hasCapacity && patientRefusedAlternatives;
-  const signaturesComplete =
-    amaFormSigned && witnessAttested && Boolean(witnessName.trim()) && providerAttested;
+  const readyForSignatures = signaturesMayBeCollected(form);
+  const signaturesComplete = signaturesAreComplete(form);
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -370,12 +305,7 @@ const AMAPage: React.FC = () => {
                   onClick={() => {
                     setActiveTab(tab);
                     if (tab === 'new') {
-                      setFormStep(1);
-                      setPatientId('');
-                      setPatientName('');
-                      setDiagnosis('');
-                      setRecommendedTreatment('');
-                      setPatientStatement('');
+                      dispatch({ type: 'startNew' });
                     }
                   }}
                   className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
@@ -654,8 +584,8 @@ const AMAPage: React.FC = () => {
                     label={t('docAMA.selectPatientLabel')}
                     value={patientId}
                     onChange={(selectedPatientId, selectedPatient) => {
-                      setPatientId(selectedPatientId);
-                      if (selectedPatient) setPatientName(selectedPatient.full_name);
+                      setField('patientId', selectedPatientId);
+                      if (selectedPatient) setField('patientName', selectedPatient.full_name);
                     }}
                     required
                   />
@@ -672,14 +602,14 @@ const AMAPage: React.FC = () => {
                       id="ama-mrn"
                       type="text"
                       value={mrn}
-                      onChange={(e) => setMrn(e.target.value)}
+                      onChange={(e) => setField('mrn', e.target.value)}
                       placeholder={t('docAMA.mrnPh')}
                       className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                 </div>
                 <button type="button"
-                  onClick={() => setFormStep(2)}
+                  onClick={() => setField('formStep', 2)}
                   disabled={!patientId || !patientName || !mrn}
                   className={`w-full mt-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                     patientId && patientName && mrn
@@ -707,7 +637,7 @@ const AMAPage: React.FC = () => {
                       placeholder={t('docAMA.diagnosisPh')}
                       id="ama-diagnosis"
                       value={diagnosis}
-                      onChange={(e) => { clearField('diagnosis'); setDiagnosis(e.target.value); }}
+                      onChange={(e) => { clearField('diagnosis'); setField('diagnosis', e.target.value); }}
                       onBlur={() => validateField('diagnosis', amaDetails())}
                       error={errors.diagnosis}
                       required
@@ -720,7 +650,7 @@ const AMAPage: React.FC = () => {
                     <textarea
                       id="ama-recommended-treatment"
                       value={recommendedTreatment}
-                      onChange={(e) => setRecommendedTreatment(e.target.value)}
+                      onChange={(e) => setField('recommendedTreatment', e.target.value)}
                       rows={3}
                       placeholder={t('docAMA.recommendedTreatmentPh')}
                       className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
@@ -734,7 +664,7 @@ const AMAPage: React.FC = () => {
                       {(['low', 'moderate', 'high', 'critical'] as RiskLevel[]).map(level => (
                         <button type="button"
                           key={level}
-                          onClick={() => setRiskLevel(level)}
+                          onClick={() => setField('riskLevel', level)}
                           className={`py-2 px-4 rounded-lg border-2 capitalize font-medium ${
                             riskLevel === level
                               ? level === 'critical' ? 'border-red-500 bg-critical-subtle text-critical-subtle-fg' :
@@ -752,13 +682,13 @@ const AMAPage: React.FC = () => {
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button type="button"
-                    onClick={() => setFormStep(1)}
+                    onClick={() => setField('formStep', 1)}
                     className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
                   <button type="button"
-                    onClick={() => setFormStep(3)}
+                    onClick={() => setField('formStep', 3)}
                     disabled={!diagnosis || !recommendedTreatment}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                       diagnosis && recommendedTreatment
@@ -796,7 +726,7 @@ const AMAPage: React.FC = () => {
                       id="ama-has-capacity"
                       type="checkbox"
                       checked={hasCapacity}
-                      onChange={() => setHasCapacity(!hasCapacity)}
+                      onChange={() => setField('hasCapacity', !hasCapacity)}
                       className="mt-1 rounded border-border-interactive text-critical-subtle-fg"
                     />
                     <span className="text-sm font-medium text-content">
@@ -809,7 +739,7 @@ const AMAPage: React.FC = () => {
                   <Textarea
                     id="ama-capacity-basis"
                     value={capacityBasis}
-                    onChange={(e) => { clearField('capacityBasis'); setCapacityBasis(e.target.value); }}
+                    onChange={(e) => { clearField('capacityBasis'); setField('capacityBasis', e.target.value); }}
                     onBlur={() => validateField('capacityBasis', amaDetails())}
                     error={errors.capacityBasis}
                     rows={3}
@@ -850,7 +780,7 @@ const AMAPage: React.FC = () => {
                   <textarea
                     id="ama-patient-statement"
                     value={patientStatement}
-                    onChange={(e) => setPatientStatement(e.target.value)}
+                    onChange={(e) => setField('patientStatement', e.target.value)}
                     rows={3}
                     placeholder={t('docAMA.patientStatementPh')}
                     className="w-full border border-border-interactive rounded-lg p-3 focus:ring-2 focus:ring-red-500"
@@ -861,7 +791,7 @@ const AMAPage: React.FC = () => {
                     id="ama-refused-alternatives"
                     type="checkbox"
                     checked={patientRefusedAlternatives}
-                    onChange={() => setPatientRefusedAlternatives(current => !current)}
+                    onChange={() => toggleField('patientRefusedAlternatives')}
                     className="mt-1 rounded border-border-interactive text-critical-subtle-fg"
                   />
                   <span className="text-sm font-medium text-content">
@@ -870,13 +800,13 @@ const AMAPage: React.FC = () => {
                 </label>
                 <div className="flex gap-3 mt-6">
                   <button type="button"
-                    onClick={() => setFormStep(2)}
+                    onClick={() => setField('formStep', 2)}
                     className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
                   <button type="button"
-                    onClick={() => setFormStep(4)}
+                    onClick={() => setField('formStep', 4)}
                     disabled={!readyForSignatures}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                       readyForSignatures
@@ -911,7 +841,7 @@ const AMAPage: React.FC = () => {
                         id="ama-form-signed"
                         type="checkbox"
                         checked={amaFormSigned}
-                        onChange={() => setAmaFormSigned(current => !current)}
+                        onChange={() => toggleField('amaFormSigned')}
                       />
                       <span className="text-sm text-content">{t('docAMA.patientSignedLabel')}</span>
                     </label>
@@ -931,7 +861,7 @@ const AMAPage: React.FC = () => {
                       id="ama-witness-name"
                       type="text"
                       value={witnessName}
-                      onChange={(e) => setWitnessName(e.target.value)}
+                      onChange={(e) => setField('witnessName', e.target.value)}
                       placeholder={t('docAMA.witnessNamePh')}
                       className="w-full border border-border-interactive rounded-lg p-2 mb-2 focus:ring-2 focus:ring-red-500"
                     />
@@ -940,7 +870,7 @@ const AMAPage: React.FC = () => {
                         id="ama-witness-attested"
                         type="checkbox"
                         checked={witnessAttested}
-                        onChange={() => setWitnessAttested(current => !current)}
+                        onChange={() => toggleField('witnessAttested')}
                         disabled={!witnessName.trim()}
                       />
                       <span className="text-sm text-content">{t('docAMA.witnessAttestedLabel')}</span>
@@ -961,7 +891,7 @@ const AMAPage: React.FC = () => {
                         id="ama-provider-attested"
                         type="checkbox"
                         checked={providerAttested}
-                        onChange={() => setProviderAttested(current => !current)}
+                        onChange={() => toggleField('providerAttested')}
                       />
                       <span className="text-sm text-content">{t('docAMA.providerAttestedLabel')}</span>
                     </label>
@@ -975,7 +905,7 @@ const AMAPage: React.FC = () => {
                       id="ama-follow-up-offered"
                       type="checkbox"
                       checked={followUpOffered}
-                      onChange={() => setFollowUpOffered(current => !current)}
+                      onChange={() => toggleField('followUpOffered')}
                     />
                     <span className="text-sm text-content">{t('docAMA.followUpOfferedLabel')}</span>
                   </label>
@@ -984,7 +914,7 @@ const AMAPage: React.FC = () => {
                       id="ama-contact-verified"
                       type="checkbox"
                       checked={patientContactInfoVerified}
-                      onChange={() => setPatientContactInfoVerified(current => !current)}
+                      onChange={() => toggleField('patientContactInfoVerified')}
                     />
                     <span className="text-sm text-content">{t('docAMA.contactVerifiedLabel')}</span>
                   </label>
@@ -1005,7 +935,7 @@ const AMAPage: React.FC = () => {
 
                 <div className="flex gap-3 mt-6">
                   <button type="button"
-                    onClick={() => setFormStep(3)}
+                    onClick={() => setField('formStep', 3)}
                     className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}

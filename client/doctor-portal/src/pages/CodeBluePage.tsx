@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -62,18 +62,24 @@ export default function CodeBluePage() {
     return () => clearInterval(interval);
   }, [isActive, startTime]);
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
     setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientCodeBlues(patientId));
+      const history = await getPatientCodeBlues(patientId);
+      if (current()) setEmergencyHistory(history);
     } catch {
+      if (!current()) return;
       // Not "no events": a code blue history that could not be read is unknown.
       setEmergencyHistory([]);
       setHistoryError(t('docCodeBlue.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 

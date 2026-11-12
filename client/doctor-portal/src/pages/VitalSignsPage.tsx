@@ -9,7 +9,9 @@ import {
   vitalFlag,
   getVitalsFlowsheet,
   formatTimestamp,
-  notifySuccess, submitOnce, useSubmission } from '@medichain/shared';
+  notifySuccess, submitOnce, useSubmission,
+  useLatestRequest,
+} from '@medichain/shared';
 import type { GcsScale } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -264,10 +266,17 @@ function VitalSignsPage() {
     }
   }, [isAuthenticated, navigate]);
 
+  const beginFlowsheetRead = useLatestRequest();
+
   // Fetch flowsheet when patient is selected
   useEffect(() => {
+    // A reply for the patient selected before this one must not land here.
+    const current = beginFlowsheetRead();
+    // The previous patient's readings come down at once, not when the new
+    // ones arrive: until then they would sit under the new patient's name.
+    setFlowsheet(null);
     if (!selectedPatientId || !user) {
-      setFlowsheet(null);
+      setLoading(false);
       return;
     }
 
@@ -276,16 +285,16 @@ function VitalSignsPage() {
       setError(null);
       try {
         const data = (await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet;
-        setFlowsheet(normalizeFlowsheet(data));
+        if (current()) setFlowsheet(normalizeFlowsheet(data));
       } catch (err) {
-        setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
+        if (current()) setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
       } finally {
-        setLoading(false);
+        if (current()) setLoading(false);
       }
     };
 
     fetchFlowsheet();
-  }, [selectedPatientId, user, t]);
+  }, [selectedPatientId, user, t, beginFlowsheetRead]);
 
   const refreshAfterSave = async (queued: boolean) => {
     setError(null);
@@ -293,10 +302,12 @@ function VitalSignsPage() {
     setShowForm(false);
     // A reading still on this device is not on the flowsheet yet.
     if (queued) return;
+    const current = beginFlowsheetRead();
     try {
-      setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
+      const data = (await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet;
+      if (current()) setFlowsheet(normalizeFlowsheet(data));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
+      if (current()) setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
     }
   };
 

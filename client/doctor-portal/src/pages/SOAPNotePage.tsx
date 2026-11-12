@@ -1,4 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useReducer, useRef } from 'react';
+import {
+  SOAP_FIELDS, emptySoapForm, soapFormReducer, toSoapNoteRequest,
+  type PhysicalExamFinding, type PrescriptionEntry, type SoapForm, type SoapFormAction,
+} from './SOAPNotePage.form';
 import { takeNoteDraft, type SoapDraft } from '../utils/noteDraft';
 import { LatestVitalsStrip } from './soap/LatestVitalsStrip';
 import { InsertTemplateMenu } from './soap/InsertTemplateMenu';
@@ -25,71 +29,6 @@ import { StoredSoapDetails } from '../components/StoredSoapDetails';
 import RecordPrintPreview from '../components/RecordPrintPreview';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-interface PhysicalExamFinding {
-  system: string;
-  findings: string;
-  is_normal: boolean;
-}
-
-interface DiagnosisEntry {
-  description: string;
-  icd10_code?: string;
-  status: 'confirmed' | 'provisional' | 'rule-out';
-}
-
-interface PrescriptionEntry {
-  medication: string;
-  dosage: string;
-  route: string;
-  frequency: string;
-  duration: string;
-  quantity?: number;
-  refills?: number;
-  instructions?: string;
-}
-
-interface CreateSOAPNoteRequest {
-  patient_id: string;
-  encounter_type: string;
-  subjective: {
-    chief_complaint: string;
-    history_of_present_illness: string;
-    symptoms: string[];
-    social_history?: string;
-    family_history?: string;
-    symptom_duration?: string;
-    review_of_systems?: string;
-    modifying_factors?: string;
-    previous_treatments?: string;
-  };
-  objective: {
-    vital_signs?: null;
-    general_appearance?: string;
-    physical_exam: PhysicalExamFinding[];
-    lab_results: string[];
-    imaging_results: string[];
-    diagnostic_tests: string[];
-  };
-  assessment: {
-    primary_diagnosis?: DiagnosisEntry;
-    secondary_diagnoses: DiagnosisEntry[];
-    clinical_summary: string;
-    severity?: string;
-    prognosis?: string;
-  };
-  plan: {
-    treatment_plan: string;
-    medications: PrescriptionEntry[];
-    procedures: string[];
-    lab_orders: string[];
-    imaging_orders: string[];
-    referrals: string[];
-    patient_education: string[];
-    follow_up?: string;
-    return_precautions: string[];
-    activity_restrictions?: string;
-  };
-}
 
 const PHYSICAL_EXAM_SYSTEMS = [
   'General', 'HEENT', 'Cardiovascular', 'Respiratory', 'Gastrointestinal',
@@ -192,7 +131,18 @@ function SOAPNotePage() {
 
 
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
-  const [encounterType, setEncounterType] = useState('initial');
+  // Everything the clinician types is one object; SOAPNotePage.form.ts owns its rules.
+  const [form, dispatch] = useReducer(soapFormReducer, undefined, emptySoapForm);
+  const {
+    encounterType, chiefComplaint, hpi, symptoms, symptomDuration,
+    reviewOfSystems, modifyingFactors, previousTreatments, generalAppearance, physicalExams,
+    labResults, imagingResults, primaryDiagnosis, primaryICD10, primaryStatus,
+    clinicalSummary, severity, treatmentPlan, medications, procedures,
+    labOrders, imagingOrders, referrals, patientEducation, followUp,
+    returnPrecautions, activityRestrictions,
+  } = form;
+  const setField = <K extends keyof SoapForm>(field: K, value: SoapForm[K]) =>
+    dispatch({ type: 'set', field, value } as SoapFormAction);
   
   // Auth redirect
   useEffect(() => {
@@ -222,68 +172,28 @@ function SOAPNotePage() {
     return () => { active = false; };
   }, [selectedPatientId, user, notesVersion]);
   
-  // SUBJECTIVE
-  const [chiefComplaint, setChiefComplaint] = useState('');
-  const [hpi, setHpi] = useState('');
-  const [symptoms, setSymptoms] = useState('');
-  const [symptomDuration, setSymptomDuration] = useState('');
-  const [reviewOfSystems, setReviewOfSystems] = useState('');
-  const [modifyingFactors, setModifyingFactors] = useState('');
-  const [previousTreatments, setPreviousTreatments] = useState('');
   
-  // OBJECTIVE
-  const [generalAppearance, setGeneralAppearance] = useState('');
-  const [physicalExams, setPhysicalExams] = useState<PhysicalExamFinding[]>([]);
-  const [labResults, setLabResults] = useState('');
-  const [imagingResults, setImagingResults] = useState('');
   
-  // ASSESSMENT
-  const [primaryDiagnosis, setPrimaryDiagnosis] = useState('');
-  const [primaryICD10, setPrimaryICD10] = useState('');
-  const [primaryStatus, setPrimaryStatus] = useState<'confirmed' | 'provisional' | 'rule-out'>('confirmed');
-  const [clinicalSummary, setClinicalSummary] = useState('');
-  const [severity, setSeverity] = useState('');
   
-  // PLAN
-  const [treatmentPlan, setTreatmentPlan] = useState('');
-  const [medications, setMedications] = useState<PrescriptionEntry[]>([]);
-  const [procedures, setProcedures] = useState('');
-  const [labOrders, setLabOrders] = useState('');
-  const [imagingOrders, setImagingOrders] = useState('');
-  const [referrals, setReferrals] = useState('');
-  const [patientEducation, setPatientEducation] = useState('');
-  const [followUp, setFollowUp] = useState('');
-  const [returnPrecautions, setReturnPrecautions] = useState('');
-  const [activityRestrictions, setActivityRestrictions] = useState('');
   
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const draft = useDraftFields('soap', selectedPatientId || undefined, t('docSOAPNote.formLabel'), {
-    encounterType: [encounterType, setEncounterType], chiefComplaint: [chiefComplaint, setChiefComplaint],
-    hpi: [hpi, setHpi], symptoms: [symptoms, setSymptoms], symptomDuration: [symptomDuration, setSymptomDuration],
-    reviewOfSystems: [reviewOfSystems, setReviewOfSystems], modifyingFactors: [modifyingFactors, setModifyingFactors],
-    previousTreatments: [previousTreatments, setPreviousTreatments], generalAppearance: [generalAppearance, setGeneralAppearance],
-    physicalExams: [physicalExams, setPhysicalExams], labResults: [labResults, setLabResults],
-    imagingResults: [imagingResults, setImagingResults], primaryDiagnosis: [primaryDiagnosis, setPrimaryDiagnosis],
-    primaryICD10: [primaryICD10, setPrimaryICD10], primaryStatus: [primaryStatus, setPrimaryStatus],
-    clinicalSummary: [clinicalSummary, setClinicalSummary], severity: [severity, setSeverity],
-    treatmentPlan: [treatmentPlan, setTreatmentPlan], medications: [medications, setMedications],
-    procedures: [procedures, setProcedures], labOrders: [labOrders, setLabOrders], imagingOrders: [imagingOrders, setImagingOrders],
-    referrals: [referrals, setReferrals], patientEducation: [patientEducation, setPatientEducation], followUp: [followUp, setFollowUp],
-    returnPrecautions: [returnPrecautions, setReturnPrecautions], activityRestrictions: [activityRestrictions, setActivityRestrictions],
-  });
+  const draft = useDraftFields(
+    'soap', selectedPatientId || undefined, t('docSOAPNote.formLabel'),
+    Object.fromEntries(SOAP_FIELDS.map((field) => [
+      field,
+      [form[field], (value: never) => dispatch({ type: 'set', field, value } as SoapFormAction)] as const,
+    ])),
+  );
 
   // A template started from the template screen fills the note once, on arrival.
   useEffect(() => {
     const draft = takeNoteDraft();
     if (!draft) return;
-    if (draft.subjective) setHpi(draft.subjective);
-    if (draft.objective) setGeneralAppearance(draft.objective);
-    if (draft.assessment) setClinicalSummary(draft.assessment);
-    if (draft.plan) setTreatmentPlan(draft.plan);
+    dispatch({ type: 'fillSections', sections: draft });
     notifySuccess(t('docNoteTemplates.templateApplied', { name: draft.templateName }));
     // Runs once: the draft is removed as it is read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -295,47 +205,18 @@ function SOAPNotePage() {
     }
   }, [patientIdFromUrl]);
 
-  const addPhysicalExam = (system: string) => {
-    setPhysicalExams([...physicalExams, { system, findings: '', is_normal: true }]);
-  };
-
-  const updatePhysicalExam = (index: number, field: keyof PhysicalExamFinding, value: string | boolean) => {
-    const updated = [...physicalExams];
-    updated[index] = { ...updated[index], [field]: value };
-    setPhysicalExams(updated);
-  };
-
-  const removePhysicalExam = (index: number) => {
-    setPhysicalExams(physicalExams.filter((_, i) => i !== index));
-  };
-
-  const addMedication = () => {
-    setMedications([...medications, {
-      medication: '',
-      dosage: '',
-      route: 'PO',
-      frequency: '',
-      duration: '',
-    }]);
-  };
-
-  const updateMedication = (index: number, field: keyof PrescriptionEntry, value: string | number) => {
-    const updated = [...medications];
-    updated[index] = { ...updated[index], [field]: value };
-    setMedications(updated);
-  };
-
-  const removeMedication = (index: number) => {
-    setMedications(medications.filter((_, i) => i !== index));
-  };
+  const addPhysicalExam = (system: string) => dispatch({ type: 'addExam', system });
+  const updatePhysicalExam = (index: number, field: keyof PhysicalExamFinding, value: string | boolean) =>
+    dispatch({ type: 'updateExam', index, field, value });
+  const removePhysicalExam = (index: number) => dispatch({ type: 'removeExam', index });
+  const addMedication = () => dispatch({ type: 'addMedication' });
+  const updateMedication = (index: number, field: keyof PrescriptionEntry, value: string | number) =>
+    dispatch({ type: 'updateMedication', index, field, value });
+  const removeMedication = (index: number) => dispatch({ type: 'removeMedication', index });
 
   const { errors, validate, validateField, clearField } = useValidatedForm(soapNoteSchema);
 
-  /**
-   * The subset of this page's 26 state variables that a note cannot be filed
-   * without. Assembled on demand because the page never had a form object and
-   * introducing one would mean rewriting every control on it.
-   */
+  /** What a note cannot be filed without: the patient and three of the form's fields. */
   const soapCore = () => ({
     selectedPatientId,
     chiefComplaint,
@@ -344,24 +225,11 @@ function SOAPNotePage() {
   });
 
   /** An empty note for the same patient, after "Save and stay". */
-  const blankNote = () => {
-    setEncounterType('initial');
-    setChiefComplaint(''); setHpi(''); setSymptoms(''); setSymptomDuration('');
-    setReviewOfSystems(''); setModifyingFactors(''); setPreviousTreatments('');
-    setGeneralAppearance(''); setPhysicalExams([]); setLabResults(''); setImagingResults('');
-    setPrimaryDiagnosis(''); setPrimaryICD10(''); setPrimaryStatus('confirmed');
-    setClinicalSummary(''); setSeverity('');
-    setTreatmentPlan(''); setMedications([]); setProcedures(''); setLabOrders(''); setImagingOrders('');
-    setReferrals(''); setPatientEducation(''); setFollowUp(''); setReturnPrecautions(''); setActivityRestrictions('');
-  };
+  const blankNote = () => dispatch({ type: 'reset' });
 
   /** A template adds to what is written; it never replaces a word of it. */
   const insertTemplate = (tpl: SoapDraft) => {
-    const add = (text: string) => (current: string) => (text ? (current.trim() ? `${current}\n\n${text}` : text) : current);
-    setHpi(add(tpl.subjective));
-    setGeneralAppearance(add(tpl.objective));
-    setClinicalSummary(add(tpl.assessment));
-    setTreatmentPlan(add(tpl.plan));
+    dispatch({ type: 'appendSections', sections: tpl });
     notifySuccess(t('docNoteTemplates.templateApplied', { name: tpl.templateName }));
   };
 
@@ -389,62 +257,7 @@ function SOAPNotePage() {
     setError(null);
 
     try {
-      const symptomsList = symptoms.split(',').map(s => s.trim()).filter(s => s);
-      const labResultsList = labResults.split(',').map(s => s.trim()).filter(s => s);
-      const imagingResultsList = imagingResults.split(',').map(s => s.trim()).filter(s => s);
-      const proceduresList = procedures.split(',').map(s => s.trim()).filter(s => s);
-      const labOrdersList = labOrders.split(',').map(s => s.trim()).filter(s => s);
-      const imagingOrdersList = imagingOrders.split(',').map(s => s.trim()).filter(s => s);
-      const referralsList = referrals.split(',').map(s => s.trim()).filter(s => s);
-      const patientEducationList = patientEducation.split(',').map(s => s.trim()).filter(s => s);
-      const returnPrecautionsList = returnPrecautions.split(',').map(s => s.trim()).filter(s => s);
-
-      const requestBody: CreateSOAPNoteRequest = {
-        patient_id: selectedPatientId,
-        encounter_type: encounterType,
-        subjective: {
-          chief_complaint: chiefComplaint.trim(),
-          history_of_present_illness: hpi.trim(),
-          symptoms: symptomsList,
-          social_history: undefined,
-          family_history: undefined,
-          symptom_duration: symptomDuration.trim() || undefined,
-          review_of_systems: reviewOfSystems.trim() || undefined,
-          modifying_factors: modifyingFactors.trim() || undefined,
-          previous_treatments: previousTreatments.trim() || undefined,
-        },
-        objective: {
-          vital_signs: null,
-          general_appearance: generalAppearance.trim() || undefined,
-          physical_exam: physicalExams.filter(pe => pe.findings.trim()),
-          lab_results: labResultsList,
-          imaging_results: imagingResultsList,
-          diagnostic_tests: [],
-        },
-        assessment: {
-          primary_diagnosis: primaryDiagnosis.trim() ? {
-            description: primaryDiagnosis.trim(),
-            icd10_code: primaryICD10.trim() || undefined,
-            status: primaryStatus,
-          } : undefined,
-          secondary_diagnoses: [],
-          clinical_summary: clinicalSummary.trim(),
-          severity: severity.trim() || undefined,
-          prognosis: undefined,
-        },
-        plan: {
-          treatment_plan: treatmentPlan.trim(),
-          medications: medications.filter(m => m.medication.trim()),
-          procedures: proceduresList,
-          lab_orders: labOrdersList,
-          imaging_orders: imagingOrdersList,
-          referrals: referralsList,
-          patient_education: patientEducationList,
-          follow_up: followUp.trim() || undefined,
-          return_precautions: returnPrecautionsList,
-          activity_restrictions: activityRestrictions.trim() || undefined,
-        },
-      };
+      const requestBody = toSoapNoteRequest(form, selectedPatientId);
 
       let outcome: Awaited<ReturnType<typeof submitOnce>>;
       try {
@@ -560,7 +373,7 @@ function SOAPNotePage() {
               <select
                 id="soap-encounter-type"
                 value={encounterType}
-                onChange={(e) => setEncounterType(e.target.value)}
+                onChange={(e) => setField('encounterType', e.target.value)}
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
               >
@@ -589,7 +402,7 @@ function SOAPNotePage() {
                 id="soap-chief-complaint"
                 type="text"
                 value={chiefComplaint}
-                onChange={(e) => { clearField('chiefComplaint'); setChiefComplaint(e.target.value); }}
+                onChange={(e) => { clearField('chiefComplaint'); setField('chiefComplaint', e.target.value); }}
                 onBlur={() => validateField('chiefComplaint', soapCore())}
                 error={errors.chiefComplaint}
                 placeholder={t('docSOAPNote.chiefComplaintPh')}
@@ -604,7 +417,7 @@ function SOAPNotePage() {
               <textarea
                 id="soap-hpi"
                 value={hpi}
-                onChange={(e) => setHpi(e.target.value)}
+                onChange={(e) => setField('hpi', e.target.value)}
                 placeholder={t('docSOAPNote.hpiPh')}
                 rows={4}
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
@@ -620,7 +433,7 @@ function SOAPNotePage() {
                   id="soap-symptoms"
                   type="text"
                   value={symptoms}
-                  onChange={(e) => setSymptoms(e.target.value)}
+                  onChange={(e) => setField('symptoms', e.target.value)}
                   placeholder={t('docSOAPNote.symptomsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -634,7 +447,7 @@ function SOAPNotePage() {
                   id="soap-symptom-duration"
                   type="text"
                   value={symptomDuration}
-                  onChange={(e) => setSymptomDuration(e.target.value)}
+                  onChange={(e) => setField('symptomDuration', e.target.value)}
                   placeholder={t('docSOAPNote.symptomDurationPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -646,7 +459,7 @@ function SOAPNotePage() {
                 {t('docSOAPNote.reviewOfSystemsLabel')}
               </label>
               <textarea                id="soap-review-of-systems"                value={reviewOfSystems}
-                onChange={(e) => setReviewOfSystems(e.target.value)}
+                onChange={(e) => setField('reviewOfSystems', e.target.value)}
                 placeholder={t('docSOAPNote.reviewOfSystemsPh')}
                 rows={3}
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
@@ -662,7 +475,7 @@ function SOAPNotePage() {
                   id="soap-modifying-factors"
                   type="text"
                   value={modifyingFactors}
-                  onChange={(e) => setModifyingFactors(e.target.value)}
+                  onChange={(e) => setField('modifyingFactors', e.target.value)}
                   placeholder={t('docSOAPNote.modifyingFactorsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -676,7 +489,7 @@ function SOAPNotePage() {
                   id="soap-previous-treatments"
                   type="text"
                   value={previousTreatments}
-                  onChange={(e) => setPreviousTreatments(e.target.value)}
+                  onChange={(e) => setField('previousTreatments', e.target.value)}
                   placeholder={t('docSOAPNote.previousTreatmentsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -703,7 +516,7 @@ function SOAPNotePage() {
                 id="soap-general-appearance"
                 type="text"
                 value={generalAppearance}
-                onChange={(e) => setGeneralAppearance(e.target.value)}
+                onChange={(e) => setField('generalAppearance', e.target.value)}
                 placeholder={t('docSOAPNote.generalAppearancePh')}
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
               />
@@ -782,7 +595,7 @@ function SOAPNotePage() {
                   id="soap-lab-results"
                   type="text"
                   value={labResults}
-                  onChange={(e) => setLabResults(e.target.value)}
+                  onChange={(e) => setField('labResults', e.target.value)}
                   placeholder={t('docSOAPNote.labResultsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -796,7 +609,7 @@ function SOAPNotePage() {
                   id="soap-imaging-results"
                   type="text"
                   value={imagingResults}
-                  onChange={(e) => setImagingResults(e.target.value)}
+                  onChange={(e) => setField('imagingResults', e.target.value)}
                   placeholder={t('docSOAPNote.imagingResultsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -823,7 +636,7 @@ function SOAPNotePage() {
                   id="soap-primary-diagnosis"
                   type="text"
                   value={primaryDiagnosis}
-                  onChange={(e) => setPrimaryDiagnosis(e.target.value)}
+                  onChange={(e) => setField('primaryDiagnosis', e.target.value)}
                   placeholder={t('docSOAPNote.primaryDiagnosisPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -837,7 +650,7 @@ function SOAPNotePage() {
                   id="soap-icd10-code"
                   type="text"
                   value={primaryICD10}
-                  onChange={(e) => setPrimaryICD10(e.target.value)}
+                  onChange={(e) => setField('primaryICD10', e.target.value)}
                   placeholder="J20.9"
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -850,7 +663,7 @@ function SOAPNotePage() {
                   {t('docSOAPNote.diagnosisStatusLabel')}
                 </label>
                 <select                  id="soap-diagnosis-status"                  value={primaryStatus}
-                  onChange={(e) => setPrimaryStatus(e.target.value as typeof primaryStatus)}
+                  onChange={(e) => setField('primaryStatus', e.target.value as typeof primaryStatus)}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 >
                   {DIAGNOSIS_STATUSES.map(status => (
@@ -867,7 +680,7 @@ function SOAPNotePage() {
                   id="soap-severity"
                   type="text"
                   value={severity}
-                  onChange={(e) => setSeverity(e.target.value)}
+                  onChange={(e) => setField('severity', e.target.value)}
                   placeholder={t('docSOAPNote.severityPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -881,7 +694,7 @@ function SOAPNotePage() {
               <Textarea
                 id="soap-clinical-summary"
                 value={clinicalSummary}
-                onChange={(e) => { clearField('clinicalSummary'); setClinicalSummary(e.target.value); }}
+                onChange={(e) => { clearField('clinicalSummary'); setField('clinicalSummary', e.target.value); }}
                 onBlur={() => validateField('clinicalSummary', soapCore())}
                 error={errors.clinicalSummary}
                 placeholder={t('docSOAPNote.clinicalSummaryPh')}
@@ -908,7 +721,7 @@ function SOAPNotePage() {
               <Textarea
                 id="soap-treatment-plan"
                 value={treatmentPlan}
-                onChange={(e) => { clearField('treatmentPlan'); setTreatmentPlan(e.target.value); }}
+                onChange={(e) => { clearField('treatmentPlan'); setField('treatmentPlan', e.target.value); }}
                 onBlur={() => validateField('treatmentPlan', soapCore())}
                 error={errors.treatmentPlan}
                 placeholder={t('docSOAPNote.treatmentPlanPh')}
@@ -1003,7 +816,7 @@ function SOAPNotePage() {
                   id="soap-procedures"
                   type="text"
                   value={procedures}
-                  onChange={(e) => setProcedures(e.target.value)}
+                  onChange={(e) => setField('procedures', e.target.value)}
                   placeholder={t('docSOAPNote.proceduresPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -1017,7 +830,7 @@ function SOAPNotePage() {
                   id="soap-lab-orders"
                   type="text"
                   value={labOrders}
-                  onChange={(e) => setLabOrders(e.target.value)}
+                  onChange={(e) => setField('labOrders', e.target.value)}
                   placeholder={t('docSOAPNote.labOrdersPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -1031,7 +844,7 @@ function SOAPNotePage() {
                 </label>
                 <input                  id="soap-imaging-orders"                  type="text"
                   value={imagingOrders}
-                  onChange={(e) => setImagingOrders(e.target.value)}
+                  onChange={(e) => setField('imagingOrders', e.target.value)}
                   placeholder={t('docSOAPNote.imagingOrdersPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -1045,7 +858,7 @@ function SOAPNotePage() {
                   id="soap-referrals"
                   type="text"
                   value={referrals}
-                  onChange={(e) => setReferrals(e.target.value)}
+                  onChange={(e) => setField('referrals', e.target.value)}
                   placeholder={t('docSOAPNote.referralsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -1058,7 +871,7 @@ function SOAPNotePage() {
               </label>
               <input                id="soap-patient-education"                type="text"
                 value={patientEducation}
-                onChange={(e) => setPatientEducation(e.target.value)}
+                onChange={(e) => setField('patientEducation', e.target.value)}
                 placeholder={t('docSOAPNote.patientEducationPh')}
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
               />
@@ -1074,7 +887,7 @@ function SOAPNotePage() {
                   id="soap-follow-up"
                   type="text"
                   value={followUp}
-                  onChange={(e) => setFollowUp(e.target.value)}
+                  onChange={(e) => setField('followUp', e.target.value)}
                   placeholder={t('docSOAPNote.followUpPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -1088,7 +901,7 @@ function SOAPNotePage() {
                   id="soap-activity-restrictions"
                   type="text"
                   value={activityRestrictions}
-                  onChange={(e) => setActivityRestrictions(e.target.value)}
+                  onChange={(e) => setField('activityRestrictions', e.target.value)}
                   placeholder={t('docSOAPNote.activityRestrictionsPh')}
                   className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
@@ -1101,7 +914,7 @@ function SOAPNotePage() {
               </label>
               <input                id="soap-return-precautions"                type="text"
                 value={returnPrecautions}
-                onChange={(e) => setReturnPrecautions(e.target.value)}
+                onChange={(e) => setField('returnPrecautions', e.target.value)}
                 placeholder={t('docSOAPNote.returnPrecautionsPh')}
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500"
               />

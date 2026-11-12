@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp, ChoiceChips } from '@medichain/shared';
+import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp, ChoiceChips, useLatestRequest } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 import type { TimiCriteriaInput } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
@@ -128,18 +128,24 @@ export default function CardiacPage() {
   // Event Timeline
   const [events, setEvents] = useState<CardiacEvent[]>([]);
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
     setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientCardiacEvents(patientId));
+      const history = await getPatientCardiacEvents(patientId);
+      if (current()) setEmergencyHistory(history);
     } catch {
+      if (!current()) return;
       // Not "no events": a history that could not be read is unknown.
       setEmergencyHistory([]);
       setHistoryError(t('docCardiac.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 

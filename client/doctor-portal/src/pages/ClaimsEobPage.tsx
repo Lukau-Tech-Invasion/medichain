@@ -8,6 +8,7 @@ import {
   uploadClaimEob,
   useTranslation,
   notifySuccess,
+  useLatestRequest,
 } from '@medichain/shared';
 import type { EobDocument } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
@@ -46,17 +47,21 @@ export default function ClaimsEobPage() {
   const [claims, setClaims] = useState<ClaimRow[]>([]);
   const [state, setState] = useState<LoadState>('idle');
 
+  const beginClaimsRead = useLatestRequest();
   const load = useCallback(async (id: string) => {
+    // An EOB is filed against a claim in this list; it must be this patient's list.
+    const current = beginClaimsRead();
     setState('loading');
     try {
       const body = await getPatientInsuranceClaims(id, { limit: 100 });
+      if (!current()) return;
       setClaims((body.claims ?? []).map(toClaimRow));
       setState('ready');
     } catch (err) {
       console.error('Claims could not be loaded:', err);
-      setState('error');
+      if (current()) setState('error');
     }
-  }, []);
+  }, [beginClaimsRead]);
 
   useEffect(() => {
     if (patientId) void load(patientId);
