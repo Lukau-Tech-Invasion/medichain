@@ -1,5 +1,6 @@
 //! In-memory patient repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -23,10 +24,6 @@ impl MemoryPatientRepository {
             national_id_index: RwLock::new(HashMap::new()),
         }
     }
-
-    fn lock_error(e: impl std::fmt::Display) -> RepositoryError {
-        RepositoryError::Internal(format!("Lock poisoned: {}", e))
-    }
 }
 
 impl Default for MemoryPatientRepository {
@@ -40,7 +37,7 @@ impl PatientRepository for MemoryPatientRepository {
     async fn create(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         // Check for duplicates first (read locks)
         {
-            let storage = self.storage.read().map_err(Self::lock_error)?;
+            let storage = self.storage.read().map_err(lock_poisoned)?;
             if storage.contains_key(&patient.id) {
                 return Err(RepositoryError::Duplicate(format!(
                     "Patient with ID {} already exists",
@@ -50,7 +47,7 @@ impl PatientRepository for MemoryPatientRepository {
         }
 
         {
-            let health_index = self.health_id_index.read().map_err(Self::lock_error)?;
+            let health_index = self.health_id_index.read().map_err(lock_poisoned)?;
             if health_index.contains_key(&patient.health_id) {
                 return Err(RepositoryError::Duplicate(format!(
                     "Health ID {} already exists",
@@ -61,17 +58,17 @@ impl PatientRepository for MemoryPatientRepository {
 
         // Insert into storage and indices (write locks)
         {
-            let mut storage = self.storage.write().map_err(Self::lock_error)?;
+            let mut storage = self.storage.write().map_err(lock_poisoned)?;
             storage.insert(patient.id.clone(), patient.clone());
         }
 
         {
-            let mut health_index = self.health_id_index.write().map_err(Self::lock_error)?;
+            let mut health_index = self.health_id_index.write().map_err(lock_poisoned)?;
             health_index.insert(patient.health_id.clone(), patient.id.clone());
         }
 
         {
-            let mut national_index = self.national_id_index.write().map_err(Self::lock_error)?;
+            let mut national_index = self.national_id_index.write().map_err(lock_poisoned)?;
             national_index.insert(patient.national_id_hash.clone(), patient.id.clone());
         }
 
@@ -79,7 +76,7 @@ impl PatientRepository for MemoryPatientRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<PatientEntity> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         storage
             .get(id)
             .cloned()
@@ -88,7 +85,7 @@ impl PatientRepository for MemoryPatientRepository {
 
     async fn get_by_health_id(&self, health_id: &str) -> RepositoryResult<PatientEntity> {
         let id = {
-            let health_index = self.health_id_index.read().map_err(Self::lock_error)?;
+            let health_index = self.health_id_index.read().map_err(lock_poisoned)?;
             health_index.get(health_id).cloned().ok_or_else(|| {
                 RepositoryError::NotFound(format!("Health ID {} not found", health_id))
             })?
@@ -98,7 +95,7 @@ impl PatientRepository for MemoryPatientRepository {
 
     async fn get_by_national_id_hash(&self, hash: &str) -> RepositoryResult<PatientEntity> {
         let id = {
-            let national_index = self.national_id_index.read().map_err(Self::lock_error)?;
+            let national_index = self.national_id_index.read().map_err(lock_poisoned)?;
             national_index.get(hash).cloned().ok_or_else(|| {
                 RepositoryError::NotFound("National ID hash not found".to_string())
             })?
@@ -107,7 +104,7 @@ impl PatientRepository for MemoryPatientRepository {
     }
 
     async fn update(&self, mut patient: PatientEntity) -> RepositoryResult<PatientEntity> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         let Some(existing) = storage.get(&patient.id) else {
             return Err(RepositoryError::NotFound(format!(
                 "Patient {} not found",
@@ -120,7 +117,7 @@ impl PatientRepository for MemoryPatientRepository {
     }
 
     async fn delete(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         if let Some(patient) = storage.get_mut(id) {
             patient.is_active = false;
             Ok(())
@@ -136,7 +133,7 @@ impl PatientRepository for MemoryPatientRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut patients: Vec<PatientEntity> =
             storage.values().filter(|p| p.is_active).cloned().collect();
@@ -157,7 +154,7 @@ impl PatientRepository for MemoryPatientRepository {
         cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
         limit: u32,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         let mut patients: Vec<PatientEntity> = storage
             .values()
             .filter(|patient| patient.is_active)
@@ -189,7 +186,7 @@ impl PatientRepository for MemoryPatientRepository {
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         let criteria = PatientSearchCriteria::new(query);
 
         let mut patients: Vec<PatientEntity> = storage
@@ -215,7 +212,7 @@ impl PatientRepository for MemoryPatientRepository {
         cursor: Option<(chrono::DateTime<chrono::Utc>, String)>,
         limit: u32,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         let criteria = PatientSearchCriteria::new(query);
         let mut patients: Vec<PatientEntity> = storage
             .values()
@@ -248,7 +245,7 @@ impl PatientRepository for MemoryPatientRepository {
         provider_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PatientEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut patients: Vec<PatientEntity> = storage
             .values()
@@ -268,7 +265,7 @@ impl PatientRepository for MemoryPatientRepository {
     }
 
     async fn count(&self) -> RepositoryResult<u64> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         let count = storage.values().filter(|p| p.is_active).count() as u64;
         Ok(count)
     }
@@ -278,7 +275,7 @@ impl PatientRepository for MemoryPatientRepository {
         after_id: Option<&str>,
         limit: u32,
     ) -> RepositoryResult<Vec<PatientEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         let mut patients: Vec<PatientEntity> = storage
             .values()
             .filter(|p| p.name_search_tokens.is_empty())
@@ -291,7 +288,7 @@ impl PatientRepository for MemoryPatientRepository {
     }
 
     async fn set_name_search_tokens(&self, id: &str, tokens: &[String]) -> RepositoryResult<()> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         let patient = storage
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Patient {id} not found")))?;
@@ -300,7 +297,7 @@ impl PatientRepository for MemoryPatientRepository {
     }
 
     async fn count_by_gender(&self) -> RepositoryResult<HashMap<String, u64>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         let mut counts: HashMap<String, u64> = HashMap::new();
         for patient in storage.values().filter(|p| p.is_active) {
             // Normalised so "Female"/"female" are one bucket rather than two,

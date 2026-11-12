@@ -114,3 +114,15 @@ pub use wound_assessment::MemoryWoundAssessmentRepository;
 
 // Generic JSON-record feature domains
 pub use json_record::MemoryJsonRecordRepository;
+
+/// The error for a store whose lock was poisoned by a request that panicked
+/// while holding it.
+///
+/// These stores used to `unwrap()` the lock, which turned one panic into a
+/// panic on every later request touching the same store, for the life of the
+/// process. Now that request fails with this error and the rest keep working.
+pub(super) fn lock_poisoned(
+    e: impl std::fmt::Display,
+) -> crate::repositories::traits::RepositoryError {
+    crate::repositories::traits::RepositoryError::Internal(format!("Lock poisoned: {e}"))
+}

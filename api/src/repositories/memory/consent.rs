@@ -1,5 +1,6 @@
 //! In-memory repositories for consent records.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -21,13 +22,13 @@ impl MemoryConsentRecordRepository {
 #[async_trait]
 impl ConsentRecordRepository for MemoryConsentRecordRepository {
     async fn create(&self, consent: ConsentRecordEntity) -> RepositoryResult<ConsentRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         records.insert(consent.id.clone(), consent.clone());
         Ok(consent)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<ConsentRecordEntity> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         records
             .get(id)
             .cloned()
@@ -35,7 +36,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
     }
 
     async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<ConsentRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.patient_id == patient_id)
@@ -50,7 +51,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
         consent_type: &str,
     ) -> RepositoryResult<Option<ConsentRecordEntity>> {
         let now = chrono::Utc::now();
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         Ok(records
             .values()
             .find(|r| {
@@ -64,7 +65,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
 
     async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<ConsentRecordEntity>> {
         let now = chrono::Utc::now();
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| {
@@ -78,7 +79,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
     }
 
     async fn update(&self, consent: ConsentRecordEntity) -> RepositoryResult<ConsentRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if !records.contains_key(&consent.id) {
             return Err(RepositoryError::NotFound(format!(
                 "Consent {} not found",
@@ -95,7 +96,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
         revoked_by: &str,
         reason: Option<&str>,
     ) -> RepositoryResult<ConsentRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         let consent = records
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Consent {} not found", id)))?;
@@ -125,7 +126,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
         patient_id: &str,
         consent_type: &str,
     ) -> RepositoryResult<Vec<ConsentRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.patient_id == patient_id && r.consent_type == consent_type)
@@ -140,7 +141,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
         consent_type: &str,
         purpose: &str,
     ) -> RepositoryResult<bool> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let has_consent = records.values().any(|r| {
             r.patient_id == patient_id
                 && r.consent_type == consent_type
@@ -153,7 +154,7 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
     async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ConsentRecordEntity>> {
         let now = chrono::Utc::now();
         let cutoff = now + chrono::Duration::days(days as i64);
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| {

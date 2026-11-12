@@ -1,5 +1,6 @@
 //! In-memory repositories for immunization records.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -24,13 +25,13 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
         &self,
         record: ImmunizationRecordEntity,
     ) -> RepositoryResult<ImmunizationRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         records.insert(record.id.clone(), record.clone());
         Ok(record)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<ImmunizationRecordEntity> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         records
             .get(id)
             .cloned()
@@ -41,7 +42,7 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.patient_id == patient_id)
@@ -55,7 +56,7 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
         patient_id: &str,
         vaccine_type: &str,
     ) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.patient_id == patient_id && r.vaccine_type == vaccine_type)
@@ -68,7 +69,7 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
         &self,
         record: ImmunizationRecordEntity,
     ) -> RepositoryResult<ImmunizationRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if !records.contains_key(&record.id) {
             return Err(RepositoryError::NotFound(format!(
                 "Immunization {} not found",
@@ -85,7 +86,7 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
         days: i32,
     ) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
         let cutoff = chrono::Utc::now().date_naive() - chrono::Duration::days(days as i64);
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.patient_id == patient_id && r.administration_date >= cutoff)
@@ -98,7 +99,7 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
         &self,
         lot_number: &str,
     ) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| {
@@ -113,7 +114,7 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
     }
 
     async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         Ok(records.values().cloned().collect())
     }
 }

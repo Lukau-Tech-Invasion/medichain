@@ -1,5 +1,6 @@
 //! In-memory repositories for insurance records.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -25,13 +26,13 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         &self,
         record: InsuranceRecordEntity,
     ) -> RepositoryResult<InsuranceRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         records.insert(record.id.clone(), record.clone());
         Ok(record)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<InsuranceRecordEntity> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         records
             .get(id)
             .cloned()
@@ -42,7 +43,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let result: Vec<_> = records
             .values()
             .filter(|r| r.patient_id == patient_id)
@@ -55,7 +56,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let today = chrono::Utc::now().date_naive();
         let result: Vec<_> = records
             .values()
@@ -73,7 +74,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         &self,
         record: InsuranceRecordEntity,
     ) -> RepositoryResult<InsuranceRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if records.contains_key(&record.id) {
             records.insert(record.id.clone(), record.clone());
             Ok(record)
@@ -91,7 +92,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         verified_by: &str,
         notes: Option<&str>,
     ) -> RepositoryResult<InsuranceRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if let Some(record) = records.get_mut(id) {
             record.verification_status = Some("verified".to_string());
             record.last_verified_date = Some(chrono::Utc::now().date_naive());
@@ -108,7 +109,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
     }
 
     async fn deactivate(&self, id: &str) -> RepositoryResult<InsuranceRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if let Some(record) = records.get_mut(id) {
             record.is_active = false;
             record.updated_at = Utc::now();
@@ -122,7 +123,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
     }
 
     async fn get_expiring(&self, days: i32) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let cutoff = chrono::Utc::now().date_naive() + chrono::Duration::days(days as i64);
         let result: Vec<_> = records
             .values()
@@ -136,7 +137,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Option<InsuranceRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         Ok(records
             .values()
             .find(|r| r.patient_id == patient_id && r.is_active && r.insurance_type == "primary")
@@ -144,7 +145,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
     }
 
     async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let today = chrono::Utc::now().date_naive();
         let result: Vec<_> = records
             .values()
@@ -163,7 +164,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         id: &str,
         verified_by: &str,
     ) -> RepositoryResult<InsuranceRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if let Some(record) = records.get_mut(id) {
             record.verification_status = Some("verified".to_string());
             record.last_verified_date = Some(chrono::Utc::now().date_naive());
@@ -179,7 +180,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
     }
 
     async fn set_primary(&self, patient_id: &str, record_id: &str) -> RepositoryResult<()> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
 
         // 1. Mark all other records for this patient as not primary
         for record in records.values_mut() {
@@ -215,7 +216,7 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         id: &str,
         termination_date: chrono::NaiveDate,
     ) -> RepositoryResult<InsuranceRecordEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
 
         if let Some(record) = records.get_mut(id) {
             record.is_active = false;

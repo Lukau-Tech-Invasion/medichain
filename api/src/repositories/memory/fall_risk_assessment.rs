@@ -1,5 +1,6 @@
 //! In-memory fall risk assessment repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     FallRiskAssessmentEntity, FallRiskAssessmentRepository, PaginatedResult, Pagination,
     RepositoryError, RepositoryResult,
@@ -40,7 +41,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
         &self,
         mut assessment: FallRiskAssessmentEntity,
     ) -> RepositoryResult<FallRiskAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&assessment.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -72,7 +73,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<FallRiskAssessmentEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("Fall risk assessment with ID {} not found", id))
         })
@@ -83,7 +84,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<FallRiskAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<FallRiskAssessmentEntity> = storage
             .values()
@@ -105,7 +106,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Option<FallRiskAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let latest = storage
             .values()
@@ -120,7 +121,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
         &self,
         mut assessment: FallRiskAssessmentEntity,
     ) -> RepositoryResult<FallRiskAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&assessment.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -149,7 +150,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
     }
 
     async fn get_high_risk_patients(&self) -> RepositoryResult<Vec<FallRiskAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let high_risk_assessments: Vec<FallRiskAssessmentEntity> = storage
             .values()
@@ -161,7 +162,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
     }
 
     async fn get_assessments_due(&self) -> RepositoryResult<Vec<FallRiskAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         let now = Utc::now();
 
         let due_assessments: Vec<FallRiskAssessmentEntity> = storage

@@ -1,5 +1,6 @@
 //! In-memory repositories for push device tokens and SMS opt-outs.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -22,7 +23,7 @@ impl MemoryDeviceTokenRepository {
 #[async_trait]
 impl DeviceTokenRepository for MemoryDeviceTokenRepository {
     async fn register(&self, mut entity: DeviceTokenEntity) -> RepositoryResult<DeviceTokenEntity> {
-        let mut tokens = self.tokens.write().unwrap();
+        let mut tokens = self.tokens.write().map_err(lock_poisoned)?;
 
         // Check for existing token for this user to simulate ON CONFLICT
         let existing_id = tokens
@@ -46,7 +47,7 @@ impl DeviceTokenRepository for MemoryDeviceTokenRepository {
     }
 
     async fn get_by_user(&self, user_id: &str) -> RepositoryResult<Vec<DeviceTokenEntity>> {
-        let tokens = self.tokens.read().unwrap();
+        let tokens = self.tokens.read().map_err(lock_poisoned)?;
         let result = tokens
             .values()
             .filter(|t| t.user_id == user_id)
@@ -56,7 +57,7 @@ impl DeviceTokenRepository for MemoryDeviceTokenRepository {
     }
 
     async fn delete(&self, user_id: &str, token: &str) -> RepositoryResult<()> {
-        let mut tokens = self.tokens.write().unwrap();
+        let mut tokens = self.tokens.write().map_err(lock_poisoned)?;
         let id_to_remove = tokens
             .values()
             .find(|t| t.user_id == user_id && t.token == token)
@@ -69,7 +70,7 @@ impl DeviceTokenRepository for MemoryDeviceTokenRepository {
     }
 
     async fn update_last_seen(&self, id: &str) -> RepositoryResult<()> {
-        let mut tokens = self.tokens.write().unwrap();
+        let mut tokens = self.tokens.write().map_err(lock_poisoned)?;
         if let Some(token) = tokens.get_mut(id) {
             token.last_seen_at = Utc::now();
             Ok(())
@@ -97,18 +98,18 @@ impl MemorySmsOptOutRepository {
 #[async_trait]
 impl SmsOptOutRepository for MemorySmsOptOutRepository {
     async fn add_opt_out(&self, entity: SmsOptOutEntity) -> RepositoryResult<()> {
-        let mut opt_outs = self.opt_outs.write().unwrap();
+        let mut opt_outs = self.opt_outs.write().map_err(lock_poisoned)?;
         opt_outs.insert(entity.phone_number.clone(), entity);
         Ok(())
     }
 
     async fn is_opted_out(&self, phone_number: &str) -> RepositoryResult<bool> {
-        let opt_outs = self.opt_outs.read().unwrap();
+        let opt_outs = self.opt_outs.read().map_err(lock_poisoned)?;
         Ok(opt_outs.contains_key(phone_number))
     }
 
     async fn remove_opt_out(&self, phone_number: &str) -> RepositoryResult<()> {
-        let mut opt_outs = self.opt_outs.write().unwrap();
+        let mut opt_outs = self.opt_outs.write().map_err(lock_poisoned)?;
         opt_outs.remove(phone_number);
         Ok(())
     }

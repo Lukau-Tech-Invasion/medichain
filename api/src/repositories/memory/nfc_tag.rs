@@ -1,5 +1,6 @@
 //! In-memory NFC tag repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -23,10 +24,6 @@ impl MemoryNfcTagRepository {
             patient_index: RwLock::new(HashMap::new()),
         }
     }
-
-    fn lock_error(e: impl std::fmt::Display) -> RepositoryError {
-        RepositoryError::Internal(format!("Lock poisoned: {}", e))
-    }
 }
 
 impl Default for MemoryNfcTagRepository {
@@ -40,7 +37,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
     async fn create(&self, tag: NfcTagEntity) -> RepositoryResult<NfcTagEntity> {
         // Check for duplicates
         {
-            let storage = self.storage.read().map_err(Self::lock_error)?;
+            let storage = self.storage.read().map_err(lock_poisoned)?;
             if storage.contains_key(&tag.id) {
                 return Err(RepositoryError::Duplicate(format!(
                     "Tag {} already exists",
@@ -51,7 +48,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
 
         // Check UID uniqueness
         {
-            let uid_index = self.uid_index.read().map_err(Self::lock_error)?;
+            let uid_index = self.uid_index.read().map_err(lock_poisoned)?;
             if uid_index.contains_key(&tag.tag_uid) {
                 return Err(RepositoryError::Duplicate(format!(
                     "Tag UID {} already registered",
@@ -62,17 +59,17 @@ impl NfcTagRepository for MemoryNfcTagRepository {
 
         // Insert
         {
-            let mut storage = self.storage.write().map_err(Self::lock_error)?;
+            let mut storage = self.storage.write().map_err(lock_poisoned)?;
             storage.insert(tag.id.clone(), tag.clone());
         }
 
         {
-            let mut uid_index = self.uid_index.write().map_err(Self::lock_error)?;
+            let mut uid_index = self.uid_index.write().map_err(lock_poisoned)?;
             uid_index.insert(tag.tag_uid.clone(), tag.id.clone());
         }
 
         {
-            let mut patient_index = self.patient_index.write().map_err(Self::lock_error)?;
+            let mut patient_index = self.patient_index.write().map_err(lock_poisoned)?;
             patient_index
                 .entry(tag.patient_id.clone())
                 .or_default()
@@ -83,7 +80,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<NfcTagEntity> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         storage
             .get(id)
             .cloned()
@@ -92,7 +89,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
 
     async fn get_by_uid(&self, uid: &str) -> RepositoryResult<NfcTagEntity> {
         let id = {
-            let uid_index = self.uid_index.read().map_err(Self::lock_error)?;
+            let uid_index = self.uid_index.read().map_err(lock_poisoned)?;
             uid_index
                 .get(uid)
                 .cloned()
@@ -102,8 +99,8 @@ impl NfcTagRepository for MemoryNfcTagRepository {
     }
 
     async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<NfcTagEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
-        let patient_index = self.patient_index.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let tags: Vec<NfcTagEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -125,7 +122,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
     }
 
     async fn update(&self, tag: NfcTagEntity) -> RepositoryResult<NfcTagEntity> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         if !storage.contains_key(&tag.id) {
             return Err(RepositoryError::NotFound(format!(
                 "Tag {} not found",
@@ -137,7 +134,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
     }
 
     async fn deactivate(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         if let Some(tag) = storage.get_mut(id) {
             tag.is_active = false;
             Ok(())
@@ -147,7 +144,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
     }
 
     async fn record_usage(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         if let Some(tag) = storage.get_mut(id) {
             tag.use_count += 1;
             tag.last_used_at = Some(Utc::now());
@@ -161,7 +158,7 @@ impl NfcTagRepository for MemoryNfcTagRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<NfcTagEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let tags: Vec<NfcTagEntity> = storage.values().cloned().collect();
         let total = tags.len() as u64;

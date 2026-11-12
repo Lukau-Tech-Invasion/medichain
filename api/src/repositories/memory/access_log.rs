@@ -1,5 +1,6 @@
 //! In-memory access log repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -62,28 +63,19 @@ impl AccessLogRepository for MemoryAccessLogRepository {
     }
 
     async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity> {
-        let mut storage = self
-            .storage
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
 
         // Allow duplicate IDs for logs (append-only)
         storage.insert(log.id.clone(), log.clone());
 
-        let mut accessor_index = self
-            .accessor_index
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut accessor_index = self.accessor_index.write().map_err(lock_poisoned)?;
         accessor_index
             .entry(log.accessor_id.clone())
             .or_default()
             .push(log.id.clone());
 
         if let Some(ref patient_id) = log.patient_id {
-            let mut patient_index = self
-                .patient_index
-                .write()
-                .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+            let mut patient_index = self.patient_index.write().map_err(lock_poisoned)?;
             patient_index
                 .entry(patient_id.clone())
                 .or_default()
@@ -98,15 +90,9 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         accessor_ids: &[String],
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let accessor_index = self
-            .accessor_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let accessor_index = self.accessor_index.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = accessor_ids
             .iter()
@@ -131,15 +117,9 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -165,10 +145,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         range: DateRange,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = storage
             .values()
@@ -203,10 +180,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = storage
             .values()
@@ -229,10 +203,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = storage.values().cloned().collect();
 
@@ -252,10 +223,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let query_lower = query.to_lowercase();
 
@@ -286,10 +254,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
     }
 
     async fn count_sealed(&self) -> RepositoryResult<(u64, u64)> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         // Sealing is a PostgreSQL job; nothing held in memory is ever sealed.
         Ok((storage.len() as u64, 0))

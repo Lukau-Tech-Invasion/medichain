@@ -1,5 +1,6 @@
 //! In-memory repositories for clinical decision support alerts.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::HashMap;
@@ -22,13 +23,13 @@ impl MemoryCdsAlertRepository {
 #[async_trait]
 impl CdsAlertRepository for MemoryCdsAlertRepository {
     async fn create(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity> {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = self.alerts.write().map_err(lock_poisoned)?;
         alerts.insert(alert.id.clone(), alert.clone());
         Ok(alert)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<CdsAlertEntity> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         alerts
             .get(id)
             .cloned()
@@ -36,7 +37,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
     }
 
     async fn update(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity> {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = self.alerts.write().map_err(lock_poisoned)?;
         if !alerts.contains_key(&alert.id) {
             return Err(RepositoryError::NotFound(format!(
                 "CDS alert {} not found",
@@ -52,7 +53,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         patient_id: &str,
         active_only: bool,
     ) -> RepositoryResult<Vec<CdsAlertEntity>> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         let result: Vec<_> = alerts
             .values()
             .filter(|a| a.patient_id == patient_id)
@@ -68,7 +69,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         by: &str,
         reason: Option<&str>,
     ) -> RepositoryResult<CdsAlertEntity> {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = self.alerts.write().map_err(lock_poisoned)?;
         if let Some(alert) = alerts.get_mut(id) {
             alert.status = "acknowledged".to_string();
             alert.acknowledged_by = Some(by.to_string());
@@ -92,7 +93,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         by: &str,
         reason: &str,
     ) -> RepositoryResult<CdsAlertEntity> {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = self.alerts.write().map_err(lock_poisoned)?;
         if let Some(alert) = alerts.get_mut(id) {
             alert.status = "overridden".to_string();
             alert.override_justification = Some(by.to_string());
@@ -108,7 +109,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
     }
 
     async fn get_by_encounter(&self, encounter_id: &str) -> RepositoryResult<Vec<CdsAlertEntity>> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         let result: Vec<_> = alerts
             .values()
             .filter(|a| {
@@ -126,7 +127,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         &self,
         patient_id: Option<&str>,
     ) -> RepositoryResult<Vec<CdsAlertEntity>> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         let result: Vec<_> = alerts
             .values()
             .filter(|a| a.acknowledged_by.is_none() && a.status == "active")
@@ -137,7 +138,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
     }
 
     async fn dismiss(&self, id: &str) -> RepositoryResult<CdsAlertEntity> {
-        let mut alerts = self.alerts.write().unwrap();
+        let mut alerts = self.alerts.write().map_err(lock_poisoned)?;
         if let Some(alert) = alerts.get_mut(id) {
             alert.status = "dismissed".to_string();
             alert.updated_at = Utc::now();
@@ -155,7 +156,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         rule_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<CdsAlertEntity>> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         let filtered: Vec<_> = alerts
             .values()
             .filter(|a| a.rule_id.as_deref() == Some(rule_id))
@@ -171,7 +172,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
     }
 
     async fn get_high_severity(&self) -> RepositoryResult<Vec<CdsAlertEntity>> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         let result: Vec<_> = alerts
             .values()
             .filter(|a| {
@@ -188,7 +189,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<CdsAlertEntity>> {
-        let alerts = self.alerts.read().unwrap();
+        let alerts = self.alerts.read().map_err(lock_poisoned)?;
         let all: Vec<_> = alerts.values().cloned().collect();
         let total = all.len() as u64;
         let items: Vec<_> = all

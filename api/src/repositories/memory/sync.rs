@@ -1,5 +1,6 @@
 //! In-memory repositories for offline sync conflicts.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -21,13 +22,13 @@ impl MemorySyncConflictRepository {
 #[async_trait]
 impl SyncConflictRepository for MemorySyncConflictRepository {
     async fn create(&self, conflict: SyncConflictEntity) -> RepositoryResult<SyncConflictEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         records.insert(conflict.id.clone(), conflict.clone());
         Ok(conflict)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<SyncConflictEntity> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         records
             .get(id)
             .cloned()
@@ -38,7 +39,7 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
         &self,
         operation_id: &str,
     ) -> RepositoryResult<Vec<SyncConflictEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| {
@@ -53,7 +54,7 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
     }
 
     async fn get_pending(&self) -> RepositoryResult<Vec<SyncConflictEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.status.as_ref().map(|s| s == "pending").unwrap_or(false))
@@ -69,7 +70,7 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
         resolved_by: &str,
         notes: Option<&str>,
     ) -> RepositoryResult<SyncConflictEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         let conflict = records
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Sync conflict {} not found", id)))?;
@@ -86,7 +87,7 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
         entity_type: &str,
         entity_id: &str,
     ) -> RepositoryResult<Vec<SyncConflictEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.entity_type == entity_type && r.entity_id == entity_id)
@@ -96,7 +97,7 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
     }
 
     async fn get_auto_resolvable(&self) -> RepositoryResult<Vec<SyncConflictEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.status.as_deref() == Some("pending") && r.resolution_strategy.is_some())

@@ -1,5 +1,6 @@
 //! In-memory repositories for retention policies and retention job runs.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -26,7 +27,7 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
     /// past its end date.
     async fn get_due_for_execution(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
         let today = chrono::Utc::now().date_naive();
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let mut items: Vec<DataRetentionPolicyEntity> = records
             .values()
             .filter(|p| {
@@ -44,13 +45,13 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
         &self,
         policy: DataRetentionPolicyEntity,
     ) -> RepositoryResult<DataRetentionPolicyEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         records.insert(policy.id.clone(), policy.clone());
         Ok(policy)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<DataRetentionPolicyEntity> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         records
             .get(id)
             .cloned()
@@ -61,7 +62,7 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
         &self,
         entity_type: &str,
     ) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.entity_type == entity_type)
@@ -71,7 +72,7 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
     }
 
     async fn get_active(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| r.is_active.unwrap_or(false))
@@ -84,7 +85,7 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
         &self,
         policy: DataRetentionPolicyEntity,
     ) -> RepositoryResult<DataRetentionPolicyEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if !records.contains_key(&policy.id) {
             return Err(RepositoryError::NotFound(format!(
                 "Retention policy {} not found",
@@ -96,7 +97,7 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
     }
 
     async fn deactivate(&self, id: &str) -> RepositoryResult<DataRetentionPolicyEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         let policy = records.get_mut(id).ok_or_else(|| {
             RepositoryError::NotFound(format!("Retention policy {} not found", id))
         })?;
@@ -106,7 +107,7 @@ impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
 
     async fn get_due_for_review(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
         let today = chrono::Utc::now().date_naive();
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| {
@@ -140,7 +141,7 @@ impl MemoryRetentionJobRunRepository {
 #[async_trait]
 impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let mut items: Vec<RetentionJobRunEntity> = records
             .values()
             .filter(|r| r.status.as_deref() == Some(status))
@@ -156,7 +157,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     /// a run that died without updating its status is still reported as
     /// outstanding instead of silently disappearing from the queue.
     async fn get_in_progress(&self) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         Ok(records
             .values()
             .filter(|r| r.started_at.is_some() && r.completed_at.is_none())
@@ -165,13 +166,13 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     }
 
     async fn create(&self, job: RetentionJobRunEntity) -> RepositoryResult<RetentionJobRunEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         records.insert(job.id.clone(), job.clone());
         Ok(job)
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<RetentionJobRunEntity> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         records
             .get(id)
             .cloned()
@@ -179,7 +180,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     }
 
     async fn get_by_policy(&self, policy_id: &str) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let items: Vec<_> = records
             .values()
             .filter(|r| {
@@ -194,7 +195,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     }
 
     async fn get_recent(&self, limit: i32) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
-        let records = self.records.read().unwrap();
+        let records = self.records.read().map_err(lock_poisoned)?;
         let mut items: Vec<_> = records.values().cloned().collect();
         items.sort_by_key(|b| std::cmp::Reverse(b.started_at));
         items.truncate(limit as usize);
@@ -202,7 +203,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     }
 
     async fn update(&self, job: RetentionJobRunEntity) -> RepositoryResult<RetentionJobRunEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         if !records.contains_key(&job.id) {
             return Err(RepositoryError::NotFound(format!(
                 "Retention job {} not found",
@@ -220,7 +221,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
         deleted: i32,
         skipped: i32,
     ) -> RepositoryResult<RetentionJobRunEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         let job = records
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Retention job {} not found", id)))?;
@@ -237,7 +238,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
         id: &str,
         error_details: serde_json::Value,
     ) -> RepositoryResult<RetentionJobRunEntity> {
-        let mut records = self.records.write().unwrap();
+        let mut records = self.records.write().map_err(lock_poisoned)?;
         let job = records
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Retention job {} not found", id)))?;
