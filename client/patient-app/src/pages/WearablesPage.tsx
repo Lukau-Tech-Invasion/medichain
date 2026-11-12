@@ -337,8 +337,8 @@ const WearablesPage: React.FC = () => {
     }
     setRuleBusy(true);
     try {
+      // No device: a rule watches one data type across the patient's devices.
       await createWearableAlertRule({
-        device_id: devices[0]?.id ?? '',
         data_type: ruleDataType,
         // A field nobody filled is absent, not zero: `threshold_low: 0` would
         // mean "alert me below zero", which is a different rule entirely.

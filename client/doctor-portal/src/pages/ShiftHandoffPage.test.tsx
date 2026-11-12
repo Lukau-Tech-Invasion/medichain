@@ -166,9 +166,7 @@ describe('ShiftHandoffPage', () => {
     await addByHand();
     fireEvent.click(screen.getByRole('button', { name: 'Hand over 1 patient' }));
     await waitFor(() => expect(shared.createShiftHandoff).toHaveBeenCalledOnce());
-    const payload = vi.mocked(shared.createShiftHandoff).mock.calls[0][0] as {
-      outgoing_nurse: string; incoming_nurse: string; patients: Record<string, unknown>[];
-    };
+    const payload = vi.mocked(shared.createShiftHandoff).mock.calls[0][0];
     expect(payload.outgoing_nurse).toBe(mockUser.userId);
     expect(payload.incoming_nurse).toBe('qa-recipient-id');
     expect(payload.patients[0]).not.toHaveProperty('admitDate');
@@ -212,7 +210,7 @@ describe('ShiftHandoffPage', () => {
     await chooseRecipient();
     fireEvent.click(screen.getByRole('button', { name: 'Hand over 2 patients' }));
     await waitFor(() => expect(shared.createShiftHandoff).toHaveBeenCalledOnce());
-    const payload = vi.mocked(shared.createShiftHandoff).mock.calls[0][0] as { patients: Array<Record<string, unknown>> };
+    const payload = vi.mocked(shared.createShiftHandoff).mock.calls[0][0];
     expect(payload.patients.map((p) => p.patientId)).toEqual(['PAT-A', 'PAT-B']);
     expect(payload.patients[0]).toMatchObject({
       stability: 'watch',

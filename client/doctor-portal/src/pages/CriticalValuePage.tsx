@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   listCriticalValues,
   createCriticalValue,
+  type CreateCriticalValueRequest,
   acknowledgeCriticalValue,
   cancelCriticalValue,
   getApiErrorMessage,
@@ -255,7 +256,8 @@ const CriticalValuePage: React.FC = () => {
       return;
     }
 
-    const newNotification: CriticalValueNotification = {
+    // Which bound was crossed is the server's call, so it is not sent.
+    const newNotification: CreateCriticalValueRequest = {
       notificationId: `CV-${String(notifications.length + 1).padStart(3, '0')}`,
       patientId: patient.patient_id,
       patientName: patient.full_name,
@@ -263,7 +265,6 @@ const CriticalValuePage: React.FC = () => {
       value: value,
       unit: newCritical.unit,
       criticalLevel: criticalInfo.level,
-      thresholdExceeded: criticalInfo.threshold,
       reportedBy: user?.userId || 'UNKNOWN',
       reportedAt: new Date().toISOString(),
       orderingProvider: newCritical.orderingProvider,

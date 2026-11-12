@@ -351,7 +351,7 @@ const ImmunizationPage: React.FC = () => {
         lot_number: newAdmin.lotNumber,
         expiration_date: newAdmin.expiryDate,
         administration_date: newAdmin.administeredAt,
-        dose_number: newAdmin.doseNumber,
+        dose_number: newVaccine.doseNumber,
         dose_amount: newAdmin.dose || undefined,
         total_doses: newAdmin.totalDoses,
         next_dose_due: newAdmin.nextDueDate,
@@ -360,7 +360,6 @@ const ImmunizationPage: React.FC = () => {
         vfc_eligible: newAdmin.vfcEligible,
         route: API_ROUTES[newAdmin.route],
         site: newAdmin.site,
-        administered_by: newAdmin.administeredBy,
         adverse_reaction: newAdmin.adverseReactions,
         notes: newAdmin.notes,
       }) as { success?: boolean; error?: string; id?: string };

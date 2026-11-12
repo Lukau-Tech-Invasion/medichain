@@ -161,7 +161,7 @@ const NursingCarePlanPage: React.FC = () => {
     setSaveMessage(null);
     try {
       await createCarePlan({
-        patient_id: form.patientId,
+        patientId: form.patientId,
         diagnosis: form.diagnosis.trim(),
         priority: form.priority,
         goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)

@@ -138,7 +138,7 @@ describe('AppointmentSchedulerPage', () => {
     fireEvent.submit(screen.getByRole('button', { name: /^Book/i }).closest('form')!);
 
     await waitFor(() => expect(endpoints.createAppointment).toHaveBeenCalled());
-    const sent = vi.mocked(endpoints.createAppointment).mock.calls[0][0] as Record<string, unknown>;
+    const sent = vi.mocked(endpoints.createAppointment).mock.calls[0][0];
     expect(sent).not.toHaveProperty('provider_id');
     expect(sent.appointment_type).toBe('telehealth');
   });

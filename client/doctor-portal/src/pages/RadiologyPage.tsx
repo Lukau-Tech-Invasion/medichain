@@ -207,9 +207,10 @@ const RadiologyPage: React.FC = () => {
    * Maps a worklist modality string onto the backend's `RadiologyStudyType`
    * variant. Unrecognized values remain unsupported rather than being recategorized.
    */
-  const studyTypeFor = (modality: string): string | undefined => {
+  type StudyType = Parameters<typeof createRadiologyReport>[0]['study_type'];
+  const studyTypeFor = (modality: string): StudyType | undefined => {
     const m = modality.trim().toUpperCase();
-    const map: Record<string, string> = {
+    const map: Record<string, StudyType> = {
       'XR': 'XRay', 'X-RAY': 'XRay', 'XRAY': 'XRay', 'CR': 'XRay', 'DX': 'XRay',
       'CT': 'CT', 'MR': 'MRI', 'MRI': 'MRI',
       'US': 'Ultrasound', 'ULTRASOUND': 'Ultrasound',

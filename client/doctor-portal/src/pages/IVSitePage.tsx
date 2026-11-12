@@ -468,12 +468,10 @@ export default function IVSitePage() {
     setError('');
 
     try {
+      // The record id, the documenter and the time are the server's.
       const ivSiteData = {
-        record_id: `IVSITE-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
         sites: ivSites,
-        documented_by: user?.userId,
-        documented_at: Math.floor(Date.now() / 1000)
       };
 
       const outcome = await submitOnce(submission, ivSiteData, () => createIvSite(ivSiteData));

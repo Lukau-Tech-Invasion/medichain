@@ -18,6 +18,7 @@ import {
 import PatientSelect from '../components/PatientSelect';
 import {
   createIntakeOutput,
+  type CreateIoEntryRequest,
   listIntakeOutput,
   useTranslation,
   clickable,
@@ -321,12 +322,11 @@ const IntakeOutputPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const payload = {
-        id: `IO-${Date.now()}`,
+      // Only the entry itself. The id, the time and who recorded it come
+      // from the server and the session; it never read the ones sent here.
+      const payload: CreateIoEntryRequest = {
         patientId: selectedPatient.patientId,
-        timestamp: new Date().toISOString(),
         ...newEntry,
-        recordedBy: user?.username || 'Healthcare Provider'
       };
 
       // One key per submission: a double tap, or a retry after a timeout that

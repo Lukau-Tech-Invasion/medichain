@@ -206,7 +206,8 @@ const ImagingPage: React.FC = () => {
       return;
     }
     if (!user) return;
-    const studyTypes: Record<ImagingModality, string> = {
+    type OrderBody = Parameters<typeof createRadiologyOrder>[0];
+    const studyTypes: Record<ImagingModality, OrderBody['study_type']> = {
       xray: 'XRay', ct: contrast ? 'CTWithContrast' : 'CT',
       mri: contrast ? 'MRIWithContrast' : 'MRI', ultrasound: 'Ultrasound',
       fluoro: 'Fluoroscopy', mammo: 'Mammography', dexa: 'XRay',
@@ -218,7 +219,8 @@ const ImagingPage: React.FC = () => {
           patient_id: selectedPatient,
           study_type: studyTypes[modality], body_part: bodyPart,
           laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
-          indication, priority: priority[0].toUpperCase() + priority.slice(1),
+          indication,
+          priority: ({ stat: 'Stat', urgent: 'Urgent', routine: 'Routine' } as const)[priority],
           ordering_provider: user.userId,
           order_time: Math.floor(Date.now() / 1000), contrast,
           allergies_reviewed: Boolean(allergies.trim()),

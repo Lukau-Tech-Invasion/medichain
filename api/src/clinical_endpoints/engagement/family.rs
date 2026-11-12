@@ -85,6 +85,9 @@ pub async fn create_family_group(
 #[derive(Debug, Deserialize)]
 pub struct AddFamilyMemberRequest {
     pub patient_id: String,
+    /// Optional on the form. Anything unrecognised, blank included, is
+    /// stored as `Other`; requiring it made a blank field a 400.
+    #[serde(default)]
     pub relationship: String,
     pub access_level: String,
     pub can_book_appointments: Option<bool>,

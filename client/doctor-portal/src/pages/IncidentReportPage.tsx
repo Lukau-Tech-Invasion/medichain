@@ -20,6 +20,7 @@ import {
 import {
   listIncidentReports,
   createIncidentReport,
+  type CreateIncidentReportRequest,
   useTranslation,
   Input,
   Textarea,
@@ -194,16 +195,13 @@ const IncidentReportPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const payload = {
-        id: `INC-${Date.now()}`,
+      // Only what the wizard collected. The id, reporter, report time and
+      // status are the server's to decide; it never read the ones sent here.
+      const payload: CreateIncidentReportRequest = {
         ...formData,
         dateTime: new Date(formData.dateTime).toISOString(),
-        reportedBy: user?.username || 'Healthcare Provider',
-        reportedAt: new Date().toISOString(),
-        status: 'open' as IncidentStatus,
         staffInvolved: formData.staffInvolved.split(',').map(s => s.trim()).filter(Boolean),
         witnesses: formData.witnesses.split(',').map(s => s.trim()).filter(Boolean),
-        followUpActions: [],
       };
 
       await createIncidentReport(payload);

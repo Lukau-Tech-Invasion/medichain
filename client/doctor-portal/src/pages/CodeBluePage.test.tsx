@@ -78,7 +78,7 @@ describe('CodeBluePage', () => {
     fireEvent.click(finalize);
 
     await waitFor(() => expect(shared.createCodeBlue).toHaveBeenCalled());
-    const sent = vi.mocked(shared.createCodeBlue).mock.calls[0][0] as Record<string, unknown>;
+    const sent = vi.mocked(shared.createCodeBlue).mock.calls[0][0];
     expect(sent.outcome).toBe('rosc');
     expect(sent.team_members).toEqual([]);
   });

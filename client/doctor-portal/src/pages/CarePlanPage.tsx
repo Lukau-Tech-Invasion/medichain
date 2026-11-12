@@ -279,7 +279,7 @@ export default function CarePlanPage() {
       // The server mints the plan's id and takes its author and time from the
       // session; the page sends only what the nurse entered.
       const carePlanData = {
-        patient_id: selectedPatient.patient_id,
+        patientId: selectedPatient.patient_id,
         diagnoses,
         goals,
         interventions,

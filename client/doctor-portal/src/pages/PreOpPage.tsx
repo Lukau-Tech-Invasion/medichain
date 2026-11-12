@@ -287,12 +287,10 @@ export default function PreOpPage() {
     setSuccess('');
 
     try {
+      // No id, assessor or timestamps: the server mints the id and takes the
+      // rest from the session and its own clock.
       const assessmentData = {
-        assessment_id: `PREOP-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
-        assessment_date: new Date().toISOString().split('T')[0],
-        assessment_time: new Date().toTimeString().slice(0, 5),
-        assessed_by: user?.userId,
         scheduled_surgery: scheduledSurgery,
         surgeon,
         scheduled_date: scheduledDate,
@@ -310,7 +308,6 @@ export default function PreOpPage() {
         medical_history: medicalHistory,
         preop_checklist: preOpChecklist,
         notes,
-        created_at: Math.floor(Date.now() / 1000)
       };
 
       await createPreOp(assessmentData);

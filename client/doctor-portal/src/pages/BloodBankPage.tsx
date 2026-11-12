@@ -5,6 +5,7 @@ import {
   listBloodBank,
   createBloodTypeScreen,
   createTransfusion,
+  type CreateTransfusionRequest,
   useTranslation,
   Alert,
   LoadingSpinner,
@@ -349,10 +350,6 @@ const BloodBankPage: React.FC = () => {
       showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
-    if (!validate(preTransfusionVitals())) {
-      return;
-    }
-
     // Was one toast for four fields. A transfusion reaction is recognised by
     // comparing observations taken during the transfusion against this
     // baseline, so which of the four is missing is precisely what the nurse
@@ -361,8 +358,13 @@ const BloodBankPage: React.FC = () => {
       return;
     }
 
-    const updatedOrder: BloodOrder = {
-      ...selectedOrder,
+    // The fields the handler reads, not the whole worklist row.
+    const transfusion: CreateTransfusionRequest = {
+      orderId: selectedOrder.orderId,
+      patientId: selectedOrder.patientId,
+      bloodType: selectedOrder.bloodType,
+      product: selectedOrder.product,
+      units: selectedOrder.units,
       status: endTime ? 'completed' : 'transfusing',
       transfusionInfo: {
         startTime,
@@ -389,7 +391,7 @@ const BloodBankPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createTransfusion(updatedOrder) as { success?: boolean; error?: string };
+      const response = await createTransfusion(transfusion) as { success?: boolean; error?: string };
       if (response.success !== false) {
         // A transfusion is a separate durable event. Re-read the register so
         // the worklist reflects its server-generated event ID and audit data.
