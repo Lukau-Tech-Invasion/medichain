@@ -23,6 +23,7 @@
  * is the part nobody had run: the patient's own *productive* actions.
  */
 
+import { amaFormReducer, emptyAmaForm, toAmaDischargeRequest, type AmaFormAction } from '../../client/doctor-portal/src/pages/AMAPage.form';
 import { http, type Journal, type Session, type Manifest, discrepancies, findBy, fieldAt,
   rowsOf,
 } from '../lib/journey';
@@ -1383,32 +1384,40 @@ export async function runWardRecordVisibilitySteps(
   });
 
   // --- 9. AMA discharge ---------------------------------------------------
-  // AMAPage.tsx: createAMADischarge, field for field. `hasCapacity` and
-  // `capacityBasis` are mandatory -- an AMA filed without a capacity
-  // determination is not a lawful AMA, and the handler refuses one.
+  // Built by AMAPage's own builder, not retyped here. This step used to post a
+  // hand-written camelCase body the page had stopped sending, so it passed
+  // while the register showed every discharge blank and unsignable.
+  // `hasCapacity` and `capacityBasis` are mandatory -- an AMA filed without a
+  // capacity determination is not a lawful AMA, and the handler refuses one.
   const statement = `I need to get home to my children (journey ${stamp})`;
+  const amaForm = ([
+    { type: 'set', field: 'patientId', value: id },
+    { type: 'set', field: 'patientName', value: 'Journey Patient' },
+    { type: 'set', field: 'diagnosis', value: 'Community-acquired pneumonia' },
+    { type: 'set', field: 'recommendedTreatment', value: 'Admission for intravenous antibiotics' },
+    { type: 'set', field: 'patientStatement', value: statement },
+    { type: 'set', field: 'riskLevel', value: 'high' },
+    { type: 'set', field: 'capacityBasis', value: 'Alert and oriented; able to repeat back the risks of leaving.' },
+    { type: 'set', field: 'witnessName', value: 'Journey Witness' },
+    { type: 'toggle', field: 'hasCapacity' },
+    { type: 'toggle', field: 'patientRefusedAlternatives' },
+  ] as AmaFormAction[]).reduce(amaFormReducer, emptyAmaForm());
   const ama = await http('POST', '/clinical/ama', {
     token: clinician.token,
-    body: {
-      ama_id: `AMA-${stamp}`,
-      patient_id: id,
-      patient_name: 'Journey Patient',
-      mrn: id,
-      dateCreated: new Date().toISOString(),
-      status: 'pending-signatures',
-      riskLevel: 'high',
-      provider: clinician.userId,
-      diagnosis: 'Community-acquired pneumonia',
-      recommendedTreatment: 'Admission for intravenous antibiotics',
-      patientStatement: statement,
-      hasCapacity: true,
-      capacityBasis: 'Alert and oriented; able to repeat back the risks of leaving.',
-      patientSigned: false,
-      witnessSigned: false,
-      witnessName: 'Journey Witness',
-      providerSigned: false,
-    },
+    body: toAmaDischargeRequest(amaForm, {
+      attendingPhysicianId: clinician.userId,
+      dischargeDatetime: new Date().toISOString(),
+    }),
   });
+  // The register a clinician opens: the row must say what was filed and that
+  // it awaits signatures, or the bedside signature step cannot be reached.
+  const amaRegister = await http('GET', '/platform/list/ama-discharges', { token: clinician.token });
+  const amaRow = findBy(amaRegister.json, 'id', ama.json?.ama_id);
+  j.record(
+    'the AMA register shows the discharge, awaiting signatures',
+    amaRow?.patient_statement === statement && amaRow?.status === 'pending-signatures' && amaRow?.risk_level === 'high',
+    `a register row that does not say what was filed cannot be signed or reviewed. Got: ${JSON.stringify(amaRow ?? null).slice(0, 300)}`
+  );
   await readBackAsPatient(j, patient, id, otherId, {
     written: j.status('a doctor files the against-medical-advice discharge', ama.status, [200, 201], ama.json),
     route: 'ama-discharges',

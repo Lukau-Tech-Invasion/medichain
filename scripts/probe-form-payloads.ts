@@ -76,10 +76,24 @@ async function main(): Promise<void> {
   const register = rows((await http('GET', '/platform/list/ama-discharges', { token: doctor.token })).json);
   const filed = register.find((r) => r.id === ama.json.ama_id) ?? {};
   check('the register row carries the risk level', filed.risk_level === 'high', filed);
-  // What the register page reads off each row. Reported, not asserted: these
-  // are the names `AMAPage` renders, and this shows which of them arrive.
-  const read = ['patientName', 'mrn', 'status', 'dateCreated', 'provider', 'diagnosis', 'patientStatement'];
-  console.log('  INFO  fields AMAPage reads from a register row that are absent:', read.filter((key) => filed[key] === undefined).join(', ') || 'none');
+  check('the register row carries what was filed, under the names it is read by',
+    filed.diagnosis === 'Community-acquired pneumonia'
+      && filed.recommended_treatment === 'Admission for intravenous antibiotics'
+      && filed.patient_statement === `I need to get home (probe ${stamp})`
+      && typeof filed.created_at === 'string', filed);
+  check('a new discharge awaits signatures', filed.status === 'pending-signatures' && filed.patient_signed === false, filed);
+
+  const signed = await http('POST', `/clinical/ama/${ama.json.ama_id}/signatures`, {
+    token: doctor.token,
+    body: { patientSignature: 'Probe Patient', witnessName: 'Probe Witness', witnessSignature: 'Probe Witness' },
+  });
+  check('signatures are collected', signed.status === 200, signed);
+  const after = rows((await http('GET', '/platform/list/ama-discharges', { token: doctor.token })).json)
+    .find((r) => r.id === ama.json.ama_id) ?? {};
+  check('collecting signatures completes the discharge', after.status === 'completed' && after.patient_signed === true && after.witness_signed === true, after);
+
+  const nobody = await http('POST', '/clinical/ama', { token: doctor.token, body: { ...request, patient_id: 'PAT-NOBODY' } });
+  check('an AMA for an unknown patient is refused, not a 500', nobody.status === 404, nobody);
 
   const invalid = await http('POST', '/clinical/ama', { token: doctor.token, body: { ...request, risk_level: 'hgih' } });
   check('a risk level outside the list is refused', invalid.status === 400 && (invalid.json.error?.code ?? invalid.json.code) === 'INVALID_RISK_LEVEL', invalid);
