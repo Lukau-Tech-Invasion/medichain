@@ -1,4 +1,6 @@
-use super::*;
+//! Lab result submission and the maker-checker review that releases a result.
+
+use crate::handlers::*;
 
 // ============================================================================
 // Lab Result Submission Endpoints (Approval Workflow)

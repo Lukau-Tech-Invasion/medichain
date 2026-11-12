@@ -4,6 +4,13 @@ use super::*;
 // Session Token Endpoints
 // ============================================================================
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeviceRegistrationRequest {
+    pub token: String,
+    pub device_type: Option<String>,
+    pub device_name: Option<String>,
+}
+
 #[post("/api/notifications/register-device")]
 pub async fn register_device(
     data: web::Data<AppState>,

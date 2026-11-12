@@ -1,4 +1,6 @@
-use super::*;
+//! Lab panel templates.
+
+use crate::handlers::*;
 
 // ----------------------------------------------------------------------------
 // Lab Panel Template Endpoints
@@ -43,11 +45,4 @@ pub async fn get_lab_panels(data: web::Data<AppState>, http_req: HttpRequest) ->
         "total": panel_list.len(),
         "panels": panel_list
     }))
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct DeviceRegistrationRequest {
-    pub token: String,
-    pub device_type: Option<String>,
-    pub device_name: Option<String>,
 }

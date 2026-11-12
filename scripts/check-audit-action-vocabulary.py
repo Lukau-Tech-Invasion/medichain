@@ -82,18 +82,18 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
     # `audit_recollection` takes the action as a parameter. Followed to all
     # three call sites in the same file -- request, complete and cancel -- each
     # of which passes a literal. There is no other caller.
-    'api/src/clinical_endpoints/lab.rs::action.to_string()': [
+    'api/src/handlers/lab/specimen_rejections.rs::action.to_string()': [
         "specimen_recollection_requested",
         "specimen_recollection_completed",
         "specimen_recollection_cancelled",
     ],
     # `close_critical_value` takes the action as a parameter; its two call
     # sites in the same file, acknowledge and cancel, each pass a literal.
-    'api/src/clinical_endpoints/lab.rs::audit_action.to_string()': [
+    'api/src/handlers/lab/critical_values.rs::audit_action.to_string()': [
         "critical_value_acknowledged",
         "critical_value_cancelled",
     ],
-    'api/src/handlers/lab.rs::format!("lab_review_{}", action)': [
+    'api/src/handlers/lab/submissions.rs::format!("lab_review_{}", action)': [
         "lab_review_approve",
         "lab_review_reject",
     ],

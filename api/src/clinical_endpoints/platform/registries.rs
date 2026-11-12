@@ -171,7 +171,7 @@ pub async fn list_critical_values(
     match data.repositories.critical_values.list_all().await {
         Ok(list) => HttpResponse::Ok().json(
             list.iter()
-                .map(crate::clinical_endpoints::critical_value_view)
+                .map(crate::handlers::critical_value_view)
                 .collect::<Vec<_>>(),
         ),
         Err(e) => registry_read_error(&http_req, e),
