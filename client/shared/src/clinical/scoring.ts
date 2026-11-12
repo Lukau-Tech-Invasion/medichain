@@ -27,6 +27,7 @@
  */
 
 import { getApiClient } from '../api/client';
+import type { QsofaResult } from '../types/clinicalScoring';
 
 /*
  * Every accessor below treats a missing *section* the same way it treats a
@@ -163,6 +164,13 @@ export interface ScoringCatalog {
   medication: {
     /** Minutes after the scheduled time before a dose counts as overdue. */
     overdue_after_minutes: number;
+  };
+  /** The qSOFA screen's cut-points; absent on an older server. */
+  qsofa?: {
+    respiratory_rate_at_or_above: number;
+    systolic_bp_at_or_below: number;
+    gcs_below: number;
+    positive_threshold: number;
   };
   fluid_balance: {
     positive_high_ml: number;
@@ -494,3 +502,36 @@ export function isDoseOverdue(
  * band thresholds under `family_history` — that is a description of what the
  * server will do, not a second place it is done.
  */
+
+/**
+ * qSOFA as the server will score it, for the sepsis form's live preview.
+ *
+ * Mirrors `qsofa_score` in `api/src/clinical_scoring.rs`: an observation nobody
+ * made is not scored as a normal one, and `criteria_measured` says how much of
+ * the screen was done. Returns `null` until the catalog has supplied the
+ * cut-points -- the page shows a dash rather than a score from its own numbers.
+ */
+export function qsofaPreview(
+  observations: { respiratoryRate: number | null; systolicBP: number | null; gcs: number | null },
+  catalog: ScoringCatalog | null,
+): QsofaResult | null {
+  const cut = catalog?.qsofa;
+  if (!cut) return null;
+  const { respiratoryRate, systolicBP, gcs } = observations;
+  // The Glasgow Coma Scale runs 3 to 15; a value outside it is not a reading.
+  const gcsValid = gcs !== null && gcs >= 3 && gcs <= 15;
+  const flags = [
+    respiratoryRate === null ? null : respiratoryRate >= cut.respiratory_rate_at_or_above,
+    systolicBP === null ? null : systolicBP <= cut.systolic_bp_at_or_below,
+    gcsValid ? gcs < cut.gcs_below : null,
+  ];
+  const total = flags.filter((flag) => flag === true).length;
+  return {
+    total,
+    respiratory_rate_high: flags[0],
+    systolic_bp_low: flags[1],
+    altered_mentation: flags[2],
+    criteria_measured: flags.filter((flag) => flag !== null).length,
+    positive: total >= cut.positive_threshold,
+  };
+}

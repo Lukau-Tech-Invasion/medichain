@@ -4,7 +4,7 @@ import {
   type SepsisClassification, type SepsisForm, type SepsisFormAction, type SofaField,
 } from './SepsisPage.form';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest } from '@medichain/shared';
+import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest, useScoringCatalog, qsofaPreview } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
 import {
   Thermometer,
@@ -69,21 +69,18 @@ export default function SepsisPage() {
   const setField = <K extends keyof SepsisForm>(field: K, value: SepsisForm[K]) =>
     dispatch({ type: 'set', field, value } as SepsisFormAction);
 
-  // qSOFA Scoring
-  const [qsofaScore, setQsofaScore] = useState(0);
-  const qsofaComplete = respiratoryRate !== null && systolicBP !== null && gcsScore !== null;
-
   // What the server scored, once the assessment is filed.
   const [savedScores, setSavedScores] = useState<SepsisCreateResult | null>(null);
 
-  useEffect(() => {
-    // Calculate qSOFA
-    let score = 0;
-    if (respiratoryRate !== null && respiratoryRate >= 22) score++;
-    if (systolicBP !== null && systolicBP <= 100) score++;
-    if (gcsScore !== null && gcsScore < 15) score++;
-    setQsofaScore(score);
-  }, [respiratoryRate, systolicBP, gcsScore]);
+  // qSOFA. Before filing this is a preview from the catalog's cut-points --
+  // the page holds none of its own, and shows a dash until they arrive. Once
+  // filed it is the server's score.
+  const { catalog } = useScoringCatalog();
+  const qsofa = savedScores?.qsofa
+    ?? qsofaPreview({ respiratoryRate, systolicBP, gcs: gcsScore }, catalog);
+  // The total is only shown for a complete screen: 1/3 from one observation
+  // reads as a low score, not as two observations missing.
+  const qsofaShown = qsofa !== null && qsofa.criteria_measured === 3 ? qsofa : null;
 
   useEffect(() => {
     // Timer for elapsed time
@@ -378,8 +375,8 @@ export default function SepsisPage() {
                         <Wind className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaRR')}
                       </span>
-                      <span className={`font-bold ${respiratoryRate !== null && respiratoryRate >= 22 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {respiratoryRate === null ? '—' : respiratoryRate >= 22 ? '1' : '0'}
+                      <span className={`font-bold ${qsofa?.respiratory_rate_high ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {qsofa?.respiratory_rate_high == null ? '—' : qsofa.respiratory_rate_high ? '1' : '0'}
                       </span>
                     </label>
                     <input
@@ -399,8 +396,8 @@ export default function SepsisPage() {
                         <Heart className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaSBP')}
                       </span>
-                      <span className={`font-bold ${systolicBP !== null && systolicBP <= 100 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {systolicBP === null ? '—' : systolicBP <= 100 ? '1' : '0'}
+                      <span className={`font-bold ${qsofa?.systolic_bp_low ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {qsofa?.systolic_bp_low == null ? '—' : qsofa.systolic_bp_low ? '1' : '0'}
                       </span>
                     </label>
                     <input
@@ -420,8 +417,8 @@ export default function SepsisPage() {
                         <Brain className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaGCS')}
                       </span>
-                      <span className={`font-bold ${gcsScore !== null && gcsScore < 15 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {gcsScore === null ? '—' : gcsScore < 15 ? '1' : '0'}
+                      <span className={`font-bold ${qsofa?.altered_mentation ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {qsofa?.altered_mentation == null ? '—' : qsofa.altered_mentation ? '1' : '0'}
                       </span>
                     </label>
                     <input
@@ -437,13 +434,13 @@ export default function SepsisPage() {
                   </div>
                 </div>
                 <div className={`mt-4 p-4 rounded-lg text-center ${
-                  !qsofaComplete ? 'bg-surface-sunken' : qsofaScore >= 2 ? 'bg-critical-subtle' : 'bg-ok-subtle'
+                  !qsofaShown ? 'bg-surface-sunken' : qsofaShown.positive ? 'bg-critical-subtle' : 'bg-ok-subtle'
                 }`}>
                   <p className="text-sm font-medium text-content-secondary">{t('docSepsis.qsofaScore')}</p>
-                  <p className={`text-4xl font-bold ${!qsofaComplete ? 'text-content-muted' : qsofaScore >= 2 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                    {qsofaComplete ? `${qsofaScore}/3` : '—'}
+                  <p className={`text-4xl font-bold ${!qsofaShown ? 'text-content-muted' : qsofaShown.positive ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
+                    {qsofaShown ? `${qsofaShown.total}/3` : '—'}
                   </p>
-                  {qsofaComplete && qsofaScore >= 2 && (
+                  {qsofaShown?.positive && (
                     <p className="flex items-center gap-1 text-xs text-critical-subtle-fg mt-1">
                       <AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.qsofaHighRisk')}
                     </p>
