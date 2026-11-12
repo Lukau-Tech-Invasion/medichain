@@ -8,156 +8,109 @@
 //!
 //! All repositories use `RwLock<HashMap>` for thread-safe access.
 
-// Phase 1 repositories
 mod access_log;
-mod medical_record;
-mod nfc_tag;
-mod patient;
-mod triage;
-mod vital_signs;
-
-// Phase 2 repositories
+mod cds;
+mod consent;
 mod consultation_note;
+mod discharge;
+mod emergency;
+mod emergency_capsules;
+mod ems;
 mod fall_risk_assessment;
 mod gcs_assessment;
+mod guardian_relationships;
 mod history_physical;
+mod imaging;
+mod immunization;
+mod incident;
+mod insurance;
 mod io_record;
 mod iv_assessment;
+mod json_record;
+mod lab;
+mod legal_holds;
+mod medical_record;
+mod medication_adherence;
 mod medication_record;
+mod nfc_tag;
+mod notifications;
 mod nursing_care_plan;
+mod patient;
+mod patient_access;
 mod progress_note;
+mod retention;
+mod retention_execution;
+mod scheduling_orders;
+mod shift_handoff;
+mod specialty;
+mod surgical;
+mod sync;
+mod triage;
+mod vital_signs;
 mod wound_assessment;
 
-// Emergency protocol repositories
-mod emergency;
-
-// Phase 3 repositories
-mod phase3;
-
-// Phase 1 exports
 pub use access_log::MemoryAccessLogRepository;
-pub use medical_record::MemoryMedicalRecordRepository;
-pub use nfc_tag::MemoryNfcTagRepository;
-pub use patient::MemoryPatientRepository;
-pub use triage::MemoryTriageAssessmentRepository;
-pub use vital_signs::MemoryVitalSignsRepository;
-
-// Phase 2 exports
+pub use cds::MemoryCdsAlertRepository;
+pub use consent::MemoryConsentRecordRepository;
 pub use consultation_note::MemoryConsultationNoteRepository;
+pub use discharge::{
+    MemoryAmaDischargeRepository, MemoryDischargeInstructionsRepository,
+    MemoryDischargeSummaryRepository,
+};
+pub use emergency::{
+    MemoryCardiacEventRepository, MemoryCodeBlueRepository, MemorySepsisAssessmentRepository,
+    MemoryStrokeAssessmentRepository, MemoryTraumaAssessmentRepository,
+};
+pub use emergency_capsules::MemoryEmergencyCapsuleRepository;
+pub use ems::{
+    MemoryChainOfCustodyRepository, MemoryEmsHandoffRepository, MemoryMciRecordRepository,
+};
 pub use fall_risk_assessment::MemoryFallRiskAssessmentRepository;
 pub use gcs_assessment::MemoryGcsAssessmentRepository;
+pub use guardian_relationships::MemoryGuardianRelationshipRepository;
 pub use history_physical::MemoryHistoryPhysicalRepository;
+pub use imaging::{
+    MemoryPathologyReportRepository, MemoryRadiologyOrderRepository,
+    MemoryRadiologyReportRepository,
+};
+pub use immunization::MemoryImmunizationRecordRepository;
+pub use incident::MemoryIncidentReportRepository;
+pub use insurance::MemoryInsuranceRecordRepository;
 pub use io_record::MemoryIORecordRepository;
 pub use iv_assessment::MemoryIVAssessmentRepository;
+pub use lab::{
+    MemoryCriticalValueRepository, MemoryLabQcRecordRepository, MemoryLabSubmissionRepository,
+    MemorySpecimenCollectionRepository, MemorySpecimenRecollectionRepository,
+    MemorySpecimenRejectionRepository,
+};
+pub use legal_holds::MemoryLegalHoldRepository;
+pub use medical_record::MemoryMedicalRecordRepository;
+pub use medication_adherence::{MemoryAdherenceLogRepository, MemoryMedicationReminderRepository};
 pub use medication_record::MemoryMedicationRecordRepository;
+pub use nfc_tag::MemoryNfcTagRepository;
+pub use notifications::{MemoryDeviceTokenRepository, MemorySmsOptOutRepository};
 pub use nursing_care_plan::MemoryNursingCarePlanRepository;
+pub use patient::MemoryPatientRepository;
+pub use patient_access::MemoryPatientAccessRepository;
 pub use progress_note::MemoryProgressNoteRepository;
+pub use retention::{MemoryDataRetentionPolicyRepository, MemoryRetentionJobRunRepository};
+pub use retention_execution::MemoryRetentionExecutionRepository;
+pub use scheduling_orders::{MemoryAppointmentRepository, MemoryPhysicianOrderRepository};
+pub use shift_handoff::MemoryShiftHandoffRepository;
+pub use specialty::{
+    MemoryBurnAssessmentRepository, MemoryObstetricEmergencyRepository,
+    MemoryPediatricAssessmentRepository, MemoryPsychiatricAssessmentRepository,
+    MemoryToxicologyAssessmentRepository,
+};
+pub use surgical::{
+    MemoryAnesthesiaRecordRepository, MemoryIntubationRecordRepository,
+    MemoryLacerationRepairRepository, MemoryOperativeNoteRepository, MemoryPostOpNoteRepository,
+    MemoryPreOpAssessmentRepository, MemorySplintCastRecordRepository,
+};
+pub use sync::MemorySyncConflictRepository;
+pub use triage::MemoryTriageAssessmentRepository;
+pub use vital_signs::MemoryVitalSignsRepository;
 pub use wound_assessment::MemoryWoundAssessmentRepository;
 
-// Emergency protocol exports
-pub use emergency::MemoryCardiacEventRepository;
-pub use emergency::MemoryCodeBlueRepository;
-pub use emergency::MemorySepsisAssessmentRepository;
-pub use emergency::MemoryStrokeAssessmentRepository;
-pub use emergency::MemoryTraumaAssessmentRepository;
-
-// Phase 3 exports - Lab & Diagnostics
-pub use phase3::MemoryCriticalValueRepository;
-pub use phase3::MemoryLabQcRecordRepository;
-pub use phase3::MemoryLabSubmissionRepository;
-pub use phase3::MemorySpecimenCollectionRepository;
-pub use phase3::MemorySpecimenRecollectionRepository;
-pub use phase3::MemorySpecimenRejectionRepository;
-
-// Phase 3 exports - Surgical & Procedures
-pub use phase3::MemoryAnesthesiaRecordRepository;
-pub use phase3::MemoryIntubationRecordRepository;
-pub use phase3::MemoryLacerationRepairRepository;
-pub use phase3::MemoryOperativeNoteRepository;
-pub use phase3::MemoryPostOpNoteRepository;
-pub use phase3::MemoryPreOpAssessmentRepository;
-pub use phase3::MemorySplintCastRecordRepository;
-
-// Phase 3 exports - Radiology & Imaging
-pub use phase3::MemoryPathologyReportRepository;
-pub use phase3::MemoryRadiologyOrderRepository;
-pub use phase3::MemoryRadiologyReportRepository;
-
-// Phase 3 exports - Blood Bank
-
-// Phase 3 exports - Pharmacy & Medications
-pub use phase3::MemoryAdherenceLogRepository;
-pub use phase3::MemoryMedicationReminderRepository;
-
-// Phase 4-6 repositories
-mod phase4;
-
-// Phase 4 exports - Specialty Assessments
-pub use phase4::MemoryBurnAssessmentRepository;
-pub use phase4::MemoryObstetricEmergencyRepository;
-pub use phase4::MemoryPediatricAssessmentRepository;
-pub use phase4::MemoryPsychiatricAssessmentRepository;
-pub use phase4::MemoryToxicologyAssessmentRepository;
-
-// Phase 5 exports - Administrative & Scheduling
-pub use phase4::MemoryAmaDischargeRepository;
-pub use phase4::MemoryAppointmentRepository;
-pub use phase4::MemoryDischargeInstructionsRepository;
-pub use phase4::MemoryDischargeSummaryRepository;
-pub use phase4::MemoryIncidentReportRepository;
-pub use phase4::MemoryPhysicianOrderRepository;
-pub use phase4::MemoryShiftHandoffRepository;
-
-// Phase 6 exports - EMS & External
-pub use phase4::MemoryChainOfCustodyRepository;
-pub use phase4::MemoryEmsHandoffRepository;
-pub use phase4::MemoryMciRecordRepository;
-
-// Persistent guardian relationships (supersedes the in-memory GuardianRegistry)
-mod guardian_relationships;
-pub use guardian_relationships::MemoryGuardianRelationshipRepository;
-mod legal_holds;
-pub use legal_holds::MemoryLegalHoldRepository;
-mod emergency_capsules;
-pub use emergency_capsules::MemoryEmergencyCapsuleRepository;
-mod retention_execution;
-pub use retention_execution::MemoryRetentionExecutionRepository;
-mod patient_access;
-pub use patient_access::MemoryPatientAccessRepository;
-
-// Phase 7-10 repositories
-mod phase5;
-
-// Phase 7 exports - Wearables & IoT
-
-// Phase 8 exports - Telehealth
-
-// Phase 9 exports - Clinical Decision Support
-pub use phase5::MemoryCdsAlertRepository;
-
-// Phase 10 exports - Insurance & Billing
-pub use phase5::MemoryDeviceTokenRepository;
-pub use phase5::MemoryInsuranceRecordRepository;
-pub use phase5::MemorySmsOptOutRepository;
-
-// Phase 11-15 repositories
-mod phase6;
-
-// Phase 11 exports - Family History & Genetics
-
-// Phase 12 exports - Immunization Records
-pub use phase6::MemoryImmunizationRecordRepository;
-
-// Phase 13 exports - Death Records & Certification
-
-// Phase 14 exports - Data Synchronization & Conflict Resolution
-pub use phase6::MemorySyncConflictRepository;
-
-// Phase 15 exports - Enhanced Audit & Compliance
-pub use phase6::MemoryConsentRecordRepository;
-pub use phase6::MemoryDataRetentionPolicyRepository;
-pub use phase6::MemoryRetentionJobRunRepository;
-
-// Phase 7 (Round 4): generic JSON-record feature domains
-mod phase7;
-pub use phase7::MemoryJsonRecordRepository;
+// Generic JSON-record feature domains
+pub use json_record::MemoryJsonRecordRepository;

@@ -4,7 +4,7 @@
 //! fields (u8/u32) that have no native PostgreSQL column type, so each record is
 //! persisted losslessly as JSONB in a uniform `(id, patient_id, record_json,
 //! created_at, updated_at)` table — the same proven shape used by
-//! [`super::phase7`]'s JSON-record repositories. `id`/`patient_id` stay as
+//! [`super::json_record`]'s JSON-record repositories. `id`/`patient_id` stay as
 //! queryable columns; the full entity round-trips through `record_json`.
 //!
 //! All SQL is parameter-bound; table names are compile-time literals (no runtime

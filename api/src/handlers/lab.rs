@@ -1149,7 +1149,7 @@ mod maker_checker_tests {
     /// this test passes even with the atomic guard removed. The interleaving
     /// where both reviewers read `Pending` before either writes is proved
     /// against the repository primitive itself, in
-    /// `repositories::memory::phase7::tests` and the PostgreSQL suite.
+    /// `repositories::memory::json_record::tests` and the PostgreSQL suite.
     #[actix_web::test]
     async fn a_sequential_second_review_cannot_overwrite_the_first_decision() {
         let tech = user("tech_a", Role::LabTechnician);
