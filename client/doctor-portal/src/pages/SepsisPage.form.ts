@@ -86,6 +86,7 @@ export function emptySepsisForm(): SepsisForm {
 export type SepsisFormAction =
   | { [K in keyof SepsisForm]: { type: 'set'; field: K; value: SepsisForm[K] } }[keyof SepsisForm]
   | { type: 'toggleBundleItem'; bundle: 'hour1' | 'hour3'; id: string; at: string; by: string | undefined }
+  | { type: 'completeBundleItem'; bundle: 'hour1' | 'hour3'; id: string; at: string; by: string | undefined }
   | { type: 'addLactate'; timestamp: string };
 
 const toggleItem = (items: BundleItem[], id: string, at: string, by: string | undefined): BundleItem[] =>
@@ -96,6 +97,16 @@ const toggleItem = (items: BundleItem[], id: string, at: string, by: string | un
     completedBy: !item.completed ? by : undefined,
   }));
 
+/**
+ * Tick an item because something else on the form shows it was done. Only ever
+ * ticks: these fire on every qualifying change, and a toggle here un-ticked the
+ * item on the second one (2000 mL, then 20000 mL).
+ */
+const completeItem = (items: BundleItem[], id: string, at: string, by: string | undefined): BundleItem[] =>
+  items.map((item) => (item.id !== id || item.completed ? item : {
+    ...item, completed: true, completedAt: at, completedBy: by,
+  }));
+
 export function sepsisFormReducer(form: SepsisForm, action: SepsisFormAction): SepsisForm {
   switch (action.type) {
     case 'set':
@@ -104,6 +115,10 @@ export function sepsisFormReducer(form: SepsisForm, action: SepsisFormAction): S
       return action.bundle === 'hour1'
         ? { ...form, hour1Bundle: toggleItem(form.hour1Bundle, action.id, action.at, action.by) }
         : { ...form, hour3Bundle: toggleItem(form.hour3Bundle, action.id, action.at, action.by) };
+    case 'completeBundleItem':
+      return action.bundle === 'hour1'
+        ? { ...form, hour1Bundle: completeItem(form.hour1Bundle, action.id, action.at, action.by) }
+        : { ...form, hour3Bundle: completeItem(form.hour3Bundle, action.id, action.at, action.by) };
     case 'addLactate': {
       const value = parseFloat(form.newLactate);
       if (Number.isNaN(value)) return form;

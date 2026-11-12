@@ -132,6 +132,11 @@ export default function SepsisPage() {
     dispatch({ type: 'toggleBundleItem', bundle: bundleType, id: itemId, at: new Date().toISOString(), by: user?.userId });
   };
 
+  /** Something else on the form shows the item was done. Never un-ticks it. */
+  const completeBundleItem = (bundleType: 'hour1' | 'hour3', itemId: string) => {
+    dispatch({ type: 'completeBundleItem', bundle: bundleType, id: itemId, at: new Date().toISOString(), by: user?.userId });
+  };
+
   const addLactateReading = () => {
     const value = parseFloat(newLactate);
     if (isNaN(value)) return;
@@ -140,7 +145,7 @@ export default function SepsisPage() {
     
     // Auto-complete bundle item if this is first lactate
     if (lactateReadings.length === 0) {
-      toggleBundleItem('hour1', 'lactate');
+      completeBundleItem('hour1', 'lactate');
     }
   };
 
@@ -663,7 +668,7 @@ export default function SepsisPage() {
                           if (e.target.checked) {
                             setField('antibioticsGiven', [...antibioticsGiven, abx]);
                             if (antibioticsGiven.length === 0) {
-                              toggleBundleItem('hour1', 'antibiotics');
+                              completeBundleItem('hour1', 'antibiotics');
                             }
                           } else {
                             setField('antibioticsGiven', antibioticsGiven.filter(a => a !== abx));
@@ -695,7 +700,7 @@ export default function SepsisPage() {
                       onChange={(e) => {
                         setField('fluidVolume', parseInt(e.target.value));
                         if (parseInt(e.target.value) >= 2000) {
-                          toggleBundleItem('hour1', 'fluids');
+                          completeBundleItem('hour1', 'fluids');
                         }
                       }}
                       placeholder={t('docSepsis.fluidVolumePlaceholder')}
@@ -714,7 +719,7 @@ export default function SepsisPage() {
                       value={(vasopressorType) || undefined}
                       onChange={(chosen) => { const next = chosen ?? ''; setField('vasopressorType', next);
                         if (next) {
-                          toggleBundleItem('hour1', 'vasopressors');
+                          completeBundleItem('hour1', 'vasopressors');
                         } }}
                       options={[
                         { value: 'norepinephrine', label: 'Norepinephrine (1st line)' },

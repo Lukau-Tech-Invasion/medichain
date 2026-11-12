@@ -38,6 +38,15 @@ describe('sepsisFormReducer', () => {
     });
   });
 
+  it('an automatic completion ticks once and never un-ticks', () => {
+    const done: SepsisFormAction = { type: 'completeBundleItem', bundle: 'hour1', id: 'fluids', at: 'T1', by: 'nurse-1' };
+    const once = after(emptySepsisForm(), done);
+    expect(once.hour1Bundle.find((item) => item.id === 'fluids')).toMatchObject({ completed: true, completedAt: 'T1', completedBy: 'nurse-1' });
+    // A second qualifying change keeps the first time and the first person.
+    const twice = after(once, { ...done, at: 'T2', by: 'nurse-2' });
+    expect(twice.hour1Bundle.find((item) => item.id === 'fluids')).toMatchObject({ completed: true, completedAt: 'T1', completedBy: 'nurse-1' });
+  });
+
   it('the two bundles are ticked independently', () => {
     const form = after(emptySepsisForm(), tick('repeat_lactate', 'hour3'));
     expect(form.hour3Bundle[0].completed).toBe(true);
