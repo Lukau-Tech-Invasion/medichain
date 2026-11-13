@@ -1190,6 +1190,15 @@ mod iv_removal_tests {
         );
     }
 
+    /// The memory store has no column widths, so this is the only test that
+    /// would see the row id outgrow `iv_assessments.id` VARCHAR(64).
+    #[test]
+    fn an_issued_site_row_id_fits_its_column() {
+        let patient = format!("PAT-{}", uuid::Uuid::new_v4().simple());
+        let row = format!("IV-{}-{}", patient, new_site_id());
+        assert!(row.len() <= 64, "{} characters: {row}", row.len());
+    }
+
     #[test]
     fn removal_uses_authenticated_author_and_server_time() {
         let site: IvSiteInput = serde_json::from_value(serde_json::json!({
@@ -1221,6 +1230,15 @@ mod iv_removal_tests {
         assert!(detail["discontinuedAt"].is_null());
         assert!(detail["discontinuedBy"].is_null());
     }
+}
+
+/// A site id the server issues. It is unique among one patient's sites, which
+/// is all it has to be: the row is keyed `IV-{patient}-{site}`, and
+/// `iv_assessments.id` is VARCHAR(64). A full UUID made that 77 characters for
+/// a standard patient id and every new site failed on PostgreSQL only.
+fn new_site_id() -> String {
+    let uuid = uuid::Uuid::new_v4().simple().to_string();
+    format!("SITE-{}", &uuid[..12])
 }
 
 #[post("/api/emergency/iv-site")]
@@ -1282,7 +1300,7 @@ pub async fn create_iv_site(
                 }
                 known.to_string()
             }
-            None => format!("SITE-{}", uuid::Uuid::new_v4().simple()),
+            None => new_site_id(),
         };
         site_ids.push(site_id);
     }

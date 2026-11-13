@@ -4819,6 +4819,15 @@ anything is written. The page keys an unsaved site locally; the nurse journey
 reads the issued id back (`iv_removal_tests::the_server_issues_site_ids_and_refuses_ones_it_did_not`,
 `IVSitePage.test.tsx`, "sends a new site without an id").
 
+The first version issued `SITE-<full uuid>`, which made the row id
+`IV-{patient}-{site}` 77 characters against `iv_assessments.id` VARCHAR(64):
+every new site saved in memory and failed on PostgreSQL with a 500. The role
+journeys on a fresh database caught it the same day. The issued id is now
+`SITE-` plus 12 hex characters (57 for a standard patient id), and
+`an_issued_site_row_id_fits_its_column` pins the width, since the memory store
+has none. Re-run on that database: role journeys 280/281 -> nurse 32/32 after
+the fix (the rest unchanged and passing), cross-role qualification 163/163.
+
 **FIXED — Pre-Op refused out of sight.** The refusal banner sat at the head
 of the page and Save at the foot of a long form, so a refused save looked like a
 button that did nothing. Every Pre-Op error comes from Save, so it is shown
