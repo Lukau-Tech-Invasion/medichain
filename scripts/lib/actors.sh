@@ -145,11 +145,9 @@ print(json.dumps({k: details.get(k) for k in ("action", "method", "path", "resou
 code() {
   local m="$1" p="$2" b="${3:-}" u="${4:-}" authorization="${5:-}" key="" status
   local args=(-s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m" "$BASE$p")
-  # Only when there is a caller. The middleware refuses a *keyed* mutation
-  # that carries no subject (409 IDEMPOTENCY_AUTH_REQUIRED) before
-  # authorization runs, so sending a key on a deliberately anonymous request
-  # replaces the 401 those assertions are about with a 409 from a different
-  # layer. An anonymous caller has no operation to make idempotent.
+  # Only when there is a caller: an anonymous caller has no operation to make
+  # idempotent. (A keyed mutation with no caller is refused 401 either way;
+  # until 2026-11-13 the idempotency middleware answered it 409.)
   if [ -n "$u" ]; then
     case "$m" in
       POST|PUT|PATCH|DELETE)

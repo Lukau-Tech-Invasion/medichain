@@ -4878,9 +4878,17 @@ failing on purpose:
     (`a_transmitted_prescription_reaches_a_pharmacist_without_chart_access`).
     Narrower routing -- a prescription sent to one pharmacy, pharmacists
     belonging to one -- needs a facility link the data model does not have.
-  * **An unauthenticated mutation is answered 409 `IDEMPOTENCY_AUTH_REQUIRED`,
-    not 401** (no token, or a forged one). The idempotency middleware answers
-    before authentication does.
+  * ~~**An unauthenticated mutation is answered 409 `IDEMPOTENCY_AUTH_REQUIRED`,
+    not 401.**~~ **FIXED the same day.** A keyed write with no verified caller
+    (no token, or a forged one) is now refused 401 `UNAUTHORIZED` by the
+    idempotency middleware, the answer authentication gives the same write
+    without a key. A side effect for signed-in users: a keyed write whose access
+    token has expired used to come back 409, which the client showed as an
+    error; it is now 401, so the client refreshes the session and retries once.
+    `a_keyed_write_without_a_caller_is_unauthorized_not_a_conflict`; the
+    cross-role check on an anonymous telehealth join now accepts 401 only.
+    Verified on fresh databases: harness 276/2 (the two left are the lockscreen
+    decision below), cross-role 163/163, API suite 1125 passed.
 
 **OPEN — needs an owner decision:**
 

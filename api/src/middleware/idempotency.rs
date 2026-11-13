@@ -373,7 +373,7 @@ where
         // cannot be honoured. For the handful of endpoints that establish
         // identity in the first place it is simply the normal case: sign-in has
         // no subject until it succeeds, so demanding one made every credential
-        // login fail with IDEMPOTENCY_AUTH_REQUIRED the moment the client
+        // login fail with an authentication refusal the moment the client
         // attached a key. Sign-in is rate limited, and credential redemption
         // consumes a one-time code. Neither can be keyed by an authenticated
         // subject before the identity is established.
@@ -397,10 +397,20 @@ where
         let pool = state.as_ref().and_then(|state| state.db_pool.clone());
 
         Box::pin(async move {
+            // No verified caller: no token, or one that does not verify. That
+            // is a 401, the answer the authentication layer gives the same
+            // request without a key. This used to be 409
+            // IDEMPOTENCY_AUTH_REQUIRED, which told an anonymous or forged
+            // caller their request had *conflicted* with something, and made
+            // the status a refused write receives depend on whether the client
+            // happened to attach a key.
             let Some(subject) = subject else {
-                return Ok(req.into_response(operation_error(
-                    "IDEMPOTENCY_AUTH_REQUIRED",
-                    "Authentication is required for an idempotent mutation",
+                return Ok(req.into_response(HttpResponse::Unauthorized().json(
+                    crate::middleware::error_handling::error_envelope_json(
+                        "UNAUTHORIZED",
+                        "Authentication required",
+                        None,
+                    ),
                 )));
             };
             if pool.is_none() && !on_memory_backend {
@@ -650,5 +660,50 @@ mod tests {
             Some("actor-a"),
             Some("operation-a")
         ));
+    }
+
+    /// A keyed write with no verified caller is refused 401, the answer the
+    /// authentication layer gives the same write without a key -- not 409, as
+    /// though it had conflicted with something. A signed-in caller's identical
+    /// write still goes through.
+    #[actix_web::test]
+    async fn a_keyed_write_without_a_caller_is_unauthorized_not_a_conflict() {
+        use actix_web::{test, App, HttpResponse};
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(crate::state::AppState::new()))
+                .wrap(IdempotencyMiddleware)
+                .route(
+                    "/api/probe",
+                    web::post().to(|| async { HttpResponse::Ok().finish() }),
+                ),
+        )
+        .await;
+        let keyed = || {
+            test::TestRequest::post()
+                .uri("/api/probe")
+                .insert_header(("Idempotency-Key", uuid::Uuid::new_v4().to_string()))
+        };
+        for (label, request) in [
+            ("no token", keyed().to_request()),
+            (
+                "forged token",
+                keyed()
+                    .insert_header(("Authorization", "Bearer not-a-token"))
+                    .to_request(),
+            ),
+        ] {
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), 401, "{label}");
+            let body: serde_json::Value = test::read_body_json(response).await;
+            assert_eq!(body["error"]["code"], "UNAUTHORIZED", "{label}");
+        }
+        let signed_in = keyed()
+            .insert_header(crate::test_fixtures::as_user("idem-caller"))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, signed_in).await.status().as_u16(),
+            200
+        );
     }
 }

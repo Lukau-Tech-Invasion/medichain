@@ -1762,17 +1762,11 @@ async function qualifyTelehealth(
     );
   }
 
-  // Refused — but by the idempotency middleware (409 IDEMPOTENCY_AUTH_REQUIRED)
-  // rather than by the auth layer, because a keyed mutation needs a subject
-  // before authorization is even consulted. The boundary holds; which layer
-  // holds it is a diagnosability nit, not a hole, so the assertion names both.
+  // 401, whichever layer refuses it. The idempotency middleware used to answer
+  // a keyed write with no caller 409 IDEMPOTENCY_AUTH_REQUIRED, so this
+  // accepted 409 too; it answers 401 now (2026-11-13).
   const anon = await http('POST', `/telehealth/sessions/${sessionId}/join`);
-  expectStatus(
-    'an unauthenticated caller cannot join',
-    anon.status,
-    [401, 403, 409],
-    anon.json
-  );
+  expectStatus('an unauthenticated caller cannot join', anon.status, [401], anon.json);
 
   // --- a session that does not exist --------------------------------------
   const ghost = await http('POST', '/telehealth/sessions/SESSION-DOES-NOT-EXIST/join', {
