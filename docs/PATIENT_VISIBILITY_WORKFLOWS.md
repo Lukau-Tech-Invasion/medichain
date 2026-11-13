@@ -73,6 +73,15 @@ emergency card.
 > and the code-blue list refused the patient outright. Closed with
 > `GET /api/clinical/patient/{patient_id}/emergency-care`, an `emergency-care`
 > records-summary section, and the matching entries on My Records.
+>
+> **Correction, 2026-11-13.** "IV sites" was wrong from 2026-11-04. The
+> patient surface (`middleware/patient_surface.rs`) closed
+> `GET /api/clinical/iv-sites/{patient_id}` to patient sessions and nothing
+> replaced it, so a patient could not read their own cannula record; the
+> synthetic e2e harness found it on a fresh database. Closed with
+> `GET /api/clinical/patient/{patient_id}/iv-sites`, an `iv-sites`
+> records-summary section, and "IV cannula" entries on My Records, where a
+> site nobody assessed reads "Site not yet assessed", not grade 0.
 
 > **Correction, 2026-09-15.** This list previously included **GCS**, and that
 > was wrong — an unverified claim in my own document. `createGCS`, `getGCS` and

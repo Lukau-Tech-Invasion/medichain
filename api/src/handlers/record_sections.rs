@@ -26,6 +26,7 @@ pub(crate) enum RecordSection {
     Procedures,
     AmaDischarges,
     IntakeOutput,
+    IvSites,
     PharmacyDecisions,
     EmsHandoffs,
     Immunizations,
@@ -35,7 +36,7 @@ pub(crate) enum RecordSection {
 
 impl RecordSection {
     /// Every section, for the combined summary.
-    pub(crate) const ALL: [RecordSection; 18] = [
+    pub(crate) const ALL: [RecordSection; 19] = [
         Self::HistoryPhysicals,
         Self::ProgressNotes,
         Self::Wounds,
@@ -49,6 +50,7 @@ impl RecordSection {
         Self::Procedures,
         Self::AmaDischarges,
         Self::IntakeOutput,
+        Self::IvSites,
         Self::PharmacyDecisions,
         Self::EmsHandoffs,
         Self::Immunizations,
@@ -72,6 +74,7 @@ impl RecordSection {
             Self::Procedures => "procedures",
             Self::AmaDischarges => "ama-discharges",
             Self::IntakeOutput => "intake-output",
+            Self::IvSites => "iv-sites",
             Self::PharmacyDecisions => "pharmacy-decisions",
             Self::EmsHandoffs => "ems-handoffs",
             Self::Immunizations => "immunizations",
@@ -120,6 +123,7 @@ pub(crate) async fn read_section(
         S::Blood => blood(data, patient_id, page).await,
         S::Procedures => procedures(data, patient_id, page).await,
         S::IntakeOutput => intake_output(data, patient_id, page).await,
+        S::IvSites => iv_sites(data, patient_id, page).await,
         S::PharmacyDecisions => pharmacy_decisions(data, patient_id, page).await,
         S::EmsHandoffs => ems_handoffs(data, patient_id, page).await,
         S::Immunizations => immunizations(data, patient_id, page).await,
@@ -334,6 +338,22 @@ async fn intake_output(data: &AppState, id: &str, page: Pagination) -> Repositor
         .items;
     let count = items.len();
     Ok(json!({ "success": true, "patient_id": id, "intake_output": items, "count": count }))
+}
+
+/// The cannulas a patient had, with each site's latest assessment.
+///
+/// Readable only through `/api/clinical/iv-sites/{patient_id}`, which the
+/// patient surface closes to patients, so a patient with a stage-2 phlebitis
+/// grade on their arm could not see it on their own record.
+async fn iv_sites(data: &AppState, id: &str, page: Pagination) -> RepositoryResult<Value> {
+    let items = data
+        .repositories
+        .iv_assessments
+        .get_by_patient(id, page)
+        .await?
+        .items;
+    let count = items.len();
+    Ok(json!({ "success": true, "patient_id": id, "iv_sites": items, "count": count }))
 }
 
 async fn pharmacy_decisions(

@@ -207,6 +207,7 @@ export function MyRecordsPage() {
         immunizationData,
         administrationData,
         emergencyCareData,
+        ivSiteData,
       ] = await Promise.all([
         settle('lab', getPatientLabSubmissions(patientId), []),
         settle('documents', getPatientRecords(patientId), []),
@@ -275,6 +276,10 @@ export function MyRecordsPage() {
         // Resuscitation, trauma, stroke, cardiac and sepsis care. A patient who
         // was resuscitated could not see that it happened.
         section('emergency-care'),
+        // Each cannula and how its site was last assessed. The clinical list
+        // is closed to patient sessions, so a patient whose arm was graded for
+        // phlebitis had no way to read it.
+        section('iv-sites'),
       ]);
 
       const labRecords = labData.map(sub => ({
@@ -604,6 +609,28 @@ export function MyRecordsPage() {
         metadataHash: String(dose.administration_id),
       }));
       allRecords.push(...administrationRecords);
+
+      const ivSiteRecords = (((ivSiteData as { iv_sites?: Array<Record<string, unknown>> })
+        .iv_sites) || []).map(site => {
+        const location = String(site.site_location || 'site not recorded').replace(/-/g, ' ');
+        const grade = site.phlebitis_grade;
+        return {
+          id: String(site.id),
+          type: 'procedure' as const,
+          title: `IV cannula: ${location}`,
+          description: [
+            site.catheter_gauge, site.catheter_type,
+            // An unassessed site has no grade, which is not grade 0 (rule 12).
+            grade == null ? 'Site not yet assessed' : `Phlebitis grade ${String(grade)}`,
+            site.site_discontinued ? `Removed${site.discontinuation_reason ? `: ${String(site.discontinuation_reason)}` : ''}` : null,
+          ].filter(Boolean).join(' · '),
+          provider: String(site.assessed_by || 'Nurse not recorded'),
+          date: timestampDate((site.assessed_at || site.insertion_date) as string | undefined),
+          contentHash: `iv-${String(site.id)}`,
+          metadataHash: String(site.id),
+        };
+      });
+      allRecords.push(...ivSiteRecords);
 
       const emergencyKinds: Array<[string, string, (row: Record<string, unknown>) => string]> = [
         ['code_blues', 'Resuscitation (code blue)', (row) => row.outcome ? `Outcome: ${row.outcome}` : ''],

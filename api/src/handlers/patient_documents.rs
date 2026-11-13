@@ -415,6 +415,24 @@ pub async fn list_patient_intake_output(
     section_response(&data, &patient_id, RecordSection::IntakeOutput).await
 }
 
+/// The IV cannulas a patient had, and how each site was last assessed.
+///
+/// Served to clinicians only by `/api/clinical/iv-sites/{patient_id}`, which
+/// the patient surface refuses a patient session, so the person with the
+/// cannula in their arm could not read what was recorded about it (rule 10).
+#[get("/api/clinical/patient/{patient_id}/iv-sites")]
+pub async fn list_patient_iv_site_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = authorize(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    section_response(&data, &patient_id, RecordSection::IvSites).await
+}
+
 /// The doses given to a patient, as their nurse recorded them on the MAR.
 ///
 /// Reachable only ward-wide, through `GET /api/emergency/mar/administrations`,
@@ -588,6 +606,7 @@ mod patient_document_access_tests {
         "procedures",
         "ama-discharges",
         "intake-output",
+        "iv-sites",
         "pharmacy-decisions",
         "ems-handoffs",
         "ems-runs",
@@ -643,6 +662,7 @@ mod patient_document_access_tests {
                 .service(super::list_patient_procedures)
                 .service(super::list_patient_ama_discharges)
                 .service(super::list_patient_intake_output)
+                .service(super::list_patient_iv_site_history)
                 .service(super::list_patient_pharmacy_decisions)
                 .service(super::list_patient_ems_handoffs)
                 .service(super::list_patient_ems_runs)
@@ -868,6 +888,34 @@ mod records_summary_tests {
         assert_eq!(doses.len(), 1);
         assert_eq!(doses[0]["administration_id"], "ADM-MAR-OWN");
         assert_eq!(doses[0]["record_date"], "2026-10-18");
+    }
+
+    /// A cannula and its assessment reach the patient who had it, and only
+    /// them; the clinical IV list is closed to patient sessions.
+    #[actix_web::test]
+    async fn iv_sites_reach_only_the_owning_patient() {
+        let data = state().await;
+        for (id, patient_id) in [("IV-OWN", PATIENT_ID), ("IV-OTHER", "PAT-ELSEWHERE")] {
+            data.repositories
+                .iv_assessments
+                .create(crate::repositories::traits::IVAssessmentEntity {
+                    id: id.into(),
+                    patient_id: patient_id.into(),
+                    site_id: format!("SITE-{id}"),
+                    site_location: "left-forearm".into(),
+                    phlebitis_grade: Some(2),
+                    assessed_by: "NURSE".into(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        let (status, body) = summary(&data, PATIENT, "").await;
+        assert_eq!(status, 200);
+        let sites = body["sections"]["iv-sites"]["iv_sites"].as_array().unwrap();
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0]["id"], "IV-OWN");
+        assert_eq!(sites[0]["phlebitis_grade"], 2);
     }
 
     #[actix_web::test]

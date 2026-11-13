@@ -100,6 +100,7 @@ export type PatientDocumentKind =
   | 'ama-discharges'
   | 'ems-handoffs'
   | 'medication-administrations'
+  | 'iv-sites'
   | 'emergency-care';
 
 /**
@@ -154,6 +155,7 @@ const PATIENT_DOCUMENT_PATHS: Record<PatientDocumentKind, (id: string) => string
   'ama-discharges': (id) => `/api/clinical/patient/${id}/ama-discharges`,
   'ems-handoffs': (id) => `/api/clinical/patient/${id}/ems-handoffs`,
   'medication-administrations': (id) => `/api/clinical/patient/${id}/medication-administrations`,
+  'iv-sites': (id) => `/api/clinical/patient/${id}/iv-sites`,
   'emergency-care': (id) => `/api/clinical/patient/${id}/emergency-care`,
 };
 

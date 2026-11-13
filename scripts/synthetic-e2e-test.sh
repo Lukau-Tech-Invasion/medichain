@@ -562,9 +562,12 @@ check "anonymous CANNOT administer a dose" 401 "$(code POST /api/nursing/mar/adm
 say "8. IV sites + shift handoffs by patient/provider (doctor-portal)"
 
 check "provider lists a patient's IV sites" 200 "$(code GET "/api/clinical/iv-sites/$PAT_ADULT" '' "$DOCTOR")"
-check "patient lists own IV sites" 200 "$(code GET "/api/clinical/iv-sites/$PAT_ADULT" '' "$ACT_ADULT")"
+# A patient reads their IV sites on their own record; the clinical list is
+# closed to patient sessions (PATIENT_SURFACE_ONLY), which is correct.
+check "patient lists own IV sites" 200 "$(code GET "/api/clinical/patient/$PAT_ADULT/iv-sites" '' "$ACT_ADULT")"
+check "the clinical IV list stays closed to a patient" 403 "$(code GET "/api/clinical/iv-sites/$PAT_ADULT" '' "$ACT_ADULT")"
 check "anonymous CANNOT list IV sites" 401 "$(code GET "/api/clinical/iv-sites/$PAT_ADULT" '')"
-check "another patient CANNOT list IV sites" 403 "$(code GET "/api/clinical/iv-sites/$PAT_ADULT" '' "$ACT_C14")"
+check "another patient CANNOT list IV sites" 403 "$(code GET "/api/clinical/patient/$PAT_ADULT/iv-sites" '' "$ACT_C14")"
 
 check "provider lists own shift handoffs" 200 "$(code GET "/api/clinical/shift-handoff/$DOCTOR_ID" '' "$DOCTOR")"
 check "anonymous CANNOT list shift handoffs" 401 "$(code GET "/api/clinical/shift-handoff/$DOCTOR_ID" '')"

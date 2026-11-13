@@ -71,6 +71,7 @@ pub const PATIENT_SURFACE: &[(&str, &str)] = &[
     ),
     ("GET", "/api/clinical/patient/{patient_id}/imaging"),
     ("GET", "/api/clinical/patient/{patient_id}/intake-output"),
+    ("GET", "/api/clinical/patient/{patient_id}/iv-sites"),
     (
         "GET",
         "/api/clinical/patient/{patient_id}/medication-administrations",

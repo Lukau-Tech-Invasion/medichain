@@ -4860,11 +4860,12 @@ failing on purpose:
 
 **OPEN — needs a product change:**
 
-  * **A patient cannot read their own IV sites.** The patient surface
-    (`middleware/patient_surface.rs`, 08184ab) closed `/api/clinical/iv-sites`
-    to patients and nothing replaced it; nothing patient-facing reads
-    `iv_assessments`. Rule 10. `docs/PATIENT_VISIBILITY_WORKFLOWS.md` still
-    lists IV sites as reachable from the patient app.
+  * ~~**A patient cannot read their own IV sites.**~~ **FIXED the same day.**
+    The patient surface (08184ab) closed `/api/clinical/iv-sites` to patients
+    and nothing replaced it. Now `GET /api/clinical/patient/{patient_id}/iv-sites`
+    over the shared `authorize()`, an `iv-sites` records-summary section, PHI
+    read-audited, and "IV cannula" entries on My Records
+    (`iv_sites_reach_only_the_owning_patient`, `MyRecordsPage.ivsites.test.tsx`).
   * **A pharmacist can dispense a prescription their own dashboard never
     lists.** Dispensing needs only a staff role; `/api/dashboard/pharmacist`
     keeps only prescriptions whose patient the pharmacist has chart authority
