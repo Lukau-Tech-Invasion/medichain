@@ -82,6 +82,9 @@ export default function PreOpPage() {
   const submissionPending = useRef(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  // Set when Save was refused for want of an ASA class; marks the group invalid.
+  const [asaMissing, setAsaMissing] = useState(false);
+  const asaGroupRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'assessment' | 'checklist' | 'history'>('assessment');
   const [recentRecords, setRecentRecords] = useState<StoredPreOpRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
@@ -296,14 +299,20 @@ export default function PreOpPage() {
   const handleSave = async () => {
     if (isSubmitting) return;
     if (submissionPending.current) return;
+    // A refusal takes the clinician to the field at fault. Save sits at the
+    // foot of a long form and the message used to appear at its head, so a
+    // refused save looked like a button that did nothing.
     if (!selectedPatient) {
       setError(t('docPreOp.errorSelectPatient'));
+      document.getElementById('preop-search-patients')?.focus();
       return;
     }
     // The ASA class is the assessment's conclusion; a record without one is
     // not a pre-operative assessment.
     if (!asaClass) {
       setError(t('docPreOp.errorAsaRequired'));
+      setAsaMissing(true);
+      asaGroupRef.current?.querySelector<HTMLButtonElement>('[role="radio"]')?.focus();
       return;
     }
 
@@ -382,13 +391,6 @@ export default function PreOpPage() {
           <div role="status" className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
-          </div>
-        )}
-
-        {error && (
-          <div role="alert" className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
-            <AlertTriangle className="h-5 w-5 mr-2" />
-            {error}
           </div>
         )}
 
@@ -592,14 +594,21 @@ export default function PreOpPage() {
                     neither that the options are alternatives nor which one is
                     selected — the selection was conveyed only by colour and a
                     check glyph. */}
-                <div className="space-y-3" role="radiogroup" aria-label={t('docPreOp.asaClassLabel')}>
+                <div className="space-y-3" role="radiogroup" aria-label={t('docPreOp.asaClassLabel')}
+                  ref={asaGroupRef}
+                  aria-invalid={asaMissing || undefined}
+                  aria-describedby={asaMissing ? 'preop-save-error' : undefined}>
                   {asaClassifications.map(asa => (
                     <button
                       key={asa.value}
                       type="button"
                       role="radio"
                       aria-checked={asaClass === asa.value}
-                      onClick={() => setAsaClass(asa.value)}
+                      onClick={() => {
+                        setAsaClass(asa.value);
+                        // The refusal is answered; leave no stale message by Save.
+                        if (asaMissing) { setAsaMissing(false); setError(''); }
+                      }}
                       className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
                         asaClass === asa.value
                           ? getAsaColor(asa.value) + ' border-2'
@@ -948,6 +957,14 @@ export default function PreOpPage() {
                   className="w-full p-3 border border-border-interactive rounded-lg"
                 />
               </div>
+
+              {/* Every error here comes from Save, so it is shown beside Save. */}
+              {error && (
+                <div id="preop-save-error" role="alert" className="mb-4 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                  {error}
+                </div>
+              )}
 
               {/* Submit Button */}
               <div className="flex justify-end">

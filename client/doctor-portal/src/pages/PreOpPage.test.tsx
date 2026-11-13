@@ -157,8 +157,22 @@ describe('PreOpPage', () => {
     render(<PreOpPage />);
     await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
     fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
-    expect(await screen.findByText('Choose the ASA class before saving.')).toBeInTheDocument();
+    const refusal = await screen.findByText('Choose the ASA class before saving.');
     expect(shared.createPreOp).not.toHaveBeenCalled();
+    // Shown beside Save, not at the head of a long form, and the clinician is
+    // taken to the group that needs an answer.
+    const save = screen.getByRole('button', { name: 'Save Assessment' });
+    expect(refusal.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /ASA Physical Status/i })
+      .compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const group = screen.getByRole('radiogroup', { name: 'ASA Class' });
+    expect(group).toHaveAttribute('aria-invalid', 'true');
+    expect(group).toHaveAttribute('aria-describedby', 'preop-save-error');
+    expect(group).toContainElement(document.activeElement as HTMLElement);
+    // Answering it clears the refusal.
+    fireEvent.click(screen.getByRole('radio', { name: /ASA III/ }));
+    expect(screen.queryByText('Choose the ASA class before saving.')).not.toBeInTheDocument();
+    expect(group).not.toHaveAttribute('aria-invalid');
   });
 
   it('files only the findings that were chosen', async () => {

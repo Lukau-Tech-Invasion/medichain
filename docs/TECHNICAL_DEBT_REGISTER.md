@@ -4819,8 +4819,10 @@ anything is written. The page keys an unsaved site locally; the nurse journey
 reads the issued id back (`iv_removal_tests::the_server_issues_site_ids_and_refuses_ones_it_did_not`,
 `IVSitePage.test.tsx`, "sends a new site without an id").
 
-**OPEN:**
-
-  * Pre-Op's refusal banner sits at the top of the page while Save is at the
-    bottom, so a long form refuses out of sight (the patient refusal has the
-    same placement).
+**FIXED — Pre-Op refused out of sight.** The refusal banner sat at the head
+of the page and Save at the foot of a long form, so a refused save looked like a
+button that did nothing. Every Pre-Op error comes from Save, so it is shown
+beside Save now, and a refusal moves focus to the field at fault: the patient
+search, or the ASA group, which is marked `aria-invalid` and points at the
+message until a class is chosen (`PreOpPage.test.tsx`, "refuses to save
+without an ASA class").
