@@ -4866,10 +4866,18 @@ failing on purpose:
     over the shared `authorize()`, an `iv-sites` records-summary section, PHI
     read-audited, and "IV cannula" entries on My Records
     (`iv_sites_reach_only_the_owning_patient`, `MyRecordsPage.ivsites.test.tsx`).
-  * **A pharmacist can dispense a prescription their own dashboard never
-    lists.** Dispensing needs only a staff role; `/api/dashboard/pharmacist`
-    keeps only prescriptions whose patient the pharmacist has chart authority
-    over, so a new prescription is invisible to the queue it is meant for.
+  * ~~**A pharmacist can dispense a prescription their own dashboard never
+    lists.**~~ **FIXED the same day (owner decision: the queue shows transmitted
+    prescriptions).** The queue kept only prescriptions whose patient had given
+    the pharmacist chart authority, which no pharmacy workflow does; the role
+    journeys passed only because the fixture seeder pre-grants both test
+    pharmacists. A prescription that has reached the pharmacy (Transmitted,
+    Received, InProgress, Dispensed, PartialFill) is now on every pharmacist's
+    queue, carrying only what is on the prescription; the allergy and
+    interaction panels read the chart and stay behind care authority
+    (`a_transmitted_prescription_reaches_a_pharmacist_without_chart_access`).
+    Narrower routing -- a prescription sent to one pharmacy, pharmacists
+    belonging to one -- needs a facility link the data model does not have.
   * **An unauthenticated mutation is answered 409 `IDEMPOTENCY_AUTH_REQUIRED`,
     not 401** (no token, or a forged one). The idempotency middleware answers
     before authentication does.

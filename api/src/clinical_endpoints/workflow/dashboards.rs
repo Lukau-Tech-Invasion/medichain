@@ -870,6 +870,16 @@ fn check_interaction_rows(
 /// Returns the shape `PharmacistDashboardPage` reads: it read
 /// `prescriptions.list`, `drug_interactions` and `allergy_alerts` while the API
 /// returned `pending_fills`, so the queue and both safety panels were empty.
+/// Whether a stored prescription has been sent to the pharmacy: transmitted,
+/// or any state the pharmacy moves it to after that. A draft, a pending or a
+/// merely signed prescription is still the prescriber's.
+fn reached_the_pharmacy(prescription: &serde_json::Value) -> bool {
+    matches!(
+        prescription["status"].as_str(),
+        Some("Transmitted" | "Received" | "InProgress" | "Dispensed" | "PartialFill")
+    )
+}
+
 #[get("/api/dashboard/pharmacist")]
 pub async fn pharmacist_dashboard(
     data: web::Data<AppState>,
@@ -886,6 +896,18 @@ pub async fn pharmacist_dashboard(
     );
     let mut records = Vec::new();
     for record in all_records {
+        // A prescription transmitted to the pharmacy is pharmacy work, whoever
+        // the pharmacist is: it was addressed to them, and any pharmacist may
+        // dispense it. Gating the queue on chart authority as well left every
+        // new prescription invisible to the queue it was sent to -- nobody
+        // grants a pharmacist access to their chart -- while the dispense
+        // button still worked. The queue row carries only what is on the
+        // prescription; the allergy and interaction panels below read the
+        // chart and stay gated on care authority.
+        if reached_the_pharmacy(&record.data) {
+            records.push(record);
+            continue;
+        }
         let patient_id = record.data["patient_id"]
             .as_str()
             .unwrap_or(&record.owner_id);
@@ -1496,6 +1518,87 @@ mod pharmacy_queue_tests {
         assert!(
             text.contains("Thandiwe Pharmacy-Test"),
             "the queue must carry the patient's name, got {text}"
+        );
+    }
+
+    /// A prescription transmitted to the pharmacy reaches the queue of a
+    /// pharmacist the patient never granted access to -- the dispense button
+    /// already worked for them -- while one still with the prescriber does not,
+    /// and the chart-derived allergy panel stays behind care authority.
+    #[actix_web::test]
+    async fn a_transmitted_prescription_reaches_a_pharmacist_without_chart_access() {
+        let state = crate::AppState::new();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("pharm_user".to_string(), pharmacist());
+        let patient_id = "PAT-NO-GRANT";
+        let mut profile = crate::test_fixtures::patient_profile(patient_id, "Lerato No-Grant");
+        profile.emergency_info.allergies.push(crate::Allergy {
+            name: "Penicillin".to_string(),
+            severity: crate::AllergySeverity::Moderate,
+            reaction: None,
+            verified_at: None,
+        });
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+        let now = chrono::Utc::now();
+        for (id, status) in [("RX-SENT", "Transmitted"), ("RX-UNSENT", "Signed")] {
+            state
+                .repositories
+                .e_prescriptions_v2
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: id.to_string(),
+                    owner_id: patient_id.to_string(),
+                    data: serde_json::json!({
+                        "prescription_id": id,
+                        "patient_id": patient_id,
+                        "prescriber_name": "Dr Queue",
+                        "medication": { "name": "Amoxicillin", "strength": "500mg", "directions": "tds" },
+                        "status": status,
+                    }),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("seed prescription");
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(pharmacist_dashboard),
+        )
+        .await;
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/dashboard/pharmacist")
+                .insert_header(crate::test_fixtures::as_user("pharm_user"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let ids: Vec<&str> = body["prescriptions"]["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| row["prescription_id"].as_str())
+            .collect();
+        assert_eq!(ids, vec!["RX-SENT"], "got {body}");
+        assert_eq!(body["prescriptions"]["pending_fill"], 1);
+        assert_eq!(
+            body["allergy_alerts"],
+            serde_json::json!([]),
+            "the chart stays gated"
         );
     }
 }
