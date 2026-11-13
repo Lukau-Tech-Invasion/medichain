@@ -4761,3 +4761,55 @@ else. Neither is removed: each is a capability a person needs.
     image serves it at `/`), `run-api.bat` (three documents use it),
     `docker-compose.awards-demo.yml`, `docker-compose.horizon-isolated.yml`, and
     the 110 uncalled routes already triaged as UI-less by design.
+
+## 2026-11-13 — Live check of the phase 1 payload trims: all eight save; five defects fixed, two open
+
+Each of the eight pages whose payload phase 1 trimmed was driven in a browser
+against a locally built API on a throwaway PostgreSQL database, and the record
+read back through the page's own list: Pre-Op, IV site, intake/output,
+immunisation, incident report, critical value, blood bank, and the patient's
+wearable alert rule. All eight return 201 and read back what was entered.
+
+**Fixed in the same change.** Inside a patient's chart, Pre-Op refused to save
+with "Please select a patient". `PatientSelect` adopts the chart's patient once;
+when the chart opened before the patient's directory entry loaded, it handed the
+page an id with no entry and never handed it over again. Pages that keep only
+the entry (Pre-Op, IV site, burn, care plan, fall risk) were left with no
+patient. It now hands the patient over again when the entry arrives
+(`PatientSelect.test.tsx`, "hands the page the patient again once the chart has
+loaded them").
+
+**FIXED the same day — four of the findings (rule 9 and the date):**
+
+  * **Pre-Op filed an assessment nobody made.** Untouched, the record stored
+    ASA II, a general anaesthetic, Mallampati II, intact dentition, mouth
+    opening > 3 cm, thyromental > 6 cm and full neck mobility; an airway nobody
+    examined read as a normal airway. The uncontrolled-defaults gate could not
+    see it, since each field has a setter. Nothing is pre-selected now; the ASA
+    class is required ("Choose the ASA class before saving."), and the
+    anaesthetic and each airway finding are sent only when chosen.
+  * **Incident report opened on "Patient Fall", minor, emergency department**,
+    so the schema's required check could never fire. All three start unchosen
+    and each is refused on its own control.
+  * **Blood bank pre-selected RBC, routine, 1 unit.** Product, units and
+    priority start unchosen and the order is refused without them (units must
+    be a whole number from 1 to 10).
+  * **Blood bank filed the UTC date beside the local time** (00:35 on
+    13 November, UTC+2, listed as 2026-11-12). The date is now the local one.
+
+Verified live on the throwaway database, through the pages: each refuses the
+empty form without sending a request, then saves (201) and reads back only what
+was chosen -- Pre-Op `asa_class: "III"`, `anesthesia_type: null`, airway
+findings null; incident `equipment_failure` / `near_miss` / `emergency`; blood
+bank FFP, 2 units, urgent, `order_date` 2026-11-13 at 03:20 local.
+
+**OPEN:**
+
+  * **Intake/output discards the description.** `create_io` accepts `source`
+    ("NS @ 100 mL/hr") and never stores it; the stored event's label is the
+    category. The nurse's text is lost without a word.
+  * Minor: the IV site id is minted on the client from the clock
+    (`IV-${Date.now()}`), the pattern closed for care plans on 2026-11-04.
+  * Pre-Op's refusal banner sits at the top of the page while Save is at the
+    bottom, so a long form refuses out of sight (the patient refusal has the
+    same placement).

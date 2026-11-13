@@ -69,14 +69,22 @@ describe('IncidentReportPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit Report' }));
     expect(shared.createIncidentReport).not.toHaveBeenCalled();
     expect(screen.getByLabelText(/Date & Time/)).toBeInTheDocument();
+    // Nothing is pre-chosen, so each required choice is refused on its control.
+    expect(screen.getByLabelText(/Incident Type/)).toHaveValue('');
+    expect(screen.getByText('Enter the incident type')).toBeInTheDocument();
+    expect(screen.getByText('Enter a severity')).toBeInTheDocument();
+    expect(screen.getByText('Enter the department')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Date & Time/), { target: { value: '2026-10-10T09:00' } });
     fireEvent.change(screen.getByLabelText(/Exact Location/), { target: { value: 'QA training room' } });
     fireEvent.change(screen.getByLabelText(/Incident Type/), { target: { value: 'equipment-failure' } });
+    fireEvent.click(screen.getByRole('radio', { name: /Near Miss/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /Emergency/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit Report' }));
     await waitFor(() => expect(shared.createIncidentReport).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'equipment-failure', location: 'QA training room', description: 'QA fictional equipment drill',
+      type: 'equipment-failure', severity: 'near-miss', department: 'emergency',
+      location: 'QA training room', description: 'QA fictional equipment drill',
     })));
   });
 

@@ -213,14 +213,23 @@ export default function PatientSelect({
   const searchingOffline = !online && roster !== null;
   // Read once, at mount: was this picker revealed by something the person did?
   const appearedAfterInteraction = useRef(lastInteractionPage === currentPage());
+  // What was last handed over: the id, and whether the entry came with it. The
+  // chart can open before the patient's entry loads, and a page that keeps only
+  // the entry (Pre-Op, IV site, burn, care plan, fall risk) was left with no
+  // patient -- it refused to save -- because the id alone never changed again.
+  const adopted = useRef<string | null>(null);
   useEffect(() => {
-    if (workspace && value !== workspace.patientId) {
-      onChange(workspace.patientId, workspace.patient ?? undefined);
+    if (!workspace) return;
+    const entry = workspace.patient ?? undefined;
+    const handedOver = `${workspace.patientId}|${entry ? 'entry' : 'id'}`;
+    if (value !== workspace.patientId || adopted.current !== handedOver) {
+      adopted.current = handedOver;
+      onChange(workspace.patientId, entry);
     }
     // `onChange` is often an inline function; re-running on its identity would
     // re-adopt on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.patientId, value]);
+  }, [workspace?.patientId, workspace?.patient, value]);
 
   // Query the server rather than downloading a roster and filtering protected
   // names in the browser. The short debounce avoids a request for every key.

@@ -137,12 +137,16 @@ const IncidentReportPage: React.FC = () => {
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
 
+  // Type, severity and department start unchosen (rule 9). They opened on
+  // "Patient Fall", "minor" and the emergency department, so the schema's
+  // required check could never fire and an untouched report was filed as a
+  // minor fall in the ED.
   const [formData, setFormData] = useState({
-    type: 'fall' as IncidentType,
-    severity: 'minor' as IncidentSeverity,
+    type: '' as IncidentType | '',
+    severity: '' as IncidentSeverity | '',
     dateTime: '',
     location: '',
-    department: 'emergency',
+    department: '',
     description: '',
     patientInvolved: false,
     patientId: '',
@@ -225,8 +229,8 @@ const IncidentReportPage: React.FC = () => {
   const resetForm = () => {
     setFormStep(1);
     setFormData({
-      type: 'fall',
-      severity: 'minor',
+      type: '',
+      severity: '',
       dateTime: '',
       location: '',
       department: '',
@@ -518,9 +522,12 @@ const IncidentReportPage: React.FC = () => {
                     <select
                       id="inc-incident-type"
                       value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as IncidentType })}
+                      onChange={(e) => { clearField('incidentType'); setFormData({ ...formData, type: e.target.value as IncidentType | '' }); }}
+                      aria-invalid={errors.incidentType ? true : undefined}
+                      aria-describedby={errors.incidentType ? 'inc-incident-type-error' : undefined}
                       className="w-full border rounded-lg px-3 py-2"
                     >
+                      <option value="">{t('docIncidentReport.selectTypePh')}</option>
                       <option value="fall">{t('docIncidentReport.typeOption_fall')}</option>
                       <option value="medication-error">{t('docIncidentReport.typeOption_medication-error')}</option>
                       <option value="equipment-failure">{t('docIncidentReport.typeOption_equipment-failure')}</option>
@@ -529,13 +536,17 @@ const IncidentReportPage: React.FC = () => {
                       <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
                       <option value="other">{t('docIncidentReport.typeOption_other')}</option>
                     </select>
+                    {errors.incidentType && (
+                      <p id="inc-incident-type-error" className="mt-1 text-sm text-critical-subtle-fg">{errors.incidentType}</p>
+                    )}
                   </div>
                   <div>
                     <ChoiceChips
                       id="inc-severity"
                       label={t('docIncidentReport.severityRequired')}
-                      value={formData.severity}
-                      onChange={(next) => { if (next === undefined) return; setFormData({ ...formData, severity: next as IncidentSeverity }); }}
+                      value={formData.severity || undefined}
+                      error={errors.severity}
+                      onChange={(next) => { clearField('severity'); setFormData({ ...formData, severity: (next ?? '') as IncidentSeverity | '' }); }}
                       options={[
                         { value: 'near-miss', label: t('docIncidentReport.severityOption_near-miss') },
                         { value: 'minor', label: t('docIncidentReport.severityOption_minor') },
@@ -561,8 +572,9 @@ const IncidentReportPage: React.FC = () => {
                     <ChoiceChips
                       id="inc-department"
                       label={t('docIncidentReport.departmentRequired')}
-                      value={formData.department}
-                      onChange={(next) => { if (next === undefined) return; setFormData(f => ({ ...f, department: next })); }}
+                      value={formData.department || undefined}
+                      error={errors.department}
+                      onChange={(next) => { clearField('department'); setFormData(f => ({ ...f, department: next ?? '' })); }}
                       options={[
                         { value: 'emergency', label: t('docIncidentReport.dept_emergency') },
                         { value: 'med-surg', label: t('docIncidentReport.dept_medSurg') },

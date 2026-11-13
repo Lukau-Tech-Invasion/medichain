@@ -45,11 +45,31 @@ type StoredPreOpRecord = Record<string, unknown> & { id: string; patient_id?: st
   scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number };
 type RecordList = { records?: StoredPreOpRecord[]; assessments?: StoredPreOpRecord[] } | StoredPreOpRecord[];
 
-// Existing clinical prefills are retained pending clinical policy review.
-const initialAsaClass: ASAClass = 'II';
-const initialAnesthesiaType: AnesthesiaType = 'general';
-const initialAirway = { mallampati: 'II' as MallampatiClass, mouthOpening: '>3cm', thyromental: '>6cm',
-  neckMobility: 'full', dentition: 'intact', beardPresent: false, obeseNeck: false, difficultyPredicted: false };
+// Nothing is pre-selected (rule 9). The form used to open on ASA II, a general
+// anaesthetic and a normal airway (Mallampati II, mouth opening > 3 cm,
+// thyromental > 6 cm, full neck mobility, intact dentition) and filed all of it
+// for a patient nobody had examined -- an airway nobody looked at read as a
+// normal airway. The ASA class must be chosen; the rest is sent only when it is.
+const initialAsaClass: ASAClass | '' = '';
+const initialAnesthesiaType: AnesthesiaType | '' = '';
+const initialAirway = {
+  mallampati: '' as MallampatiClass | '', mouthOpening: '', thyromental: '', neckMobility: '', dentition: '',
+  beardPresent: false, obeseNeck: false, difficultyPredicted: false,
+};
+
+/** The airway findings as filed: a finding nobody chose is absent, not normal. */
+function chosenAirway(airway: typeof initialAirway) {
+  return {
+    mallampati: airway.mallampati || undefined,
+    mouthOpening: airway.mouthOpening || undefined,
+    thyromental: airway.thyromental || undefined,
+    neckMobility: airway.neckMobility || undefined,
+    dentition: airway.dentition || undefined,
+    beardPresent: airway.beardPresent,
+    obeseNeck: airway.obeseNeck,
+    difficultyPredicted: airway.difficultyPredicted,
+  };
+}
 const initialNpoStatus = { lastSolid: '', lastClear: '', compliant: undefined as boolean | undefined };
 const initialConsents = { surgicalConsent: false, anesthesiaConsent: false, bloodConsent: false };
 
@@ -72,9 +92,9 @@ export default function PreOpPage() {
   const [surgeon, setSurgeon] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [asaClass, setAsaClass] = useState<ASAClass>(initialAsaClass);
+  const [asaClass, setAsaClass] = useState<ASAClass | ''>(initialAsaClass);
   const [asaEmergency, setAsaEmergency] = useState(false);
-  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType>(initialAnesthesiaType);
+  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType | ''>(initialAnesthesiaType);
 
   const [airwayAssessment, setAirwayAssessment] = useState(initialAirway);
   const [npoStatus, setNpoStatus] = useState(initialNpoStatus);
@@ -280,6 +300,12 @@ export default function PreOpPage() {
       setError(t('docPreOp.errorSelectPatient'));
       return;
     }
+    // The ASA class is the assessment's conclusion; a record without one is
+    // not a pre-operative assessment.
+    if (!asaClass) {
+      setError(t('docPreOp.errorAsaRequired'));
+      return;
+    }
 
     submissionPending.current = true;
     setIsSubmitting(true);
@@ -297,8 +323,8 @@ export default function PreOpPage() {
         scheduled_time: scheduledTime,
         asa_class: asaClass,
         asa_emergency: asaEmergency,
-        anesthesia_type: anesthesiaType,
-        airway_assessment: airwayAssessment,
+        anesthesia_type: anesthesiaType || undefined,
+        airway_assessment: chosenAirway(airwayAssessment),
         npo_status: npoStatus,
         consents,
         labs_reviewed: labsReviewed,
@@ -497,9 +523,10 @@ export default function PreOpPage() {
                     <select
                       id="preop-anesthesia-type"
                       value={anesthesiaType}
-                      onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType)}
+                      onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType | '')}
                       className="w-full p-2 border border-border-interactive rounded"
                     >
+                      <option value="">{t('docPreOp.anesthesiaNotChosen')}</option>
                       {anesthesiaTypes.map(type => (
                         <option key={type.value} value={type.value}>{type.label}</option>
                       ))}
@@ -634,8 +661,8 @@ export default function PreOpPage() {
                     <ChoiceChips
                       id="preop-mouth-opening"
                       label={t('docPreOp.mouthOpeningLabel')}
-                      value={airwayAssessment.mouthOpening}
-                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, mouthOpening: next })); }}
+                      value={airwayAssessment.mouthOpening || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: next ?? '' }))}
                       options={[
                         { value: '>3cm', label: t('docPreOp.mouthOpening_normal') },
                         { value: '2-3cm', label: t('docPreOp.mouthOpening_limited') },
@@ -647,8 +674,8 @@ export default function PreOpPage() {
                     <ChoiceChips
                       id="preop-thyromental-distance"
                       label={t('docPreOp.thyromentalLabel')}
-                      value={airwayAssessment.thyromental}
-                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, thyromental: next })); }}
+                      value={airwayAssessment.thyromental || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, thyromental: next ?? '' }))}
                       options={[
                         { value: '>6cm', label: t('docPreOp.thyromental_normal') },
                         { value: '6-6.5cm', label: t('docPreOp.thyromental_borderline') },
@@ -660,8 +687,8 @@ export default function PreOpPage() {
                     <ChoiceChips
                       id="preop-neck-mobility"
                       label={t('docPreOp.neckMobilityLabel')}
-                      value={airwayAssessment.neckMobility}
-                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, neckMobility: next })); }}
+                      value={airwayAssessment.neckMobility || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, neckMobility: next ?? '' }))}
                       options={[
                         { value: 'full', label: t('docPreOp.neckMobility_full') },
                         { value: 'limited', label: t('docPreOp.neckMobility_limited') },
@@ -673,8 +700,8 @@ export default function PreOpPage() {
                     <ChoiceChips
                       id="preop-dentition"
                       label={t('docPreOp.dentitionLabel')}
-                      value={airwayAssessment.dentition}
-                      onChange={(next) => { if (next === undefined) return; setAirwayAssessment(prev => ({ ...prev, dentition: next })); }}
+                      value={airwayAssessment.dentition || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, dentition: next ?? '' }))}
                       options={[
                         { value: 'intact', label: t('docPreOp.dentition_intact') },
                         { value: 'loose', label: t('docPreOp.dentition_loose') },

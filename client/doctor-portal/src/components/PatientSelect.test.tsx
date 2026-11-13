@@ -170,4 +170,24 @@ describe('inside a patient chart (c3)', () => {
     expect(screen.queryByText('Ayesha Patel')).not.toBeInTheDocument();
     await waitFor(() => expect(onChange).toHaveBeenCalledWith('PAT-7', expect.anything()));
   });
+
+  // The chart opens before the patient's directory entry has loaded, so the
+  // first adoption hands the page an id with no entry. A page that keeps only
+  // the entry (Pre-Op, IV site, burn, care plan, fall risk) then had no patient
+  // and refused to save -- the picker never handed it over again.
+  it('hands the page the patient again once the chart has loaded them', async () => {
+    const onChange = vi.fn();
+    const chart = (patient: unknown) => (
+      <I18nProvider>
+        <PatientWorkspaceContext.Provider value={{ patientId: 'PAT-7', patient: patient as never }}>
+          <PatientSelect id="p" label="Patient" value="" onChange={onChange} />
+        </PatientWorkspaceContext.Provider>
+      </I18nProvider>
+    );
+    const { rerender } = render(chart(null));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('PAT-7', undefined));
+    const entry = { patient_id: 'PAT-7', full_name: 'Ayesha Patel' };
+    rerender(chart(entry));
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('PAT-7', entry));
+  });
 });

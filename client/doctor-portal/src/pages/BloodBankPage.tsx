@@ -153,6 +153,12 @@ function toBloodOrder(value: unknown): BloodOrder | null {
   };
 }
 
+/** `YYYY-MM-DD` on this device's clock, not UTC's. */
+function localDate(now: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -178,10 +184,13 @@ const BloodBankPage: React.FC = () => {
 
   // New order form state
   const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [product, setProduct] = useState<'RBC' | 'Platelets' | 'FFP' | 'Cryoprecipitate' | 'Whole Blood'>('RBC');
-  const [units, setUnits] = useState(1);
+  // The product, the number of units and the urgency are the prescriber's
+  // decision, so none is pre-selected (rule 9). The form opened on one routine
+  // unit of red cells and filed that for anyone who did not change it.
+  const [product, setProduct] = useState<BloodOrder['product'] | ''>('');
+  const [units, setUnits] = useState('');
   const [indication, setIndication] = useState('');
-  const [priority, setPriority] = useState<'routine' | 'urgent' | 'emergency'>('routine');
+  const [priority, setPriority] = useState<BloodOrder['priority'] | ''>('');
 
   // Transfusion form state
   const [startTime, setStartTime] = useState('');
@@ -237,7 +246,9 @@ const BloodBankPage: React.FC = () => {
   const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
   const handleSubmitOrder = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatientId || !indication) {
+    const unitCount = Number(units);
+    if (!selectedPatientId || !indication || !product || !priority
+      || !Number.isInteger(unitCount) || unitCount < 1 || unitCount > 10) {
       showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
@@ -272,11 +283,13 @@ const BloodBankPage: React.FC = () => {
       // Still 'Unknown' when the profile genuinely has none, which is a real
       // state and the reason the order needs a type-and-screen first.
       bloodType: profile.emergency_info?.blood_type || 'Unknown',
-      orderDate: new Date().toISOString().split('T')[0],
+      // Both from the local clock. The date was the UTC one, so an order
+      // placed after midnight here was listed under the previous day.
+      orderDate: localDate(new Date()),
       orderTime: new Date().toTimeString().slice(0, 5),
       orderedBy: user?.userId || 'Unknown',
       product,
-      units,
+      units: unitCount,
       indication,
       priority,
       status: 'ordered'
@@ -288,10 +301,10 @@ const BloodBankPage: React.FC = () => {
         await fetchBloodBankOrders();
         showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: response.id ?? '' }));
         setSelectedPatientId('');
-        setProduct('RBC');
-        setUnits(1);
+        setProduct('');
+        setUnits('');
         setIndication('');
-        setPriority('routine');
+        setPriority('');
         setActiveTab('orders');
       } else {
         setError(response.error || t('docBloodBank.errorSubmitFailed'));
@@ -695,8 +708,8 @@ const BloodBankPage: React.FC = () => {
                 <ChoiceChips
                   id="bloodbank-product"
                   label={t('docBloodBank.bloodProductLabel')}
-                  value={product}
-                  onChange={(next) => { if (next === undefined) return; setProduct(next as typeof product); }}
+                  value={product || undefined}
+                  onChange={(next) => setProduct((next ?? '') as typeof product)}
                   options={[
                     { value: 'RBC', label: t('docBloodBank.product_RBC') },
                     { value: 'Platelets', label: t('docBloodBank.product_Platelets') },
@@ -718,7 +731,7 @@ const BloodBankPage: React.FC = () => {
                   min="1"
                   max="10"
                   value={units}
-                  onChange={(e) => setUnits(parseInt(e.target.value))}
+                  onChange={(e) => setUnits(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -729,8 +742,8 @@ const BloodBankPage: React.FC = () => {
                 <ChoiceChips
                   id="bloodbank-priority"
                   label={t('docBloodBank.priorityLabel')}
-                  value={priority}
-                  onChange={(next) => { if (next === undefined) return; setPriority(next as typeof priority); }}
+                  value={priority || undefined}
+                  onChange={(next) => setPriority((next ?? '') as typeof priority)}
                   options={[
                     { value: 'routine', label: t('docBloodBank.priority_routine') },
                     { value: 'urgent', label: t('docBloodBank.priority_urgent') },

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import BloodBankPage from './BloodBankPage';
 import { useAuthStore } from '../store/authStore';
@@ -104,5 +104,18 @@ describe('BloodBankPage', () => {
     });
     render(<BloodBankPage />);
     expect(await screen.findByText('Failed to load blood bank orders')).toBeInTheDocument();
+  });
+
+  // Product, units and urgency are the prescriber's decision. The form opened
+  // on one routine unit of red cells and filed that for anyone who did not
+  // change it.
+  it('opens a new order with no product, units or priority chosen', async () => {
+    render(<BloodBankPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /New Order/i }));
+    const product = await screen.findByRole('group', { name: /Blood Product/i });
+    for (const choice of within(product).getAllByRole('radio')) expect(choice).not.toBeChecked();
+    const priority = screen.getByRole('group', { name: /Priority/i });
+    for (const choice of within(priority).getAllByRole('radio')) expect(choice).not.toBeChecked();
+    expect(screen.getByLabelText(/Number of Units/i)).toHaveValue(null);
   });
 });

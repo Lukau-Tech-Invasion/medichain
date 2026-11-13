@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import PreOpPage from './PreOpPage';
 import { useAuthStore } from '../store/authStore';
@@ -119,6 +119,8 @@ describe('PreOpPage', () => {
   async function enterDraft() {
     await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
     fillField('Scheduled Procedure', 'Fictional QA procedure');
+    // The ASA class is required; without it the page refuses before the server.
+    fireEvent.click(screen.getByRole('radio', { name: /ASA III/i }));
     fillField('Additional Notes', 'No assessment or clinical care occurred');
     fillField('NPO compliance', 'false');
   }
@@ -140,6 +142,38 @@ describe('PreOpPage', () => {
     expect(screen.getByLabelText('Additional Notes')).toHaveValue('');
     expect(fieldValue('NPO compliance')).toBe('');
     expect(screen.getAllByText('Synthetic History Patient').length).toBeGreaterThan(0);
+  });
+
+  it('opens with nothing chosen: no ASA class, anaesthetic or airway finding', () => {
+    render(<PreOpPage />);
+    for (const radio of within(screen.getByLabelText(/ASA Class/i)).getAllByRole('radio')) {
+      expect(radio).toHaveAttribute('aria-checked', 'false');
+    }
+    expect(screen.getByLabelText(/Anesthesia Type/i)).toHaveValue('');
+  });
+
+  it('refuses to save without an ASA class, and never calls the server', async () => {
+    vi.mocked(shared.getPatients).mockResolvedValue([{ patient_id: 'PAT-history', full_name: 'Synthetic History Patient' }] as never);
+    render(<PreOpPage />);
+    await selectPatient('', 'Synthetic History Patient', 'preop-search-patients');
+    fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
+    expect(await screen.findByText('Choose the ASA class before saving.')).toBeInTheDocument();
+    expect(shared.createPreOp).not.toHaveBeenCalled();
+  });
+
+  it('files only the findings that were chosen', async () => {
+    vi.mocked(shared.getPatients).mockResolvedValue([{ patient_id: 'PAT-history', full_name: 'Synthetic History Patient' }] as never);
+    vi.mocked(shared.createPreOp).mockResolvedValueOnce({ success: true, id: 'PREOP-1', asa_classification: 'III', cleared_for_surgery: false });
+    render(<PreOpPage />); await enterDraft();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Assessment' }));
+    await waitFor(() => expect(shared.createPreOp).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(shared.createPreOp).mock.calls[0][0];
+    expect(sent.asa_class).toBe('III');
+    expect(sent.anesthesia_type).toBeUndefined();
+    expect(sent.airway_assessment).toEqual({
+      mallampati: undefined, mouthOpening: undefined, thyromental: undefined, neckMobility: undefined,
+      dentition: undefined, beardPresent: false, obeseNeck: false, difficultyPredicted: false,
+    });
   });
 
   it('keeps a refused draft and shows a friendly error', async () => {

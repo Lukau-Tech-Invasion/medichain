@@ -6758,6 +6758,7 @@ const en_US: TranslationRecord = {
     reportNewIncidentHeading: 'Report New Incident',
     step1Heading: 'Incident Details',
     incidentTypeRequired: 'Incident Type',
+    selectTypePh: 'Choose the type of incident',
     typeOption_fall: 'Patient Fall',
     'typeOption_medication-error': 'Medication Error',
     'typeOption_equipment-failure': 'Equipment Failure',
@@ -7890,6 +7891,8 @@ const en_US: TranslationRecord = {
     overdue: 'Overdue',
   },
   docPreOp: {
+    errorAsaRequired: 'Choose the ASA class before saving.',
+    anesthesiaNotChosen: 'Not yet decided',
     noDraftAllergies: 'No allergies recorded in this draft',
     savedDetails: 'Read saved pre-operative details',
     detailsHeading: 'Saved details',
