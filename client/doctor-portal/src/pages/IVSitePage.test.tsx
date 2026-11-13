@@ -21,6 +21,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
+  createIvSite: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -45,6 +46,21 @@ describe('IVSitePage', () => {
     vi.mocked(shared.getPatients).mockResolvedValue([
       patientProfile(),
     ]);
+  });
+
+  it('sends a new site without an id, so the server issues it', async () => {
+    vi.mocked(shared.createIvSite).mockResolvedValue({ success: true, sites: [] } as unknown as Awaited<ReturnType<typeof shared.createIvSite>>);
+    render(<IVSitePage />);
+    await selectPatient();
+    fireEvent.click(screen.getByRole('button', { name: 'Add New Site' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add IV Site' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save All IV Records' }));
+    await waitFor(() => expect(shared.createIvSite).toHaveBeenCalledTimes(1));
+    const [site] = vi.mocked(shared.createIvSite).mock.calls[0][0].sites as Array<Record<string, unknown>>;
+    // The page used to mint `IV-${Date.now()}` here and the server stored it.
+    expect(site.id).toBeUndefined();
+    expect(site).not.toHaveProperty('draft');
+    expect(site.location).toBe('right-hand');
   });
 
   it('renders IV site page', () => {

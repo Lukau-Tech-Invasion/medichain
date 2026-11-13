@@ -512,7 +512,7 @@ export interface IvAssessmentInput {
 
 /** Wire shape of the Rust `IvSiteInput`. */
 export interface IvSiteInput {
-  id: string;
+  id?: string | null;
   location?: string;
   locationDetail?: string;
   catheterType?: string;

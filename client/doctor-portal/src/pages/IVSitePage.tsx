@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -71,7 +71,10 @@ type SiteCondition =
 type DressingType = 'transparent' | 'gauze' | 'statlock' | 'biopatch';
 
 interface IVSite {
+  /** The server's site id, or a local draft key for a site not yet saved. */
   id: string;
+  /** Added on this screen and not yet saved: the server issues its id. */
+  draft?: boolean;
   patientId: string;
   location: SiteLocation;
   locationDetail: string;
@@ -176,6 +179,8 @@ export default function IVSitePage() {
 
   // IV Sites data
   const [ivSites, setIvSites] = useState<IVSite[]>([]);
+  // Keys a new site on this screen until the server issues its id.
+  const draftCount = useRef(0);
   // Set when the history could not be read: "no sites" would then be a guess.
   const [sitesError, setSitesError] = useState('');
   const [selectedSite, setSelectedSite] = useState<IVSite | null>(null);
@@ -334,7 +339,10 @@ export default function IVSitePage() {
     if (!selectedPatient || !newSite.location) return;
 
     const site: IVSite = {
-      id: `IV-${Date.now()}`,
+      // A local key only. The page used to send `IV-${Date.now()}` as the
+      // site's id and the server stored it; a new site's id is the server's.
+      id: `draft-${++draftCount.current}`,
+      draft: true,
       patientId: selectedPatient.patient_id,
       location: newSite.location,
       locationDetail: newSite.locationDetail || '',
@@ -469,9 +477,11 @@ export default function IVSitePage() {
 
     try {
       // The record id, the documenter and the time are the server's.
+      // A site added here goes without an id, so the server issues one; a
+      // documented site keeps the id the server gave it.
       const ivSiteData = {
         patient_id: selectedPatient.patient_id,
-        sites: ivSites,
+        sites: ivSites.map(({ draft, ...site }) => (draft ? { ...site, id: undefined } : site)),
       };
 
       const outcome = await submitOnce(submission, ivSiteData, () => createIvSite(ivSiteData));

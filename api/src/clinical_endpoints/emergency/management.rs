@@ -944,7 +944,13 @@ pub async fn list_wound_assessments(
 /// One cannulation site as the IV form records it.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct IvSiteInput {
-    pub id: String,
+    /// The server's id for a site already documented; absent for a new one.
+    /// The page used to mint `IV-${Date.now()}` and the server keyed the row
+    /// on it, so a browser chose new record ids and could name an existing
+    /// row to overwrite. A new site's id is the server's now, and an id the
+    /// server never issued for this patient is refused.
+    #[serde(default)]
+    pub id: Option<String>,
     #[serde(default)]
     pub location: String,
     #[serde(rename = "locationDetail", default)]
@@ -1060,25 +1066,27 @@ mod iv_removal_tests {
         crate::test_fixtures::seed_patient(&state, "PAT-IV-QA").await;
         let app =
             test::init_service(App::new().app_data(state.clone()).service(create_iv_site)).await;
-        for (site_id, conditions, expected) in [
-            ("unknown", Vec::<&str>::new(), None),
-            ("normal", vec!["clean-dry-intact"], Some(0)),
+        for (conditions, expected) in [
+            (Vec::<&str>::new(), None),
+            (vec!["clean-dry-intact"], Some(0)),
         ] {
             let request = test::TestRequest::post()
                 .uri("/api/emergency/iv-site")
                 .insert_header(crate::test_fixtures::as_user("NURSE-QA"))
                 .set_json(serde_json::json!({ "patient_id": "PAT-IV-QA", "sites": [{
-                    "id": site_id, "location": "left-forearm", "catheterType": "peripheral",
+                    "location": "left-forearm", "catheterType": "peripheral",
                     "gauge": "22G", "insertedAt": "2026-10-10T10:00:00Z", "isActive": true,
                     "assessments": [{ "conditions": conditions, "notes": "Fictional QA only" }]
                 }] }))
                 .to_request();
             let response = test::call_service(&app, request).await;
             assert!(response.status().is_success());
+            let body: serde_json::Value = test::read_body_json(response).await;
+            let row_id = body["sites"][0]["id"].as_str().unwrap().to_string();
             let record = state
                 .repositories
                 .iv_assessments
-                .get_by_id(&format!("IV-PAT-IV-QA-{site_id}"))
+                .get_by_id(&row_id)
                 .await
                 .unwrap();
             assert_eq!(record.phlebitis_grade, expected);
@@ -1089,6 +1097,97 @@ mod iv_removal_tests {
                 assert!(record.infiltration_grade.is_none());
             }
         }
+    }
+
+    /// A new site's id is the server's; a documented site keeps it on re-save;
+    /// an id the server never issued for this patient is refused, and nothing
+    /// in the refused list is written.
+    #[actix_web::test]
+    async fn the_server_issues_site_ids_and_refuses_ones_it_did_not() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-ID", Role::Nurse);
+        crate::test_fixtures::seed_patient(&state, "PAT-IV-ID").await;
+        crate::test_fixtures::seed_patient(&state, "PAT-IV-OTHER").await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(create_iv_site)).await;
+        let save = |patient: &str, sites: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/emergency/iv-site")
+                .insert_header(crate::test_fixtures::as_user("NURSE-ID"))
+                .set_json(serde_json::json!({ "patient_id": patient, "sites": sites }))
+                .to_request()
+        };
+        let site = |id: Option<&str>, gauge: &str| {
+            let mut s = serde_json::json!({ "location": "left-forearm",
+                "catheterType": "peripheral", "gauge": gauge, "isActive": true,
+                "insertedAt": "2026-10-10T10:00:00Z", "assessments": [] });
+            if let Some(id) = id {
+                s["id"] = serde_json::json!(id);
+            }
+            s
+        };
+
+        let first = test::call_service(
+            &app,
+            save("PAT-IV-ID", serde_json::json!([site(None, "22G")])),
+        )
+        .await;
+        assert_eq!(first.status().as_u16(), 201);
+        let body: serde_json::Value = test::read_body_json(first).await;
+        let site_id = body["sites"][0]["site_id"].as_str().unwrap().to_string();
+        assert!(
+            site_id.starts_with("SITE-"),
+            "the id is the server's: {site_id}"
+        );
+
+        // Re-saving the documented site updates its row.
+        let again = test::call_service(
+            &app,
+            save(
+                "PAT-IV-ID",
+                serde_json::json!([site(Some(&site_id), "20G")]),
+            ),
+        )
+        .await;
+        assert_eq!(again.status().as_u16(), 201);
+        let row = state
+            .repositories
+            .iv_assessments
+            .get_by_id(&format!("IV-PAT-IV-ID-{site_id}"))
+            .await
+            .unwrap();
+        assert_eq!(row.catheter_gauge.as_deref(), Some("20G"));
+
+        // A made-up id, and another patient's id, are refused -- and the new
+        // site sent alongside them is not written either.
+        for (patient, bogus) in [
+            ("PAT-IV-ID", "IV-1794532748000"),
+            ("PAT-IV-OTHER", site_id.as_str()),
+        ] {
+            let refused = test::call_service(
+                &app,
+                save(
+                    patient,
+                    serde_json::json!([site(None, "18G"), site(Some(bogus), "18G")]),
+                ),
+            )
+            .await;
+            assert_eq!(refused.status().as_u16(), 404, "{patient} {bogus}");
+        }
+        let rows = state
+            .repositories
+            .iv_assessments
+            .get_by_patient(
+                "PAT-IV-OTHER",
+                crate::repositories::traits::Pagination::first_page(50),
+            )
+            .await
+            .unwrap();
+        assert!(
+            rows.items.is_empty(),
+            "nothing was written for the refused list"
+        );
     }
 
     #[test]
@@ -1161,12 +1260,39 @@ pub async fn create_iv_site(
         });
     }
 
+    // Every named site must already be this patient's, checked before anything
+    // is written so a refused list leaves no part of itself behind.
+    let mut site_ids: Vec<String> = Vec::with_capacity(record.sites.len());
+    for site in &record.sites {
+        let named = site.id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let site_id = match named {
+            Some(known) => {
+                let row = format!("IV-{}-{}", record.patient_id, known);
+                if data
+                    .repositories
+                    .iv_assessments
+                    .get_by_id(&row)
+                    .await
+                    .is_err()
+                {
+                    return HttpResponse::NotFound().json(ErrorResponse {
+                        error: format!("IV site '{known}' is not on this patient's record"),
+                        code: "IV_SITE_NOT_FOUND".to_string(),
+                    });
+                }
+                known.to_string()
+            }
+            None => format!("SITE-{}", uuid::Uuid::new_v4().simple()),
+        };
+        site_ids.push(site_id);
+    }
+
     let now = crate::support::clinical_time(&http_req);
     let mut saved: Vec<serde_json::Value> = Vec::with_capacity(record.sites.len());
-    for site in &record.sites {
-        // The site keeps its client id so re-saving the same list updates rather
-        // than duplicating rows for a cannula that is already documented.
-        let id = format!("IV-{}-{}", record.patient_id, site.id);
+    for (site, site_id) in record.sites.iter().zip(&site_ids) {
+        // A documented site keeps its id, so re-saving the list updates the
+        // cannula's row rather than duplicating it.
+        let id = format!("IV-{}-{}", record.patient_id, site_id);
         let inserted = chrono::DateTime::parse_from_rfc3339(&site.inserted_at)
             .map(|d| d.with_timezone(&Utc).date_naive())
             .unwrap_or_else(|_| now.date_naive());
@@ -1198,7 +1324,7 @@ pub async fn create_iv_site(
         let entity = crate::repositories::traits::IVAssessmentEntity {
             id: id.clone(),
             patient_id: record.patient_id.clone(),
-            site_id: site.id.clone(),
+            site_id: site_id.clone(),
             // The VARCHAR(64) column stores the site vocabulary. Free-text
             // detail remains intact in `data.locationDetail`.
             site_location: site.location.clone(),
@@ -1262,7 +1388,7 @@ pub async fn create_iv_site(
         }
         saved.push(serde_json::json!({
             "id": id,
-            "site_id": site.id,
+            "site_id": site_id,
             // What the server scored, and what that score requires. The page
             // showed its own arithmetic and never learned whether the server
             // agreed - and the server was storing nothing at all.

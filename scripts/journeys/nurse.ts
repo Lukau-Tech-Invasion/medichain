@@ -375,9 +375,10 @@ export async function nurseJourney(
   // `phlebitisScore` is deliberately absent: the page posts one and the server
   // ignores it, recomputing the VIP score from `conditions`, because a score
   // that decides whether a cannula stays in is not a number a client asserts.
+  // A new cannula carries no id: the server issues one and returns it, and
+  // refuses an id it never issued (the page used to mint `IV-${Date.now()}`).
   const ivSites = [
     {
-      id: `SITE-${stamp}`,
       patientId: patient,
       location: 'forearm',
       locationDetail: 'Left forearm, mid',
@@ -418,13 +419,14 @@ export async function nurseJourney(
     },
   });
   const ivOk = j.status('an IV site assessment is accepted', iv.status, [200, 201], iv.json);
+  const issuedSiteId: string = (iv.json as any)?.sites?.[0]?.site_id ?? '';
 
   if (ivOk) {
     const read = await http('GET', `/clinical/iv-sites/${patient}`, { token: nurse.token });
     const rows = rowsOf(read.json, 'assessments', 'items');
     const mine = findBy(rows, 'record_id', ivRecordId) ?? (Array.isArray(rows) ? rows[0] : rows);
     const stored: any[] = Array.isArray(rows) ? rows : ((rows as any)?.sites ?? []);
-    const site = stored.find((x: any) => JSON.stringify(x ?? null).includes(`SITE-${stamp}`));
+    const site = issuedSiteId ? stored.find((x: any) => x?.site_id === issuedSiteId) : undefined;
     j.record(
       'the cannula is on the record with its gauge and site',
       site !== undefined && JSON.stringify(site ?? null).includes('20G'),

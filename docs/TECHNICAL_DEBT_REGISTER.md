@@ -4762,7 +4762,7 @@ else. Neither is removed: each is a capability a person needs.
     `docker-compose.awards-demo.yml`, `docker-compose.horizon-isolated.yml`, and
     the 110 uncalled routes already triaged as UI-less by design.
 
-## 2026-11-13 — Live check of the phase 1 payload trims: all eight save; six defects fixed, one open
+## 2026-11-13 — Live check of the phase 1 payload trims: all eight save; seven defects fixed
 
 Each of the eight pages whose payload phase 1 trimmed was driven in a browser
 against a locally built API on a throwaway PostgreSQL database, and the record
@@ -4809,10 +4809,18 @@ field for it, so it was dropped; the page already read `source` back and found
 nothing. The stored fluid event now carries `source`
 (`io_entry_tests::the_fluid_description_is_stored_with_the_event`).
 
+**FIXED — the IV site id was the browser's.** The page minted
+`IV-${Date.now()}` for a new cannula and the server keyed the row on it,
+updating any row the id named, so a client chose record ids and could name a
+documented site to overwrite. A new site is now sent without an id and the
+server issues `SITE-<uuid>`; a site that carries an id must already be on this
+patient's record, or the whole list is refused (404 `IV_SITE_NOT_FOUND`) before
+anything is written. The page keys an unsaved site locally; the nurse journey
+reads the issued id back (`iv_removal_tests::the_server_issues_site_ids_and_refuses_ones_it_did_not`,
+`IVSitePage.test.tsx`, "sends a new site without an id").
+
 **OPEN:**
 
-  * Minor: the IV site id is minted on the client from the clock
-    (`IV-${Date.now()}`), the pattern closed for care plans on 2026-11-04.
   * Pre-Op's refusal banner sits at the top of the page while Save is at the
     bottom, so a long form refuses out of sight (the patient refusal has the
     same placement).
