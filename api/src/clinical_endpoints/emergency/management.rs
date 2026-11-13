@@ -411,6 +411,7 @@ pub async fn create_io(
             category: &entry.category,
             direction: Some(&entry.direction),
             label: Some(&entry.category),
+            source: Some(entry.source.trim()).filter(|s| !s.is_empty()),
             notes: Some(entry.notes.as_str()).filter(|n| !n.is_empty()),
             amount_ml,
             recorded_at: crate::support::clinical_time(&http_req),
@@ -2259,5 +2260,54 @@ mod prescribed_on_tests {
             "2026-10-01"
         );
         assert_eq!(prescribed_on(&serde_json::json!({})), "");
+    }
+}
+
+#[cfg(test)]
+mod io_entry_tests {
+    //! The bedside intake/output form collects what the fluid was ("NS @ 100
+    //! mL/hr") beside its category. The handler accepted it and never stored
+    //! it, so the nurse's description was lost without a word.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+
+    const PATIENT: &str = "PAT-IO-SOURCE";
+    const NURSE: &str = "io-source-nurse";
+
+    #[actix_web::test]
+    async fn the_fluid_description_is_stored_with_the_event() {
+        let state = AppState::new();
+        test_fixtures::register(&state, NURSE, Role::Nurse);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        let state = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(super::create_io)).await;
+        let created = test::TestRequest::post()
+            .uri("/api/emergency/io")
+            .insert_header(test_fixtures::as_user(NURSE))
+            .set_json(serde_json::json!({
+                "patientId": PATIENT, "type": "intake", "category": "iv",
+                "amount": 250, "unit": "ml", "source": "NS @ 100 mL/hr",
+                "notes": "", "shift": "day"
+            }))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, created).await.status().as_u16(),
+            201
+        );
+
+        let record = state
+            .repositories
+            .io_records
+            .get_by_patient_date_shift(PATIENT, chrono::Utc::now().date_naive(), "day")
+            .await
+            .expect("read the shift record")
+            .expect("the shift record exists");
+        let items = record.intake_items.expect("an intake was charted");
+        let event = &items.as_array().expect("intake items are a list")[0];
+        assert_eq!(event["source"], "NS @ 100 mL/hr");
+        assert_eq!(event["amount_ml"], 250);
+        // An empty note stays absent rather than becoming "".
+        assert!(event["notes"].is_null());
     }
 }

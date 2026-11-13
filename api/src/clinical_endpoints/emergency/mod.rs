@@ -121,6 +121,10 @@ pub(crate) struct FluidEvent<'a> {
     /// totals had to bucket it as "other": "wound drain" and "chest drain" are
     /// both drainage to the arithmetic and different things to the reader.
     pub label: Option<&'a str>,
+    /// What the fluid was, as the nurse described it ("NS @ 100 mL/hr",
+    /// "Foley catheter"). The entry form collected it and this function had
+    /// no field for it, so it was dropped without a word.
+    pub source: Option<&'a str>,
     pub notes: Option<&'a str>,
     pub amount_ml: i32,
     /// When the fluid was given or measured (`support::clinical_time`).
@@ -164,6 +168,7 @@ pub(crate) async fn append_io_event(
         category,
         direction,
         label,
+        source,
         notes,
         amount_ml,
         recorded_at,
@@ -185,6 +190,7 @@ pub(crate) async fn append_io_event(
     let event = serde_json::json!({
         "category": bare,
         "label": label,
+        "source": source,
         "notes": notes,
         "amount_ml": amount_ml,
         "recorded_by": recorded_by,

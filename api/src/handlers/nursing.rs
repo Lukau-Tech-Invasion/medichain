@@ -305,6 +305,8 @@ pub async fn nursing_record_fluid(
             // as "other": "wound drain" and "chest drain" are both drainage to
             // the totals and different things to the person reading the chart.
             label: fluid_label.as_deref(),
+            // The nursing dashboard's form has no source field.
+            source: None,
             notes: body.get("notes").and_then(|v| v.as_str()),
             amount_ml,
             recorded_at: crate::support::clinical_time(&req),

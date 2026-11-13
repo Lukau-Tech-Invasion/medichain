@@ -4762,7 +4762,7 @@ else. Neither is removed: each is a capability a person needs.
     `docker-compose.awards-demo.yml`, `docker-compose.horizon-isolated.yml`, and
     the 110 uncalled routes already triaged as UI-less by design.
 
-## 2026-11-13 — Live check of the phase 1 payload trims: all eight save; five defects fixed, two open
+## 2026-11-13 — Live check of the phase 1 payload trims: all eight save; six defects fixed, one open
 
 Each of the eight pages whose payload phase 1 trimmed was driven in a browser
 against a locally built API on a throwaway PostgreSQL database, and the record
@@ -4803,11 +4803,14 @@ was chosen -- Pre-Op `asa_class: "III"`, `anesthesia_type: null`, airway
 findings null; incident `equipment_failure` / `near_miss` / `emergency`; blood
 bank FFP, 2 units, urgent, `order_date` 2026-11-13 at 03:20 local.
 
+**FIXED later the same day — intake/output discarded the description.**
+`create_io` accepted `source` ("NS @ 100 mL/hr") and `append_io_event` had no
+field for it, so it was dropped; the page already read `source` back and found
+nothing. The stored fluid event now carries `source`
+(`io_entry_tests::the_fluid_description_is_stored_with_the_event`).
+
 **OPEN:**
 
-  * **Intake/output discards the description.** `create_io` accepts `source`
-    ("NS @ 100 mL/hr") and never stores it; the stored event's label is the
-    category. The nurse's text is lost without a word.
   * Minor: the IV site id is minted on the client from the clock
     (`IV-${Date.now()}`), the pattern closed for care plans on 2026-11-04.
   * Pre-Op's refusal banner sits at the top of the page while Save is at the
