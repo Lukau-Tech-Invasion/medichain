@@ -1,5 +1,6 @@
 //! In-memory history and physical repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     HistoryPhysicalEntity, HistoryPhysicalRepository, PaginatedResult, Pagination, RepositoryError,
     RepositoryResult,
@@ -28,7 +29,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         &self,
         mut history: HistoryPhysicalEntity,
     ) -> RepositoryResult<HistoryPhysicalEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&history.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -46,7 +47,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<HistoryPhysicalEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("History and physical with ID {} not found", id))
         })
@@ -57,7 +58,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<HistoryPhysicalEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut histories: Vec<HistoryPhysicalEntity> = storage
             .values()
@@ -79,7 +80,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         &self,
         mut history: HistoryPhysicalEntity,
     ) -> RepositoryResult<HistoryPhysicalEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&history.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -98,7 +99,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         mut history: HistoryPhysicalEntity,
         expected_updated_at: DateTime<Utc>,
     ) -> RepositoryResult<Option<HistoryPhysicalEntity>> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
         let Some(current) = storage.get(&history.id) else {
             return Err(RepositoryError::NotFound(format!(
                 "History and physical with ID {} not found",
@@ -117,7 +118,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
     }
 
     async fn delete(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if let Some(mut history) = storage.get(id).cloned() {
             history.is_active = false;
@@ -137,7 +138,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         exam_type: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<HistoryPhysicalEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut histories: Vec<HistoryPhysicalEntity> = storage
             .values()
@@ -162,7 +163,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
     }
 
     async fn list_all(&self) -> RepositoryResult<Vec<HistoryPhysicalEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         let mut histories: Vec<HistoryPhysicalEntity> =
             storage.values().filter(|h| h.is_active).cloned().collect();
         histories.sort_by_key(|b| std::cmp::Reverse(b.performed_at));

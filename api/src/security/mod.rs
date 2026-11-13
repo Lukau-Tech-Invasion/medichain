@@ -17,11 +17,11 @@ use std::sync::RwLock;
 /// Runtime security state: MFA enrollments, the recent-alert ring buffer, and
 /// per-actor sliding windows feeding the anomaly detectors.
 pub struct SecurityState {
-    /// Wallet address → TOTP enrollment.
+    /// User id → TOTP enrollment.
     pub mfa: RwLock<HashMap<String, MfaRecord>>,
     /// Bounded ring buffer of recent security alerts (newest at the back).
     alerts: RwLock<VecDeque<SecurityAlert>>,
-    /// Wallet address → sliding-window counters for the detectors.
+    /// Actor id → sliding-window counters for the detectors.
     windows: RwLock<HashMap<String, ActorWindow>>,
     /// PostgreSQL pool for durable alert persistence (None on the memory backend).
     pool: Option<sqlx::PgPool>,
@@ -85,12 +85,37 @@ impl SecurityState {
 
     // ---- MFA ---------------------------------------------------------------
 
-    /// Whether the wallet has a fully enabled (verified) MFA enrollment.
-    pub fn mfa_enabled(&self, wallet: &str) -> bool {
+    /// Whether the user has a fully enabled (verified) MFA enrollment.
+    pub fn mfa_enabled(&self, user_id: &str) -> bool {
         self.mfa
             .read()
-            .map(|m| m.get(wallet).map(|r| r.enabled).unwrap_or(false))
+            .map(|m| m.get(user_id).map(|r| r.enabled).unwrap_or(false))
             .unwrap_or(false)
+    }
+
+    /// The TOTP secret to check a code against, for the kind of enrolment the
+    /// caller is entitled to use (see [`crate::state::TotpScope`]).
+    pub fn totp_secret(&self, user_id: &str, scope: crate::state::TotpScope) -> Option<String> {
+        let enrolments = self.mfa.read().ok()?;
+        let record = enrolments.get(user_id)?;
+        let wanted = matches!(scope, crate::state::TotpScope::Enabled);
+        (record.enabled == wanted).then(|| record.secret_base32.clone())
+    }
+
+    /// Advance the last accepted TOTP step for `user_id` to `step`, returning
+    /// `false` when that step or a later one has already been accepted.
+    pub fn claim_totp_step(&self, user_id: &str, step: i64) -> bool {
+        let Ok(mut enrolments) = self.mfa.write() else {
+            return false;
+        };
+        let Some(record) = enrolments.get_mut(user_id) else {
+            return false;
+        };
+        if record.last_used_step.is_some_and(|last| last >= step) {
+            return false;
+        }
+        record.last_used_step = Some(step);
+        true
     }
 
     // ---- Alert storage -----------------------------------------------------
@@ -128,6 +153,7 @@ impl SecurityState {
                 "message": alert.message,
             }),
             timestamp: alert.created_at.timestamp(),
+            audience: crate::websocket::Audience::Administrators,
         });
     }
 

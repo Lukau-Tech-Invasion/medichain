@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from 'react';
-import QRCode from 'qrcode';
 import {
   useProviderDirectory,
   getEmergencyCapsuleAccessLog,
   getApiClient,
+  getMedicalIdQr,
   useOfflineCache,
   useTranslation,
   useToastActions,
@@ -21,6 +21,7 @@ import {
   Shield,
   RefreshCw,
   Share2,
+  Download,
   Copy,
   Check,
   Info,
@@ -30,6 +31,8 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
+import { CapsuleVerify } from '../components/CapsuleVerify';
+import { PageTitle } from '../components/MergedScreen';
 
 interface EmergencyData {
   patientId: string;
@@ -50,7 +53,6 @@ interface EmergencyData {
   dnrVerifiedBy: string | null;
   dnrVerifiedAt: string | null;
   dnrDocumentRef: string | null;
-  cardHash: string;
   lastUpdated: string | null;
 }
 
@@ -60,7 +62,7 @@ interface EmergencyData {
  * Display QR code and NFC card information for emergency access.
  * First responders can scan to access critical medical data.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function EmergencyCardPage() {
   const { t, locale } = useTranslation();
@@ -68,13 +70,11 @@ export function EmergencyCardPage() {
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
   const patient = usePatientAuthStore(state => state.patient);
-  // Who opened the card is stored as a wallet; the patient needs a name.
-  const { providerName } = useProviderDirectory(patient?.walletAddress);
+  // Who opened the card is stored as a user id; the patient needs a name.
+  const { providerName } = useProviderDirectory(patient?.userId);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [qrError, setQrError] = useState(false);
 
-  // Canonical patient record id; the wallet is the authenticated caller.
+  // Canonical patient record id; the user id is the authenticated caller.
   const patientId = patient?.healthId || null;
 
   // --- Who has opened this card ----------------------------------------------
@@ -162,10 +162,9 @@ export function EmergencyCardPage() {
       dnrVerifiedBy: emergencyInfo.dnr_verified_by ?? null,
       dnrVerifiedAt: emergencyInfo.dnr_verified_at ?? null,
       dnrDocumentRef: emergencyInfo.dnr_document_ref ?? null,
-      cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
       lastUpdated: data.last_updated ?? null,
     };
-    // `walletAddress` went with the hand-rolled session headers; the typed
+    // `userId` went with the hand-rolled session headers; the typed
     // client reads the session itself.
   }, [patientId]);
 
@@ -190,49 +189,37 @@ export function EmergencyCardPage() {
       emergencyData.dnrVerifiedAt,
   );
 
-  // Compact emergency-access URL embedded in the QR code. Falls back to the
-  // current origin so the QR is still meaningful in offline/preview contexts.
-  const emergencyUrl = emergencyData
-    ? `${window.location.origin}/emergency/${encodeURIComponent(emergencyData.nationalHealthId)}`
-    : '';
+  // One card, one code (patient-app plan, 2026-11-04). The code shown is the
+  // server's Medical ID code, the only one the paramedic scanner reads
+  // (`parseEmergencyCode`): it carries the patient id, a possession proof that
+  // opens emergency access, and a summary for when the responder has no signal.
+  // This page used to draw its own code ({id, name, bt, url}), which the scanner
+  // refused as "not a MediChain code". Kept on the device like the card itself,
+  // so it can still be shown with no signal.
+  const fetchQr = useCallback(async () => {
+    if (!patientId) throw new Error('Not signed in');
+    return getMedicalIdQr(patientId);
+  }, [patientId]);
+  const { data: qr, loading: qrLoading, refresh: refreshQr } = useOfflineCache(
+    `medical-id-qr-${patientId || 'none'}`,
+    'emergency',
+    fetchQr,
+  );
+  const qrDataUrl = qr?.qr_image_base64 ? `data:image/png;base64,${qr.qr_image_base64}` : null;
+  const qrError = !qrLoading && !qrDataUrl;
 
-  // Generate a REAL scannable QR encoding the critical emergency payload.
-  // Memoized on the load-bearing fields so it only regenerates when they change;
-  // works fully offline (no network call) for the cached emergency card.
-  useEffect(() => {
-    if (!emergencyData) return;
-    let cancelled = false;
-    const payload = JSON.stringify({
-      id: emergencyData.nationalHealthId,
-      name: emergencyData.fullName,
-      bt: emergencyData.bloodType,
-      url: emergencyUrl,
-    });
-    QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 1, width: 256 })
-      .then((url) => {
-        if (!cancelled) {
-          setQrDataUrl(url);
-          setQrError(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setQrDataUrl(null);
-          setQrError(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `emergencyData` rather than three of its fields: the QR encodes the card,
-    // and listing a subset means a change to anything else in it leaves a code
-    // on screen that no longer matches what it claims to represent.
-  }, [emergencyData, emergencyUrl]);
+  const downloadQr = () => {
+    if (!qrDataUrl) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `medichain-medical-id-${patientId ?? 'card'}.png`;
+    link.click();
+  };
 
   const handleRefreshQR = async () => {
     setIsRefreshing(true);
     try {
-      await refresh();
+      await Promise.all([refresh(), refreshQr()]);
     } catch {
       showError(t('emergency.refreshFailed'));
     } finally {
@@ -284,7 +271,7 @@ export function EmergencyCardPage() {
     const shareText = `Emergency Medical Info for ${emergencyData.fullName}\nHealth ID: ${emergencyData.nationalHealthId}`;
 
     if (!navigator.share) {
-      const ok = await copyToClipboard(`${shareText}\n${emergencyUrl}`);
+      const ok = await copyToClipboard(shareText);
       if (ok) {
         showInfoCopiedInstead();
       } else {
@@ -297,7 +284,6 @@ export function EmergencyCardPage() {
       await navigator.share({
         title: 'MediChain Emergency Card',
         text: shareText,
-        url: emergencyUrl || window.location.href,
       });
     } catch (err) {
       // A user-cancelled share surfaces as AbortError — stay silent for that.
@@ -319,7 +305,7 @@ export function EmergencyCardPage() {
   // empty at the moment it matters.
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 animate-pulse" role="status" aria-live="polite">
+      <div className="p-6 space-y-4" role="status" aria-live="polite">
         <span className="sr-only">{t('emergency.loadingCard')}</span>
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="aspect-square max-w-xs mx-auto bg-surface-sunken rounded-3xl" />
@@ -359,10 +345,10 @@ export function EmergencyCardPage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-content">{t('emergency.cardTitle')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('emergency.cardTitle')}</PageTitle>
         <p className="text-content-muted">{t('emergency.cardSubtitle')}</p>
       </div>
 
@@ -406,7 +392,7 @@ export function EmergencyCardPage() {
         {/* QR Code */}
         <div className="py-6">
           <div className="relative mx-auto w-56 h-56">
-            {/* Real, scannable QR code generated client-side (works offline). */}
+            {/* The Medical ID code a paramedic scans (kept on the device for offline use). */}
             <div className="w-full h-full bg-surface border-4 border-neutral-900 rounded-2xl p-3 relative overflow-hidden">
               {qrError ? (
                 <div className="w-full h-full flex flex-col items-center justify-center text-center text-content-muted">
@@ -454,6 +440,15 @@ export function EmergencyCardPage() {
               {t('common.refresh')}
             </button>
             <button
+              type="button"
+              onClick={downloadQr}
+              disabled={!qrDataUrl}
+              className="flex items-center gap-2 px-4 py-2 text-sm text-content-muted hover:text-content transition-colors disabled:opacity-60"
+            >
+              <Download className="w-4 h-4" aria-hidden="true" />
+              {t('medicalId.downloadQrCode')}
+            </button>
+            <button
               onClick={handleShare}
               className="flex items-center gap-2 px-4 py-2 text-sm text-content-muted hover:text-content transition-colors"
             >
@@ -475,6 +470,11 @@ export function EmergencyCardPage() {
               <span className="text-xl font-bold text-critical-subtle-fg">{emergencyData.bloodType}</span>
             </div>
           </div>
+          {emergencyData.bloodType === 'Unknown' && (
+            <p role="alert" className="mt-2 text-sm font-medium text-critical-subtle-fg">
+              {t('emergency.unknownBloodTypeWarning')}
+            </p>
+          )}
         </div>
       </div>
 
@@ -488,7 +488,7 @@ export function EmergencyCardPage() {
             <h3 className="font-medium text-content">{t('emergency.nfcReady')}</h3>
             <p className="text-sm text-content-muted">{t('emergency.nfcTapHint')}</p>
           </div>
-          <div className="w-3 h-3 bg-success-500 rounded-full animate-pulse" />
+          <div className="w-3 h-3 bg-success-500 rounded-full" />
         </div>
         
         <div className="mt-4 p-3 bg-surface-sunken rounded-xl text-sm text-content-muted">
@@ -699,9 +699,15 @@ export function EmergencyCardPage() {
         )}
       </div>
 
+      {patientId && (
+        <section className="bg-surface rounded-xl border border-border p-4" aria-label={t('verification.heading')}>
+          <h2 className="font-semibold text-content mb-2">{t('verification.heading')}</h2>
+          <CapsuleVerify patientId={patientId} />
+        </section>
+      )}
+
       {/* Card Security Info */}
       <div className="text-center text-xs text-content-muted space-y-1">
-        <p>{t('emergency.cardHash')}: {emergencyData.cardHash.slice(0, 16)}...</p>
         <p>
           {t('emergency.lastUpdated')}: {emergencyData.lastUpdated
             ? formatDate(emergencyData.lastUpdated, locale)

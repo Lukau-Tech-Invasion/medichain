@@ -75,8 +75,6 @@ declare -A KNOWN_PORTS=(
     [55432]="PostgreSQL (Horizon isolated stack)"
     [5001]="IPFS API"
     [8080]="IPFS gateway (NOT the API)"
-    [9944]="Substrate RPC (WS *and* HTTP - the ports were merged upstream)"
-    [30333]="Substrate libp2p"
     [5173]="Vite doctor-portal"
     [5174]="Vite patient-app"
 )

@@ -11,6 +11,7 @@ import {
   StatusBar
 } from 'react-native';
 import Constants from 'expo-constants';
+import { deriveAuthProof } from './src/auth/proof';
 
 /**
  * MediChain Connection Tester
@@ -20,19 +21,17 @@ import Constants from 'expo-constants';
  * 
  * Tests:
  * - REST API connectivity (Actix-web server on :8080)
- * - Substrate node WebSocket (on :9944)
  * - Authentication flow
  * - Request timing and latency
  * 
  * Usage:
  * 1. Start MediChain API: cd medichain && cargo run -p medichain-api
  * 2. Find your machine's LAN IP (ipconfig / ip addr)
- * 3. Create .env file with EXPO_PUBLIC_API_URL and EXPO_PUBLIC_SUBSTRATE_WS_URL
+ * 3. Create .env file with EXPO_PUBLIC_API_URL
  * 4. Run this app on device/emulator
  * 
  * Environment Variables (see .env.example):
  * - EXPO_PUBLIC_API_URL: API server URL (e.g., http://192.168.1.100:8080)
- * - EXPO_PUBLIC_SUBSTRATE_WS_URL: WebSocket URL (e.g., ws://192.168.1.100:9944)
  * 
  * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
@@ -66,28 +65,6 @@ function getDefaultApiUrl(): string {
   return 'http://YOUR_COMPUTER_IP:8080';
 }
 
-/**
- * Get WebSocket URL from environment or detect automatically
- */
-function getDefaultWsUrl(): string {
-  const envUrl = Constants.expoConfig?.extra?.wsUrl || 
-                 process.env.EXPO_PUBLIC_SUBSTRATE_WS_URL;
-  if (envUrl) return envUrl;
-  
-  if (Platform.OS === 'android') {
-    return 'ws://10.0.2.2:9944';
-  }
-  
-  if (Platform.OS === 'ios') {
-    return 'ws://127.0.0.1:9944';
-  }
-  
-  return 'ws://YOUR_COMPUTER_IP:9944';
-}
-
-// Sample wallet address for testing (from MediChain demo data)
-const SAMPLE_WALLET = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-
 interface LogEntry {
   time: string;
   message: string;
@@ -97,8 +74,10 @@ interface LogEntry {
 export default function App() {
   // Configuration - initialize from environment
   const [apiUrl, setApiUrl] = useState(getDefaultApiUrl());
-  const [wsUrl, setWsUrl] = useState(getDefaultWsUrl());
-  const [walletAddress, setWalletAddress] = useState(SAMPLE_WALLET);
+  const [loginId, setLoginId] = useState('');
+  const [password, setPassword] = useState('');
+  // Held in memory for this diagnostics session only.
+  const [accessToken, setAccessToken] = useState<string | undefined>(undefined);
   
   // State
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -108,7 +87,6 @@ export default function App() {
   useEffect(() => {
     log(`Platform: ${Platform.OS}`, 'info');
     log(`API URL: ${apiUrl}`, 'info');
-    log(`WebSocket URL: ${wsUrl}`, 'info');
     if (apiUrl.includes('YOUR_COMPUTER_IP')) {
       log('⚠️ Please update API URL with your machine\'s IP address', 'warning');
       log('   Find IP: Windows=ipconfig, Mac/Linux=ifconfig', 'warning');
@@ -169,38 +147,42 @@ export default function App() {
   // TEST 2: Authentication Check
   // ============================================================================
   const testAuth = async () => {
-    log('Testing authentication with wallet address...', 'info');
-    
-    // Validate wallet address format first
-    if (!walletAddress || walletAddress.length !== 48 || !walletAddress.startsWith('5')) {
-      log(`❌ Invalid wallet address format`, 'error');
-      log(`   Expected: 48 chars starting with "5" (SS58)`, 'warning');
-      log(`   Got: ${walletAddress.length} chars, starts with "${walletAddress[0]}"`, 'warning');
+    log('Testing sign-in with a username and password...', 'info');
+
+    if (!loginId.trim() || !password) {
+      log('❌ Enter a username and password first', 'error');
       return false;
     }
-    
+
     try {
-      const res = await fetch(`${apiUrl}/api/auth/me`, {
-        headers: {
-          'X-User-Id': walletAddress,
-          'Content-Type': 'application/json'
-        }
+      // The proof, never the password, is what is sent.
+      const res = await fetch(`${apiUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: loginId.trim(),
+          auth_proof: deriveAuthProof(password, loginId),
+        }),
       });
-      
+
       const data = await res.json();
-      
-      if (res.ok) {
-        log(`✅ Auth OK - User found`, 'success');
-        log(`   Role: ${data.role || 'unknown'}`, 'info');
-        log(`   Name: ${data.name || data.username || 'N/A'}`, 'info');
+
+      if (res.ok && data.access_token) {
+        setAccessToken(data.access_token);
+        log(`✅ Sign-in OK`, 'success');
+        log(`   Role: ${data.user?.role || 'unknown'}`, 'info');
+        log(`   Name: ${data.user?.name || 'N/A'}`, 'info');
         return true;
+      } else if (data.mfa_required) {
+        log('⚠️ This account needs an authenticator code; use the app sign-in screen', 'warning');
+        return false;
       } else {
-        log(`⚠️ Auth response: ${res.status}`, 'warning');
-        log(`   ${data.error || JSON.stringify(data)}`, 'warning');
+        log(`⚠️ Sign-in response: ${res.status}`, 'warning');
+        log(`   ${data.error?.message || data.error || JSON.stringify(data)}`, 'warning');
         return false;
       }
     } catch (err: any) {
-      log(`❌ Auth FAILED: ${err.message}`, 'error');
+      log(`❌ Sign-in FAILED: ${err.message}`, 'error');
       return false;
     }
   };
@@ -214,7 +196,7 @@ export default function App() {
     try {
       const res = await fetch(`${apiUrl}/api/patients`, {
         headers: {
-          'X-User-Id': walletAddress,
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
           'Content-Type': 'application/json'
         }
       });
@@ -238,86 +220,6 @@ export default function App() {
   };
 
   // ============================================================================
-  // TEST 4: Substrate WebSocket
-  // ============================================================================
-  const testWebSocket = async (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      log('Testing Substrate WebSocket connection...', 'info');
-      log(`   Connecting to ${wsUrl}`, 'info');
-      
-      try {
-        const ws = new WebSocket(wsUrl);
-        let resolved = false;
-        
-        const timeout = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            ws.close();
-            log(`❌ WebSocket TIMEOUT after 10s`, 'error');
-            resolve(false);
-          }
-        }, 10000);
-        
-        ws.onopen = () => {
-          log(`✅ WebSocket connected`, 'success');
-          
-          // Send RPC request
-          const msg = JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'system_health',
-            params: []
-          });
-          ws.send(msg);
-          log(`   Sent system_health request`, 'info');
-        };
-        
-        ws.onmessage = (event) => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            
-            try {
-              const data = JSON.parse(event.data);
-              log(`✅ WebSocket response received`, 'success');
-              log(`   Peers: ${data.result?.peers ?? 'N/A'}`, 'info');
-              log(`   Syncing: ${data.result?.isSyncing ?? 'N/A'}`, 'info');
-            } catch {
-              log(`   Raw response: ${event.data.substring(0, 100)}`, 'info');
-            }
-            
-            ws.close();
-            resolve(true);
-          }
-        };
-        
-        ws.onerror = () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            log(`❌ WebSocket error`, 'error');
-            log(`   Check if Substrate node is running on ${wsUrl}`, 'warning');
-            resolve(false);
-          }
-        };
-        
-        ws.onclose = (event) => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            log(`⚠️ WebSocket closed (code: ${event.code})`, 'warning');
-            resolve(false);
-          }
-        };
-        
-      } catch (err: any) {
-        log(`❌ WebSocket exception: ${err.message}`, 'error');
-        resolve(false);
-      }
-    });
-  };
-
-  // ============================================================================
   // RUN ALL TESTS
   // ============================================================================
   const runAllTests = async () => {
@@ -333,7 +235,7 @@ export default function App() {
     log('═══════════════════════════════════════', 'info');
     
     let passed = 0;
-    let total = 4;
+    let total = 3;
     
     // Test 1: API Health
     log('\n📡 TEST 1: API Health Check', 'info');
@@ -351,12 +253,6 @@ export default function App() {
     // Test 3: Data endpoint
     log('\n📋 TEST 3: Data Endpoint (Patients)', 'info');
     if (await testPatients()) passed++;
-    
-    await new Promise(r => setTimeout(r, 500));
-    
-    // Test 4: WebSocket
-    log('\n🔌 TEST 4: Substrate WebSocket', 'info');
-    if (await testWebSocket()) passed++;
     
     // Summary
     log('\n═══════════════════════════════════════', 'info');
@@ -395,22 +291,21 @@ export default function App() {
             autoCorrect={false}
           />
           
-          <Text style={styles.label}>Substrate WebSocket URL</Text>
+          <Text style={styles.label}>Test username</Text>
           <TextInput
             style={styles.input}
-            value={wsUrl}
-            onChangeText={setWsUrl}
-            placeholder="ws://192.168.1.100:9944"
+            value={loginId}
+            onChangeText={setLoginId}
             autoCapitalize="none"
             autoCorrect={false}
           />
-          
-          <Text style={styles.label}>Test Wallet Address (SS58)</Text>
+
+          <Text style={styles.label}>Test password</Text>
           <TextInput
-            style={[styles.input, styles.monoInput]}
-            value={walletAddress}
-            onChangeText={setWalletAddress}
-            placeholder="5Grw..."
+            style={styles.input}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -447,9 +342,6 @@ export default function App() {
           <TouchableOpacity style={styles.smallButton} onPress={testPatients}>
             <Text style={styles.smallButtonText}>Patients</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.smallButton} onPress={testWebSocket}>
-            <Text style={styles.smallButtonText}>WebSocket</Text>
-          </TouchableOpacity>
         </View>
         
         {/* Logs */}
@@ -482,7 +374,7 @@ export default function App() {
           <Text style={styles.tipText}>• Use your machine's LAN IP, not localhost</Text>
           <Text style={styles.tipText}>• Ensure API server is running (cargo run -p medichain-api)</Text>
           <Text style={styles.tipText}>• For Android HTTP, enable cleartext in AndroidManifest</Text>
-          <Text style={styles.tipText}>• Wallet address must be 48 chars starting with "5"</Text>
+          <Text style={styles.tipText}>• Sign-in needs an activated account (username and password)</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

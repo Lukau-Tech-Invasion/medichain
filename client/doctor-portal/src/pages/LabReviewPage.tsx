@@ -43,6 +43,9 @@ import {
   RefreshCw,
   XCircle,
 } from 'lucide-react';
+import { PatientName } from '../components/PatientName';
+
+// ux-allow(no-form): each row's reason box goes with its own Reject button; Enter must not reject a result.
 
 /** A result outside its reference range is what a reviewer is looking for. */
 function isFlagged(flag?: string | null): boolean {
@@ -96,7 +99,7 @@ function LabReviewPage() {
     void load();
   }, [load]);
 
-  const myWallet = user?.walletAddress ?? '';
+  const myUserId = user?.userId ?? '';
 
   const decide = useCallback(
     async (submission: LabResultSubmission, action: 'approve' | 'reject') => {
@@ -211,7 +214,7 @@ function LabReviewPage() {
           {submissions.map((s) => {
             // The API refuses this and says why; disabling the control up front
             // turns a 403 into an explanation.
-            const isOwnSubmission = Boolean(myWallet) && s.submitted_by === myWallet;
+            const isOwnSubmission = Boolean(myUserId) && s.submitted_by === myUserId;
             const busy = busyId === s.id;
 
             return (
@@ -224,7 +227,7 @@ function LabReviewPage() {
                   <div>
                     <h2 className="text-content font-semibold">{s.test_name}</h2>
                     <p className="text-content-muted text-sm">
-                      {s.patient_name} · {s.patient_id} · {s.test_category}
+                      {s.patient_name} · <PatientName id={s.patient_id} dobOnly inherit /> · {s.test_category}
                     </p>
                   </div>
                   <p className="text-content-muted text-xs">

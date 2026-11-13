@@ -1,7 +1,7 @@
 //! Last-resort sanitization for application log messages.
 //!
 //! Structured audit records are the system of record. Operational logs must
-//! never become an alternative store for patient, wallet, credential, or
+//! never become an alternative store for patient, medical ID, credential, or
 //! clinical identifiers. Existing code still uses `log::*` broadly, so this
 //! module places a conservative filter at that shared output boundary.
 
@@ -40,8 +40,8 @@ fn is_sensitive_field(field: &str) -> bool {
         field.to_ascii_lowercase().as_str(),
         "patient"
             | "patient_id"
-            | "wallet"
-            | "wallet_address"
+            | "medical_id"
+            | "login_id"
             | "national_id"
             | "token"
             | "access_token"
@@ -66,22 +66,12 @@ fn split_punctuation(token: &str) -> (&str, &str, &str) {
 fn is_sensitive_value(value: &str) -> bool {
     let upper = value.to_ascii_uppercase();
     value.contains('@')
-        || looks_like_wallet(value)
         || looks_like_uuid(value)
         || [
             "PAT-", "MCHI-", "NATIONAL", "ID-", "TOKEN-", "JWT-", "SOAP-", "LAB-",
         ]
         .iter()
         .any(|prefix| upper.starts_with(prefix))
-}
-
-fn looks_like_wallet(value: &str) -> bool {
-    value.len() >= 45
-        && value.len() <= 64
-        && value.starts_with('5')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() && !matches!(byte, b'0' | b'O' | b'I' | b'l'))
 }
 
 fn looks_like_uuid(value: &str) -> bool {
@@ -104,7 +94,7 @@ fn looks_like_uuid(value: &str) -> bool {
 /// Redaction used to live inside an `env_logger` format closure. That works
 /// only for the build that installs `env_logger`: `console_subscriber::init()`
 /// installs its own global subscriber and owns formatting, so a build made with
-/// `--features tokio-console` emitted the wallet addresses, bearer tokens and
+/// `--features tokio-console` emitted the medical IDs, bearer tokens and
 /// patient identifiers that every other build redacts. The control disappeared
 /// exactly when someone was debugging a live system closely enough to want a
 /// task console.
@@ -281,7 +271,7 @@ mod tests {
         }
     }
 
-    const WALLET: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+    const MEDICAL_ID: &str = "MCHI-7K3P-9QXD";
     const BEARER: &str = "TOKEN-b7c19a42f0e84d6cb3a5219e77c4d810";
     const REFRESH: &str = "JWT-3f1c02de99b7415e8a26cd70b4f8e152";
     const PATIENT: &str = "PAT-4f88f13b";
@@ -302,14 +292,14 @@ mod tests {
 
         tracing::subscriber::with_default(subscriber, || {
             // Interpolated into the message, the shape most call sites use.
-            tracing::info!("emergency access granted for {} by {}", PATIENT, WALLET);
+            tracing::info!("emergency access granted for {} as {}", PATIENT, MEDICAL_ID);
             tracing::warn!("specimen {} rejected, record {}", SPECIMEN, RECORD_UUID);
             tracing::error!("auth failure for {}", EMAIL);
             // Carried as structured fields, which `tracing` call sites also do.
             tracing::info!(token = BEARER, refresh_token = REFRESH, "session issued");
             tracing::info!(national_id = NATIONAL, phone = PHONE, "identity verified");
             tracing::info!(
-                wallet_address = WALLET,
+                medical_id = MEDICAL_ID,
                 patient_id = PATIENT,
                 "chart opened"
             );
@@ -321,7 +311,7 @@ mod tests {
 
     fn assert_nothing_sensitive_survives(output: &str, label: &str) {
         for secret in [
-            WALLET,
+            MEDICAL_ID,
             BEARER,
             REFRESH,
             PATIENT,
@@ -385,14 +375,14 @@ mod tests {
             .with(tracing_subscriber::filter::LevelFilter::TRACE);
 
         tracing::subscriber::with_default(subscriber, || {
-            tracing::info!("chart opened for {} by {}", PATIENT, WALLET);
+            tracing::info!("chart opened for {} as {}", PATIENT, MEDICAL_ID);
         });
 
         let output =
             String::from_utf8(buffer.lock().expect("capture lock").clone()).expect("utf-8");
         assert!(
-            !output.contains(WALLET),
-            "wallet survived a stacked pipeline: {output}"
+            !output.contains(MEDICAL_ID),
+            "medical ID survived a stacked pipeline: {output}"
         );
         assert!(
             !output.contains(PATIENT),
@@ -416,43 +406,42 @@ mod tests {
         tracing::subscriber::with_default(subscriber, || {
             // `tracing`'s log bridge turns this into an event on the dispatcher
             // in scope, which is the same path `LogTracer` installs globally.
-            tracing::info!("legacy path for {}", WALLET);
+            tracing::info!("legacy path for {}", MEDICAL_ID);
         });
 
         let output =
             String::from_utf8(buffer.lock().expect("capture lock").clone()).expect("utf-8");
         assert!(
-            !output.contains(WALLET),
-            "wallet survived the log bridge: {output}"
+            !output.contains(MEDICAL_ID),
+            "medical ID survived the log bridge: {output}"
         );
     }
 
     use super::*;
 
     #[test]
-    fn masks_wallet_patient_email_and_uuid_values() {
-        let raw = "wallet 5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ patient PAT-001 email patient@example.test id 123e4567-e89b-12d3-a456-426614174000 wallet_address=5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ";
+    fn masks_medical_id_login_patient_email_and_uuid_values() {
+        let raw = "card MCHI-7K3P-9QXD patient PAT-001 email patient@example.test id 123e4567-e89b-12d3-a456-426614174000 medical_id=MCHI-7K3P-9QXD login_id=dr.synthetic";
         let redacted = redact_message(raw);
-        assert!(!redacted.contains("5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ"));
+        assert!(!redacted.contains("MCHI-7K3P-9QXD"));
+        assert!(!redacted.contains("dr.synthetic"));
         assert!(!redacted.contains("PAT-001"));
         assert!(!redacted.contains("patient@example.test"));
         assert!(!redacted.contains("123e4567-e89b-12d3-a456-426614174000"));
-        assert_eq!(redacted.matches("[REDACTED]").count(), 5);
+        assert_eq!(redacted.matches("[REDACTED]").count(), 6);
     }
 
     #[test]
     fn shared_log_record_formatter_uses_the_redactor() {
         let record = log::Record::builder()
-            .args(format_args!(
-                "patient PAT-001 wallet 5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ"
-            ))
+            .args(format_args!("patient PAT-001 card MCHI-7K3P-9QXD"))
             .level(log::Level::Error)
             .target("medichain_api::clinical")
             .build();
         let rendered = format_record(&record);
 
         assert!(!rendered.contains("PAT-001"));
-        assert!(!rendered.contains("5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ"));
+        assert!(!rendered.contains("MCHI-7K3P-9QXD"));
     }
 
     #[test]

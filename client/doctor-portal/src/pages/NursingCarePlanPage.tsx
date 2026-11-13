@@ -24,6 +24,7 @@ import {
   useValidatedForm,
   carePlanSchema,
   createCarePlan,
+  notifySuccess,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
@@ -148,7 +149,7 @@ const NursingCarePlanPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
 
   const createPlan = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId || saving) return;
     // Was a banner naming both fields at once. A banner cannot say which
     // control is wrong -- that association is the whole of WCAG 3.3.1 -- and it
     // reported two problems when the nurse had one. `validate` puts the message
@@ -160,7 +161,7 @@ const NursingCarePlanPage: React.FC = () => {
     setSaveMessage(null);
     try {
       await createCarePlan({
-        patient_id: form.patientId,
+        patientId: form.patientId,
         diagnosis: form.diagnosis.trim(),
         priority: form.priority,
         goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
@@ -170,6 +171,7 @@ const NursingCarePlanPage: React.FC = () => {
       });
       setSaveMessage(t('docNursingCarePlan.savedOk'));
       setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
+      notifySuccess('Care plan saved.');
     } catch (err) {
       console.error('Failed to create care plan:', err);
       setSaveMessage(t('docNursingCarePlan.errSaveFailed'));
@@ -294,7 +296,7 @@ const NursingCarePlanPage: React.FC = () => {
     { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplMobilityGoal')], interventions: [t('docNursingCarePlan.tplMobilityIntervention1'), t('docNursingCarePlan.tplMobilityIntervention2')] },
   ];
 
-  const useTemplate = (template: CarePlanTemplate) => {
+  const applyTemplate = (template: CarePlanTemplate) => {
     setForm(current => ({
       ...current,
       diagnosis: template.diagnosis,
@@ -464,6 +466,7 @@ const NursingCarePlanPage: React.FC = () => {
         <div className="p-4">
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
+            <form onSubmit={(event) => { event.preventDefault(); void createPlan(); }} noValidate>
             <div className="space-y-4">
               <PatientSelect
                 id="ncp-patient"
@@ -508,7 +511,7 @@ const NursingCarePlanPage: React.FC = () => {
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
                 <div className="flex gap-2">
                   {(['high', 'medium', 'low'] as const).map(p => (
-                    <button
+                    <button type="button"
                       key={p}
                       onClick={() => setForm(f => ({ ...f, priority: p }))}
                       aria-pressed={form.priority === p}
@@ -521,14 +524,14 @@ const NursingCarePlanPage: React.FC = () => {
               {saveMessage && (
                 <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
-              <button
-                onClick={createPlan}
-                disabled={saving}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={saving || undefined}
+                className="aria-disabled:cursor-wait w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" /> {t('docNursingCarePlan.createCarePlan')}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}
@@ -545,7 +548,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
                   <p className="text-xs text-content-muted">{t('docNursingCarePlan.goalsCount', { count: tpl.goals.length })} · {t('docNursingCarePlan.interventionsCount', { count: tpl.interventions.length })}</p>
                 </div>
-                <button type="button" onClick={() => useTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
+                <button type="button" onClick={() => applyTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>
             ))}
           </div>

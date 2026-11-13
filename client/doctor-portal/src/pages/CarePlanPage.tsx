@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCarePlan, getApiClient, getPatients, useTranslation } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { createCarePlan, getApiClient, useTranslation, ChoiceChips, formatDateOnly, keepEnterInField, useDraftFields } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
   ClipboardList,
   Target,
@@ -12,13 +13,14 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
-  Search,
   User,
   Activity,
   RefreshCw,
   ArrowRight,
   Stethoscope
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
+import { PatientName } from '../components/PatientName';
 
 type GoalStatus = 'not-started' | 'in-progress' | 'met' | 'partially-met' | 'not-met' | 'revised';
 type InterventionStatus = 'active' | 'completed' | 'discontinued';
@@ -71,12 +73,10 @@ function formatCarePlanDate(value?: string): string {
 
 export default function CarePlanPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -85,6 +85,7 @@ export default function CarePlanPage() {
   // Care plan list
   const [carePlans, setCarePlans] = useState<CarePlanSummary[]>([]);
   const [plansLoading, setPlansLoading] = useState(false);
+  const [plansError, setPlansError] = useState('');
 
   // Care plan data
   const [diagnoses, setDiagnoses] = useState<NursingDiagnosis[]>([]);
@@ -118,6 +119,11 @@ export default function CarePlanPage() {
     responsibleParty: '',
     status: 'active'
   });
+  // The plan being built is kept for this tab until it is saved.
+  const planDraft = useDraftFields('care-plan', selectedPatient?.patient_id, t('docCarePlan.formLabel'), {
+    diagnoses: [diagnoses, setDiagnoses], goals: [goals, setGoals], interventions: [interventions, setInterventions],
+    newDiagnosis: [newDiagnosis, setNewDiagnosis], newGoal: [newGoal, setNewGoal], newIntervention: [newIntervention, setNewIntervention],
+  });
 
   // Common nursing diagnoses (NANDA-I)
   const commonDiagnoses = [
@@ -135,24 +141,16 @@ export default function CarePlanPage() {
     'Every shift', 'Q2H', 'Q4H', 'BID', 'TID', 'QID', 'Daily', 'Weekly', 'PRN', 'Continuous'
   ];
 
+  // A `?patientId=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patientId');
-        if (patientId) {
-          const patient = patientData?.find((p: PatientProfile) => p.patient_id === patientId);
-          if (patient) {
-            setSelectedPatient(patient);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patientId');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
 
   // Fetch care plans list
@@ -163,8 +161,8 @@ export default function CarePlanPage() {
       try {
         const data = await getApiClient().get<CarePlanSummary[]>('/api/emergency/care-plan/list');
         setCarePlans(data);
-      } catch (err) {
-        console.error('Failed to fetch care plans:', err);
+      } catch {
+        setPlansError(t('docCarePlan.errorLoadPlans'));
       } finally {
         setPlansLoading(false);
       }
@@ -262,12 +260,8 @@ export default function CarePlanPage() {
     setInterventions(prev => prev.filter(i => i.id !== id));
   };
 
-  const filteredPatients = patients.filter(p => 
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docCarePlan.errorSelectPatient'));
       return;
@@ -282,20 +276,19 @@ export default function CarePlanPage() {
     setError('');
 
     try {
+      // The server mints the plan's id and takes its author and time from the
+      // session; the page sends only what the nurse entered.
       const carePlanData = {
-        care_plan_id: `CP-${Date.now()}`,
-        patient_id: selectedPatient.patient_id,
+        patientId: selectedPatient.patient_id,
         diagnoses,
         goals,
         interventions,
-        created_by: user?.userId,
-        created_at: Math.floor(Date.now() / 1000),
-        updated_at: Math.floor(Date.now() / 1000)
       };
 
       await createCarePlan(carePlanData);
+      planDraft.markSaved();
       setSuccess(t('docCarePlan.successSaved'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docCarePlan.errorSaveFailed'));
       console.error('Failed to save care plan', err);
@@ -322,7 +315,9 @@ export default function CarePlanPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && (
+                  <p className="text-sm opacity-75">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>
+                )}
               </div>
             )}
           </div>
@@ -342,6 +337,10 @@ export default function CarePlanPage() {
           </div>
         )}
 
+        {plansError && (
+          <p role="alert" className="mb-6 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{plansError}</p>
+        )}
+
         {/* Care Plans List */}
         {carePlans.length > 0 && (
           <div className="bg-surface rounded-lg shadow mb-6 p-4">
@@ -355,7 +354,7 @@ export default function CarePlanPage() {
                 <thead className="bg-surface-sunken">
                   <tr>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colId')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colPatientId')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colPatient')}</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colStatus')}</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colCreated')}</th>
                   </tr>
@@ -364,7 +363,7 @@ export default function CarePlanPage() {
                   {carePlans.map((plan) => (
                     <tr key={plan.id} className="hover:bg-surface-sunken">
                       <td className="px-4 py-2 font-mono text-xs">{plan.id}</td>
-                      <td className="px-4 py-2">{plan.patient_id || '-'}</td>
+                      <td className="px-4 py-2">{plan.patient_id ? <PatientName id={plan.patient_id} /> : '-'}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                           plan.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
@@ -386,37 +385,17 @@ export default function CarePlanPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Patient Selection Sidebar */}
           <div className="lg:col-span-1">
-            <div className="bg-surface rounded-lg shadow p-4">
+            <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-bold text-content mb-4 flex items-center">
                 <User className="h-5 w-5 mr-2 text-brand" />
                 {t('docCarePlan.selectPatientTitle')}
               </h2>
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={t('docCarePlan.searchPatientsPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {filteredPatients.map(patient => (
-                  <button
-                    key={patient.patient_id}
-                    onClick={() => setSelectedPatient(patient)}
-                    className={`w-full text-left p-3 rounded-lg transition-colors ${
-                      selectedPatient?.patient_id === patient.patient_id
-                        ? 'bg-surface-sunken border-2 border-teal-500'
-                        : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                    }`}
-                  >
-                    <p className="font-medium text-content">{patient.full_name}</p>
-                    <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                  </button>
-                ))}
-              </div>
+              <PatientSelect
+                id="careplan-patient-search"
+                label={t('docCarePlan.searchPatientsPh')}
+                value={selectedPatient?.patient_id ?? ''}
+                onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+              />
             </div>
 
             {/* Care Plan Summary */}
@@ -457,6 +436,7 @@ export default function CarePlanPage() {
           {/* Main Content */}
           <div className="lg:col-span-3">
             {selectedPatient ? (
+              <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} onKeyDown={keepEnterInField} noValidate>
               <div className="bg-surface rounded-lg shadow">
                 {/* Tabs */}
                 <div className="border-b">
@@ -467,7 +447,7 @@ export default function CarePlanPage() {
                       { id: 'interventions', label: t('docCarePlan.tabInterventions'), icon: Activity },
                       { id: 'summary', label: t('docCarePlan.tabSummary'), icon: ClipboardList }
                     ].map(tab => (
-                      <button
+                      <button type="button"
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as typeof activeTab)}
                         className={`flex-1 flex items-center justify-center space-x-2 py-4 px-4 font-medium transition-colors ${
@@ -490,7 +470,7 @@ export default function CarePlanPage() {
                     <div>
                       <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-bold text-content">{t('docCarePlan.diagnosesTitle')}</h2>
-                        <button
+                        <button type="button"
                           onClick={() => setShowAddDiagnosis(true)}
                           className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800"
                         >
@@ -562,13 +542,13 @@ export default function CarePlanPage() {
                             </fieldset>
                           </div>
                           <div className="flex justify-end space-x-3 mt-4">
-                            <button
+                            <button type="button"
                               onClick={() => setShowAddDiagnosis(false)}
                               className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                             >
                               {t('docCarePlan.cancelBtn')}
                             </button>
-                            <button
+                            <button type="button"
                               onClick={addDiagnosis}
                               className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
@@ -601,7 +581,7 @@ export default function CarePlanPage() {
                                 </p>
                                 <p className="text-xs text-content-muted mt-2">{t('docCarePlan.identifiedLabel', { date: dx.dateIdentified })}</p>
                               </div>
-                              <button
+                              <button type="button"
                                 onClick={() => removeDiagnosis(dx.id)}
                                 className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                               >
@@ -625,7 +605,7 @@ export default function CarePlanPage() {
                     <div>
                       <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-bold text-content">{t('docCarePlan.goalsTitle')}</h2>
-                        <button
+                        <button type="button"
                           onClick={() => setShowAddGoal(true)}
                           disabled={diagnoses.length === 0}
                           className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -694,13 +674,13 @@ export default function CarePlanPage() {
                             </div>
                           </div>
                           <div className="flex justify-end space-x-3 mt-4">
-                            <button
+                            <button type="button"
                               onClick={() => setShowAddGoal(false)}
                               className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                             >
                               {t('docCarePlan.cancelBtn')}
                             </button>
-                            <button
+                            <button type="button"
                               onClick={addGoal}
                               className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
@@ -731,19 +711,20 @@ export default function CarePlanPage() {
                                   </p>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                  <select
+                                  <ChoiceChips<GoalStatus>
+                                    label={t('docCarePlan.colStatus')}
                                     value={goal.status}
-                                    onChange={(e) => updateGoalStatus(goal.id, e.target.value as GoalStatus)}
-                                    className={`px-3 py-1 rounded text-sm ${getStatusColor(goal.status)}`}
-                                  >
-                                    <option value="not-started">{t('docCarePlan.goalStatus_not-started')}</option>
-                                    <option value="in-progress">{t('docCarePlan.goalStatus_in-progress')}</option>
-                                    <option value="met">{t('docCarePlan.goalStatus_met')}</option>
-                                    <option value="partially-met">{t('docCarePlan.goalStatus_partially-met')}</option>
-                                    <option value="not-met">{t('docCarePlan.goalStatus_not-met')}</option>
-                                    <option value="revised">{t('docCarePlan.goalStatus_revised')}</option>
-                                  </select>
-                                  <button
+                                    onChange={(next) => next && updateGoalStatus(goal.id, next)}
+                                    options={[
+                                      { value: 'not-started', label: t('docCarePlan.goalStatus_not-started') },
+                                      { value: 'in-progress', label: t('docCarePlan.goalStatus_in-progress') },
+                                      { value: 'met', label: t('docCarePlan.goalStatus_met') },
+                                      { value: 'partially-met', label: t('docCarePlan.goalStatus_partially-met') },
+                                      { value: 'not-met', label: t('docCarePlan.goalStatus_not-met') },
+                                      { value: 'revised', label: t('docCarePlan.goalStatus_revised') },
+                                    ]}
+                                  />
+                                  <button type="button"
                                     onClick={() => removeGoal(goal.id)}
                                     className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                                   >
@@ -769,7 +750,7 @@ export default function CarePlanPage() {
                     <div>
                       <div className="flex justify-between items-center mb-6">
                         <h2 className="text-xl font-bold text-content">{t('docCarePlan.interventionsTitle')}</h2>
-                        <button
+                        <button type="button"
                           onClick={() => setShowAddIntervention(true)}
                           disabled={goals.length === 0}
                           className="flex items-center space-x-2 bg-teal-700 text-white px-4 py-2 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
@@ -850,13 +831,13 @@ export default function CarePlanPage() {
                             </div>
                           </div>
                           <div className="flex justify-end space-x-3 mt-4">
-                            <button
+                            <button type="button"
                               onClick={() => setShowAddIntervention(false)}
                               className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                             >
                               {t('docCarePlan.cancelBtn')}
                             </button>
-                            <button
+                            <button type="button"
                               onClick={addIntervention}
                               className="px-4 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800"
                             >
@@ -889,7 +870,7 @@ export default function CarePlanPage() {
                                 }`}>
                                   {t(`docCarePlan.interventionStatus_${int.status}`)}
                                 </span>
-                                <button
+                                <button type="button"
                                   onClick={() => removeIntervention(int.id)}
                                   className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                                 >
@@ -961,10 +942,9 @@ export default function CarePlanPage() {
 
                 {/* Save Button */}
                 <div className="p-4 border-t bg-surface-sunken flex justify-end">
-                  <button
-                    onClick={handleSave}
-                    disabled={isSubmitting || diagnoses.length === 0}
-                    className="bg-teal-700 text-white px-6 py-3 rounded-lg hover:bg-teal-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                  <button type="submit"
+                    aria-disabled={isSubmitting || undefined}
+                    className="bg-teal-700 text-white px-6 py-3 rounded-lg hover:bg-teal-800 aria-disabled:cursor-wait flex items-center"
                   >
                     {isSubmitting ? (
                       <>
@@ -980,6 +960,7 @@ export default function CarePlanPage() {
                   </button>
                 </div>
               </div>
+              </form>
             ) : (
               <div className="bg-surface rounded-lg shadow p-12 text-center">
                 <ClipboardList className="h-16 w-16 mx-auto mb-4 text-content-muted" />

@@ -16,6 +16,7 @@ import {
   useTranslation,
   formatDateOnly,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import type {
   DeletionRegisterEntry,
@@ -28,6 +29,7 @@ import type {
 import { Archive, Loader2 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
+import { PatientName } from '../components/PatientName';
 
 /**
  * Data-retention administration (POPIA).
@@ -216,7 +218,9 @@ function RetentionPage() {
     setNotice('');
     setBusy(key);
     try {
-      setNotice(await action());
+      const done = await action();
+      setNotice(done);
+      notifySuccess(done);
       await loadReport();
       await loadLists();
     } catch (err) {
@@ -228,6 +232,7 @@ function RetentionPage() {
 
   const submitHold = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (busy === 'hold') return;
     // A hold scoped to neither a patient nor an entity type covers nothing
     // while looking like protection. The server refuses it; saying so here
     // saves a round trip and names which field is missing.
@@ -332,8 +337,8 @@ function RetentionPage() {
           <div>
             <button
               type="submit"
-              disabled={busy === 'hold'}
-              className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+              aria-disabled={busy === 'hold' || undefined}
+              className="px-4 py-2 bg-brand text-brand-fg rounded-lg min-h-[44px]"
             >
               {busy === 'hold' ? t('docRetention.placing') : t('docRetention.placeHold')}
             </button>
@@ -414,12 +419,12 @@ function RetentionPage() {
                     </p>
                   </div>
                   <div className="flex gap-2 flex-wrap justify-end">
-                    {approval.status === 'pending' && approval.requested_by === user?.walletAddress && (
+                    {approval.status === 'pending' && approval.requested_by === user?.userId && (
                       <span className="text-xs text-content-muted whitespace-nowrap">
                         {t('docRetention.needsSecondAdmin')}
                       </span>
                     )}
-                    {approval.status === 'pending' && approval.requested_by !== user?.walletAddress && (
+                    {approval.status === 'pending' && approval.requested_by !== user?.userId && (
                       <>
                         <button
                           type="button"
@@ -499,7 +504,7 @@ function RetentionPage() {
               >
                 <div>
                   <p className="text-sm text-content">
-                    {restriction.patient_id} · {restriction.entity_type}
+                    <PatientName id={restriction.patient_id} inherit /> · {restriction.entity_type}
                   </p>
                   <p className="text-xs text-content-muted">
                     {restriction.reason} · {formatDateOnly(restriction.restricted_at)}
@@ -547,7 +552,7 @@ function RetentionPage() {
               <tbody>
                 {register.map((entry) => (
                   <tr key={entry.id} className="border-t border-border">
-                    <td className="py-2 pr-4 text-content">{entry.patient_id}</td>
+                    <td className="py-2 pr-4 text-content"><PatientName id={entry.patient_id} inherit /></td>
                     <td className="py-2 pr-4 text-content-secondary">{entry.entity_type}</td>
                     <td className="py-2 pr-4 text-content-secondary">{entry.action}</td>
                     <td className="py-2 pr-4 text-content-muted">{entry.basis}</td>

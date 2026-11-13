@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signInAsFixturePatient, settle } from './support';
+import { confirmWithPassword, signInAsFixturePatient, settle } from './support';
 
 /**
  * A patient can withdraw a consent they signed.
@@ -15,9 +15,9 @@ import { signInAsFixturePatient, settle } from './support';
  * consent is the signed legal basis, and revoking either leaves the other
  * standing.
  *
- * Runs as the seeded fixture patient rather than a demo wallet: the demo path
- * mints a keypair but no user record, so every consent endpoint answers 401 for
- * it and this test would have proved nothing about authorisation.
+ * Runs as the seeded fixture patient, a registered account bound to a health
+ * record, so the consent endpoints see a real caller and the test proves
+ * something about authorisation.
  */
 test('a patient signs a consent and can withdraw it', async ({ page }) => {
   test.setTimeout(180000);
@@ -31,6 +31,8 @@ test('a patient signs a consent and can withdraw it', async ({ page }) => {
   const signButton = page.getByRole('button', { name: /^sign$/i }).first();
   if (await signButton.count()) {
     await signButton.click();
+    // ADR-0008 Class C: consent changes are confirmed with the patient's password.
+    await confirmWithPassword(page);
     await page.waitForTimeout(2500);
   }
 
@@ -45,6 +47,7 @@ test('a patient signs a consent and can withdraw it', async ({ page }) => {
   // read by a screen reader in context. Left blank here — a patient does not
   // owe a reason.
   await withdraw.click();
+  await confirmWithPassword(page);
 
   // `GET /api/consent/patient/{id}` filters withdrawn consents out server-side,
   // so a real withdrawal REMOVES the row. Asserting the count drops is what

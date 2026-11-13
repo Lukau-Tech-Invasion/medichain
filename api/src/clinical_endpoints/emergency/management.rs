@@ -40,76 +40,137 @@ pub async fn get_mar(
 /// e-prescription carries free-text directions, not a dosing schedule, and
 /// fabricating administration times on a medication record would be worse than
 /// showing none. Administering without one is recorded as PRN.
+/// Prescription statuses whose medication a nurse may be giving.
+///
+/// Everything from signing to dispensing. This used to be `Transmitted`,
+/// `Signed` and `Filled` -- and `Filled` is not a status this API has, so the
+/// moment a pharmacy received, started filling or dispensed a prescription it
+/// vanished from the MAR: the point at which the drug is on the ward is the
+/// point at which the nurse stopped seeing it.
+const MAR_ACTIVE_STATUSES: [&str; 6] = [
+    "Signed",
+    "Transmitted",
+    "Received",
+    "InProgress",
+    "PartialFill",
+    "Dispensed",
+];
+
+/// Most rows one MAR read returns; a ward-wide list past this is logged.
+const MAR_MAX_ROWS: usize = 1000;
+
+/// The day a prescription was written, as `YYYY-MM-DD`.
+///
+/// Prescriptions store `created_at` as Unix seconds; this read it as text, so
+/// every MAR row's start date was blank. An older record holding a string is
+/// passed through.
+fn prescribed_on(prescription: &serde_json::Value) -> String {
+    match prescription.get("created_at") {
+        Some(serde_json::Value::Number(seconds)) => seconds
+            .as_i64()
+            .and_then(|seconds| chrono::DateTime::<chrono::Utc>::from_timestamp(seconds, 0))
+            .map(|at| at.format("%Y-%m-%d").to_string())
+            .unwrap_or_default(),
+        Some(serde_json::Value::String(text)) => text.clone(),
+        _ => String::new(),
+    }
+}
+
+/// One MAR row for an active prescription.
+fn mar_row(
+    record: &crate::repositories::JsonRecordEntity,
+    patient_id: &str,
+    name: &str,
+) -> serde_json::Value {
+    let v = &record.data;
+    let med = v
+        .get("medication")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let text = |object: &serde_json::Value, key: &str| {
+        object
+            .get(key)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    serde_json::json!({
+        "med_id": record.id,
+        "patient_id": patient_id,
+        "patient_name": name,
+        "medication_name": text(&med, "name"),
+        "dose": text(&med, "strength"),
+        // A prescription records a form, not a route of administration.
+        // This mapped "injection" to IV and everything else to PO -- so
+        // a cream, an inhaler and an IM injection all arrived at the
+        // bedside with a route nobody prescribed, and the five-rights
+        // check showed it pre-ticked. The nurse records the route used.
+        "route": serde_json::Value::Null,
+        "form": text(&med, "form"),
+        "frequency": text(&med, "directions"),
+        "scheduled_times": [],
+        "start_date": prescribed_on(v),
+        "indication": text(v, "patient_instructions"),
+        "prescriber": text(v, "prescriber_name"),
+        "status": text(v, "status"),
+    })
+}
+
 #[get("/api/emergency/mar/list")]
 pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
         return resp;
     }
 
-    let patients = data
-        .repositories
-        .patients
-        .list(Pagination::new(0, 50))
-        .await
-        .map(|r| r.items)
-        .unwrap_or_default();
-
-    // Read once. It was read inside the loop below -- every prescription in
-    // the deployment, once per patient on the page.
-    let prescriptions = data
-        .repositories
-        .e_prescriptions_v2
-        .list_all()
-        .await
-        .unwrap_or_default();
-
-    let mut rows: Vec<serde_json::Value> = Vec::new();
-    for entity in &patients {
-        let name = patient_entity_to_profile(entity, &data.encryption_keyring)
-            .map(|p| p.full_name)
-            .unwrap_or_else(|| entity.id.clone());
-
-        for record in &prescriptions {
-            let v = &record.data;
-            if v.get("patient_id").and_then(|x| x.as_str()) != Some(entity.id.as_str()) {
-                continue;
-            }
-            // Only medication a pharmacy would actually be dispensing.
-            let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
-            if !matches!(status, "Transmitted" | "Signed" | "Filled") {
-                continue;
-            }
-            let med = v
-                .get("medication")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            let text = |object: &serde_json::Value, key: &str| {
-                object
-                    .get(key)
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            };
-            rows.push(serde_json::json!({
-                "med_id": record.id,
-                "patient_id": entity.id,
-                "patient_name": name,
-                "medication_name": text(&med, "name"),
-                "dose": text(&med, "strength"),
-                // A prescription records a form, not a route of administration.
-                // This mapped "injection" to IV and everything else to PO -- so
-                // a cream, an inhaler and an IM injection all arrived at the
-                // bedside with a route nobody prescribed, and the five-rights
-                // check showed it pre-ticked. The nurse records the route used.
-                "route": serde_json::Value::Null,
-                "form": text(&med, "form"),
-                "frequency": text(&med, "directions"),
-                "scheduled_times": [],
-                "start_date": text(v, "created_at"),
-                "indication": text(v, "patient_instructions"),
-                "prescriber": text(v, "prescriber_name"),
-            }));
+    // Driven by the prescriptions, not by a page of the patient roster: the
+    // roster was the first 50 patients, so on a ward with more than 50 every
+    // later patient's medication was simply absent from the MAR. A failed read
+    // is an error, never an empty list -- an empty MAR reads as "nothing due".
+    let prescriptions = match data.repositories.e_prescriptions_v2.list_all().await {
+        Ok(records) => records,
+        Err(error) => {
+            log::error!("MAR prescription read failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "The medication administration record could not be loaded".to_string(),
+                code: "MAR_READ_FAILED".to_string(),
+            });
         }
+    };
+
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for record in &prescriptions {
+        let status = record
+            .data
+            .get("status")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let Some(patient_id) = record.data.get("patient_id").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        if !MAR_ACTIVE_STATUSES.contains(&status) {
+            continue;
+        }
+        if rows.len() >= MAR_MAX_ROWS {
+            log::warn!("MAR list truncated at {MAR_MAX_ROWS} active prescriptions");
+            break;
+        }
+        if !names.contains_key(patient_id) {
+            let name = match data.repositories.patients.get_by_id(patient_id).await {
+                Ok(entity) => patient_entity_to_profile(&entity, &data.encryption_keyring)
+                    .map(|p| p.full_name)
+                    .unwrap_or_else(|| patient_id.to_string()),
+                // A prescription for a record that no longer resolves is not
+                // medication anyone can give.
+                Err(_) => continue,
+            };
+            names.insert(patient_id.to_string(), name);
+        }
+        let name = names
+            .get(patient_id)
+            .map(String::as_str)
+            .unwrap_or(patient_id);
+        rows.push(mar_row(record, patient_id, name));
     }
 
     HttpResponse::Ok().json(rows)
@@ -131,12 +192,24 @@ pub async fn list_mar_administrations(
         return resp;
     }
     let patient_filter = query.get("patient_id").map(String::as_str);
-    let records = match data
-        .repositories
-        .medication_records
-        .list_all(Pagination::new(0, 100))
-        .await
-    {
+    // One patient's history comes from that patient's records. Filtering the
+    // latest 100 records across the deployment dropped every dose older than
+    // the hundredth record anyone wrote.
+    let read = match patient_filter {
+        Some(patient_id) => {
+            data.repositories
+                .medication_records
+                .get_by_patient(patient_id, None, Pagination::new(0, 100))
+                .await
+        }
+        None => {
+            data.repositories
+                .medication_records
+                .list_all(Pagination::new(0, 100))
+                .await
+        }
+    };
+    let records = match read {
         Ok(result) => result.items,
         Err(error) => {
             log::error!("MAR administration history read failed: {error}");
@@ -192,10 +265,11 @@ pub async fn administer_medication(
     http_req: HttpRequest,
     req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.id.clone();
     let body = req.into_inner();
     let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
         Some(p) if !p.trim().is_empty() => p.to_string(),
@@ -206,7 +280,11 @@ pub async fn administer_medication(
             })
         }
     };
-    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+    // A dose goes on the chart of a patient the clinician is treating: by the
+    // patient's grant, a care relationship, a ward assignment, or -- in a code
+    // with no prior link -- a break-glass grant, which tells the patient.
+    if let Err(resp) = crate::care_access::require_treating_link(&data, &caller, &patient_id).await
+    {
         return resp;
     }
 
@@ -329,12 +407,14 @@ pub async fn create_io(
         crate::clinical_endpoints::FluidEvent {
             patient_id: &entry.patient_id,
             shift: &shift,
-            recorded_by: &caller.wallet_address,
+            recorded_by: &caller.id,
             category: &entry.category,
             direction: Some(&entry.direction),
             label: Some(&entry.category),
+            source: Some(entry.source.trim()).filter(|s| !s.is_empty()),
             notes: Some(entry.notes.as_str()).filter(|n| !n.is_empty()),
             amount_ml,
+            recorded_at: crate::support::clinical_time(&http_req),
         },
     )
     .await
@@ -442,8 +522,6 @@ pub struct CreateCarePlanRequest {
     pub goals: Vec<CarePlanItem>,
     #[serde(default)]
     pub interventions: Vec<CarePlanItem>,
-    #[serde(rename = "carePlanId", alias = "care_plan_id", default)]
-    pub care_plan_id: Option<String>,
 }
 
 impl CreateCarePlanRequest {
@@ -517,7 +595,7 @@ pub async fn create_care_plan(
         start_date: now.date_naive(),
         target_end_date: None,
         actual_end_date: None,
-        created_by: caller.wallet_address.clone(),
+        created_by: caller.id.clone(),
         updated_by: None,
         created_at: now,
         updated_at: now,
@@ -587,6 +665,10 @@ pub async fn list_care_plans(data: web::Data<AppState>, http_req: HttpRequest) -
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateWoundRequest {
     pub patient_id: String,
+    #[serde(default)]
+    pub previous_assessment_id: Option<String>,
+    #[serde(default)]
+    pub photos: Vec<String>,
     pub wound_type: String,
     pub location: String,
     #[serde(default)]
@@ -617,6 +699,12 @@ pub async fn create_wound(
     };
 
     let assessment = req.into_inner();
+    if let Err(response) =
+        super::wound_photos::validate_photos(&data, &assessment.patient_id, &assessment.photos)
+            .await
+    {
+        return response;
+    }
     if assessment.patient_id.trim().is_empty() || assessment.location.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "patient_id and location are required".to_string(),
@@ -644,15 +732,19 @@ pub async fn create_wound(
         });
     }
 
-    let now = Utc::now();
+    let now = crate::support::clinical_time(&http_req);
     let id = format!("WND-{}", uuid::Uuid::new_v4().simple());
+    let wound_id = match linked_wound_id(&data, &assessment, &id).await {
+        Ok(wound_id) => wound_id,
+        Err(response) => return response,
+    };
     let cm = |v: Option<f64>| {
         v.and_then(|n| rust_decimal::Decimal::from_f64_retain(n).map(|d| d.round_dp(1)))
     };
     let entity = WoundAssessmentEntity {
         id: id.clone(),
         patient_id: assessment.patient_id.clone(),
-        wound_id: id.clone(),
+        wound_id,
         wound_location: assessment.location.clone(),
         wound_type: assessment.wound_type.clone(),
         length_cm: cm(assessment.length_cm),
@@ -670,8 +762,8 @@ pub async fn create_wound(
         treatment_applied: None,
         dressing_type: None,
         notes: assessment.notes.clone(),
-        photo_taken: Some(false),
-        assessed_by: caller.wallet_address.clone(),
+        photo_taken: Some(!assessment.photos.is_empty()),
+        assessed_by: caller.id.clone(),
         assessed_at: now,
         created_at: now,
         updated_at: now,
@@ -691,10 +783,117 @@ pub async fn create_wound(
     }
 }
 
+/// Resolve a follow-up to a stored wound without accepting a client-created series ID.
+/// Rejects cross-patient or changed-location links and returns the server's root ID.
+async fn linked_wound_id(
+    data: &AppState,
+    request: &CreateWoundRequest,
+    new_id: &str,
+) -> Result<String, HttpResponse> {
+    let Some(previous_id) = request.previous_assessment_id.as_deref() else {
+        return Ok(new_id.to_string());
+    };
+    let previous = data.repositories.wound_assessments.get_by_id(previous_id).await
+        .map_err(|_| HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "The previous wound assessment could not be linked", "code": "INVALID_WOUND_LINK"
+        })))?;
+    if previous.patient_id != request.patient_id
+        || previous.wound_location != request.location.trim()
+        || previous.wound_type != request.wound_type
+    {
+        return Err(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "A follow-up must keep the same patient, wound location and type", "code": "INVALID_WOUND_LINK"
+        })));
+    }
+    Ok(previous.wound_id)
+}
+
 /// Get wound assessment
 ///
 /// HZ-009 audit: took an unused `_http_req` with no authentication at all.
 /// Now matches `create_wound`'s authenticated-caller bar.
+#[cfg(test)]
+mod wound_followup_tests {
+    use super::*;
+
+    /// Follow-ups retain a server-owned series and reject foreign or forged attachments.
+    #[actix_web::test]
+    async fn wound_series_keeps_history_and_rejects_foreign_links() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-WOUND", Role::Nurse);
+        for patient in ["PAT-WOUND-A", "PAT-WOUND-B"] {
+            crate::test_fixtures::seed_patient(&state, patient).await;
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(create_wound)
+                .service(get_wound),
+        )
+        .await;
+        let body = serde_json::json!({ "patient_id": "PAT-WOUND-A", "wound_type": "traumatic", "location": "Fictional forearm", "length_cm": 2, "width_cm": 1 });
+        let request = test::TestRequest::post()
+            .uri("/api/emergency/wound")
+            .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+            .set_json(&body)
+            .to_request();
+        let root: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+        let root_id = root["id"].as_str().unwrap();
+        let mut followup = body.clone();
+        followup["previous_assessment_id"] = root_id.into();
+        followup["length_cm"] = 1.into();
+        let request = test::TestRequest::post()
+            .uri("/api/emergency/wound")
+            .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+            .set_json(&followup)
+            .to_request();
+        let second: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+        let record = state
+            .repositories
+            .wound_assessments
+            .get_by_id(second["id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(record.wound_id, root_id);
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/emergency/wound/{root_id}"))
+            .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+            .to_request();
+        let history: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+        assert_eq!(history["history_total"], 2);
+        assert_eq!(history["assessment_history"].as_array().unwrap().len(), 2);
+        for (field, value) in [
+            ("patient_id", serde_json::json!("PAT-WOUND-B")),
+            ("location", serde_json::json!("Different wound")),
+            ("previous_assessment_id", serde_json::json!("missing")),
+            ("photos", serde_json::json!(["forged-photo-hash"])),
+        ] {
+            let mut invalid = followup.clone();
+            invalid[field] = value;
+            let request = test::TestRequest::post()
+                .uri("/api/emergency/wound")
+                .insert_header(crate::test_fixtures::as_user("NURSE-WOUND"))
+                .set_json(invalid)
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, request).await.status(),
+                actix_web::http::StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            state
+                .repositories
+                .wound_assessments
+                .get_by_wound_id(root_id, Pagination::new(0, 10))
+                .await
+                .unwrap()
+                .total,
+            2
+        );
+    }
+}
+
 #[get("/api/emergency/wound/{id}")]
 pub async fn get_wound(
     data: web::Data<AppState>,
@@ -706,7 +905,17 @@ pub async fn get_wound(
     }
     let id = path.into_inner();
     match data.repositories.wound_assessments.get_by_id(&id).await {
-        Ok(record) => HttpResponse::Ok().json(record),
+        Ok(record) => {
+            match data.repositories.wound_assessments.get_by_wound_id(&record.wound_id, Pagination::new(0, 100)).await {
+                Ok(history) => {
+                    let mut response = json_value(&record);
+                    response["assessment_history"] = json_value(&history.items);
+                    response["history_total"] = json_value(&history.total);
+                    HttpResponse::Ok().json(response)
+                }
+                Err(_) => HttpResponse::ServiceUnavailable().json(serde_json::json!({ "error": "Wound history could not be loaded", "code": "REPO_ERROR" })),
+            }
+        }
         Err(_) => HttpResponse::NotFound().finish(),
     }
 }
@@ -735,7 +944,13 @@ pub async fn list_wound_assessments(
 /// One cannulation site as the IV form records it.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct IvSiteInput {
-    pub id: String,
+    /// The server's id for a site already documented; absent for a new one.
+    /// The page used to mint `IV-${Date.now()}` and the server keyed the row
+    /// on it, so a browser chose new record ids and could name an existing
+    /// row to overwrite. A new site's id is the server's now, and an id the
+    /// server never issued for this patient is refused.
+    #[serde(default)]
+    pub id: Option<String>,
     #[serde(default)]
     pub location: String,
     #[serde(rename = "locationDetail", default)]
@@ -814,6 +1029,218 @@ pub struct CreateIvSiteRequest {
     pub sites: Vec<IvSiteInput>,
 }
 
+/// Persist removal attribution from the authenticated save, retaining it on re-save.
+fn persisted_iv_site_data(
+    site: &IvSiteInput,
+    previous_removal: Option<&serde_json::Value>,
+    caller_id: &str,
+    now: chrono::DateTime<Utc>,
+) -> serde_json::Value {
+    let mut detail = serde_json::to_value(site).unwrap_or_default();
+    if !site.is_active {
+        if let Some(object) = detail.as_object_mut() {
+            // Old discontinued rows with missing metadata remain unknown.
+            let removed_at = previous_removal
+                .map(|value| value.get("discontinuedAt").cloned().unwrap_or_default())
+                .unwrap_or_else(|| serde_json::json!(now.to_rfc3339()));
+            let removed_by = previous_removal
+                .map(|value| value.get("discontinuedBy").cloned().unwrap_or_default())
+                .unwrap_or_else(|| serde_json::json!(caller_id));
+            object.insert("discontinuedAt".to_string(), removed_at);
+            object.insert("discontinuedBy".to_string(), removed_by);
+        }
+    }
+    detail
+}
+
+#[cfg(test)]
+mod iv_removal_tests {
+    use super::*;
+
+    /// Saving an unassessed site must not manufacture a normal grade or care action.
+    #[actix_web::test]
+    async fn unassessed_iv_site_remains_unknown_while_explicit_normal_is_zero() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-QA", Role::Nurse);
+        crate::test_fixtures::seed_patient(&state, "PAT-IV-QA").await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(create_iv_site)).await;
+        for (conditions, expected) in [
+            (Vec::<&str>::new(), None),
+            (vec!["clean-dry-intact"], Some(0)),
+        ] {
+            let request = test::TestRequest::post()
+                .uri("/api/emergency/iv-site")
+                .insert_header(crate::test_fixtures::as_user("NURSE-QA"))
+                .set_json(serde_json::json!({ "patient_id": "PAT-IV-QA", "sites": [{
+                    "location": "left-forearm", "catheterType": "peripheral",
+                    "gauge": "22G", "insertedAt": "2026-10-10T10:00:00Z", "isActive": true,
+                    "assessments": [{ "conditions": conditions, "notes": "Fictional QA only" }]
+                }] }))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert!(response.status().is_success());
+            let body: serde_json::Value = test::read_body_json(response).await;
+            let row_id = body["sites"][0]["id"].as_str().unwrap().to_string();
+            let record = state
+                .repositories
+                .iv_assessments
+                .get_by_id(&row_id)
+                .await
+                .unwrap();
+            assert_eq!(record.phlebitis_grade, expected);
+            if expected.is_none() {
+                assert!(record.actions_taken.is_none());
+                assert!(record.dressing_intact.is_none());
+                assert!(record.patency.is_none());
+                assert!(record.infiltration_grade.is_none());
+            }
+        }
+    }
+
+    /// A new site's id is the server's; a documented site keeps it on re-save;
+    /// an id the server never issued for this patient is refused, and nothing
+    /// in the refused list is written.
+    #[actix_web::test]
+    async fn the_server_issues_site_ids_and_refuses_ones_it_did_not() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-ID", Role::Nurse);
+        crate::test_fixtures::seed_patient(&state, "PAT-IV-ID").await;
+        crate::test_fixtures::seed_patient(&state, "PAT-IV-OTHER").await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(create_iv_site)).await;
+        let save = |patient: &str, sites: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/emergency/iv-site")
+                .insert_header(crate::test_fixtures::as_user("NURSE-ID"))
+                .set_json(serde_json::json!({ "patient_id": patient, "sites": sites }))
+                .to_request()
+        };
+        let site = |id: Option<&str>, gauge: &str| {
+            let mut s = serde_json::json!({ "location": "left-forearm",
+                "catheterType": "peripheral", "gauge": gauge, "isActive": true,
+                "insertedAt": "2026-10-10T10:00:00Z", "assessments": [] });
+            if let Some(id) = id {
+                s["id"] = serde_json::json!(id);
+            }
+            s
+        };
+
+        let first = test::call_service(
+            &app,
+            save("PAT-IV-ID", serde_json::json!([site(None, "22G")])),
+        )
+        .await;
+        assert_eq!(first.status().as_u16(), 201);
+        let body: serde_json::Value = test::read_body_json(first).await;
+        let site_id = body["sites"][0]["site_id"].as_str().unwrap().to_string();
+        assert!(
+            site_id.starts_with("SITE-"),
+            "the id is the server's: {site_id}"
+        );
+
+        // Re-saving the documented site updates its row.
+        let again = test::call_service(
+            &app,
+            save(
+                "PAT-IV-ID",
+                serde_json::json!([site(Some(&site_id), "20G")]),
+            ),
+        )
+        .await;
+        assert_eq!(again.status().as_u16(), 201);
+        let row = state
+            .repositories
+            .iv_assessments
+            .get_by_id(&format!("IV-PAT-IV-ID-{site_id}"))
+            .await
+            .unwrap();
+        assert_eq!(row.catheter_gauge.as_deref(), Some("20G"));
+
+        // A made-up id, and another patient's id, are refused -- and the new
+        // site sent alongside them is not written either.
+        for (patient, bogus) in [
+            ("PAT-IV-ID", "IV-1794532748000"),
+            ("PAT-IV-OTHER", site_id.as_str()),
+        ] {
+            let refused = test::call_service(
+                &app,
+                save(
+                    patient,
+                    serde_json::json!([site(None, "18G"), site(Some(bogus), "18G")]),
+                ),
+            )
+            .await;
+            assert_eq!(refused.status().as_u16(), 404, "{patient} {bogus}");
+        }
+        let rows = state
+            .repositories
+            .iv_assessments
+            .get_by_patient(
+                "PAT-IV-OTHER",
+                crate::repositories::traits::Pagination::first_page(50),
+            )
+            .await
+            .unwrap();
+        assert!(
+            rows.items.is_empty(),
+            "nothing was written for the refused list"
+        );
+    }
+
+    /// The memory store has no column widths, so this is the only test that
+    /// would see the row id outgrow `iv_assessments.id` VARCHAR(64).
+    #[test]
+    fn an_issued_site_row_id_fits_its_column() {
+        let patient = format!("PAT-{}", uuid::Uuid::new_v4().simple());
+        let row = format!("IV-{}-{}", patient, new_site_id());
+        assert!(row.len() <= 64, "{} characters: {row}", row.len());
+    }
+
+    #[test]
+    fn removal_uses_authenticated_author_and_server_time() {
+        let site: IvSiteInput = serde_json::from_value(serde_json::json!({
+            "id": "SITE-1", "isActive": false, "discontinuedReason": "Routine change",
+            "discontinuedAt": "2099-01-01T00:00:00Z", "discontinuedBy": "forged"
+        }))
+        .unwrap();
+        let now = "2026-10-08T05:00:00Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .unwrap();
+        let detail = persisted_iv_site_data(&site, None, "nurse-1", now);
+        assert_eq!(detail["discontinuedAt"], "2026-10-08T05:00:00+00:00");
+        assert_eq!(detail["discontinuedBy"], "nurse-1");
+        assert_eq!(detail["discontinuedReason"], "Routine change");
+        let later = now + chrono::Duration::hours(2);
+        let saved_again = persisted_iv_site_data(&site, Some(&detail), "nurse-2", later);
+        assert_eq!(saved_again["discontinuedAt"], detail["discontinuedAt"]);
+        assert_eq!(saved_again["discontinuedBy"], "nurse-1");
+    }
+
+    #[test]
+    fn legacy_missing_removal_metadata_stays_unknown() {
+        let site: IvSiteInput = serde_json::from_value(serde_json::json!({
+            "id": "SITE-1", "isActive": false
+        }))
+        .unwrap();
+        let detail =
+            persisted_iv_site_data(&site, Some(&serde_json::json!({})), "nurse-2", Utc::now());
+        assert!(detail["discontinuedAt"].is_null());
+        assert!(detail["discontinuedBy"].is_null());
+    }
+}
+
+/// A site id the server issues. It is unique among one patient's sites, which
+/// is all it has to be: the row is keyed `IV-{patient}-{site}`, and
+/// `iv_assessments.id` is VARCHAR(64). A full UUID made that 77 characters for
+/// a standard patient id and every new site failed on PostgreSQL only.
+fn new_site_id() -> String {
+    let uuid = uuid::Uuid::new_v4().simple().to_string();
+    format!("SITE-{}", &uuid[..12])
+}
+
 #[post("/api/emergency/iv-site")]
 pub async fn create_iv_site(
     data: web::Data<AppState>,
@@ -851,20 +1278,42 @@ pub async fn create_iv_site(
         });
     }
 
-    let now = Utc::now();
-    let mut saved: Vec<serde_json::Value> = Vec::with_capacity(record.sites.len());
+    // Every named site must already be this patient's, checked before anything
+    // is written so a refused list leaves no part of itself behind.
+    let mut site_ids: Vec<String> = Vec::with_capacity(record.sites.len());
     for site in &record.sites {
-        // The site keeps its client id so re-saving the same list updates rather
-        // than duplicating rows for a cannula that is already documented.
-        let id = format!("IV-{}-{}", record.patient_id, site.id);
+        let named = site.id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let site_id = match named {
+            Some(known) => {
+                let row = format!("IV-{}-{}", record.patient_id, known);
+                if data
+                    .repositories
+                    .iv_assessments
+                    .get_by_id(&row)
+                    .await
+                    .is_err()
+                {
+                    return HttpResponse::NotFound().json(ErrorResponse {
+                        error: format!("IV site '{known}' is not on this patient's record"),
+                        code: "IV_SITE_NOT_FOUND".to_string(),
+                    });
+                }
+                known.to_string()
+            }
+            None => new_site_id(),
+        };
+        site_ids.push(site_id);
+    }
+
+    let now = crate::support::clinical_time(&http_req);
+    let mut saved: Vec<serde_json::Value> = Vec::with_capacity(record.sites.len());
+    for (site, site_id) in record.sites.iter().zip(&site_ids) {
+        // A documented site keeps its id, so re-saving the list updates the
+        // cannula's row rather than duplicating it.
+        let id = format!("IV-{}-{}", record.patient_id, site_id);
         let inserted = chrono::DateTime::parse_from_rfc3339(&site.inserted_at)
             .map(|d| d.with_timezone(&Utc).date_naive())
             .unwrap_or_else(|_| now.date_naive());
-        let location = if site.location_detail.trim().is_empty() {
-            site.location.clone()
-        } else {
-            format!("{} ({})", site.location, site.location_detail.trim())
-        };
 
         // The most recent look at the site is the one that describes it now.
         // Every field below was hardcoded `None`: the appearance, the phlebitis
@@ -873,7 +1322,9 @@ pub async fn create_iv_site(
         // so a cannula with a stage-4 site read back as never assessed.
         let latest = site.assessments.last();
         let conditions: Vec<String> = latest.map(|a| a.conditions.clone()).unwrap_or_default();
-        let phlebitis = latest.map(|_| crate::clinical_scoring::vip_score(&conditions));
+        let phlebitis = latest
+            .filter(|_| !conditions.is_empty())
+            .map(|_| crate::clinical_scoring::vip_score(&conditions));
         // The finding that set the score, for the queryable column.
         let worst_condition = phlebitis.and_then(|score| {
             conditions
@@ -882,12 +1333,19 @@ pub async fn create_iv_site(
                 .map(String::as_str)
         });
         let dwell_hours = crate::clinical_scoring::catheter_dwell_limit_hours(&site.catheter_type);
+        let existing = data.repositories.iv_assessments.get_by_id(&id).await.ok();
+        let previous_removal = existing
+            .as_ref()
+            .filter(|row| row.site_discontinued == Some(true))
+            .map(|row| &row.data);
 
         let entity = crate::repositories::traits::IVAssessmentEntity {
             id: id.clone(),
             patient_id: record.patient_id.clone(),
-            site_id: site.id.clone(),
-            site_location: location,
+            site_id: site_id.clone(),
+            // The VARCHAR(64) column stores the site vocabulary. Free-text
+            // detail remains intact in `data.locationDetail`.
+            site_location: site.location.clone(),
             catheter_type: Some(site.catheter_type.clone()).filter(|c| !c.is_empty()),
             catheter_gauge: Some(site.gauge.clone()).filter(|g| !g.is_empty()),
             insertion_date: Some(inserted),
@@ -918,21 +1376,15 @@ pub async fn create_iv_site(
                 .map(|score| crate::clinical_scoring::vip_action(score).to_string()),
             site_discontinued: Some(!site.is_active),
             discontinuation_reason: site.discontinued_reason.clone(),
-            assessed_by: caller.wallet_address.clone(),
+            assessed_by: caller.id.clone(),
             assessed_at: now,
             created_at: now,
             updated_at: now,
             facility_id: None,
-            data: serde_json::to_value(site).unwrap_or_default(),
+            data: persisted_iv_site_data(site, previous_removal, &caller.id, now),
         };
 
-        let existing = data
-            .repositories
-            .iv_assessments
-            .get_by_id(&id)
-            .await
-            .is_ok();
-        let outcome = if existing {
+        let outcome = if existing.is_some() {
             data.repositories
                 .iv_assessments
                 .update(entity)
@@ -954,7 +1406,7 @@ pub async fn create_iv_site(
         }
         saved.push(serde_json::json!({
             "id": id,
-            "site_id": site.id,
+            "site_id": site_id,
             // What the server scored, and what that score requires. The page
             // showed its own arithmetic and never learned whether the server
             // agreed - and the server was storing nothing at all.
@@ -1052,6 +1504,42 @@ pub struct HandoffPatientInput {
     pub family_updates: String,
     #[serde(rename = "additionalNotes", default)]
     pub additional_notes: String,
+    /// The outgoing nurse's call: `stable`, `watch` or `unstable` (mockup c2).
+    /// Absent when nobody made the call -- an unassessed patient is not a
+    /// stable one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stability: Option<String>,
+    /// What the next shift must do, one item each (mockup c2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub todos: Vec<String>,
+}
+
+/// Most to-dos one patient's handoff may carry, and the longest one.
+const HANDOFF_MAX_TODOS: usize = 20;
+const HANDOFF_TODO_MAX_CHARS: usize = 300;
+
+/// Why a patient's section of a handoff cannot be saved, if it cannot.
+fn handoff_patient_problem(patient: &HandoffPatientInput) -> Option<String> {
+    if let Some(level) = patient.stability.as_deref() {
+        if !matches!(level, "stable" | "watch" | "unstable") {
+            return Some(format!(
+                "stability must be stable, watch or unstable, not '{level}'"
+            ));
+        }
+    }
+    if patient.todos.len() > HANDOFF_MAX_TODOS {
+        return Some(format!("at most {HANDOFF_MAX_TODOS} to-dos per patient"));
+    }
+    if patient
+        .todos
+        .iter()
+        .any(|t| t.trim().is_empty() || t.chars().count() > HANDOFF_TODO_MAX_CHARS)
+    {
+        return Some(format!(
+            "each to-do needs text, at most {HANDOFF_TODO_MAX_CHARS} characters"
+        ));
+    }
+    None
 }
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1081,12 +1569,36 @@ pub struct CreateShiftHandoffRequest {
     pub handoff_date: String,
     #[serde(default)]
     pub handoff_time: String,
+    /// Explicit instant from clients that capture a local date and time.
+    #[serde(default)]
+    pub handoff_datetime: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub outgoing_nurse: String,
     pub incoming_nurse: String,
     #[serde(default)]
     pub unit: String,
     pub patients: Vec<HandoffPatientInput>,
+}
+
+#[cfg(test)]
+mod handoff_datetime_contract_tests {
+    use super::CreateShiftHandoffRequest;
+
+    #[test]
+    fn explicit_handoff_instant_preserves_johannesburg_offset_and_rejects_invalid_time() {
+        let mut body = serde_json::json!({
+            "incoming_nurse": "synthetic-nurse", "patients": [],
+            "handoff_date": "2026-10-09", "handoff_time": "00:06",
+            "handoff_datetime": "2026-10-09T00:06:00+02:00"
+        });
+        let parsed: CreateShiftHandoffRequest = serde_json::from_value(body.clone()).unwrap();
+        assert_eq!(
+            parsed.handoff_datetime.unwrap().to_rfc3339(),
+            "2026-10-08T22:06:00+00:00"
+        );
+        body["handoff_datetime"] = serde_json::json!("not-an-instant");
+        assert!(serde_json::from_value::<CreateShiftHandoffRequest>(body).is_err());
+    }
 }
 
 #[post("/api/emergency/handoff")]
@@ -1101,10 +1613,27 @@ pub async fn create_shift_handoff(
     };
 
     let handoff = req.into_inner();
+    if !handoff.outgoing_nurse.trim().is_empty() && handoff.outgoing_nurse != caller.id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "The outgoing provider must be the signed-in clinician".to_string(),
+            code: "ACCESS_FORBIDDEN".to_string(),
+        });
+    }
     if handoff.incoming_nurse.trim().is_empty() {
         return HttpResponse::BadRequest().json(ErrorResponse {
             error: "incoming_nurse is required".to_string(),
             code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    // A display name cannot identify the account that must receive this handoff.
+    let recipient = get_user(&data, &handoff.incoming_nurse);
+    if !recipient
+        .as_ref()
+        .is_some_and(|user| user.status == "active" && user.role.can_view_medical_records())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Select an active clinician from the staff directory".to_string(),
+            code: "INVALID_RECIPIENT".to_string(),
         });
     }
     if handoff.patients.is_empty() {
@@ -1113,11 +1642,19 @@ pub async fn create_shift_handoff(
             code: "VALIDATION_ERROR".to_string(),
         });
     }
+    if let Some(problem) = handoff.patients.iter().find_map(handoff_patient_problem) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: problem,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
 
     // Handoff date and time are facility wall-clock, exactly like an appointment,
     // so they go through the same conversion rather than being read as UTC — a
     // handoff logged at 19:00 SAST must not be stored as 19:00Z.
-    let when = if handoff.handoff_date.trim().is_empty() {
+    let when = if let Some(instant) = handoff.handoff_datetime {
+        instant
+    } else if handoff.handoff_date.trim().is_empty() {
         Utc::now()
     } else {
         crate::types::appt_to_datetime(&handoff.handoff_date, &handoff.handoff_time)
@@ -1145,11 +1682,8 @@ pub async fn create_shift_handoff(
         let entity = crate::repositories::traits::ShiftHandoffEntity {
             id: id.clone(),
             patient_id: patient.patient_id.clone(),
-            outgoing_provider_id: if handoff.outgoing_nurse.trim().is_empty() {
-                caller.wallet_address.clone()
-            } else {
-                handoff.outgoing_nurse.clone()
-            },
+            // Clinical authorship belongs to the authenticated actor, never a supplied identifier.
+            outgoing_provider_id: caller.id.clone(),
             incoming_provider_id: handoff.incoming_nurse.clone(),
             handoff_datetime: when,
             // `handoff_type` is the KIND of handoff the schema constrains
@@ -1230,9 +1764,10 @@ pub async fn get_shift_handoff(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
     let id = path.into_inner();
     // A handoff covers a ward, and storage is one row per patient keyed
     // `{batch}-{patient_id}` — so `create_shift_handoff` returns the batch id
@@ -1241,11 +1776,21 @@ pub async fn get_shift_handoff(
     //
     // A batch resolves to the handoff it names; a single row still resolves to
     // itself, so the existing per-row callers are unaffected.
+    //
+    // Only the clinician who gave a handoff and the one who received it may
+    // read it. A row the caller is not party to answers exactly as a missing
+    // one does, so the id is not an oracle for which handoffs exist.
     if let Ok(record) = data.repositories.shift_handoffs.get_by_id(&id).await {
-        return HttpResponse::Ok().json(record);
+        if takes_part_in(&record, &caller.id) {
+            return HttpResponse::Ok().json(record);
+        }
     }
     match data.repositories.shift_handoffs.get_by_batch(&id).await {
         Ok(rows) => {
+            let rows: Vec<_> = rows
+                .into_iter()
+                .filter(|row| takes_part_in(row, &caller.id))
+                .collect();
             if rows.is_empty() {
                 return HttpResponse::NotFound().json(ErrorResponse {
                     error: format!("No handoff found for '{id}'"),
@@ -1264,6 +1809,67 @@ pub async fn get_shift_handoff(
                 error: "The handoff could not be read".to_string(),
                 code: "REPO_ERROR".to_string(),
             })
+        }
+    }
+}
+
+/// Whether `user_id` gave or received this handoff.
+fn takes_part_in(handoff: &crate::repositories::traits::ShiftHandoffEntity, user_id: &str) -> bool {
+    handoff.outgoing_provider_id == user_id || handoff.incoming_provider_id == user_id
+}
+
+/// Record receipt by the authenticated recipient; repeated calls preserve first receipt.
+/// Path identifies one patient handoff. Receipt does not confirm clinical read-back.
+#[put("/api/emergency/handoff/{id}/receipt")]
+pub async fn acknowledge_shift_handoff(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(response) => return response,
+    };
+    let id = path.into_inner();
+    let record = match data.repositories.shift_handoffs.get_by_id(&id).await {
+        Ok(record) => record,
+        Err(RepositoryError::NotFound(_)) => return HttpResponse::NotFound().finish(),
+        Err(error) => {
+            log::error!("Handoff receipt lookup failed: {error}");
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+    if record.incoming_provider_id != caller.id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the receiving clinician can acknowledge receipt".into(),
+            code: "NOT_RECIPIENT".into(),
+        });
+    }
+    if let Err(response) = crate::support::ensure_not_restricted(&data, &record.patient_id).await {
+        return response;
+    }
+    // This records an authorized request, not a claim that the later write succeeded.
+    let mut audit: AccessLogEntity = AccessLogEntry {
+        access_id: crate::middleware::secure_tokens::generate_access_id(),
+        patient_id: record.patient_id.clone(),
+        accessor_id: caller.id.clone(),
+        accessor_role: caller.role.to_string(),
+        access_type: "handoff_receipt_requested".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }
+    .into();
+    audit.resource_type = "shift_handoff".to_string();
+    audit.resource_id = Some(id.clone());
+    if let Err(response) = crate::support::require_durable_audit(&data, audit).await {
+        return response;
+    }
+    match data.repositories.shift_handoffs.acknowledge(&id).await {
+        Ok(saved) => HttpResponse::Ok().json(saved),
+        Err(error) => {
+            log::error!("Handoff receipt persistence failed: {error}");
+            HttpResponse::InternalServerError().finish()
         }
     }
 }
@@ -1290,9 +1896,18 @@ pub async fn list_provider_handoffs(
     path: web::Path<String>,
     query: web::Query<HandoffHistoryQuery>,
 ) -> impl Responder {
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
     let provider_id = path.into_inner();
-    if let Err(resp) = require_emergency_list_access(&data, &http_req, &provider_id) {
-        return resp;
+    // The page asks for its own handoffs. Another provider's list names that
+    // provider's patients, which a colleague has no relationship to.
+    if provider_id != caller.id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "You can list only your own handoffs".to_string(),
+            code: "NOT_OWN_HANDOFFS".to_string(),
+        });
     }
     let days = query.days.unwrap_or(1).clamp(1, MAX_HANDOFF_HISTORY_DAYS);
     let since = Utc::now().date_naive() - chrono::Duration::days(i64::from(days - 1));
@@ -1402,7 +2017,7 @@ pub async fn create_incident(
     let entity = IncidentReportEntity {
         id: id.clone(),
         patient_id,
-        reporter_id: caller.wallet_address.clone(),
+        reporter_id: caller.id.clone(),
         incident_datetime: incident_at,
         discovery_datetime: now,
         incident_type: canonical_term(&report.incident_type),
@@ -1571,7 +2186,7 @@ pub async fn create_fall_risk(
     };
 
     let body = req.into_inner();
-    let now = chrono::Utc::now();
+    let now = crate::support::clinical_time(&http_req);
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let id = format!("FRA-{}", uuid::Uuid::new_v4().simple());
 
@@ -1611,7 +2226,7 @@ pub async fn create_fall_risk(
         // The assessing clinician is whoever authenticated, not whoever the body
         // names. A body-supplied `assessed_by` lets one clinician file an
         // assessment under another's name.
-        assessed_by: current_user.wallet_address,
+        assessed_by: current_user.id,
         assessed_at: parse_ts(&body.assessed_at).unwrap_or(now),
         next_assessment_due: parse_ts(&body.next_assessment_due),
         created_at: now,
@@ -1702,5 +2317,141 @@ pub async fn get_fall_risk(
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+#[cfg(test)]
+mod mar_list_tests {
+    use super::*;
+
+    async fn prescribe(state: &AppState, id: &str, patient: &str, status: &str) {
+        let now = chrono::Utc::now();
+        state
+            .repositories
+            .e_prescriptions_v2
+            .create(crate::repositories::JsonRecordEntity {
+                id: id.to_string(),
+                owner_id: patient.to_string(),
+                data: serde_json::json!({
+                    "patient_id": patient,
+                    "status": status,
+                    "medication": { "name": format!("Drug {id}"), "strength": "5 mg" },
+                }),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .expect("seed prescription");
+    }
+
+    /// The MAR shows medication the pharmacy is filling or has dispensed, for a
+    /// patient however far down the roster, and never cancelled medication.
+    #[actix_web::test]
+    async fn mar_lists_every_active_prescription_for_every_patient() {
+        use actix_web::{test, App};
+        let state = web::Data::new(AppState::new());
+        crate::test_fixtures::register(&state, "NURSE-MAR", Role::Nurse);
+        // More patients than the roster page the MAR used to walk.
+        for index in 0..55 {
+            crate::test_fixtures::seed_patient(&state, &format!("PAT-MAR-{index:02}")).await;
+        }
+        let late = "PAT-MAR-54";
+        for (id, status) in [
+            ("RX-SIGNED", "Signed"),
+            ("RX-RECEIVED", "Received"),
+            ("RX-INPROGRESS", "InProgress"),
+            ("RX-PARTIAL", "PartialFill"),
+            ("RX-DISPENSED", "Dispensed"),
+            ("RX-CANCELLED", "Cancelled"),
+            ("RX-DRAFT", "Draft"),
+        ] {
+            prescribe(&state, id, late, status).await;
+        }
+        let app = test::init_service(App::new().app_data(state.clone()).service(list_mar)).await;
+        let request = test::TestRequest::get()
+            .uri("/api/emergency/mar/list")
+            .insert_header(crate::test_fixtures::as_user("NURSE-MAR"))
+            .to_request();
+        let rows: Vec<serde_json::Value> = test::call_and_read_body_json(&app, request).await;
+        let mut ids: Vec<&str> = rows.iter().filter_map(|r| r["med_id"].as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            [
+                "RX-DISPENSED",
+                "RX-INPROGRESS",
+                "RX-PARTIAL",
+                "RX-RECEIVED",
+                "RX-SIGNED"
+            ]
+        );
+        assert!(rows.iter().all(|r| r["patient_id"] == late));
+    }
+}
+
+#[cfg(test)]
+mod prescribed_on_tests {
+    use super::prescribed_on;
+
+    #[test]
+    fn the_start_date_comes_from_the_numeric_creation_time() {
+        assert_eq!(
+            prescribed_on(&serde_json::json!({ "created_at": 1_792_400_000 })),
+            "2026-10-19"
+        );
+        assert_eq!(
+            prescribed_on(&serde_json::json!({ "created_at": "2026-10-01" })),
+            "2026-10-01"
+        );
+        assert_eq!(prescribed_on(&serde_json::json!({})), "");
+    }
+}
+
+#[cfg(test)]
+mod io_entry_tests {
+    //! The bedside intake/output form collects what the fluid was ("NS @ 100
+    //! mL/hr") beside its category. The handler accepted it and never stored
+    //! it, so the nurse's description was lost without a word.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+
+    const PATIENT: &str = "PAT-IO-SOURCE";
+    const NURSE: &str = "io-source-nurse";
+
+    #[actix_web::test]
+    async fn the_fluid_description_is_stored_with_the_event() {
+        let state = AppState::new();
+        test_fixtures::register(&state, NURSE, Role::Nurse);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        let state = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(state.clone()).service(super::create_io)).await;
+        let created = test::TestRequest::post()
+            .uri("/api/emergency/io")
+            .insert_header(test_fixtures::as_user(NURSE))
+            .set_json(serde_json::json!({
+                "patientId": PATIENT, "type": "intake", "category": "iv",
+                "amount": 250, "unit": "ml", "source": "NS @ 100 mL/hr",
+                "notes": "", "shift": "day"
+            }))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, created).await.status().as_u16(),
+            201
+        );
+
+        let record = state
+            .repositories
+            .io_records
+            .get_by_patient_date_shift(PATIENT, chrono::Utc::now().date_naive(), "day")
+            .await
+            .expect("read the shift record")
+            .expect("the shift record exists");
+        let items = record.intake_items.expect("an intake was charted");
+        let event = &items.as_array().expect("intake items are a list")[0];
+        assert_eq!(event["source"], "NS @ 100 mL/hr");
+        assert_eq!(event["amount_ml"], 250);
+        // An empty note stays absent rather than becoming "".
+        assert!(event["notes"].is_null());
     }
 }

@@ -1,18 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   createIntubation,
   fromStoredRecord,
   getApiClient,
   rowsOfResponse,
   useTranslation,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
 
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
 type IntubationMethod = 'oral' | 'nasal' | 'surgical' | 'video';
@@ -52,6 +50,24 @@ interface IntubationRecord {
   complications: string[];
   verification: { etco2: boolean; chestRise: boolean; breathSounds: boolean; xray: boolean };
   notes: string;
+}
+
+/** Return a fresh procedure draft using the existing form defaults. */
+function initialProcedureFields() {
+  return {
+    indication: '', method: 'oral' as IntubationMethod, bladeType: 'mac' as BladeType,
+    bladeSize: 3, tubeSize: 7.5, tubeDepth: 22, cuffPressure: 25, attempts: 1,
+    preOxygenation: true, rsiUsed: true, notes: '',
+  };
+}
+
+/** Return a fresh airway draft; shared only by initial render and successful reset. */
+function initialAirwayFields(): AirwayAssessment {
+  return {
+    mallampati: 'I', mouthOpening: 4, thyromental: 6, neckMobility: 'full',
+    dentition: 'normal', beardPresent: false, obeseNeck: false,
+    predictedDifficult: false, lemonScore: 0,
+  };
 }
 
 const intubationIndications = [
@@ -106,7 +122,6 @@ const IntubationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<IntubationRecord[]>([]);
 
   /**
@@ -141,32 +156,10 @@ const IntubationPage: React.FC = () => {
   }, [loadIntubationRecords]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
-
-  const [formData, setFormData] = useState({
-    indication: '',
-    method: 'oral' as IntubationMethod,
-    bladeType: 'mac' as BladeType,
-    bladeSize: 3,
-    tubeSize: 7.5,
-    tubeDepth: 22,
-    cuffPressure: 25,
-    attempts: 1,
-    preOxygenation: true,
-    rsiUsed: true,
-    notes: ''
-  });
-
-  const [airway, setAirway] = useState<AirwayAssessment>({
-    mallampati: 'I',
-    mouthOpening: 4,
-    thyromental: 6,
-    neckMobility: 'full',
-    dentition: 'normal',
-    beardPresent: false,
-    obeseNeck: false,
-    predictedDifficult: false,
-    lemonScore: 0
-  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionPending = useRef(false);
+  const [formData, setFormData] = useState(initialProcedureFields);
+  const [airway, setAirway] = useState<AirwayAssessment>(initialAirwayFields);
 
   const [medications, setMedications] = useState<{ name: string; dose: string; time: string }[]>([]);
   const [selectedComplications, setSelectedComplications] = useState<string[]>(['None']);
@@ -174,17 +167,6 @@ const IntubationPage: React.FC = () => {
     etco2: false, chestRise: false, breathSounds: false, xray: false
   });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   // Calculate LEMON score
   useEffect(() => {
@@ -203,15 +185,34 @@ const IntubationPage: React.FC = () => {
   }, [airway.mallampati, airway.mouthOpening, airway.thyromental, airway.neckMobility, airway.obeseNeck]);
 
   const addMedication = (name: string, dose: string) => {
-    setMedications([...medications, { name, dose, time: new Date().toLocaleTimeString() }]);
+    setMedications(current => [...current, { name, dose, time: new Date().toLocaleTimeString() }]);
   };
 
+  /** Clear completed patient-specific inputs before another procedure is started. */
+  const resetCompletedDraft = () => {
+    setSelectedPatient('');
+    setFormData(initialProcedureFields());
+    setAirway(initialAirwayFields());
+    setMedications([]);
+    setSelectedComplications(['None']);
+    setVerification({ etco2: false, chestRise: false, breathSounds: false, xray: false });
+    setActiveTab('history');
+  };
+
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+    if (submissionPending.current) return;
     if (!selectedPatient || !formData.indication) {
       showError(t('docIntubation.errorSelectPatientIndication'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    submissionPending.current = true;
+    setIsSubmitting(true);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const newRecord: IntubationRecord = {
       id: `INT-${Date.now()}`,
       patientId: selectedPatient,
@@ -237,19 +238,18 @@ const IntubationPage: React.FC = () => {
     };
     try {
       await createIntubation(newRecord);
+      await loadIntubationRecords();
+      resetCompletedDraft();
+      showSuccess(t('docIntubation.successDocumented'));
     } catch (err) {
       console.error('Failed to save intubation record:', err);
       // Stop here. Falling through added the record to the local list
       // and toasted success for a write that never happened.
       showError(t('common.saveFailed'));
-      return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // Re-read through the endpoint rather than pushing the local object.
-    // A row assembled from what this screen just typed proves nothing about
-    // what was stored -- and it vanished on reload, because nothing here
-    // ever read the record back.
-    await loadIntubationRecords();
-    showSuccess(t('docIntubation.successDocumented'));
   };
 
   return (
@@ -284,9 +284,10 @@ const IntubationPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
-          <div className="space-y-6">
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
+          <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient Selection */}
-            <div className="bg-surface rounded-lg shadow p-4">
+            <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>
@@ -347,31 +348,31 @@ const IntubationPage: React.FC = () => {
                   <p className="text-xs text-content-muted">{t('docIntubation.thyromentalHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-neck-mobility" className="text-sm text-content-muted">{t('docIntubation.neckMobilityLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intubation-neck-mobility"
+                    label={t('docIntubation.neckMobilityLabel')}
                     value={airway.neckMobility}
-                    onChange={e => setAirway({ ...airway, neckMobility: e.target.value as 'full' | 'limited' | 'immobile' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="full">{t('docIntubation.neckMobility_full')}</option>
-                    <option value="limited">{t('docIntubation.neckMobility_limited')}</option>
-                    <option value="immobile">{t('docIntubation.neckMobility_immobile')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setAirway({ ...airway, neckMobility: next as 'full' | 'limited' | 'immobile' }); }}
+                    options={[
+                      { value: 'full', label: t('docIntubation.neckMobility_full') },
+                      { value: 'limited', label: t('docIntubation.neckMobility_limited') },
+                      { value: 'immobile', label: t('docIntubation.neckMobility_immobile') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="intubation-dentition" className="text-sm text-content-muted">{t('docIntubation.dentitionLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intubation-dentition"
+                    label={t('docIntubation.dentitionLabel')}
                     value={airway.dentition}
-                    onChange={e => setAirway({ ...airway, dentition: e.target.value as 'normal' | 'loose' | 'dentures' | 'edentulous' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="normal">{t('docIntubation.dentition_normal')}</option>
-                    <option value="loose">{t('docIntubation.dentition_loose')}</option>
-                    <option value="dentures">{t('docIntubation.dentition_dentures')}</option>
-                    <option value="edentulous">{t('docIntubation.dentition_edentulous')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setAirway({ ...airway, dentition: next as 'normal' | 'loose' | 'dentures' | 'edentulous' }); }}
+                    options={[
+                      { value: 'normal', label: t('docIntubation.dentition_normal') },
+                      { value: 'loose', label: t('docIntubation.dentition_loose') },
+                      { value: 'dentures', label: t('docIntubation.dentition_dentures') },
+                      { value: 'edentulous', label: t('docIntubation.dentition_edentulous') },
+                    ]}
+                  />
                 </div>
                 <div className="flex items-center gap-4 col-span-2">
                   <label htmlFor="intub-beard-present" className="flex items-center gap-2">
@@ -421,32 +422,32 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-method" className="text-sm text-content-muted">{t('docIntubation.methodLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intub-method"
+                    label={t('docIntubation.methodLabel')}
                     value={formData.method}
-                    onChange={e => setFormData({ ...formData, method: e.target.value as IntubationMethod })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="oral">{t('docIntubation.method_oral')}</option>
-                    <option value="nasal">{t('docIntubation.method_nasal')}</option>
-                    <option value="video">{t('docIntubation.method_video')}</option>
-                    <option value="surgical">{t('docIntubation.method_surgical')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFormData({ ...formData, method: next as IntubationMethod }); }}
+                    options={[
+                      { value: 'oral', label: t('docIntubation.method_oral') },
+                      { value: 'nasal', label: t('docIntubation.method_nasal') },
+                      { value: 'video', label: t('docIntubation.method_video') },
+                      { value: 'surgical', label: t('docIntubation.method_surgical') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-type" className="text-sm text-content-muted">{t('docIntubation.bladeTypeLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intub-blade-type"
+                    label={t('docIntubation.bladeTypeLabel')}
                     value={formData.bladeType}
-                    onChange={e => setFormData({ ...formData, bladeType: e.target.value as BladeType })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="mac">{t('docIntubation.bladeType_mac')}</option>
-                    <option value="miller">{t('docIntubation.bladeType_miller')}</option>
-                    <option value="video">{t('docIntubation.bladeType_video')}</option>
-                    <option value="glidescope">{t('docIntubation.bladeType_glidescope')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setFormData({ ...formData, bladeType: next as BladeType }); }}
+                    options={[
+                      { value: 'mac', label: t('docIntubation.bladeType_mac') },
+                      { value: 'miller', label: t('docIntubation.bladeType_miller') },
+                      { value: 'video', label: t('docIntubation.bladeType_video') },
+                      { value: 'glidescope', label: t('docIntubation.bladeType_glidescope') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="intub-blade-size" className="text-sm text-content-muted">{t('docIntubation.bladeSizeLabel')}</label>
@@ -531,15 +532,15 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* RSI Medications */}
-            {formData.rsiUsed && (
+            {(formData.rsiUsed || medications.length > 0) && (
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-semibold mb-3">{t('docIntubation.rsiMedicationsHeading')}</h2>
-                <div className="flex flex-wrap gap-2 mb-4">
+                {formData.rsiUsed && <div className="flex flex-wrap gap-2 mb-4">
                   {rsiMedications.map(med => (
                     <div key={med.name} className="flex items-center gap-1">
                       <span className="text-sm font-medium">{med.name}:</span>
                       {med.doses.map(dose => (
-                        <button
+                        <button type="button"
                           key={dose}
                           onClick={() => addMedication(med.name, dose)}
                           className="px-2 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-cyan-200"
@@ -549,7 +550,7 @@ const IntubationPage: React.FC = () => {
                       ))}
                     </div>
                   ))}
-                </div>
+                </div>}
                 {medications.length > 0 && (
                   <div className="border rounded p-2">
                     <h3 className="text-sm font-medium mb-2">{t('docIntubation.medicationsGivenLabel')}</h3>
@@ -559,6 +560,12 @@ const IntubationPage: React.FC = () => {
                         <span>{med.time}</span>
                         <span className="font-medium">{med.name}</span>
                         <span>{med.dose}</span>
+                        <button type="button"
+                          aria-label={t('docIntubation.removeMedication', { name: med.name, dose: med.dose })}
+                          onClick={() => setMedications(current => current.filter((_, index) => index !== i))}
+                          className="ml-auto rounded px-2 py-1 text-critical hover:bg-critical-subtle focus-visible:outline focus-visible:outline-2">
+                          {t('common.remove')}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -617,7 +624,7 @@ const IntubationPage: React.FC = () => {
             {/* Notes */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docIntubation.notesHeading')}</h2>
-              <textarea
+              <textarea aria-label={t('docIntubation.notesPh')}
                 value={formData.notes}
                 onChange={e => setFormData({ ...formData, notes: e.target.value })}
                 className="w-full border rounded p-2 h-24"
@@ -626,13 +633,15 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
+              aria-busy={isSubmitting}
+              className="aria-disabled:cursor-wait w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>
-          </div>
+          </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (

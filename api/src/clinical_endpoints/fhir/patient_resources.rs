@@ -463,8 +463,8 @@ mod search_authorization_tests {
         for resource in ["AllergyIntolerance", "MedicationStatement", "Condition"] {
             let mut req = test::TestRequest::get()
                 .uri(&format!("/api/fhir/r4/{resource}?patient=PAT-FHIR-1"));
-            if let Some(wallet) = caller {
-                req = req.insert_header(("X-User-Id", wallet));
+            if let Some(user_id) = caller {
+                req = req.insert_header(crate::test_fixtures::as_user(user_id));
             }
             let status = test::call_service(&app, req.to_request()).await.status();
             if resource != "AllergyIntolerance" {

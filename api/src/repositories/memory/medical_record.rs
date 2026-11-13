@@ -1,5 +1,6 @@
 //! In-memory medical record repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -22,10 +23,6 @@ impl MemoryMedicalRecordRepository {
             ipfs_index: RwLock::new(HashMap::new()),
         }
     }
-
-    fn lock_error(e: impl std::fmt::Display) -> RepositoryError {
-        RepositoryError::Internal(format!("Lock poisoned: {}", e))
-    }
 }
 
 impl Default for MemoryMedicalRecordRepository {
@@ -38,7 +35,7 @@ impl Default for MemoryMedicalRecordRepository {
 impl MedicalRecordRepository for MemoryMedicalRecordRepository {
     async fn create(&self, record: MedicalRecordEntity) -> RepositoryResult<MedicalRecordEntity> {
         {
-            let storage = self.storage.read().map_err(Self::lock_error)?;
+            let storage = self.storage.read().map_err(lock_poisoned)?;
             if storage.contains_key(&record.id) {
                 return Err(RepositoryError::Duplicate(format!(
                     "Record {} already exists",
@@ -48,12 +45,12 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
         }
 
         {
-            let mut storage = self.storage.write().map_err(Self::lock_error)?;
+            let mut storage = self.storage.write().map_err(lock_poisoned)?;
             storage.insert(record.id.clone(), record.clone());
         }
 
         {
-            let mut patient_index = self.patient_index.write().map_err(Self::lock_error)?;
+            let mut patient_index = self.patient_index.write().map_err(lock_poisoned)?;
             patient_index
                 .entry(record.patient_id.clone())
                 .or_default()
@@ -61,7 +58,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
         }
 
         if let Some(ref ipfs_hash) = record.ipfs_content_hash {
-            let mut ipfs_index = self.ipfs_index.write().map_err(Self::lock_error)?;
+            let mut ipfs_index = self.ipfs_index.write().map_err(lock_poisoned)?;
             ipfs_index.insert(ipfs_hash.clone(), record.id.clone());
         }
 
@@ -69,7 +66,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<MedicalRecordEntity> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         storage
             .get(id)
             .cloned()
@@ -81,8 +78,8 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<MedicalRecordEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
-        let patient_index = self.patient_index.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<MedicalRecordEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -112,8 +109,8 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
         record_type: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<MedicalRecordEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
-        let patient_index = self.patient_index.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<MedicalRecordEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -139,7 +136,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
 
     async fn get_by_ipfs_hash(&self, ipfs_hash: &str) -> RepositoryResult<MedicalRecordEntity> {
         let id = {
-            let ipfs_index = self.ipfs_index.read().map_err(Self::lock_error)?;
+            let ipfs_index = self.ipfs_index.read().map_err(lock_poisoned)?;
             ipfs_index
                 .get(ipfs_hash)
                 .cloned()
@@ -149,7 +146,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
     }
 
     async fn update(&self, record: MedicalRecordEntity) -> RepositoryResult<MedicalRecordEntity> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
 
         let existing = storage
             .get(&record.id)
@@ -164,7 +161,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
     }
 
     async fn delete(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
 
         if let Some(record) = storage.get_mut(id) {
             if record.is_locked {
@@ -183,7 +180,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
     }
 
     async fn lock(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.storage.write().map_err(Self::lock_error)?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
 
         if let Some(record) = storage.get_mut(id) {
             record.is_locked = true;
@@ -202,8 +199,8 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
         range: DateRange,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<MedicalRecordEntity>> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
-        let patient_index = self.patient_index.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<MedicalRecordEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -242,7 +239,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
     async fn count(&self) -> RepositoryResult<u64> {
-        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
         Ok(storage.len() as u64)
     }
 }
@@ -261,8 +258,6 @@ mod tests {
             ipfs_content_hash: Some(format!("Qm{}", id)),
             ipfs_metadata_hash: None,
             content_checksum: None,
-            on_chain_hash: None,
-            blockchain_tx_hash: None,
             summary_encrypted: None,
             record_date: Utc::now(),
             created_at: Utc::now(),

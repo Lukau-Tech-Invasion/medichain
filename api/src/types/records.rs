@@ -35,10 +35,8 @@ pub struct UploadMedicalRecordResponse {
     pub ipfs_hash: String,
     pub metadata_hash: String,
     pub record_reference: MedicalRecordReference,
-    pub record_chain_status: String,
-    pub record_blockchain_tx_hash: Option<String>,
-    pub access_chain_status: String,
-    pub access_blockchain_tx_hash: Option<String>,
+    /// Where the record's content digest is in the sealed audit stream.
+    pub seal_status: String,
     pub message: String,
 }
 
@@ -67,4 +65,6 @@ pub struct IpfsHealthResponse {
     pub ipfs_connected: bool,
     pub api_url: String,
     pub gateway_url: String,
+    pub storage_backend: String,
+    pub storage_connected: bool,
 }

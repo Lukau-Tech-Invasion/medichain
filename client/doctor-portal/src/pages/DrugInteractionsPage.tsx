@@ -7,7 +7,9 @@ import {
   LoadingSpinner,
   formatTimestamp,
   checkDrugInteractions,
-  getDrugInteractionHistory,
+  getDrugInteractionHistory, ChoiceChips,
+  keepEnterInField,
+  useLatestRequest,
 } from '@medichain/shared';
 import {
   AlertTriangle,
@@ -36,8 +38,8 @@ import type { StoredDrugInteractionCheck } from '@medichain/shared';
 // Type Definitions
 type InteractionSeverity = 'contraindicated' | 'major' | 'moderate' | 'minor' | 'unknown';
 type InteractionType = 'drug-drug' | 'drug-allergy' | 'drug-condition' | 'drug-food' | 'drug-lab';
-/** `clinical::EvidenceLevel`, exactly as the interaction dataset records it. */
-type EvidenceLevel = 'Theoretical' | 'CaseReport' | 'CaseStudy' | 'ClinicalTrial' | 'Established';
+/** Live checks use clinical evidence levels; reference records retain letter grades. */
+type EvidenceLevel = 'Theoretical' | 'CaseReport' | 'CaseStudy' | 'ClinicalTrial' | 'Established' | 'A' | 'B' | 'C';
 
 interface Drug {
   drugId: string;
@@ -48,6 +50,32 @@ interface Drug {
   route: string;
   form: string;
   commonDoses: string[];
+}
+
+/** Serialized formulary record returned by GET /api/drugs. */
+interface DrugReferenceResponse {
+  drug_id: string;
+  name: string;
+  generic_name: string;
+  brand_names: string[];
+  drug_class: string;
+  route: string;
+  form: string;
+  common_doses: string[];
+}
+
+/** Map a server formulary record into the search/selection view model. */
+function fromDrugReference(drug: DrugReferenceResponse): Drug {
+  return {
+    drugId: drug.drug_id,
+    name: drug.name,
+    genericName: drug.generic_name,
+    brandNames: drug.brand_names,
+    drugClass: drug.drug_class,
+    route: drug.route,
+    form: drug.form,
+    commonDoses: drug.common_doses,
+  };
 }
 
 interface Interaction {
@@ -176,15 +204,18 @@ const DrugInteractionsPage: React.FC = () => {
   // Load drug database from API
   // The history tab used to hold only this session's checks, so it was empty
   // after every reload although the server had filed each one to the chart.
+  const beginHistoryRead = useLatestRequest();
   const loadHistory = useCallback(async (patientId: string) => {
+    const current = beginHistoryRead();
     try {
       const body = await getDrugInteractionHistory(patientId);
+      if (!current()) return;
       setChecks((body.checks ?? []).map(fromStoredCheck));
       setHistoryUnknown(false);
     } catch {
-      setHistoryUnknown(true);
+      if (current()) setHistoryUnknown(true);
     }
-  }, []);
+  }, [beginHistoryRead]);
 
   useEffect(() => {
     if (patientContext.patientId) void loadHistory(patientContext.patientId);
@@ -192,14 +223,14 @@ const DrugInteractionsPage: React.FC = () => {
 
   useEffect(() => {
     const fetchDrugs = async () => {
-      if (!user?.walletAddress) return;
+      if (!user?.userId) return;
       
       try {
-        const data = await getApiClient().get<{ success?: boolean; drugs?: Drug[] }>(
+        const data = await getApiClient().get<{ success?: boolean; drugs?: DrugReferenceResponse[] }>(
           '/api/drugs'
         );
         if (data.success && data.drugs) {
-          setDrugDatabase(data.drugs);
+          setDrugDatabase(data.drugs.map(fromDrugReference));
         }
       } catch (err) {
         console.error('Failed to load drug database:', err);
@@ -210,15 +241,16 @@ const DrugInteractionsPage: React.FC = () => {
     };
     
     fetchDrugs();
-  }, [user?.walletAddress, user?.role, t]);
+  }, [user?.userId, user?.role, t]);
 
   // Interaction Database - fetched from API
   const [interactionDatabase, setInteractionDatabase] = useState<Interaction[]>([]);
+  const [databaseError, setDatabaseError] = useState('');
 
   // Load interaction database from API
   useEffect(() => {
     const fetchInteractions = async () => {
-      if (!user?.walletAddress) return;
+      if (!user?.userId) return;
       
       try {
         const data = await getApiClient().get<{ success?: boolean; interactions?: Interaction[] }>(
@@ -227,13 +259,13 @@ const DrugInteractionsPage: React.FC = () => {
         if (data.success && data.interactions) {
           setInteractionDatabase(data.interactions);
         }
-      } catch (err) {
-        console.error('Failed to load interaction database:', err);
+      } catch {
+        setDatabaseError(t('docDrugInteractions.errorLoadDatabase'));
       }
     };
     
     fetchInteractions();
-  }, [user?.walletAddress, user?.role]);
+  }, [user?.userId, user?.role]);
 
   // Search drugs
   useEffect(() => {
@@ -267,7 +299,8 @@ const DrugInteractionsPage: React.FC = () => {
   };
 
   const handleCheckInteractions = async () => {
-    if (!user?.walletAddress) return;
+    if (isChecking) return;
+    if (!user?.userId) return;
     
     setIsChecking(true);
     
@@ -341,7 +374,7 @@ const DrugInteractionsPage: React.FC = () => {
           minor: foundInteractions.filter((i) => i.severity === 'minor').length,
           unknown: foundInteractions.filter((i) => i.severity === 'unknown').length,
         },
-        checkedBy: user?.userId || user?.walletAddress || 'Unknown',
+        checkedBy: user?.userId || user?.userId || 'Unknown',
       };
       
       // A check for a patient is filed on their chart; the history is what the
@@ -516,6 +549,7 @@ const DrugInteractionsPage: React.FC = () => {
 
       {/* Checker Tab */}
       {activeTab === 'checker' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCheckInteractions(); }} onKeyDown={keepEnterInField} noValidate>
         <div className="space-y-6">
           {/* Drug Selection */}
           <div className="bg-surface rounded-lg shadow p-6">
@@ -524,7 +558,7 @@ const DrugInteractionsPage: React.FC = () => {
             {/* Drug Search */}
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted w-5 h-5" />
-              <input
+              <input aria-label={t('docDrugInteractions.searchPh')}
                 type="text"
                 value={drugSearch}
                 onChange={(e) => setDrugSearch(e.target.value)}
@@ -536,7 +570,7 @@ const DrugInteractionsPage: React.FC = () => {
               {searchResults.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-surface border border-border-strong rounded-lg shadow-lg max-h-64 overflow-y-auto">
                   {searchResults.map((drug) => (
-                    <button
+                    <button type="button"
                       key={drug.drugId}
                       onClick={() => handleAddDrug(drug)}
                       className="w-full text-left px-4 py-3 hover:bg-surface-sunken transition-colors border-b last:border-b-0"
@@ -573,7 +607,7 @@ const DrugInteractionsPage: React.FC = () => {
                           <div className="text-sm text-content-muted">{drug.drugClass}</div>
                         </div>
                       </div>
-                      <button
+                      <button type="button"
                         onClick={() => handleRemoveDrug(drug.drugId)}
                         className="p-1 text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
                         aria-label={`Remove ${drug.name}`}
@@ -595,10 +629,9 @@ const DrugInteractionsPage: React.FC = () => {
             {/* Action Buttons */}
             {selectedDrugs.length >= 2 && (
               <div className="flex gap-3 mt-6">
-                <button
-                  onClick={handleCheckInteractions}
-                  disabled={isChecking}
-                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                <button type="submit"
+                  aria-disabled={isChecking || undefined}
+                  className="aria-disabled:cursor-wait flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
                 >
                   {isChecking ? (
                     <>
@@ -612,7 +645,7 @@ const DrugInteractionsPage: React.FC = () => {
                     </>
                   )}
                 </button>
-                <button
+                <button type="button"
                   onClick={handleClearDrugs}
                   className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                 >
@@ -687,29 +720,31 @@ const DrugInteractionsPage: React.FC = () => {
                 </h2>
                 {interactions.length > 0 && (
                   <div className="flex gap-2">
-                    <select
+                    <ChoiceChips
+                      label={t('common.filterBySeverity')}
                       value={severityFilter}
-                      onChange={(e) => setSeverityFilter(e.target.value as InteractionSeverity | 'all')}
-                      className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                    >
-                      <option value="all">{t('docDrugInteractions.filterAllSeverities')}</option>
-                      <option value="contraindicated">{t('docDrugInteractions.severity_contraindicated')}</option>
-                      <option value="major">{t('docDrugInteractions.severity_major')}</option>
-                      <option value="moderate">{t('docDrugInteractions.severity_moderate')}</option>
-                      <option value="minor">{t('docDrugInteractions.severity_minor')}</option>
-                    </select>
-                    <select
+                      onChange={(next) => { if (next === undefined) return; setSeverityFilter(next as InteractionSeverity | 'all'); }}
+                      options={[
+                        { value: 'all', label: t('docDrugInteractions.filterAllSeverities') },
+                        { value: 'contraindicated', label: t('docDrugInteractions.severity_contraindicated') },
+                        { value: 'major', label: t('docDrugInteractions.severity_major') },
+                        { value: 'moderate', label: t('docDrugInteractions.severity_moderate') },
+                        { value: 'minor', label: t('docDrugInteractions.severity_minor') },
+                      ]}
+                    />
+                    <ChoiceChips
+                      label={t('common.filterByType')}
                       value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value as InteractionType | 'all')}
-                      className="px-3 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                    >
-                      <option value="all">{t('docDrugInteractions.filterAllTypes')}</option>
-                      <option value="drug-drug">{t('docDrugInteractions.type_drug-drug')}</option>
-                      <option value="drug-allergy">{t('docDrugInteractions.type_drug-allergy')}</option>
-                      <option value="drug-condition">{t('docDrugInteractions.type_drug-condition')}</option>
-                      <option value="drug-food">{t('docDrugInteractions.type_drug-food')}</option>
-                      <option value="drug-lab">{t('docDrugInteractions.type_drug-lab')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setTypeFilter(next as InteractionType | 'all'); }}
+                      options={[
+                        { value: 'all', label: t('docDrugInteractions.filterAllTypes') },
+                        { value: 'drug-drug', label: t('docDrugInteractions.type_drug-drug') },
+                        { value: 'drug-allergy', label: t('docDrugInteractions.type_drug-allergy') },
+                        { value: 'drug-condition', label: t('docDrugInteractions.type_drug-condition') },
+                        { value: 'drug-food', label: t('docDrugInteractions.type_drug-food') },
+                        { value: 'drug-lab', label: t('docDrugInteractions.type_drug-lab') },
+                      ]}
+                    />
                   </div>
                 )}
               </div>
@@ -772,7 +807,7 @@ const DrugInteractionsPage: React.FC = () => {
                             </div>
                             <p className="text-content-secondary mb-2">{interaction.description}</p>
                           </div>
-                          <button
+                          <button type="button"
                             onClick={() => toggleInteractionExpansion(interaction.interactionId)}
                             className="ml-4 p-2 text-content-muted hover:bg-surface rounded-lg transition-colors"
                           >
@@ -888,6 +923,7 @@ const DrugInteractionsPage: React.FC = () => {
             </div>
           )}
         </div>
+        </form>
       )}
 
       {/* History Tab */}
@@ -979,6 +1015,9 @@ const DrugInteractionsPage: React.FC = () => {
             <p className="text-content-muted mb-4">
               {t('docDrugInteractions.databaseSubtitle')}
             </p>
+            {databaseError && (
+              <p role="alert" className="mb-4 text-sm text-critical-subtle-fg">{databaseError}</p>
+            )}
 
             <div className="space-y-3">
               {interactionDatabase.map((interaction) => (

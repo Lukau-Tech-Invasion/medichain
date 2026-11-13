@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getApiClient, getPatients, useTranslation, formatDateOnly } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { createPreOp, getApiClient, useTranslation, formatDateOnly, ChoiceChips } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
+import { StoredValue } from '../components/StoredSoapDetails';
 import {
   Stethoscope,
   AlertTriangle,
   CheckCircle2,
   Clock,
   Save,
-  Search,
   User,
   RefreshCw,
   FileText,
@@ -40,54 +41,67 @@ type AnesthesiaType = 'general' | 'regional' | 'local' | 'mac' | 'spinal' | 'epi
  * genuinely inconsistent about enveloping -- so naming it changes nothing at
  * run time and makes the reads checkable.
  */
-type RecordList = { records?: { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[]; assessments?: { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[] } | { id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number }[];
+type StoredPreOpRecord = Record<string, unknown> & { id: string; patient_id?: string;
+  scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number };
+type RecordList = { records?: StoredPreOpRecord[]; assessments?: StoredPreOpRecord[] } | StoredPreOpRecord[];
+
+// Nothing is pre-selected (rule 9). The form used to open on ASA II, a general
+// anaesthetic and a normal airway (Mallampati II, mouth opening > 3 cm,
+// thyromental > 6 cm, full neck mobility, intact dentition) and filed all of it
+// for a patient nobody had examined -- an airway nobody looked at read as a
+// normal airway. The ASA class must be chosen; the rest is sent only when it is.
+const initialAsaClass: ASAClass | '' = '';
+const initialAnesthesiaType: AnesthesiaType | '' = '';
+const initialAirway = {
+  mallampati: '' as MallampatiClass | '', mouthOpening: '', thyromental: '', neckMobility: '', dentition: '',
+  beardPresent: false, obeseNeck: false, difficultyPredicted: false,
+};
+
+/** The airway findings as filed: a finding nobody chose is absent, not normal. */
+function chosenAirway(airway: typeof initialAirway) {
+  return {
+    mallampati: airway.mallampati || undefined,
+    mouthOpening: airway.mouthOpening || undefined,
+    thyromental: airway.thyromental || undefined,
+    neckMobility: airway.neckMobility || undefined,
+    dentition: airway.dentition || undefined,
+    beardPresent: airway.beardPresent,
+    obeseNeck: airway.obeseNeck,
+    difficultyPredicted: airway.difficultyPredicted,
+  };
+}
+const initialNpoStatus = { lastSolid: '', lastClear: '', compliant: undefined as boolean | undefined };
+const initialConsents = { surgicalConsent: false, anesthesiaConsent: false, bloodConsent: false };
 
 export default function PreOpPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionPending = useRef(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  // Set when Save was refused for want of an ASA class; marks the group invalid.
+  const [asaMissing, setAsaMissing] = useState(false);
+  const asaGroupRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<'assessment' | 'checklist' | 'history'>('assessment');
-  const [recentRecords, setRecentRecords] = useState<Array<{id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number}>>([]);
+  const [recentRecords, setRecentRecords] = useState<StoredPreOpRecord[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState('');
 
   // Form state
   const [scheduledSurgery, setScheduledSurgery] = useState('');
   const [surgeon, setSurgeon] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
-  const [asaClass, setAsaClass] = useState<ASAClass>('II');
+  const [asaClass, setAsaClass] = useState<ASAClass | ''>(initialAsaClass);
   const [asaEmergency, setAsaEmergency] = useState(false);
-  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType>('general');
+  const [anesthesiaType, setAnesthesiaType] = useState<AnesthesiaType | ''>(initialAnesthesiaType);
 
-  const [airwayAssessment, setAirwayAssessment] = useState({
-    mallampati: 'II' as MallampatiClass,
-    mouthOpening: '>3cm',
-    thyromental: '>6cm',
-    neckMobility: 'full',
-    dentition: 'intact',
-    beardPresent: false,
-    obeseNeck: false,
-    difficultyPredicted: false
-  });
-
-  const [npoStatus, setNpoStatus] = useState({
-    lastSolid: '',
-    lastClear: '',
-    compliant: true
-  });
-
-  const [consents, setConsents] = useState({
-    surgicalConsent: false,
-    anesthesiaConsent: false,
-    bloodConsent: false
-  });
+  const [airwayAssessment, setAirwayAssessment] = useState(initialAirway);
+  const [npoStatus, setNpoStatus] = useState(initialNpoStatus);
+  const [consents, setConsents] = useState(initialConsents);
 
   const [labsReviewed, setLabsReviewed] = useState<string[]>([]);
   const [allergies, setAllergies] = useState<string[]>([]);
@@ -191,43 +205,38 @@ export default function PreOpPage() {
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
+      let cancelled = false;
       const fetchRecentRecords = async () => {
         setRecordsLoading(true);
+        setRecordsError('');
+        setRecentRecords([]);
         try {
           const data = await getApiClient().get<RecordList>(`/api/surgical/pre-op/patient/${selectedPatient.patient_id}`);
-          setRecentRecords(Array.isArray(data) ? data : (data.records || data.assessments || []));
+          const records = Array.isArray(data) ? data : (data.records || data.assessments || []);
+          if (!cancelled) setRecentRecords(records.filter(record => !record.patient_id || record.patient_id === selectedPatient.patient_id));
         } catch (e) {
           console.error(e);
+          if (!cancelled) setRecordsError(t('docPreOp.historyReadFailed'));
         } finally {
-          setRecordsLoading(false);
+          if (!cancelled) setRecordsLoading(false);
         }
       };
       fetchRecentRecords();
+      return () => { cancelled = true; };
     }
-  }, [activeTab, selectedPatient, user]);
+  }, [activeTab, selectedPatient, user, t]);
 
+  // A `?patient=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patient');
-        if (patientId && patientData) {
-          const patient = patientData.find((p: PatientProfile) => p.patient_id === patientId);
-          if (patient) setSelectedPatient(patient);
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patient');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
-
-  const filteredPatients = patients.filter(p =>
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const toggleLab = (lab: string) => {
     setLabsReviewed(prev =>
@@ -276,30 +285,55 @@ export default function PreOpPage() {
   const checklistProgress = Object.values(preOpChecklist).filter(Boolean).length;
   const totalChecklistItems = Object.keys(preOpChecklist).length;
 
+  /** Reset completed documentation while retaining the selected patient's history context. */
+  const resetCompletedDraft = () => {
+    setScheduledSurgery(''); setSurgeon(''); setScheduledDate(''); setScheduledTime('');
+    setAsaClass(initialAsaClass); setAsaEmergency(false); setAnesthesiaType(initialAnesthesiaType);
+    setAirwayAssessment({ ...initialAirway }); setNpoStatus({ ...initialNpoStatus }); setConsents({ ...initialConsents });
+    setLabsReviewed([]); setAllergies([]); setNewAllergy(''); setCurrentMedications([]); setNewMedication('');
+    setHoldMedications([]); setMedicalHistory([]); setNotes('');
+    setPreOpChecklist(previous => Object.fromEntries(Object.keys(previous).map(key => [key, false])));
+  };
+
+  /** Save one assessment at a time; refused writes retain the draft for correction. */
   const handleSave = async () => {
+    if (isSubmitting) return;
+    if (submissionPending.current) return;
+    // A refusal takes the clinician to the field at fault. Save sits at the
+    // foot of a long form and the message used to appear at its head, so a
+    // refused save looked like a button that did nothing.
     if (!selectedPatient) {
       setError(t('docPreOp.errorSelectPatient'));
+      document.getElementById('preop-search-patients')?.focus();
+      return;
+    }
+    // The ASA class is the assessment's conclusion; a record without one is
+    // not a pre-operative assessment.
+    if (!asaClass) {
+      setError(t('docPreOp.errorAsaRequired'));
+      setAsaMissing(true);
+      asaGroupRef.current?.querySelector<HTMLButtonElement>('[role="radio"]')?.focus();
       return;
     }
 
+    submissionPending.current = true;
     setIsSubmitting(true);
     setError('');
+    setSuccess('');
 
     try {
+      // No id, assessor or timestamps: the server mints the id and takes the
+      // rest from the session and its own clock.
       const assessmentData = {
-        assessment_id: `PREOP-${Date.now()}`,
         patient_id: selectedPatient.patient_id,
-        assessment_date: new Date().toISOString().split('T')[0],
-        assessment_time: new Date().toTimeString().slice(0, 5),
-        assessed_by: user?.userId,
         scheduled_surgery: scheduledSurgery,
         surgeon,
         scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
         asa_class: asaClass,
         asa_emergency: asaEmergency,
-        anesthesia_type: anesthesiaType,
-        airway_assessment: airwayAssessment,
+        anesthesia_type: anesthesiaType || undefined,
+        airway_assessment: chosenAirway(airwayAssessment),
         npo_status: npoStatus,
         consents,
         labs_reviewed: labsReviewed,
@@ -309,23 +343,24 @@ export default function PreOpPage() {
         medical_history: medicalHistory,
         preop_checklist: preOpChecklist,
         notes,
-        created_at: Math.floor(Date.now() / 1000)
       };
 
       await createPreOp(assessmentData);
+      resetCompletedDraft();
       setSuccess(t('docPreOp.savedSuccess'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setActiveTab('history');
     } catch (err) {
       setError(t('docPreOp.errorSave'));
       console.error('Failed to save pre-op assessment', err);
     } finally {
+      submissionPending.current = false;
       setIsSubmitting(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken p-6">
-      <div className="max-w-7xl mx-auto">
+      <fieldset disabled={isSubmitting} className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-indigo-700 to-purple-800 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
@@ -341,8 +376,8 @@ export default function PreOpPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
-                {asaClass && (
+                {selectedPatient.date_of_birth && <p className="text-sm opacity-75">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>}
+                {activeTab !== 'history' && asaClass && (
                   <span className={`inline-block mt-1 px-3 py-1 rounded-full text-sm font-bold ${getAsaColor(asaClass)}`}>
                     {t('docPreOp.asaClassBadge', { class: asaClass, suffix: asaEmergency ? 'E' : '' })}
                   </span>
@@ -353,21 +388,14 @@ export default function PreOpPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
+          <div role="status" className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
-        {error && (
-          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
-            <AlertTriangle className="h-5 w-5 mr-2" />
-            {error}
-          </div>
-        )}
-
         {/* Progress Bar */}
-        <div className="bg-surface rounded-lg shadow mb-6 p-4">
+        {activeTab !== 'history' && <div className="bg-surface rounded-lg shadow mb-6 p-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-medium text-content-secondary">{t('docPreOp.checklistProgressLabel')}</h3>
             <span className="text-sm text-content-muted">{t('docPreOp.itemsCompleteLine', { done: checklistProgress, total: totalChecklistItems })}</span>
@@ -381,7 +409,7 @@ export default function PreOpPage() {
               style={{ width: `${(checklistProgress / totalChecklistItems) * 100}%` }}
             />
           </div>
-        </div>
+        </div>}
 
         {/* Tabs */}
         <div className="bg-surface rounded-lg shadow mb-6">
@@ -423,43 +451,22 @@ export default function PreOpPage() {
         </div>
 
         {activeTab === 'assessment' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Column - Patient & Surgery Info */}
             <div className="lg:col-span-1 space-y-4">
               {/* Patient Selection */}
-              <div className="bg-surface rounded-lg shadow p-4">
+              <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-brand" />
                   {t('docPreOp.selectPatientHeading')}
                 </h2>
-                <div className="relative mb-4">
-                  <label htmlFor="preop-search-patients" className="sr-only">{t('docPreOp.searchPatientsSrLabel')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    id="preop-search-patients"
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('docPreOp.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
-                  />
-                </div>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {filteredPatients.map(patient => (
-                    <button
-                      key={patient.patient_id}
-                      onClick={() => setSelectedPatient(patient)}
-                      className={`w-full text-left p-3 rounded-lg transition-colors ${
-                        selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-surface-sunken border-2 border-indigo-500'
-                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                      }`}
-                    >
-                      <p className="font-medium text-content">{patient.full_name}</p>
-                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                    </button>
-                  ))}
-                </div>
+                <PatientSelect
+                  id="preop-search-patients"
+                  label={t('docPreOp.searchPatientsSrLabel')}
+                  value={selectedPatient?.patient_id ?? ''}
+                  onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+                />
               </div>
 
               {/* Surgery Information */}
@@ -518,9 +525,10 @@ export default function PreOpPage() {
                     <select
                       id="preop-anesthesia-type"
                       value={anesthesiaType}
-                      onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType)}
+                      onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType | '')}
                       className="w-full p-2 border border-border-interactive rounded"
                     >
+                      <option value="">{t('docPreOp.anesthesiaNotChosen')}</option>
                       {anesthesiaTypes.map(type => (
                         <option key={type.value} value={type.value}>{type.label}</option>
                       ))}
@@ -556,18 +564,19 @@ export default function PreOpPage() {
                       className="w-full p-2 border border-border-interactive rounded"
                     />
                   </div>
-                  <label htmlFor="preop-npo-compliant" className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      id="preop-npo-compliant"
-                      type="checkbox"
-                      checked={npoStatus.compliant}
-                      onChange={() => setNpoStatus(prev => ({ ...prev, compliant: !prev.compliant }))}
-                      className="rounded border-border-interactive text-ok-subtle-fg"
-                    />
-                    <span className={`font-medium ${npoStatus.compliant ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg'}`}>
-                      {npoStatus.compliant ? t('docPreOp.npoCompliant') : t('docPreOp.npoNotCompliant')}
-                    </span>
-                  </label>
+                  {/* Unchosen is "not recorded"; tapping the chosen chip again clears it. */}
+                  <ChoiceChips
+                    id="preop-npo-compliant"
+                    label={t('docPreOp.npoComplianceLabel')}
+                    hint={t('docPreOp.npoNotRecorded')}
+                    value={npoStatus.compliant === undefined ? undefined : String(npoStatus.compliant)}
+                    onChange={(next) => setNpoStatus(prev => ({ ...prev,
+                      compliant: next === undefined ? undefined : next === 'true' }))}
+                    options={[
+                      { value: 'true', label: t('docPreOp.npoCompliant') },
+                      { value: 'false', label: t('docPreOp.npoNotCompliant') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -581,18 +590,25 @@ export default function PreOpPage() {
                   {t('docPreOp.asaHeading')}
                 </h2>
                 {/* ASA physical status is a single mutually-exclusive choice, so
-                    it is a radio group. As bare <button>s, assistive tech was told
+                    it is a radio group. As bare <button type="button">s, assistive tech was told
                     neither that the options are alternatives nor which one is
                     selected — the selection was conveyed only by colour and a
                     check glyph. */}
-                <div className="space-y-3" role="radiogroup" aria-label={t('docPreOp.asaClassLabel')}>
+                <div className="space-y-3" role="radiogroup" aria-label={t('docPreOp.asaClassLabel')}
+                  ref={asaGroupRef}
+                  aria-invalid={asaMissing || undefined}
+                  aria-describedby={asaMissing ? 'preop-save-error' : undefined}>
                   {asaClassifications.map(asa => (
                     <button
                       key={asa.value}
                       type="button"
                       role="radio"
                       aria-checked={asaClass === asa.value}
-                      onClick={() => setAsaClass(asa.value)}
+                      onClick={() => {
+                        setAsaClass(asa.value);
+                        // The refusal is answered; leave no stale message by Save.
+                        if (asaMissing) { setAsaMissing(false); setError(''); }
+                      }}
                       className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
                         asaClass === asa.value
                           ? getAsaColor(asa.value) + ' border-2'
@@ -651,57 +667,57 @@ export default function PreOpPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.mouthOpeningLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-mouth-opening"
-                      value={airwayAssessment.mouthOpening}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value=">3cm">{t('docPreOp.mouthOpening_normal')}</option>
-                      <option value="2-3cm">{t('docPreOp.mouthOpening_limited')}</option>
-                      <option value="<2cm">{t('docPreOp.mouthOpening_restricted')}</option>
-                    </select>
+                      label={t('docPreOp.mouthOpeningLabel')}
+                      value={airwayAssessment.mouthOpening || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: next ?? '' }))}
+                      options={[
+                        { value: '>3cm', label: t('docPreOp.mouthOpening_normal') },
+                        { value: '2-3cm', label: t('docPreOp.mouthOpening_limited') },
+                        { value: '<2cm', label: t('docPreOp.mouthOpening_restricted') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.thyromentalLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-thyromental-distance"
-                      value={airwayAssessment.thyromental}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, thyromental: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value=">6cm">{t('docPreOp.thyromental_normal')}</option>
-                      <option value="6-6.5cm">{t('docPreOp.thyromental_borderline')}</option>
-                      <option value="<6cm">{t('docPreOp.thyromental_short')}</option>
-                    </select>
+                      label={t('docPreOp.thyromentalLabel')}
+                      value={airwayAssessment.thyromental || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, thyromental: next ?? '' }))}
+                      options={[
+                        { value: '>6cm', label: t('docPreOp.thyromental_normal') },
+                        { value: '6-6.5cm', label: t('docPreOp.thyromental_borderline') },
+                        { value: '<6cm', label: t('docPreOp.thyromental_short') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.neckMobilityLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-neck-mobility"
-                      value={airwayAssessment.neckMobility}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, neckMobility: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="full">{t('docPreOp.neckMobility_full')}</option>
-                      <option value="limited">{t('docPreOp.neckMobility_limited')}</option>
-                      <option value="fixed">{t('docPreOp.neckMobility_fixed')}</option>
-                    </select>
+                      label={t('docPreOp.neckMobilityLabel')}
+                      value={airwayAssessment.neckMobility || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, neckMobility: next ?? '' }))}
+                      options={[
+                        { value: 'full', label: t('docPreOp.neckMobility_full') },
+                        { value: 'limited', label: t('docPreOp.neckMobility_limited') },
+                        { value: 'fixed', label: t('docPreOp.neckMobility_fixed') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.dentitionLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="preop-dentition"
-                      value={airwayAssessment.dentition}
-                      onChange={(e) => setAirwayAssessment(prev => ({ ...prev, dentition: e.target.value }))}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="intact">{t('docPreOp.dentition_intact')}</option>
-                      <option value="loose">{t('docPreOp.dentition_loose')}</option>
-                      <option value="dentures">{t('docPreOp.dentition_dentures')}</option>
-                      <option value="edentulous">{t('docPreOp.dentition_edentulous')}</option>
-                    </select>
+                      label={t('docPreOp.dentitionLabel')}
+                      value={airwayAssessment.dentition || undefined}
+                      onChange={(next) => setAirwayAssessment(prev => ({ ...prev, dentition: next ?? '' }))}
+                      options={[
+                        { value: 'intact', label: t('docPreOp.dentition_intact') },
+                        { value: 'loose', label: t('docPreOp.dentition_loose') },
+                        { value: 'dentures', label: t('docPreOp.dentition_dentures') },
+                        { value: 'edentulous', label: t('docPreOp.dentition_edentulous') },
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -740,7 +756,7 @@ export default function PreOpPage() {
               </div>
 
               {/* Medical History & Allergies */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
                     <Heart className="h-5 w-5 mr-2 text-critical" />
@@ -775,7 +791,7 @@ export default function PreOpPage() {
                       value={newAllergy}
                       onChange={(e) => setNewAllergy(e.target.value)}
                       placeholder={t('docPreOp.addAllergyPh')}
-                      className="flex-1 p-2 border border-border-interactive rounded text-sm"
+                      className="min-w-0 flex-1 p-2 border border-border-interactive rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addAllergy()}
                     />
                     <button
@@ -804,14 +820,14 @@ export default function PreOpPage() {
                       </span>
                     ))}
                     {allergies.length === 0 && (
-                      <span className="text-content-muted text-sm">{t('docPreOp.nkda')}</span>
+                      <span className="text-content-muted text-sm">{t('docPreOp.noDraftAllergies')}</span>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Medications */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
                     <Pill className="h-5 w-5 mr-2 text-notice-subtle-fg" />
@@ -825,7 +841,7 @@ export default function PreOpPage() {
                       value={newMedication}
                       onChange={(e) => setNewMedication(e.target.value)}
                       placeholder={t('docPreOp.addMedicationPh')}
-                      className="flex-1 p-2 border border-border-interactive rounded text-sm"
+                      className="min-w-0 flex-1 p-2 border border-border-interactive rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addMedication()}
                     />
                     <button
@@ -879,7 +895,7 @@ export default function PreOpPage() {
               </div>
 
               {/* Labs & Consents */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 <div className="bg-surface rounded-lg shadow p-4">
                   <h3 className="font-bold text-content mb-3 flex items-center">
                     <Activity className="h-5 w-5 mr-2 text-ok" />
@@ -942,12 +958,19 @@ export default function PreOpPage() {
                 />
               </div>
 
+              {/* Every error here comes from Save, so it is shown beside Save. */}
+              {error && (
+                <div id="preop-save-error" role="alert" className="mb-4 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                  {error}
+                </div>
+              )}
+
               {/* Submit Button */}
               <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={isSubmitting || !selectedPatient}
-                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait bg-indigo-600 text-white px-8 py-3 rounded-lg hover:bg-indigo-700 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -964,6 +987,7 @@ export default function PreOpPage() {
               </div>
             </div>
           </div>
+          </form>
         )}
 
         {activeTab === 'checklist' && (
@@ -1051,6 +1075,8 @@ export default function PreOpPage() {
               </div>
             ) : recordsLoading ? (
               <div className="text-center py-8 text-content-muted">{t('docPreOp.loadingRecords')}</div>
+            ) : recordsError ? (
+              <p role="alert" className="p-4 text-critical-subtle-fg">{recordsError}</p>
             ) : recentRecords.length === 0 ? (
               <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -1066,6 +1092,7 @@ export default function PreOpPage() {
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableSurgery')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableAsaClass')}</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.dateLabel')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.detailsHeading')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -1075,6 +1102,12 @@ export default function PreOpPage() {
                         <td className="px-4 py-2">{rec.scheduled_surgery || rec.surgery || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.asa_class || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? formatDateOnly(rec.created_at * 1000) : '-')}</td>
+                        <td className="px-4 py-2">
+                          <details className="rounded border border-border-interactive p-3">
+                            <summary className="cursor-pointer font-medium">{t('docPreOp.savedDetails')}</summary>
+                            <div className="mt-3"><StoredValue value={rec} /></div>
+                          </details>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1083,7 +1116,7 @@ export default function PreOpPage() {
             )}
           </div>
         )}
-      </div>
+      </fieldset>
     </div>
   );
 }

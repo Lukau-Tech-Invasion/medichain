@@ -50,10 +50,11 @@ active index key is enforced.
 
 Identifiers match exactly, never as substrings (amended 2026-09-19). A query
 finds a patient when it equals their record ID or health ID (case-insensitive),
-their wallet address, or a national ID — compared through
+or a national ID — compared through
 `hash_national_id` — or when every name token in it is one of theirs. The first
-implementation matched `ILIKE '%query%'` against the national-ID digest and the
-wallet address; a hex digest contains `ed`, `ab` or `abebe` by chance, so a
+implementation matched `ILIKE '%query%'` against the national-ID digest and an
+account-address column since removed (ADR-0010); a hex digest contains `ed`,
+`ab` or `abebe` by chance, so a
 short name returned unrelated patients in the picker a clinician uses to choose
 whose record to write into. Both backends share
 `repositories::patient_search::PatientSearchCriteria`.

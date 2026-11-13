@@ -3,40 +3,18 @@
  * 
  * Typed HTTP client for interacting with the MediChain REST API.
  * Features:
- * - Wallet-based authentication via X-User-Id header
+ * - Bearer-token authentication (JWT access token, HttpOnly refresh cookie)
  * - Automatic retry with exponential backoff
  * - Request timeout handling
  * - Connection health monitoring
  * - Proper error recovery
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
+import { offlineIntentFor, type OfflineRoute } from '../utils/offlinePolicy';
 import type { ApiError } from '../types';
-import { 
-  API_CONFIG, 
-  debugLog, 
-  sleep, 
-  calculateBackoff,
-  isValidWalletAddress,
-  getConnectedWalletAddress 
-} from '../config';
-import { OfflineQueue } from '../utils/offlineQueue';
-
-/**
- * SHA-256 hex digest of `text`, empty-string input hashing to the digest of
- * an empty body. Used to bind a request's signature to its exact body
- * (Horizon HZ-007) — same `crypto.subtle.digest` pattern already used in
- * `wallet/service.ts`'s `blake2Hash`.
- */
-async function sha256Hex(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
+import { API_CONFIG, debugLog, sleep, calculateBackoff } from '../config';
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -48,6 +26,8 @@ export interface ApiClientConfig {
 }
 
 export interface RequestOptions {
+  /** Owner of a hash-addressed document; used only to select an existing audit purpose. */
+  patientId?: string;
   /** Skip retry logic for this request */
   noRetry?: boolean;
   /**
@@ -77,12 +57,36 @@ export interface RequestOptions {
    * a false success. Replay is safe because the queue item's id becomes the
    * `Idempotency-Key`; see `utils/syncQueue.ts`.
    */
+  /** Internal: a replay of a queued item, which must never queue again. */
+  noOfflineQueue?: boolean;
   queueWhenOffline?: {
     category: 'medical-records' | 'appointments' | 'medications' | 'lab-results' | 'documents' | 'images';
     description: string;
     patientId?: string;
+    /** Not sent after this long (ms); absent = no limit. */
+    expiresInMs?: number;
   };
 }
+
+/** Asked for a verified Class C authorization id; `undefined` when cancelled. */
+export type TransactionAuthorizer = (intent: {
+  action: string;
+  method: string;
+  path: string;
+  body_digest?: string;
+  resource_id?: string;
+  expected_state?: string;
+  idempotency_key?: string;
+}) => Promise<string | undefined>;
+
+/** SHA-256 of a UTF-8 string, as lowercase hex -- what the server's `body_digest` is. */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** Directory reads: each carries the clinician's stated purpose and is audited server-side. */
+const DIRECTORY_READ_PATHS = new Set(['/api/patients', '/api/patients/paediatric-caseload']);
 
 /**
  * Pull the `{ message, code }` out of any error response body the backend can
@@ -177,6 +181,46 @@ export function getApiErrorCode(error: unknown): string | undefined {
   return typeof nested === 'string' ? nested : undefined;
 }
 
+/**
+ * Decode one URL path segment without throwing on malformed escapes.
+ *
+ * @param segment - A raw path segment.
+ * @returns The decoded segment, or the raw text when it is not valid encoding.
+ */
+function safeDecodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/** The patient chart a clinician has open, and their declared reason for opening it. */
+export interface PatientAccessContext {
+  /** Patient record id as it appears in API paths (e.g. `PAT-001`). */
+  patientId: string;
+  /** Reason code: Treatment, Referral, Emergency, Administrative, or free text. */
+  reason: string;
+  /**
+   * Server-issued access context (WP10). When present it is sent with every
+   * read of this patient, and the server records the reason it holds for the
+   * context rather than the declared header.
+   */
+  contextId?: string;
+}
+
+/**
+ * A write the server accepted. `body` and `response` are the objects as sent
+ * and as parsed, handed over in memory only; listeners must not store them
+ * anywhere that outlives the tab (they can carry clinical content).
+ */
+export interface SucceededMutation {
+  method: string;
+  path: string;
+  body?: unknown;
+  response?: unknown;
+}
+
 export class ApiClient {
   private baseUrl: string;
   private userId?: string;
@@ -187,20 +231,33 @@ export class ApiClient {
   private connectionListeners: ((connected: boolean) => void)[] = [];
   private isConnected: boolean = true;
   private lastHealthCheck: number = 0;
-  private signatureProvider: ((message: string) => Promise<string>) | null = null;
-  private offlineQueue: OfflineQueue;
   // JWT auth (Phase 9.4): when set, requests send `Authorization: Bearer <access>`
   // and transparently refresh on a 401 using the refresh token.
   private accessToken?: string;
-  private refreshToken?: string;
   /**
    * True once a JWT session existed and then ended (logout, or a refresh that
-   * failed). Latched rather than derived, because "no token right now" cannot
-   * distinguish a demo client that never signed in from a session that was
-   * revoked a moment ago -- and those two must not get the same identity.
+   * failed). Latched so that a revoked session is never silently refreshed back
+   * to life by a request that was already in flight.
    */
   private sessionEnded = false;
   private refreshPromise: Promise<boolean> | null = null;
+  /** Set when the last refresh could not reach the server at all. */
+  private refreshUnreachable = false;
+  // A response from an older login must not undo logout or replace a new login.
+  private sessionGeneration = 0;
+  /**
+   * The chart a clinician currently has open and why they opened it. Sent as
+   * `X-Access-Reason` on reads of that patient so the patient's access history
+   * can say *why*, not just *who* and *when*.
+   */
+  private patientAccessContext?: PatientAccessContext;
+  /** Stated once for this portal session before any directory rows load. */
+  private directoryPurpose?: string;
+  /**
+   * Writes this portal keeps on the device when there is no signal
+   * (`utils/offlinePolicy.ts`). Empty unless the portal opts in.
+   */
+  private offlineRoutes: readonly OfflineRoute[] = [];
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -209,54 +266,38 @@ export class ApiClient {
     this.maxRetries = config.maxRetries ?? API_CONFIG.MAX_RETRIES;
     this.onError = config.onError;
     this.onConnectionChange = config.onConnectionChange;
-    this.offlineQueue = new OfflineQueue();
   }
 
   /**
-   * Set the user ID (wallet address) for authenticated requests
+   * Record which user (`user_id`, a UUID) this client is signed in as.
+   *
+   * This is display and routing state only -- for example so the event stream
+   * can tell whose events to show. It is never sent as a credential: the API
+   * derives identity from the verified bearer token alone.
    */
+  /** Opt this portal's listed writes in to the offline queue. */
+  setOfflineRoutes(routes: readonly OfflineRoute[]): void {
+    this.offlineRoutes = routes;
+  }
+
   setUserId(userId: string | undefined): void {
-    if (userId && !isValidWalletAddress(userId)) {
-      debugLog('ApiClient', `Warning: Invalid wallet address format: ${userId?.substring(0, 10)}...`);
-    }
     this.userId = userId;
     debugLog('ApiClient', `User ID ${userId ? 'set' : 'cleared'}`);
-  }
-
-  /**
-   * Set a provider function that can sign messages
-   */
-  setSignatureProvider(provider: ((message: string) => Promise<string>) | null): void {
-    this.signatureProvider = provider;
-  }
-
-  /**
-   * The signer currently attached, if any.
-   *
-   * Sign-in needs to know whether this client can prove control of a key before
-   * it claims a session: an identity with no signer cannot obtain a JWT, because
-   * the server verifies a real signature over a single-use challenge in every
-   * mode. Reading it back from here keeps one copy of that state rather than a
-   * second one in the store that could disagree.
-   */
-  getSignatureProvider(): ((message: string) => Promise<string>) | null {
-    return this.signatureProvider;
   }
 
   /**
    * Set JWT access + refresh tokens (Phase 9.4).
    *
    * Once set, requests carry `Authorization: Bearer <access>` and a 401 triggers
-   * a one-time refresh + retry. The shared client does not also send the raw
-   * wallet header: the API derives identity from the verified JWT subject.
-   * Header-only identity remains a demo-only compatibility path when no token
-   * has been established.
+   * a one-time refresh + retry. The API derives identity from the verified JWT
+   * subject; nothing else on the request names a user.
    */
-  setTokens(accessToken: string | undefined, refreshToken?: string): void {
+  setTokens(accessToken: string | undefined, _refreshToken?: string): void {
+    this.sessionGeneration += 1;
+    // The refresh token is an HttpOnly cookie the browser holds and script
+    // cannot read (WP12); the second parameter is accepted and ignored so
+    // older callers keep compiling.
     this.accessToken = accessToken;
-    if (refreshToken !== undefined) {
-      this.refreshToken = refreshToken;
-    }
     if (accessToken) {
       this.sessionEnded = false;
     }
@@ -274,8 +315,11 @@ export class ApiClient {
    */
   async endSession(options?: { allDevices?: boolean }): Promise<boolean> {
     const path = options?.allDevices ? '/api/auth/logout-all' : '/api/auth/logout';
+    const hadAccessToken = Boolean(this.accessToken);
+    const headers = this.getMutationHeaders();
+    this.clearTokens();
     let revoked = false;
-    if (this.accessToken) {
+    if (hadAccessToken) {
       try {
         // Logout is deliberately absent from the middleware's allowlist —
         // it is a keyed-subject mutation like any other — so it needs a key.
@@ -283,7 +327,9 @@ export class ApiClient {
         // while the client cleared its tokens and believed otherwise.
         const resp = await fetch(`${this.baseUrl}${path}`, {
           method: 'POST',
-          headers: this.getMutationHeaders(),
+          headers,
+          // So the server can clear the HttpOnly refresh cookie.
+          credentials: 'include',
         });
         revoked = resp.ok;
       } catch {
@@ -291,25 +337,39 @@ export class ApiClient {
         revoked = false;
       }
     }
-    this.clearTokens();
     return revoked;
   }
 
   /**
    * Clear stored JWT tokens, on logout or on a refresh that failed.
    *
-   * This also latches `sessionEnded`, which is what stops the client silently
-   * reverting to the legacy identity header afterwards. Without that latch, an
-   * expired or *revoked* session degraded into wallet-header identity on the
-   * next request and kept working -- which would make session revocation
-   * unenforceable for any client still holding a signer.
+   * This also latches `sessionEnded`, which stops a request already in flight
+   * from refreshing a session the person has just ended.
    */
   clearTokens(): void {
-    if (this.accessToken || this.refreshToken) {
-      this.sessionEnded = true;
-    }
+    this.sessionGeneration += 1;
+    this.sessionEnded = true;
     this.accessToken = undefined;
-    this.refreshToken = undefined;
+  }
+
+  /**
+   * Re-establish a session after a page reload from the HttpOnly refresh
+   * cookie (WP12). Returns true when the server issued a fresh access token.
+   */
+  async restoreSession(): Promise<boolean> {
+    return this.refreshAccessToken();
+  }
+
+  /**
+   * `restoreSession`, saying *why* it failed. `unreachable` means the server
+   * could not be asked — no signal — and the session may well still be valid;
+   * only `ended` means the server refused it. A clinician who reopens the app
+   * on a ward with no signal must not be treated as signed out.
+   */
+  async restoreSessionOutcome(): Promise<'restored' | 'ended' | 'unreachable'> {
+    this.refreshUnreachable = false;
+    if (await this.refreshAccessToken()) return 'restored';
+    return this.refreshUnreachable ? 'unreachable' : 'ended';
   }
 
   /**
@@ -319,13 +379,6 @@ export class ApiClient {
     return this.accessToken;
   }
 
-  /**
-   * Return the normal identity headers for a direct browser request.
-   *
-   * A verified JWT is always preferred. The optional legacy wallet address is
-   * used only when no session token exists, which keeps local demo flows
-   * working while direct pages are migrated away from `X-User-Id`.
-   */
   /**
    * Headers for a mutation made with a raw `fetch` rather than through this
    * client's own `post`/`put`/`patch`/`delete`.
@@ -344,28 +397,17 @@ export class ApiClient {
    * request with a stable key is a different problem, handled inside
    * `request()`.
    */
-  getMutationHeaders(legacyUserId?: string): Record<string, string> {
+  getMutationHeaders(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      ...this.getSessionHeaders(legacyUserId),
+      ...this.getSessionHeaders(),
       'Idempotency-Key': createOperationKey(),
     };
   }
 
-  getSessionHeaders(legacyUserId?: string): Record<string, string> {
-    if (this.accessToken) {
-      return { Authorization: `Bearer ${this.accessToken}` };
-    }
-
-    // A session that existed and ended must not silently become a weaker
-    // identity. Only a client that never held one -- the demo path -- may
-    // fall back to the legacy header.
-    if (this.sessionEnded) {
-      return {};
-    }
-
-    const userId = legacyUserId ?? this.userId;
-    return userId ? { 'X-User-Id': userId } : {};
+  /** The `Authorization` header for the current session, or none when signed out. */
+  getSessionHeaders(): Record<string, string> {
+    return this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {};
   }
 
   /**
@@ -373,31 +415,54 @@ export class ApiClient {
    * share a single in-flight refresh. Returns true on success.
    */
   private async refreshAccessToken(): Promise<boolean> {
-    if (!this.refreshToken) {
-      return false;
-    }
+    if (this.sessionEnded) return false;
     if (this.refreshPromise) {
       return this.refreshPromise;
     }
+    const generation = this.sessionGeneration;
+    const expectedUserId = this.userId;
     this.refreshPromise = (async () => {
+      // Whether the server answered the refresh at all. Only a refresh that
+      // never reached it is "unreachable"; once a token has been issued, a
+      // failure to verify whose it is still clears the session (below).
+      let answered = false;
       try {
+        // The refresh token travels as the HttpOnly cookie (WP12).
         const resp = await fetch(`${this.baseUrl}/api/auth/jwt/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: this.refreshToken }),
+          credentials: 'include',
         });
+        answered = true;
+        if (generation !== this.sessionGeneration) return false;
         if (!resp.ok) {
           this.clearTokens();
           return false;
         }
         const data = await resp.json();
-        if (data?.access_token && data?.refresh_token) {
+        if (generation !== this.sessionGeneration) return false;
+        if (typeof data?.access_token === 'string' && data.access_token.length > 0) {
+          const identityMatches = await this.matchesRestoredIdentity(data.access_token, expectedUserId);
+          if (generation !== this.sessionGeneration || expectedUserId !== this.userId) return false;
+          if (!identityMatches) {
+            this.clearTokens();
+            return false;
+          }
           this.accessToken = data.access_token as string;
-          this.refreshToken = data.refresh_token as string;
+          this.sessionEnded = false;
           return true;
         }
+        this.clearTokens();
         return false;
       } catch {
+        // The server could not be reached, so it has not said the session is
+        // over. Clearing the tokens here latched `sessionEnded`, and the
+        // clinician who lost signal mid-shift was signed out the moment it
+        // came back. Leave the session as it is and try again later.
+        if (generation === this.sessionGeneration) {
+          if (answered) this.clearTokens();
+          else this.refreshUnreachable = true;
+        }
         return false;
       } finally {
         this.refreshPromise = null;
@@ -406,11 +471,31 @@ export class ApiClient {
     return this.refreshPromise;
   }
 
+  /** Verify a rotated cookie still belongs to this tab's displayed account. */
+  private async matchesRestoredIdentity(token: string, expectedUserId?: string): Promise<boolean> {
+    if (!expectedUserId) return true;
+    // Cookies are shared by same-origin portals. Another tab may have signed
+    // in as someone else; validate with the server before installing its token.
+    const response = await fetch(`${this.baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'same-origin',
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!response.ok) return false;
+    const identity = await response.json();
+    return identity?.user_id === expectedUserId;
+  }
+
   /**
    * Get the current user ID
    */
   getUserId(): string | undefined {
     return this.userId;
+  }
+
+  /** Opaque local login revision for invalidating caches without exposing credentials. */
+  getSessionRevision(): number {
+    return this.sessionGeneration;
   }
 
   /**
@@ -429,15 +514,6 @@ export class ApiClient {
       this.onConnectionChange?.(connected);
       this.connectionListeners.forEach(listener => listener(connected));
       debugLog('ApiClient', `Connection status: ${connected ? 'connected' : 'disconnected'}`);
-      
-      // If we just reconnected, process the offline queue
-      if (connected) {
-        this.offlineQueue.processQueue({
-          request: (method, path, body) => this.request(method, path, body),
-        }).catch(err => {
-          debugLog('ApiClient', 'Error processing offline queue after reconnection:', err);
-        });
-      }
     }
   }
 
@@ -489,6 +565,164 @@ export class ApiClient {
   }
 
   /**
+   * Declare (or clear) the patient chart the clinician has open and the reason.
+   *
+   * @param context - The open chart and declared reason, or undefined when the
+   *   chart is closed. Always clear it on leaving a chart, so a later read of a
+   *   different patient cannot inherit this patient's reason.
+   */
+  setPatientAccessContext(context: PatientAccessContext | undefined): void {
+    this.patientAccessContext = context;
+  }
+
+  /** Set the clinician's declared purpose for browsing the patient directory. */
+  setDirectoryPurpose(purpose: string | undefined): void {
+    this.directoryPurpose = purpose;
+  }
+
+  /** Reuse the clinician's declared purpose when a workflow opens a chart. */
+  getDirectoryPurpose(): string | undefined {
+    return this.directoryPurpose;
+  }
+
+  /**
+   * Headers declaring why a patient's data is being read, when applicable.
+   *
+   * @param method - HTTP method of the request.
+   * @param path - Request path (may include a query string).
+   * @returns `{ 'X-Access-Reason': reason }` for a GET whose path names the
+   *   patient in the open chart; otherwise an empty object.
+   */
+  private accessReasonHeaders(method: string, path: string, patientId?: string): Record<string, string> {
+    if (method.toUpperCase() !== 'GET') return {};
+    if (DIRECTORY_READ_PATHS.has(path.split('?')[0]) && this.directoryPurpose) {
+      return { 'X-Access-Reason': this.directoryPurpose };
+    }
+    const context = this.patientAccessContext;
+    if (!context) return {};
+    // Match whole path segments only, so PAT-1 never matches PAT-10.
+    const segments = path.split('?')[0].split('/').map(safeDecodeSegment);
+    if (patientId ? patientId !== context.patientId : !segments.includes(context.patientId)) return {};
+    return context.contextId
+      ? { 'X-Access-Reason': context.reason, 'X-Access-Context': context.contextId }
+      : { 'X-Access-Reason': context.reason };
+  }
+
+  private mutationListeners = new Set<(mutation: SucceededMutation) => void>();
+
+  /**
+   * Be told about every mutation the server accepted (2xx).
+   *
+   * The patient workspace uses this to list what was saved during a visit
+   * without each of the 58 forms reporting it: whichever form is open when a
+   * write succeeds is the form that wrote it. Returns an unsubscribe function.
+   */
+  onMutationSucceeded(listener: (mutation: SucceededMutation) => void): () => void {
+    this.mutationListeners.add(listener);
+    return () => {
+      this.mutationListeners.delete(listener);
+    };
+  }
+
+  private announceMutation(method: string, path: string, body?: unknown, response?: unknown): void {
+    const mutation: SucceededMutation = { method: method.toUpperCase(), path: path.split('?')[0], body, response };
+    this.mutationListeners.forEach((listener) => {
+      try {
+        listener(mutation);
+      } catch {
+        // A listener's failure must never turn a successful save into an error.
+      }
+    });
+  }
+
+  /**
+   * The submission whose mutations are in flight, if one is (see
+   * `withOperationScope`).
+   */
+  private operationScope?: { base: string; counts: Map<string, number> };
+
+  /**
+   * Run `send` so that every mutation it issues carries an idempotency key
+   * derived from `base`: `<base>:<METHOD> <path>#<n>`, n counting per path.
+   *
+   * # Why
+   *
+   * Keys used to be fresh per request, so a double tap -- or Save pressed again
+   * after a timeout that had in fact succeeded -- reached the server as two
+   * different operations and wrote the record twice. A form now derives `base`
+   * from the content it submits: the same content re-sent reuses the same keys
+   * and the server answers `409 IDEMPOTENCY_DUPLICATE` instead of writing again
+   * (end-to-end operation identifiers make a retry idempotent; Kleppmann,
+   * *DDIA* p.566). Counting per path keeps the keys stable even if an unrelated
+   * mutation elsewhere in the page interleaves with this submission.
+   *
+   * Scopes do not nest; a second concurrent scope replaces the first, which a
+   * single form never does because it refuses to submit while saving.
+   */
+  async withOperationScope<T>(base: string, send: () => Promise<T>): Promise<T> {
+    this.operationScope = { base, counts: new Map() };
+    try {
+      return await send();
+    } finally {
+      this.operationScope = undefined;
+    }
+  }
+
+  private scopedOperationKey(method: string, path: string): string | undefined {
+    const scope = this.operationScope;
+    if (!scope) return undefined;
+    const slot = `${method.toUpperCase()} ${path.split('?')[0]}`;
+    const n = scope.counts.get(slot) ?? 0;
+    scope.counts.set(slot, n + 1);
+    // The server column is varchar(256); a long path must not push a key past it.
+    return `${scope.base}:${n}:${slot}`.slice(0, 240);
+  }
+
+  private transactionAuthorizer: TransactionAuthorizer | null = null;
+
+  /**
+   * Where a Class C confirmation is asked for. `TransactionAuthorizationHost`
+   * registers itself; with nothing registered a gated mutation fails with the
+   * server's 428, as before.
+   */
+  setTransactionAuthorizer(authorizer: TransactionAuthorizer | null): void {
+    this.transactionAuthorizer = authorizer;
+  }
+
+  /**
+   * Turn a 428 TRANSACTION_AUTHORIZATION_REQUIRED into a verified authorization
+   * for this exact request: the server's intent, the SHA-256 of the bytes this
+   * client sends, and this request's idempotency key. `undefined` when the
+   * person cancels or nothing can confirm.
+   */
+  private async obtainTransactionAuthorization(
+    error: unknown,
+    body: unknown,
+    idempotencyKey: string | undefined,
+  ): Promise<string | undefined> {
+    if (!(error instanceof ApiClientError) || error.status !== 428) return undefined;
+    if (error.code !== 'TRANSACTION_AUTHORIZATION_REQUIRED' || !this.transactionAuthorizer) return undefined;
+    if (body instanceof ArrayBuffer) return undefined;
+    const details = error.details ?? {};
+    const text = (key: string) => (typeof details[key] === 'string' ? (details[key] as string) : undefined);
+    const action = text('action');
+    const method = text('method');
+    const path = text('path');
+    if (!action || !method || !path) return undefined;
+    // Exactly the bytes `executeRequest` transmits.
+    const payload = body ? JSON.stringify(body) : '';
+    return this.transactionAuthorizer({
+      action,
+      method,
+      path,
+      body_digest: await sha256Hex(payload),
+      resource_id: text('resource_id'),
+      expected_state: text('expected_state'),
+      idempotency_key: idempotencyKey,
+    });
+  }
+
+  /**
    * Main request method with retry logic and timeout handling
    */
   private async request<T>(
@@ -499,6 +733,7 @@ export class ApiClient {
     /** Internal: return the bytes rather than parsing JSON (see `getBlob`). */
     asBlob = false
   ): Promise<T> {
+    const requestOwnerUserId = this.userId;
     const maxAttempts = options?.noRetry ? 1 : this.maxRetries + 1;
     const timeout = options?.timeout ?? this.timeout;
     // Generate once per logical mutation, outside the retry loop. Recreating a
@@ -508,12 +743,14 @@ export class ApiClient {
     // server-side deduplication that makes replay safe at all.
     const callerKey = options?.headers?.['Idempotency-Key'];
     const idempotencyKey = isMutationMethod(method)
-      ? (callerKey ?? createOperationKey())
+      ? (callerKey ?? this.scopedOperationKey(method, path) ?? createOperationKey())
       : undefined;
-    const requestHeaders = idempotencyKey
-      ? { ...options?.headers, 'Idempotency-Key': idempotencyKey }
-      : options?.headers;
+    const reasonHeaders = this.accessReasonHeaders(method, path, options?.patientId);
+    let requestHeaders: Record<string, string> = idempotencyKey
+      ? { ...reasonHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey }
+      : { ...reasonHeaders, ...options?.headers };
     let lastError: Error | null = null;
+    let confirmed = false;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -528,9 +765,21 @@ export class ApiClient {
         
       } catch (error) {
         lastError = error as Error;
-        
+
+        // A Class C demand: confirm once, then resend under the same key. The
+        // confirmation is the person's answer, not a retry, so it costs no attempt.
+        if (!confirmed && isMutationMethod(method)) {
+          const authorization = await this.obtainTransactionAuthorization(error, body, idempotencyKey);
+          if (authorization) {
+            confirmed = true;
+            requestHeaders = { ...requestHeaders, 'X-Transaction-Authorization': authorization };
+            attempt -= 1;
+            continue;
+          }
+        }
+
         // Determine if we should retry
-        const shouldRetry = this.isRetryableError(error) && attempt < maxAttempts - 1;
+        const shouldRetry = this.isRetryableError(error, method) && attempt < maxAttempts - 1;
         
         if (shouldRetry) {
           const delay = calculateBackoff(attempt);
@@ -552,12 +801,17 @@ export class ApiClient {
             // restart — so a queued item replayed twice executes once. What
             // remains deliberate is that a caller has to *ask*: see
             // `queueWhenOffline`.
-            if (isMutationMethod(method) && options?.queueWhenOffline) {
+            const offlineIntent = options?.noOfflineQueue
+              ? undefined
+              : (options?.queueWhenOffline ?? offlineIntentFor(this.offlineRoutes, method, path, body));
+            if (isMutationMethod(method) && offlineIntent) {
               const queued = await queueOfflineMutation(
                 method as 'POST' | 'PUT' | 'DELETE',
                 path,
                 body,
-                options.queueWhenOffline
+                offlineIntent,
+                requestOwnerUserId,
+                idempotencyKey,
               );
               if (queued) {
                 throw queued;
@@ -590,6 +844,9 @@ export class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
 
     try {
+      // A binary upload is sent as its bytes, not JSON-encoded.
+      const binary = body instanceof ArrayBuffer ? body : null;
+      const payload: BodyInit | undefined = binary ?? (body ? JSON.stringify(body) : undefined);
       // Build headers fresh each attempt so a refreshed Bearer token is picked up.
       const buildHeaders = async (): Promise<Record<string, string>> => {
         const headers: Record<string, string> = {
@@ -598,65 +855,39 @@ export class ApiClient {
           ...extraHeaders,
         };
 
-        // `getSessionHeaders()` is the single owner of the Bearer-vs-legacy
-        // decision. This used to re-derive the same rule inline and re-assign
-        // the header, which is how two copies of one authentication policy
-        // start to drift apart.
-        const identity = this.getSessionHeaders();
-        Object.assign(headers, identity);
-
-        // Sign only when the legacy identity header is what actually went out.
-        // The signature binds a wallet address, so signing a request that does
-        // not carry that address proves nothing -- and keying off the emitted
-        // header rather than off `this.userId` means the value signed and the
-        // value sent cannot diverge.
-        const legacyIdentity = identity['X-User-Id'];
-        if (legacyIdentity) {
-          if (this.signatureProvider) {
-            const timestamp = Math.floor(Date.now() / 1000).toString();
-            // Bind the signature to this exact method, path, and body
-            // (Horizon HZ-007) — must match exactly what the server's
-            // `SignatureAuthMiddleware` observes and what is actually sent
-            // below (`body ? JSON.stringify(body) : undefined`).
-            const bodyText = body ? JSON.stringify(body) : '';
-            const bodyHash = await sha256Hex(bodyText);
-            const message = `${timestamp}:${legacyIdentity}:${method}:${path}:${bodyHash}`;
-            try {
-              const signature = await this.signatureProvider(message);
-              headers['X-Signature'] = signature;
-              headers['X-Timestamp'] = timestamp;
-            } catch (e) {
-              debugLog('ApiClient', 'Failed to sign request:', e);
-            }
-          }
-        }
+        // `getSessionHeaders()` is the single owner of the identity header.
+        Object.assign(headers, this.getSessionHeaders());
         return headers;
       };
 
       const url = `${this.baseUrl}${path}`;
       debugLog('ApiClient', `${method} ${path}`);
 
+      // Auth routes set and read the HttpOnly refresh cookie (WP12).
+      const credentials: RequestCredentials = path.startsWith('/api/auth/') ? 'include' : 'same-origin';
       let response = await fetch(url, {
         method,
         headers: await buildHeaders(),
-        body: body ? JSON.stringify(body) : undefined,
+        body: payload,
         signal: controller.signal,
+        credentials,
       });
 
       // JWT auto-refresh on 401 (Phase 9.4): refresh once and retry the request.
       if (
         response.status === 401 &&
         this.accessToken &&
-        this.refreshToken &&
-        path !== '/api/auth/jwt/refresh'
+        path !== '/api/auth/jwt/refresh' &&
+        path !== '/api/auth/login'
       ) {
         const refreshed = await this.refreshAccessToken();
         if (refreshed) {
           response = await fetch(url, {
             method,
             headers: await buildHeaders(),
-            body: body ? JSON.stringify(body) : undefined,
+            body: payload,
             signal: controller.signal,
+            credentials,
           });
         }
       }
@@ -685,6 +916,7 @@ export class ApiClient {
           );
         }
         // Return empty object for successful non-JSON responses
+        if (isMutationMethod(method)) this.announceMutation(method, path, body);
         return {} as T;
       }
 
@@ -693,8 +925,16 @@ export class ApiClient {
       if (!response.ok) {
         const { message, code } = extractApiError(data, response.status);
         this.onError?.({ success: false, error: message, code });
-        throw new ApiClientError(message, code, response.status);
+        const details = (data as { error?: { details?: unknown } } | null)?.error?.details;
+        throw new ApiClientError(
+          message,
+          code,
+          response.status,
+          details && typeof details === 'object' ? (details as Record<string, unknown>) : undefined,
+        );
       }
+
+      if (isMutationMethod(method)) this.announceMutation(method, path, body, data);
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
       if (!mode.keepEnvelope && data && typeof data === 'object' && !Array.isArray(data)) {
@@ -735,16 +975,20 @@ export class ApiClient {
   }
 
   /**
-   * Check if an error is retryable
+   * Check if an error is retryable.
+   *
+   * A mutation is retried only when its response was lost (a network error or
+   * timeout). When the server answered with a 5xx it received the request,
+   * and `middleware/idempotency.rs` keeps the key's claim for any 5xx because
+   * the write may have partly committed -- so a retry under the same key can
+   * only be refused as IDEMPOTENCY_DUPLICATE, and that refusal ("already
+   * submitted") replaced the server's real answer even when nothing was saved.
+   * Reads have no such guard and keep retrying a 5xx.
    */
-  private isRetryableError(error: unknown): boolean {
+  private isRetryableError(error: unknown, method: string): boolean {
     if (error instanceof ApiClientError) {
-      // Retry on network errors, timeouts, and 5xx server errors
-      return (
-        error.code === 'NETWORK_ERROR' ||
-        error.code === 'TIMEOUT' ||
-        error.status >= 500
-      );
+      const responseLost = error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT';
+      return responseLost || (!isMutationMethod(method) && error.status >= 500);
     }
     return this.isNetworkError(error);
   }
@@ -793,6 +1037,16 @@ export class ApiClient {
     return this.request('POST', path, body, blobOptions, true);
   }
 
+  /**
+   * Upload a file's bytes as the request body, declared as `contentType`.
+   * Same session, refresh and idempotency handling as every other mutation;
+   * never retried, since a partially received upload is not safe to resend
+   * blindly and the caller can offer the choice to the user.
+   */
+  async postBinary<T>(path: string, bytes: ArrayBuffer, contentType: string): Promise<T> {
+    return this.request<T>('POST', path, bytes, { noRetry: true, headers: { 'Content-Type': contentType } });
+  }
+
   async put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>('PUT', path, body, options);
   }
@@ -822,19 +1076,17 @@ export class ApiClient {
     method: 'POST' | 'PUT' | 'DELETE',
     path: string,
     body: unknown,
-    idempotencyKey: string
+    idempotencyKey: string,
+    /** When the item was written; the server keeps it as the record's time. */
+    recordedAt?: number,
   ): Promise<T> {
+    const headers: Record<string, string> = { 'Idempotency-Key': idempotencyKey };
+    if (recordedAt !== undefined) headers['X-Offline-Recorded-At'] = new Date(recordedAt).toISOString();
     return this.request<T>(method, path, body, {
       noRetry: true,
-      headers: { 'Idempotency-Key': idempotencyKey },
+      noOfflineQueue: true,
+      headers,
     });
-  }
-
-  /**
-   * Get the current offline queue
-   */
-  getOfflineQueue(): OfflineQueue {
-    return this.offlineQueue;
   }
 }
 
@@ -858,9 +1110,12 @@ function createOperationKey(): string {
  */
 export class OfflineQueuedError extends Error {
   public readonly queueItemId: string;
+  public readonly endpoint: string;
 
   constructor(queueItemId: string, endpoint: string) {
-    super(`This device is offline. "${endpoint}" is queued and will be sent when it reconnects.`);
+    // Plain words: this reaches a clinician, and a route path means nothing to them.
+    super('No signal — saved on this device and sent when it reconnects.');
+    this.endpoint = endpoint;
     this.name = 'OfflineQueuedError';
     this.queueItemId = queueItemId;
   }
@@ -875,11 +1130,14 @@ async function queueOfflineMutation(
   method: 'POST' | 'PUT' | 'DELETE',
   path: string,
   body: unknown,
-  intent: NonNullable<RequestOptions['queueWhenOffline']>
+  intent: NonNullable<RequestOptions['queueWhenOffline']>,
+  ownerUserId?: string,
+  operationKey?: string,
 ): Promise<OfflineQueuedError | null> {
   try {
     const { enqueueSyncItem } = await import('../utils/indexedDB');
     const id = await enqueueSyncItem({
+      ownerUserId,
       action: method === 'DELETE' ? 'delete' : 'update',
       endpoint: path,
       method,
@@ -888,8 +1146,11 @@ async function queueOfflineMutation(
       description: intent.description,
       priority: 'medium',
       patientId: intent.patientId,
-    });
+      ...(intent.expiresInMs ? { expiresAt: Date.now() + intent.expiresInMs } : {}),
+    }, operationKey);
     debugLog('ApiClient', `Queued ${method} ${path} for replay as ${id}`);
+    // Lets a portal's unsent counter update at once rather than on its next poll.
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('medichain:offline-queued'));
     return new OfflineQueuedError(id, path);
   } catch (error) {
     debugLog('ApiClient', `Could not queue ${method} ${path}: ${String(error)}`);
@@ -903,12 +1164,15 @@ async function queueOfflineMutation(
 export class ApiClientError extends Error {
   public readonly code: string;
   public readonly status: number;
+  /** The server's `error.details`, when it sent any. */
+  public readonly details?: Record<string, unknown>;
 
-  constructor(message: string, code: string, status: number) {
+  constructor(message: string, code: string, status: number, details?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiClientError';
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 
   /**
@@ -954,29 +1218,11 @@ let defaultClient: ApiClient | null = null;
 
 /**
  * Get the default API client instance
- * Auto-initializes with stored userId if available
  */
 export function getApiClient(): ApiClient {
   if (!defaultClient) {
-    // Auto-initialize with default config and stored wallet address
-    const storedWallet = getConnectedWalletAddress();
-    defaultClient = new ApiClient({
-      baseUrl: API_CONFIG.BASE_URL,
-      userId: storedWallet || undefined,
-    });
-    debugLog('ApiClient', `Auto-initialized with default config${storedWallet ? ` and userId: ${storedWallet.substring(0, 12)}...` : ''}`);
+    defaultClient = new ApiClient({ baseUrl: API_CONFIG.BASE_URL });
+    debugLog('ApiClient', 'Auto-initialized with default config');
   }
   return defaultClient;
 }
-
-/**
- * Sync the API client userId with the stored wallet address
- * Call this after login/logout to ensure the client has the correct userId
- */
-export function syncApiClientUserId(): void {
-  const client = getApiClient();
-  const storedWallet = getConnectedWalletAddress();
-  client.setUserId(storedWallet || undefined);
-  debugLog('ApiClient', `Synced userId: ${storedWallet ? storedWallet.substring(0, 12) + '...' : '(none)'}`);
-}
-

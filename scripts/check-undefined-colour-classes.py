@@ -5,7 +5,7 @@ Tailwind emits nothing for a class it does not recognise -- no error, no
 warning, no style. The element then takes whatever colour happens to be around
 it. The patient app used `bg-warning-100 text-warning-800` on its sign-in page
 and emergency card, and it has no `warning` palette: in dark mode the demo
-wallet button rendered at 1.0:1, the page's own text colour on the page's own
+account button rendered at 1.0:1, the page's own text colour on the page's own
 background, because the classes that were meant to colour it did not exist.
 
 This reads each app's `tailwind.config.js` for the colour families and keys it

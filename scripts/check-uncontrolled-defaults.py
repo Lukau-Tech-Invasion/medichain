@@ -54,7 +54,10 @@ the one shape that is legitimately constant.
   * a value read from state that is itself wrong — the literal is the signal,
     and `formData.x` is not a literal;
   * a payload assembled by spread or by a helper function rather than written as
-    one object literal;
+    one object literal -- except a page's own `<Page>.form.ts`, whose exported
+    `to<Payload>()` builders are scanned: that is where a form on a reducer
+    keeps the object it files, and moving it there must not move it out of
+    sight;
   * `false` and `0` in *form state*, where they are a blank to be filled in. In
     a payload they are a negative assertion and are reported.
 
@@ -88,6 +91,11 @@ API_CALL = re.compile(
     r"\b(?:create|update|submit|save|post|put|patch)\w*\s*\(\s*(\w+)\s*[,)]", re.I
 )
 
+# `export function toSoapNoteRequest(` in a `<Page>.form.ts` -- the pure builder
+# of the object a reducer-backed form files.
+PAYLOAD_BUILDER = re.compile(r"^export function to[A-Z]\w*\s*\(", re.M)
+RETURN_OBJECT = re.compile(r"\breturn\s*\{")
+
 # A `key: value,` pair.
 FIELD = re.compile(r"^\s*([A-Za-z_]\w*)\s*:\s*(.+?),?\s*$")
 
@@ -109,8 +117,7 @@ BASELINE: dict[tuple[str, str], str] = {
     ("ChainOfCustodyPage.tsx", "status"): "'collected' — the specimen is being collected on this form.",
     ("CriticalValuePage.tsx", "notificationStatus"): "'pending' — nobody has been notified yet.",
     ("FallRiskPage.tsx", "assessment_tool"): "'morse' — the page implements the Morse Fall Scale.",
-    ("PathologyPage.tsx", "status"): "'received' — the specimen is being received on this form.",
-    ("ShiftHandoffPage.tsx", "status"): "'pending' — a handoff is pending until acknowledged.",
+    ("PathologyPage.form.ts", "status"): "'received' — the specimen is being received on this form.",
 }
 
 
@@ -138,6 +145,18 @@ def payload_bodies(source: str) -> list[str]:
     for match in CONST_OBJECT.finditer(source):
         if match.group(1) in sent:
             bodies.append(matching_body(source, match.end())[0])
+    return bodies
+
+
+def builder_bodies(source: str) -> list[str]:
+    """Every object literal returned by a `to<Payload>()` builder in a form module."""
+    bodies = []
+    for match in PAYLOAD_BUILDER.finditer(source):
+        # A top-level function ends at the first unindented closing brace.
+        end = source.find("\n}\n", match.end())
+        function = source[match.end() : end if end != -1 else len(source)]
+        for returned in RETURN_OBJECT.finditer(function):
+            bodies.append(matching_body(function, returned.end())[0])
     return bodies
 
 
@@ -217,10 +236,10 @@ def scan_form_state(source: str) -> list[tuple[str, str]]:
     return found
 
 
-def scan_payloads(source: str) -> list[tuple[str, str]]:
+def scan_payloads(source: str, form_module: bool = False) -> list[tuple[str, str]]:
     """Literal assertions in the object a page posts to the API. Gated."""
     found = []
-    for body in payload_bodies(source):
+    for body in builder_bodies(source) if form_module else payload_bodies(source):
         for name, value in nested_fields(body):
             if ASSERTIVE.match(value) or NEGATIVE.match(value):
                 found.append((name, value))
@@ -236,6 +255,11 @@ def main() -> int:
     payload_findings: list[tuple[str, str, str, str]] = []
 
     for workspace in workspaces:
+        for path in sorted((ROOT / workspace).rglob("*.form.ts")):
+            source = path.read_text(encoding="utf-8", errors="replace")
+            rel = path.relative_to(ROOT).as_posix()
+            for name, value in scan_payloads(source, form_module=True):
+                payload_findings.append((rel, path.name, name, value))
         for path in sorted((ROOT / workspace).rglob("*.tsx")):
             if path.name.endswith(".test.tsx"):
                 continue

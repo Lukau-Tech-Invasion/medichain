@@ -69,11 +69,9 @@ pub async fn create_intubation(
             .filter(|s| !s.is_empty())
             .unwrap_or("emergent")
             .to_string(),
-        intubator_id: body
-            .get("intubator_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+        // This form documents the signed-in clinician's procedure; never trust
+        // a client-supplied actor or leave its canonical attribution blank.
+        intubator_id: current_user.id.clone(),
         assistant_id: body
             .get("assistant_id")
             .and_then(|v| v.as_str())
@@ -89,7 +87,10 @@ pub async fn create_intubation(
             .or_else(|| body.get("pre_oxygenation"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        induction_agents: body.get("induction_agents").cloned(),
+        induction_agents: body
+            .get("induction_agents")
+            .or_else(|| body.get("medications"))
+            .cloned(),
         paralytic_agent: body
             .get("paralytic_agent")
             .and_then(|v| v.as_str())
@@ -100,19 +101,26 @@ pub async fn create_intubation(
             .map(str::to_string),
         laryngoscope_type: body
             .get("laryngoscope_type")
+            .or_else(|| body.get("blade_type"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
         blade_size: body
             .get("blade_size")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+            .filter(|v| v.is_string() || v.is_number())
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| v.to_string())
+            }),
         ett_size: body
             .get("ett_size")
+            .or_else(|| body.get("tube_size"))
             .and_then(|v| v.as_f64())
             .and_then(rust_decimal::Decimal::from_f64_retain)
             .unwrap_or_default(),
         ett_depth_cm: body
             .get("ett_depth_cm")
+            .or_else(|| body.get("tube_depth"))
             .and_then(|v| v.as_f64())
             .and_then(rust_decimal::Decimal::from_f64_retain),
         cuff_pressure_cmh2o: body
@@ -134,7 +142,10 @@ pub async fn create_intubation(
             .unwrap_or(false),
         difficult_airway_features: body.get("difficult_airway_features").cloned(),
         complications: body.get("complications").cloned(),
-        verification_methods: body.get("verification_methods").cloned(),
+        verification_methods: body
+            .get("verification_methods")
+            .or_else(|| body.get("verification"))
+            .cloned(),
         post_intubation_vitals: body.get("post_intubation_vitals").cloned(),
         performed_at: body
             .get("performed_at")
@@ -152,14 +163,17 @@ pub async fn create_intubation(
             "success": true,
             "record_id": record_id
         })),
-        Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
-            error: msg,
+        Err(RepositoryError::Duplicate(_)) => HttpResponse::Conflict().json(ErrorResponse {
+            error: "This intubation record already exists".to_string(),
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("intubation record persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Unable to save the intubation record".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -207,7 +221,7 @@ pub async fn list_intubation_records(
         Err(e) => {
             log::error!("intubation record list failed: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
-                error: e.to_string(),
+                error: "Unable to load intubation records".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
         }
@@ -256,10 +270,13 @@ pub async fn get_intubation(
             error: "Intubation record not found".to_string(),
             code: "NOT_FOUND".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("intubation record lookup failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Unable to load the intubation record".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -433,7 +450,7 @@ pub async fn create_laceration(
         // whatever the caller claimed -- or an empty string when they claimed
         // nothing. The same reasoning as `create_radiology_order`'s
         // `require_actor_is_caller`.
-        performed_by: current_user.wallet_address.clone(),
+        performed_by: current_user.id.clone(),
         performed_at: body
             .get("performed_at")
             .and_then(|v| v.as_str())
@@ -616,6 +633,7 @@ pub async fn create_splint(
             .to_string(),
         laterality: body
             .get("laterality")
+            .or_else(|| body.get("side"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
         fracture_type: body
@@ -624,6 +642,7 @@ pub async fn create_splint(
             .map(str::to_string),
         immobilization_type: body
             .get("immobilization_type")
+            .or_else(|| body.get("type"))
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .unwrap_or("splint")
@@ -641,8 +660,14 @@ pub async fn create_splint(
             .get("padding_type")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        neurovascular_check_pre: body.get("neurovascular_check_pre").cloned(),
-        neurovascular_check_post: body.get("neurovascular_check_post").cloned(),
+        neurovascular_check_pre: body
+            .get("neurovascular_check_pre")
+            .or_else(|| body.get("pre_application_nv"))
+            .cloned(),
+        neurovascular_check_post: body
+            .get("neurovascular_check_post")
+            .or_else(|| body.get("post_application_nv"))
+            .cloned(),
         xray_pre: body.get("xray_pre").and_then(|v| v.as_bool()),
         xray_post: body.get("xray_post").and_then(|v| v.as_bool()),
         reduction_performed: body.get("reduction_performed").and_then(|v| v.as_bool()),
@@ -660,10 +685,17 @@ pub async fn create_splint(
             .map(str::to_string),
         weight_bearing_status: body
             .get("weight_bearing_status")
+            .or_else(|| body.get("weight_bearing"))
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        elevation_instructions: body.get("elevation_instructions").and_then(|v| v.as_bool()),
-        ice_instructions: body.get("ice_instructions").and_then(|v| v.as_bool()),
+        elevation_instructions: body
+            .get("elevation_instructions")
+            .or_else(|| body.get("elevation_instructed"))
+            .and_then(|v| v.as_bool()),
+        ice_instructions: body
+            .get("ice_instructions")
+            .or_else(|| body.get("ice_instructed"))
+            .and_then(|v| v.as_bool()),
         follow_up_date: body
             .get("follow_up_date")
             .and_then(|v| v.as_str())
@@ -676,11 +708,7 @@ pub async fn create_splint(
             .get("removal_date")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()),
-        applied_by: body
-            .get("applied_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+        applied_by: current_user.id.clone(),
         applied_at: body
             .get("applied_at")
             .and_then(|v| v.as_str())
@@ -823,10 +851,10 @@ mod laceration_round_trip_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+    fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -845,7 +873,7 @@ mod laceration_round_trip_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
@@ -871,7 +899,7 @@ mod laceration_round_trip_tests {
 
     async fn post_then_list(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         body: serde_json::Value,
     ) -> (u16, u16, String) {
         let app = test::init_service(
@@ -884,14 +912,14 @@ mod laceration_round_trip_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/clinical/laceration")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(body)
             .to_request();
         let created = test::call_service(&app, req).await.status().as_u16();
 
         let req = test::TestRequest::get()
             .uri("/api/clinical/laceration-repairs")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let listed = resp.status().as_u16();
@@ -972,10 +1000,10 @@ mod procedure_worklist_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+    fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -994,7 +1022,7 @@ mod procedure_worklist_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
@@ -1055,7 +1083,6 @@ mod procedure_worklist_tests {
             dnr_verified_at: None,
             dnr_document_ref: None,
             primary_provider_id: None,
-            wallet_address: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             registered_by: None,
@@ -1070,7 +1097,7 @@ mod procedure_worklist_tests {
 
     async fn post_then_list(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         post_uri: &str,
         list_uri: &str,
         body: serde_json::Value,
@@ -1088,14 +1115,14 @@ mod procedure_worklist_tests {
 
         let req = test::TestRequest::post()
             .uri(post_uri)
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(body)
             .to_request();
         let created = test::call_service(&app, req).await.status().as_u16();
 
         let req = test::TestRequest::get()
             .uri(list_uri)
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let listed = resp.status().as_u16();
@@ -1126,6 +1153,46 @@ mod procedure_worklist_tests {
     }
 
     #[actix_rt::test]
+    async fn intubation_form_measurements_and_authenticated_actor_reach_canonical_columns() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, listed, body) = post_then_list(
+            data,
+            "5Doctor",
+            "/api/clinical/intubation",
+            "/api/clinical/intubation-records",
+            serde_json::json!({ "patientId": "PAT-1", "indication": "Synthetic mapping regression",
+                "tubeSize": 7.5, "tubeDepth": 22, "bladeType": "mac", "bladeSize": 3,
+                "intubatorId": "forged-actor", "performedBy": "forged-actor",
+                "medications": [{ "name": "Synthetic test entry", "dose": "Not administered" }],
+                "verification": { "etco2": false, "chestRise": false }, "attempts": 1 }),
+        )
+        .await;
+        assert_eq!((created, listed), (201, 200));
+        let records: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let record = &records["records"][0];
+        assert_eq!(
+            record["ett_size"].as_str().unwrap().parse::<f64>().unwrap(),
+            7.5
+        );
+        assert_eq!(
+            record["ett_depth_cm"]
+                .as_str()
+                .unwrap()
+                .parse::<f64>()
+                .unwrap(),
+            22.0
+        );
+        assert_eq!(record["intubator_id"], "5Doctor");
+        assert_eq!(record["laryngoscope_type"], "mac");
+        assert_eq!(record["blade_size"], "3");
+        assert_eq!(
+            record["induction_agents"][0]["name"],
+            "Synthetic test entry"
+        );
+        assert_eq!(record["verification_methods"]["etco2"], false);
+    }
+
+    #[actix_rt::test]
     async fn a_splint_appears_on_the_worklist_that_documented_it() {
         let data = state_with(Role::Doctor, "5Doctor");
         let (created, listed, body) = post_then_list(
@@ -1143,6 +1210,41 @@ mod procedure_worklist_tests {
             "not returned: {body}"
         );
         assert!(body.contains("\"id\":\"SPL-"), "no record id: {body}");
+    }
+
+    #[actix_rt::test]
+    async fn splint_form_fields_reach_canonical_columns_without_forged_attribution() {
+        let data = state_with(Role::Doctor, "5Doctor");
+        let (created, listed, body) = post_then_list(
+            data,
+            "5Doctor",
+            "/api/clinical/splint",
+            "/api/clinical/splint-records",
+            serde_json::json!({
+                "patientId":"PAT-1", "appliedBy":"forged-clinician", "type":"cast", "side":"left",
+                "bodyPart":"Thumb spica", "indication":"Joint protection", "weightBearing":"non",
+                "preApplicationNV":{"intact":false,"notes":"Fictional pre-check"},
+                "postApplicationNV":{"intact":true,"notes":"Fictional post-check"},
+                "elevationInstructed":false,"iceInstructed":true
+            }),
+        )
+        .await;
+        assert_eq!((created, listed), (201, 200));
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let record = &value["records"][0];
+        assert_eq!(record["immobilization_type"], "cast");
+        assert_eq!(record["laterality"], "left");
+        assert_eq!(record["weight_bearing_status"], "non");
+        assert_eq!(record["neurovascular_check_pre"]["intact"], false);
+        assert_eq!(
+            record["neurovascular_check_post"]["notes"],
+            "Fictional post-check"
+        );
+        assert_eq!(record["elevation_instructions"], false);
+        assert_eq!(record["ice_instructions"], true);
+        assert_eq!(record["applied_by"], "5Doctor");
+        assert_eq!(record["injury_location"], "");
+        assert_eq!(record["data"]["bodyPart"], "Thumb spica");
     }
 
     /// A patient must not be able to enumerate the ward's procedures.

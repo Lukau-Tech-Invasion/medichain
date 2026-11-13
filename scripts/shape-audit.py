@@ -14,7 +14,8 @@ keys it really returns against the fields the page really reads. Parsing the
 handler's return expression would re-derive the same assumption the bug hides
 in.
 
-Read-only: issues GET requests only. Synthetic data only.
+Read-only: issues GET requests only, as the seeded doctor fixture, signed in
+through POST /api/auth/login. Synthetic data only.
 """
 import json
 import re
@@ -23,8 +24,10 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from auth_proof import derive_auth_proof  # noqa: E402
+
 BASE = "http://127.0.0.1:8090"
-DOCTOR = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
 
 # Fields that are never a payload key: promise/Response members and common
 # locals that would otherwise show up as false mismatches.
@@ -38,10 +41,32 @@ NOT_PAYLOAD = {
 # and excluding them reported correct pages as broken.
 
 
-def curl(path, user=DOCTOR):
-    """GET path, return (status, parsed_json_or_None)."""
+def doctor_token():
+    """Sign in as the seeded doctor fixture and return its bearer token."""
+    manifest = json.loads((REPO / ".browser-test" / "fixtures.json").read_text(encoding="utf-8"))
+    doctor = next(s for s in manifest["staff"] if s["role"] == "Doctor")
+    body = json.dumps({
+        "identifier": doctor["login_id"],
+        "auth_proof": derive_auth_proof(doctor["password"], doctor["login_id"]),
+    })
     out = subprocess.run(
-        ["curl", "-s", "-m", "10", "-w", "\n%{http_code}", "-H", f"X-User-Id: {user}", f"{BASE}{path}"],
+        ["curl", "-s", "-m", "10", "-X", "POST", f"{BASE}/api/auth/login",
+         "-H", "Content-Type: application/json", "-d", body],
+        capture_output=True, text=True,
+    ).stdout
+    return json.loads(out)["access_token"]
+
+
+TOKEN = None
+
+
+def curl(path, token=None):
+    """GET path as the doctor, return (status, parsed_json_or_None)."""
+    global TOKEN
+    if TOKEN is None:
+        TOKEN = doctor_token()
+    out = subprocess.run(
+        ["curl", "-s", "-m", "10", "-w", "\n%{http_code}", "-H", f"Authorization: Bearer {token or TOKEN}", f"{BASE}{path}"],
         capture_output=True, text=True,
     ).stdout
     if "\n" not in out:

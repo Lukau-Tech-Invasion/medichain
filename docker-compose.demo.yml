@@ -1,0 +1,36 @@
+# Presentation (demo) stack: the normal stack, the sealed audit stream exported
+# to a local volume, and the demo sign-in shortcut, switched on together so a
+# demo is never half-configured.
+#
+# Run (both files, in this order):
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+#
+# Why an override and not new defaults: every value below is unsafe outside a
+# demo. `docker-compose.yml` keeps them off so a deployment that inherits it
+# gets the production posture; this file is the explicit, named opt-in.
+#
+# What it turns on, and what still guards it:
+#   - Sealed audit checkpoints. The API exports each sealed batch to the
+#     audit_checkpoints volume. No AUDIT_SEAL_SIGNING_KEY is set here, so
+#     batches are sealed UNSIGNED and verification says so; that is accepted
+#     only because IS_DEMO=true -- the API refuses it in any other mode.
+#   - The "Demo accounts — disabled in production" sign-in buttons. Two gates:
+#     the web bundle is built with VITE_DEMO_MODE=true, and the API answers
+#     `GET /api/auth/demo-credentials` only under MEDICHAIN_DEV_MODE *and* demo
+#     mode. The label says so on screen.
+#
+# Adds no service and no image: only environment and build arguments.
+
+services:
+  api:
+    environment:
+      IS_DEMO: "true"
+      MEDICHAIN_DEV_MODE: "1"
+      AUDIT_CHECKPOINT_SINK: filesystem
+      AUDIT_CHECKPOINT_DIR: /var/lib/medichain/audit-checkpoints
+
+  nginx:
+    build:
+      args:
+        VITE_DEMO_MODE: "true"
+        VITE_DEMO_CREDENTIALS_ENABLED: "true"

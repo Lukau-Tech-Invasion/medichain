@@ -21,7 +21,7 @@ export type ApiErrorCode =
   | 'VALIDATION_ERROR'
   | 'RATE_LIMITED'
   | 'INTERNAL_ERROR'
-  | 'BLOCKCHAIN_ERROR'
+  | 'BAD_GATEWAY'
   | 'SERVICE_UNAVAILABLE'
   | 'NETWORK_ERROR'
   | 'TIMEOUT'
@@ -65,7 +65,7 @@ export function httpStatusToErrorCode(status: number): ApiErrorCode {
     case 422: return 'VALIDATION_ERROR';
     case 429: return 'RATE_LIMITED';
     case 500: return 'INTERNAL_ERROR';
-    case 502: return 'BLOCKCHAIN_ERROR';
+    case 502: return 'BAD_GATEWAY';
     case 503: return 'SERVICE_UNAVAILABLE';
     default: return status >= 500 ? 'INTERNAL_ERROR' : 'UNKNOWN';
   }
@@ -167,10 +167,10 @@ function getApiErrorInfo(error: ApiClientError): ErrorInfo {
         retryable: false
       };
 
-    case 'INVALID_ADDRESS':
+    case 'INVALID_CREDENTIALS':
       return {
-        title: 'Invalid Wallet Address',
-        message: 'The wallet address format is invalid. Please check and try again.',
+        title: 'Sign-in Failed',
+        message: 'The username or password is not correct. Please check and try again.',
         action: 'none',
         retryable: false
       };
@@ -215,10 +215,10 @@ function getApiErrorInfo(error: ApiClientError): ErrorInfo {
         retryable: true
       };
 
-    case 'BLOCKCHAIN_ERROR':
+    case 'BAD_GATEWAY':
       return {
-        title: 'Blockchain Error',
-        message: 'Unable to process blockchain transaction. Please try again.',
+        title: 'Service Error',
+        message: 'The server could not reach a service it depends on. Please try again.',
         action: 'retry',
         retryable: true
       };

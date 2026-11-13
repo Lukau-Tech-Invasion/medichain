@@ -4,13 +4,13 @@ import PatientSelect from '../components/PatientSelect';
 import {
   createGCS,
   getApiErrorMessage,
-  bloodPressureSchema,
   useScoringCatalog,
   useTranslation,
   vitalFlag,
-  addVitalSigns,
   getVitalsFlowsheet,
   formatTimestamp,
+  notifySuccess, submitOnce, useSubmission,
+  useLatestRequest,
 } from '@medichain/shared';
 import type { GcsScale } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 
 import StaffName from '../components/StaffName';
+import { VitalsEntryForm } from '../components/VitalsEntryForm';
+import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
 interface VitalReading {
   reading_id: string;
   patient_id: string;
@@ -49,7 +51,19 @@ interface VitalReading {
   gcs_total: number | null;
   blood_glucose: number | null;
   weight_kg: number | null;
-  notes?: string;
+  notes?: string | null;
+}
+
+/** "Last recorded Nov 9, 9:41 AM · BP 128/82 · Pulse 88 · Temp 36.8 °C" -- only what was measured. */
+export function lastRecordedLine(r: VitalReading, t: (key: string, vars?: Record<string, string>) => string): string {
+  const parts = [
+    r.blood_pressure_systolic != null && r.blood_pressure_diastolic != null
+      ? t('docVitalSigns.lastBp', { bp: `${r.blood_pressure_systolic}/${r.blood_pressure_diastolic}` }) : null,
+    r.heart_rate != null ? t('docVitalSigns.lastPulse', { n: String(r.heart_rate) }) : null,
+    r.temperature_celsius != null ? t('docVitalSigns.lastTemp', { n: String(r.temperature_celsius) }) : null,
+    r.oxygen_saturation != null ? t('docVitalSigns.lastSpo2', { n: String(r.oxygen_saturation) }) : null,
+  ].filter(Boolean);
+  return t('docVitalSigns.lastRecorded', { when: formatTimestamp(r.recorded_at), values: parts.join(' · ') || t('docVitalSigns.lastNothing') });
 }
 
 interface VitalFlowsheet {
@@ -105,6 +119,8 @@ function VitalSignsPage() {
   const patientIdFromUrl = searchParams.get('patientId');
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const workspace = usePatientWorkspace();
+  const gcsSubmission = useSubmission('gcs');
 
   const { user, isAuthenticated } = useAuthStore();
   
@@ -135,6 +151,32 @@ function VitalSignsPage() {
     const flag = vitalFlag(value, key, scoringCatalog);
     return flag === 'critical' || flag === 'abnormal';
   };
+  // The flag in words. The tiles used to say "critical" only with a red border
+  // and a red icon, which a nurse with a colour-vision deficiency, or anyone
+  // using a screen reader, never receives (WCAG 1.4.1).
+  const flagText = (value: number | null, key: string): string | null => {
+    const flag = vitalFlag(value, key, scoringCatalog);
+    if (flag === 'critical') return t('docVitalSigns.flagCritical');
+    if (flag === 'abnormal') return t('docVitalSigns.flagAbnormal');
+    return null;
+  };
+  const flagBadge = (value: number | null, key: string) => {
+    const text = flagText(value, key);
+    return text ? <span className="ml-auto text-xs font-semibold uppercase text-critical-subtle-fg">{text}</span> : null;
+  };
+  // The flowsheet's compact form of the same flag: a mark a colour-blind reader
+  // sees, and a word a screen reader says.
+  const cellFlag = (value: number | null, key: string) => {
+    const text = flagText(value, key);
+    if (!text) return null;
+    const critical = vitalFlag(value, key, scoringCatalog) === 'critical';
+    return (
+      <span className="ml-1 text-xs font-bold" title={text}>
+        <span aria-hidden="true">{critical ? '!!' : '!'}</span>
+        <span className="sr-only">{text}</span>
+      </span>
+    );
+  };
   const gcsScale: GcsScale | null = scoringCatalog?.glasgow_coma_scale ?? null;
   const [gcsEye, setGcsEye] = useState('');
   const [gcsVerbal, setGcsVerbal] = useState('');
@@ -150,6 +192,7 @@ function VitalSignsPage() {
   } | null>(null);
 
   const handleSubmitGcs = async () => {
+    if (gcsSubmitting) return;
     setGcsError(null);
     setGcsResult(null);
     if (!selectedPatientId) {
@@ -166,13 +209,28 @@ function VitalSignsPage() {
 
     try {
       setGcsSubmitting(true);
-      const result = await createGCS({
+      const gcs = {
         patient_id: selectedPatientId,
         eye_response: Number(gcsEye),
         verbal_response: Number(gcsVerbal),
         motor_response: Number(gcsMotor),
         notes: gcsNotes.trim() || undefined,
-      });
+      };
+      let result: Awaited<ReturnType<typeof createGCS>> | undefined;
+      const outcome = await submitOnce(gcsSubmission, gcs, async () => { result = await createGCS(gcs); });
+      if (outcome === 'busy') return;
+      if (!result) {
+        // Kept on this device, or already saved: the server's score is not here
+        // to show, and this page does not compute one (rule 8).
+        setGcsEye('');
+        setGcsVerbal('');
+        setGcsMotor('');
+        setGcsNotes('');
+        notifySuccess(outcome === 'queued'
+          ? `${t('forms.queued')} ${t('clinicianOffline.scoreOffline')}`
+          : t('forms.alreadySaved'));
+        return;
+      }
       // Show what the server scored, not what this page thinks the total is.
       setGcsResult({
         total_score: result.total_score,
@@ -184,6 +242,7 @@ function VitalSignsPage() {
       setGcsVerbal('');
       setGcsMotor('');
       setGcsNotes('');
+      notifySuccess('Glasgow Coma Scale saved.');
     } catch (err) {
       setGcsError(getApiErrorMessage(err, t('docVitalSigns.gcsErrorFailed')));
     } finally {
@@ -193,27 +252,13 @@ function VitalSignsPage() {
 
   const [flowsheet, setFlowsheet] = useState<VitalFlowsheet | null>(null);
   const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  // Opened for a patient -- from their chart, or with ?patientId= -- the form
+  // is the task, so it is open; chosen here, it waits for "Record vitals".
+  const [showForm, setShowForm] = useState(Boolean(patientIdFromUrl || workspace));
   const [showHistory, setShowHistory] = useState(true);
   
-  // New vital signs form
-  const [newVitals, setNewVitals] = useState({
-    heart_rate: '',
-    respiratory_rate: '',
-    bp_systolic: '',
-    bp_diastolic: '',
-    temperature: '',
-    oxygen_saturation: '',
-    pain_scale: '',
-    gcs_total: '',
-    blood_glucose: '',
-    weight_kg: '',
-    notes: '',
-  });
-
   // Auth redirect
   useEffect(() => {
     if (!isAuthenticated) {
@@ -221,10 +266,17 @@ function VitalSignsPage() {
     }
   }, [isAuthenticated, navigate]);
 
+  const beginFlowsheetRead = useLatestRequest();
+
   // Fetch flowsheet when patient is selected
   useEffect(() => {
+    // A reply for the patient selected before this one must not land here.
+    const current = beginFlowsheetRead();
+    // The previous patient's readings come down at once, not when the new
+    // ones arrive: until then they would sit under the new patient's name.
+    setFlowsheet(null);
     if (!selectedPatientId || !user) {
-      setFlowsheet(null);
+      setLoading(false);
       return;
     }
 
@@ -233,81 +285,29 @@ function VitalSignsPage() {
       setError(null);
       try {
         const data = (await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet;
-        setFlowsheet(normalizeFlowsheet(data));
+        if (current()) setFlowsheet(normalizeFlowsheet(data));
       } catch (err) {
-        setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
+        if (current()) setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
       } finally {
-        setLoading(false);
+        if (current()) setLoading(false);
       }
     };
 
     fetchFlowsheet();
-  }, [selectedPatientId, user, t]);
+  }, [selectedPatientId, user, t, beginFlowsheetRead]);
 
-  const handleSubmitVitals = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedPatientId || !user) return;
-
+  const refreshAfterSave = async (queued: boolean) => {
     setError(null);
-    setSuccess(null);
-    // A pair entered the wrong way round reads as profound hypotension; the
-    // server refuses it too, this says so before the round trip.
-    if (newVitals.bp_systolic && newVitals.bp_diastolic) {
-      const bp = bloodPressureSchema.safeParse({
-        systolic: Number(newVitals.bp_systolic),
-        diastolic: Number(newVitals.bp_diastolic),
-      });
-      if (!bp.success) {
-        setError(bp.error.issues[0]?.message ?? t('docVitalSigns.errorRecordVitalsGeneric'));
-        return;
-      }
-    }
-
-    setSubmitting(true);
+    setSuccess(queued ? t('forms.queued') : t('docVitalSigns.recordSuccess'));
+    setShowForm(false);
+    // A reading still on this device is not on the flowsheet yet.
+    if (queued) return;
+    const current = beginFlowsheetRead();
     try {
-      const payload = {
-        patient_id: selectedPatientId,
-        heart_rate: newVitals.heart_rate ? Number(newVitals.heart_rate) : null,
-        respiratory_rate: newVitals.respiratory_rate ? Number(newVitals.respiratory_rate) : null,
-        systolic_bp: newVitals.bp_systolic ? Number(newVitals.bp_systolic) : null,
-        diastolic_bp: newVitals.bp_diastolic ? Number(newVitals.bp_diastolic) : null,
-        temperature_celsius: newVitals.temperature ? Number(newVitals.temperature) : null,
-        oxygen_saturation: newVitals.oxygen_saturation ? Number(newVitals.oxygen_saturation) : null,
-        pain_scale: newVitals.pain_scale ? Number(newVitals.pain_scale) : null,
-        gcs_total: newVitals.gcs_total ? Number(newVitals.gcs_total) : null,
-        blood_glucose: newVitals.blood_glucose ? Number(newVitals.blood_glucose) : null,
-        weight_kg: newVitals.weight_kg ? Number(newVitals.weight_kg) : null,
-        notes: newVitals.notes || null,
-      };
-
-      try {
-        await addVitalSigns(payload);
-      } catch (refused) {
-        throw new Error(getApiErrorMessage(refused, t('docVitalSigns.errorRecordVitals')));
-      }
-
-      setSuccess(t('docVitalSigns.recordSuccess'));
-      setShowForm(false);
-      setNewVitals({
-        heart_rate: '',
-        respiratory_rate: '',
-        bp_systolic: '',
-        bp_diastolic: '',
-        temperature: '',
-        oxygen_saturation: '',
-        pain_scale: '',
-        gcs_total: '',
-        blood_glucose: '',
-        weight_kg: '',
-        notes: '',
-      });
-
-      // Refresh flowsheet
-      setFlowsheet(normalizeFlowsheet((await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet));
+      const data = (await getVitalsFlowsheet(selectedPatientId)) as RawFlowsheet;
+      if (current()) setFlowsheet(normalizeFlowsheet(data));
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('docVitalSigns.errorRecordVitalsGeneric'));
-    } finally {
-      setSubmitting(false);
+      if (current()) setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
     }
   };
 
@@ -325,16 +325,32 @@ function VitalSignsPage() {
           </h1>
           <p className="text-content-muted mt-1">{t('docVitalSigns.subtitle')}</p>
         </div>
-        <Link
-          to="/dashboard"
-          className="text-content-muted hover:text-content flex items-center gap-2"
-        >
-          {t('docVitalSigns.backToDashboard')}
-        </Link>
+        {/* Inside a chart, "Close patient" is the way out (c3/c5). */}
+        {!workspace && (
+          <Link
+            to="/dashboard"
+            className="text-content-muted hover:text-content flex items-center gap-2"
+          >
+            {t('docVitalSigns.backToDashboard')}
+          </Link>
+        )}
       </div>
 
+      {/* Inside a chart the banner already names the patient (c3): no picker,
+          only the way back into the form after a save or cancel. */}
+      {workspace && !showForm && (
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="mb-6 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-brand px-6 py-3 text-brand-fg hover:bg-brand"
+        >
+          <Plus size={20} />
+          {t('docVitalSigns.recordVitalsButton')}
+        </button>
+      )}
+
       {/* Patient Selection */}
-      <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
+      <div className={`bg-surface rounded-xl shadow-sm border border-border p-6 mb-6 ${workspace ? 'hidden' : ''}`}>
         <label htmlFor="vitals-patient-select" className="block text-sm font-medium text-content-secondary mb-2">
           {t('docVitalSigns.selectPatientLabel')}
         </label>
@@ -346,9 +362,10 @@ function VitalSignsPage() {
             placeholder={t('docVitalSigns.selectPatientPlaceholder')}
             className="flex-1"
           />
-          {selectedPatientId && (
+          {selectedPatientId && !showForm && (
             <button
-              onClick={() => setShowForm(!showForm)}
+              type="button"
+              onClick={() => setShowForm(true)}
               className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
             >
               <Plus size={20} />
@@ -358,12 +375,26 @@ function VitalSignsPage() {
         </div>
       </div>
 
+      {/* The vitals form first (mockup c3): the task the page is opened for. */}
+      {showForm && selectedPatientId && (
+        <VitalsEntryForm
+          key={selectedPatientId}
+          patientId={selectedPatientId}
+          lastRecorded={lastReading ? lastRecordedLine(lastReading, t) : null}
+          onCancel={() => setShowForm(false)}
+          onSaved={(queued) => void refreshAfterSave(queued)}
+        />
+      )}
+
       {/* Glasgow Coma Scale.
           Its own card, not a field on the vitals form: the vitals row carries a
           free-typed `gcs_total`, and a total with no eye/verbal/motor behind it
           cannot be checked or trended. */}
       {selectedPatientId && gcsScale && (
-        <div className="mb-6 bg-surface rounded-xl shadow p-6">
+        <form
+          onSubmit={(e) => { e.preventDefault(); void handleSubmitGcs(); }}
+          className="mb-6 bg-surface rounded-xl shadow p-6"
+        >
           <h2 className="text-lg font-semibold text-content mb-1">
             {t('docVitalSigns.gcsHeading')}
           </h2>
@@ -453,14 +484,13 @@ function VitalSignsPage() {
           )}
 
           <button
-            type="button"
-            onClick={handleSubmitGcs}
-            disabled={gcsSubmitting}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
+            type="submit"
+            aria-disabled={gcsSubmitting || undefined}
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg font-medium aria-disabled:cursor-wait min-h-[44px]"
           >
             {gcsSubmitting ? t('docVitalSigns.gcsSaving') : t('docVitalSigns.gcsSave')}
           </button>
-        </div>
+        </form>
       )}
 
       {/* Success/Error Messages */}
@@ -474,185 +504,6 @@ function VitalSignsPage() {
         <div className="mb-6 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-3">
           <AlertTriangle className="text-critical-subtle-fg" size={20} />
           <span className="text-critical-subtle-fg">{error}</span>
-        </div>
-      )}
-
-      {/* New Vitals Form */}
-      {showForm && selectedPatientId && (
-        <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
-          <h2 className="text-lg font-semibold text-content mb-4">{t('docVitalSigns.recordNewVitalsTitle')}</h2>
-          <form onSubmit={handleSubmitVitals}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              <div>
-                <label htmlFor="vitals-heart-rate" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Heart className="inline mr-1" size={14} />
-                  {t('docVitalSigns.heartRateLabel')}
-                </label>
-                <input
-                  id="vitals-heart-rate"
-                  type="number"
-                  value={newVitals.heart_rate}
-                  onChange={(e) => setNewVitals({ ...newVitals, heart_rate: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="60-100"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Wind className="inline mr-1" size={14} />
-                  {t('docVitalSigns.respRateLabel')}
-                </label>
-                <input
-                  id="vitals-respiratory-rate"
-                  type="number"
-                  value={newVitals.respiratory_rate}
-                  onChange={(e) => setNewVitals({ ...newVitals, respiratory_rate: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="12-20"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-bp-systolic" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.bpSystolicLabel')}
-                </label>
-                <input
-                  id="vitals-bp-systolic"
-                  type="number"
-                  value={newVitals.bp_systolic}
-                  onChange={(e) => setNewVitals({ ...newVitals, bp_systolic: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="90-140"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-bp-diastolic" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.bpDiastolicLabel')}
-                </label>
-                <input
-                  id="vitals-bp-diastolic"
-                  type="number"
-                  value={newVitals.bp_diastolic}
-                  onChange={(e) => setNewVitals({ ...newVitals, bp_diastolic: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="60-90"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-temperature" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Thermometer className="inline mr-1" size={14} />
-                  {t('docVitalSigns.temperatureLabel')}
-                </label>
-                <input
-                  id="vitals-temperature"
-                  type="number"
-                  step="0.1"
-                  value={newVitals.temperature}
-                  onChange={(e) => setNewVitals({ ...newVitals, temperature: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="36.1-37.8"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-oxygen-saturation" className="block text-sm font-medium text-content-secondary mb-1">
-                  <Droplet className="inline mr-1" size={14} />
-                  {t('docVitalSigns.spo2Label')}
-                </label>
-                <input
-                  id="vitals-oxygen-saturation"
-                  type="number"
-                  value={newVitals.oxygen_saturation}
-                  onChange={(e) => setNewVitals({ ...newVitals, oxygen_saturation: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="95-100"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-pain-scale" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.painScaleLabel')}
-                </label>
-                <input
-                  id="vitals-pain-scale"
-                  type="number"
-                  min="0"
-                  max="10"
-                  value={newVitals.pain_scale}
-                  onChange={(e) => setNewVitals({ ...newVitals, pain_scale: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="0-10"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-gcs-total" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.gcsScoreLabel')}
-                </label>
-                <input
-                  id="vitals-gcs-total"
-                  type="number"
-                  min="3"
-                  max="15"
-                  value={newVitals.gcs_total}
-                  onChange={(e) => setNewVitals({ ...newVitals, gcs_total: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="15"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-blood-glucose" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.bloodGlucoseLabel')}
-                </label>
-                <input
-                  id="vitals-blood-glucose"
-                  type="number"
-                  value={newVitals.blood_glucose}
-                  onChange={(e) => setNewVitals({ ...newVitals, blood_glucose: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder="70-140"
-                />
-              </div>
-              <div>
-                <label htmlFor="vitals-weight" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docVitalSigns.weightLabel')}
-                </label>
-                <input
-                  id="vitals-weight"
-                  type="number"
-                  step="0.1"
-                  value={newVitals.weight_kg}
-                  onChange={(e) => setNewVitals({ ...newVitals, weight_kg: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                  placeholder={t('docVitalSigns.weightPlaceholder')}
-                />
-              </div>
-            </div>
-            <div className="mb-4">
-              <label htmlFor="vitals-notes" className="block text-sm font-medium text-content-secondary mb-1">{t('docVitalSigns.notesLabel')}</label>
-              <textarea
-                id="vitals-notes"
-                value={newVitals.notes}
-                onChange={(e) => setNewVitals({ ...newVitals, notes: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"
-                rows={2}
-                placeholder={t('docVitalSigns.notesPlaceholder')}
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
-              >
-                {submitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                {t('docVitalSigns.saveVitalsButton')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-6 py-2 border border-border-strong rounded-lg hover:bg-surface-sunken"
-              >
-                {t('docVitalSigns.cancelButton')}
-              </button>
-            </div>
-          </form>
         </div>
       )}
 
@@ -684,6 +535,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.heart_rate ?? '—'}</span>
                 <span className="text-sm text-content-muted">bpm</span>
+                {flagBadge(lastReading.heart_rate, 'heart_rate')}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'up' && <TrendingUp size={16} className="text-critical" />}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'down' && <TrendingDown size={16} className="text-ok" />}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'stable' && <Minus size={16} className="text-content-muted" />}
@@ -701,6 +553,7 @@ function VitalSignsPage() {
                   {lastReading.blood_pressure_systolic ?? '—'}/{lastReading.blood_pressure_diastolic ?? '—'}
                 </span>
                 <span className="text-sm text-content-muted">mmHg</span>
+                {flagBadge(lastReading.blood_pressure_systolic, 'bp_systolic')}
               </div>
             </div>
 
@@ -713,6 +566,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.oxygen_saturation ?? '—'}</span>
                 <span className="text-sm text-content-muted">%</span>
+                {flagBadge(lastReading.oxygen_saturation, 'oxygen_saturation')}
               </div>
             </div>
 
@@ -725,6 +579,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.temperature_celsius?.toFixed(1) ?? '—'}</span>
                 <span className="text-sm text-content-muted">°C</span>
+                {flagBadge(lastReading.temperature_celsius, 'temperature')}
               </div>
             </div>
 
@@ -737,6 +592,7 @@ function VitalSignsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.respiratory_rate ?? '—'}</span>
                 <span className="text-sm text-content-muted">/min</span>
+                {flagBadge(lastReading.respiratory_rate, 'respiratory_rate')}
               </div>
             </div>
           </div>
@@ -771,6 +627,9 @@ function VitalSignsPage() {
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.rrColumn')}</th>
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.painColumn')}</th>
                     <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.gcsColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.glucoseColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.weightLabel')}</th>
+                    <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.notesLabel')}</th>
                     <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.recordedByColumn')}</th>
                   </tr>
                 </thead>
@@ -781,26 +640,32 @@ function VitalSignsPage() {
                         {formatTimestamp(reading.recorded_at)}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.heart_rate, 'heart_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.heart_rate, 'heart_rate') ? 'text-caution-subtle-fg' : ''}`}>
-                        {reading.heart_rate ?? '—'}
+                        {reading.heart_rate ?? '—'}{cellFlag(reading.heart_rate, 'heart_rate')}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.blood_pressure_systolic, 'bp_systolic') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.blood_pressure_systolic ?? '—'}/{reading.blood_pressure_diastolic ?? '—'}
+                        {reading.blood_pressure_systolic ?? '—'}/{reading.blood_pressure_diastolic ?? '—'}{cellFlag(reading.blood_pressure_systolic, 'bp_systolic')}
                       </td>
                       <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-caution-subtle-fg' : ''}`}>
-                        {reading.oxygen_saturation ?? '—'}%
+                        {reading.oxygen_saturation ?? '—'}%{cellFlag(reading.oxygen_saturation, 'oxygen_saturation')}
                       </td>
                       <td className={`px-4 py-3 text-center ${isAbnormal(reading.temperature_celsius, 'temperature') ? 'text-caution-subtle-fg' : ''}`}>
-                        {reading.temperature_celsius?.toFixed(1) ?? '—'}°C
+                        {reading.temperature_celsius?.toFixed(1) ?? '—'}°C{cellFlag(reading.temperature_celsius, 'temperature')}
                       </td>
                       <td className={`px-4 py-3 text-center ${isCritical(reading.respiratory_rate, 'respiratory_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.respiratory_rate ?? '—'}
+                        {reading.respiratory_rate ?? '—'}{cellFlag(reading.respiratory_rate, 'respiratory_rate')}
                       </td>
                       <td className={`px-4 py-3 text-center ${reading.pain_scale && reading.pain_scale > 6 ? 'text-critical-subtle-fg' : ''}`}>
                         {reading.pain_scale ?? '—'}/10
                       </td>
                       <td className={`px-4 py-3 text-center ${isCritical(reading.gcs_total, 'gcs') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
-                        {reading.gcs_total ?? '—'}
+                        {reading.gcs_total ?? '—'}{cellFlag(reading.gcs_total, 'gcs')}
                       </td>
+                      {/* Recorded and returned all along, and shown nowhere. */}
+                      <td className={`px-4 py-3 text-center ${isCritical(reading.blood_glucose, 'blood_glucose') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
+                        {reading.blood_glucose ?? '—'}{cellFlag(reading.blood_glucose, 'blood_glucose')}
+                      </td>
+                      <td className="px-4 py-3 text-center">{reading.weight_kg ?? '—'}</td>
+                      <td className="px-4 py-3 min-w-48 whitespace-pre-wrap">{reading.notes || t('docNursing.notRecorded')}</td>
                       <td className="px-4 py-3 text-content-muted"><StaffName id={reading.recorded_by} /></td>
                     </tr>
                   ))}

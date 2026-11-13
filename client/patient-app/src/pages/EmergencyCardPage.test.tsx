@@ -16,13 +16,7 @@ vi.mock('../store/authStore', () => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getEmergencyCapsuleAccessLog: vi.fn(),
-}));
-
-// Generate a deterministic data URL so the QR <img> renders predictably.
-vi.mock('qrcode', () => ({
-  default: {
-    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QRMOCK'),
-  },
+  getMedicalIdQr: vi.fn(),
 }));
 
 // Mock fetch
@@ -46,13 +40,14 @@ const mockPatientId = 'HEALTH123';
 const storeState = {
   patient: {
     healthId: mockPatientId,
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
   },
 };
 
 describe('EmergencyCardPage (Patient)', () => {
 
   beforeEach(() => {
+    vi.mocked(shared.getMedicalIdQr).mockResolvedValue({ qr_image_base64: 'QRMOCK' });
     vi.mocked(shared.getEmergencyCapsuleAccessLog).mockResolvedValue({
       success: true,
       patient_id: mockPatientId,
@@ -105,15 +100,45 @@ describe('EmergencyCardPage (Patient)', () => {
       expect(screen.getByText(/Asthma/i)).toBeInTheDocument();
       expect(screen.getByText(/Jane Doe/i)).toBeInTheDocument();
     });
+    expect(screen.getByRole('heading', { name: 'Check record integrity' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Verify' })).toBeInTheDocument();
   });
 
-  it('renders a real scannable QR code image', async () => {
+  it('warns that an unknown blood type must be cross-matched', async () => {
+    const response = await mockFetch();
+    const patient = await response.json();
+    mockFetch.mockResolvedValue({
+      ...response,
+      json: async () => ({
+        ...patient,
+        emergency_info: { ...patient.emergency_info, blood_type: 'Unknown' },
+      }),
+    });
+    renderPage();
+    expect(await screen.findByText('Unknown — type and cross-match before transfusion'))
+      .toBeInTheDocument();
+  });
+
+  it('shows the Medical ID code the paramedic scanner reads, for this patient', async () => {
+    // This page used to draw its own code, which the scanner refused as "not a
+    // MediChain code". The one shown now is the server's Medical ID code.
     renderPage();
 
     await waitFor(() => {
       const img = screen.getByRole('img', { name: /emergency medical qr code/i });
       expect(img).toHaveAttribute('src', 'data:image/png;base64,QRMOCK');
     });
+    expect(shared.getMedicalIdQr).toHaveBeenCalledWith(mockPatientId);
+  });
+
+  it('downloads that same code', async () => {
+    renderPage();
+    const button = await screen.findByRole('button', { name: /Download QR Code/i });
+    await waitFor(() => expect(button).toBeEnabled());
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    button.click();
+    expect(download).toHaveBeenCalledOnce();
+    download.mockRestore();
   });
 
   it('shows critical medical info including allergies', async () => {

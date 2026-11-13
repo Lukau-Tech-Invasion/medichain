@@ -1,3 +1,4 @@
+import * as shared from '@medichain/shared';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -20,6 +21,7 @@ vi.mock('@medichain/shared', async importOriginal => {
   const actual = await importOriginal<typeof import('@medichain/shared')>();
   return {
     ...actual,
+  openAccessContext: vi.fn(),
     createRadiologyOrder: vi.fn(),
     getPatients: vi.fn(),
     listRadiologyOrders: vi.fn(),
@@ -28,12 +30,16 @@ vi.mock('@medichain/shared', async importOriginal => {
 
 describe('ImagingPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-PAGE-QA',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
@@ -95,7 +101,7 @@ describe('ImagingPage', () => {
     await waitFor(() => expect(createRadiologyOrder).toHaveBeenCalledWith(expect.objectContaining({
       patient_id: 'PAT-001',
       indication: 'Persistent abdominal pain',
-      ordering_provider: mockUser.walletAddress,
+      ordering_provider: mockUser.userId,
     })));
     expect(vi.mocked(listRadiologyOrders).mock.calls.length).toBeGreaterThan(readsBeforeSubmit);
   });

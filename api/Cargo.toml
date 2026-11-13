@@ -51,18 +51,17 @@ env_logger = "0.11"
 # Async traits and error handling
 async-trait = "0.1"
 thiserror = "1.0"
-subxt = { workspace = true }
-# parity-scale-codec removed 2026-07-31: the API crate never used it (no
-# `codec::`, no Encode/Decode derives). The pallets declare it themselves.
-sp-core = { workspace = true, features = ["std"] }
-subxt-signer = { workspace = true }
-
 # Cryptography for NFC simulation
 sha3 = "0.10"
 # SHA-256 for the Class C body digest. ADR-0008 specifies SHA-256 over the
 # transmitted bytes; sha3 above is SHA3-256, a different function. Already in
 # the graph via medichain-crypto, so this adds no crates.
 sha2 = "0.10"
+# Pwned Passwords k-anonymity range check (src/password_policy.rs).
+sha1 = "0.10"
+zeroize = "1.6"
+# HMAC-SHA256 for AWS Signature Version 4 (the S3 audit checkpoint sink).
+hmac = "0.12"
 hex = "0.4"
 
 # JWT authentication (Phase 9.4) and TOTP multi-factor auth (Phase 11.3)
@@ -70,7 +69,7 @@ jsonwebtoken = "9"
 totp-rs = { version = "5.6", default-features = false, features = ["otpauth", "gen_secret"] }
 
 # Observability (Phase 8.2): Prometheus metrics + structured JSON logging
-prometheus = "0.13"
+prometheus = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 
@@ -103,8 +102,8 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 # it able to succeed.
 #
 # `rustls-tls` rather than native-tls: the graph already carries rustls (via
-# reqwest and subxt), so this adds a protocol implementation rather than a
-# second TLS stack. `default-features = false` drops the file/sendmail
+# reqwest), so this adds a protocol implementation rather than a second TLS
+# stack. `default-features = false` drops the file/sendmail
 # transports and the blocking runtime, none of which this uses.
 lettre = { version = "0.11", default-features = false, features = [
     "smtp-transport",

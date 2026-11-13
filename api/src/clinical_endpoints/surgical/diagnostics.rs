@@ -64,6 +64,18 @@ pub struct CreateAnesthesiaRequest {
     pub rest: serde_json::Map<String, serde_json::Value>,
 }
 
+/// Validate a submitted technique while preserving an unrecorded value as absent.
+fn recorded_anesthesia_type(value: Option<&str>) -> Result<Option<String>, ()> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    match value {
+        "general" | "regional" | "local" | "sedation" | "combined" | "mac" | "spinal"
+        | "epidural" => Ok(Some(value.to_string())),
+        _ => Err(()),
+    }
+}
+
 #[post("/api/surgical/anesthesia")]
 pub async fn create_anesthesia(
     data: web::Data<AppState>,
@@ -74,7 +86,7 @@ pub async fn create_anesthesia(
         Ok(user) => user,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let record = req.into_inner();
     let owner_id = record.patient_id.clone();
@@ -84,6 +96,15 @@ pub async fn create_anesthesia(
             code: "VALIDATION_ERROR".to_string(),
         });
     }
+    let anesthesia_type = match recorded_anesthesia_type(record.anesthesia_type.as_deref()) {
+        Ok(value) => value,
+        Err(()) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "anesthesia_type is not supported".to_string(),
+                code: "VALIDATION_ERROR".to_string(),
+            })
+        }
+    };
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -131,7 +152,7 @@ pub async fn create_anesthesia(
         // in -- not whoever the body names.
         anesthesiologist_id: current_user_id.clone(),
         crna_id: None,
-        anesthesia_type: record.anesthesia_type.clone().unwrap_or_default(),
+        anesthesia_type,
         asa_classification: record.asa_class.clone(),
         airway_management: record.airway_type.clone(),
         induction_agents: record.induction_agents.clone(),
@@ -227,10 +248,7 @@ pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -
     } else {
         data.repositories
             .anesthesia_records
-            .get_by_provider(
-                &caller.wallet_address,
-                crate::repositories::Pagination::new(0, 200),
-            )
+            .get_by_provider(&caller.id, crate::repositories::Pagination::new(0, 200))
             .await
             .map(|page| page.items)
     };
@@ -272,7 +290,7 @@ pub async fn create_radiology_order(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut order = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
@@ -281,7 +299,7 @@ pub async fn create_radiology_order(
     order.order_id = format!("RAD-{}", uuid::Uuid::new_v4().simple());
     // Stamp it from the session so the stored record cannot disagree with the
     // authenticated identity even if the check above is ever relaxed.
-    order.ordering_provider = caller.wallet_address.clone();
+    order.ordering_provider = caller.id.clone();
     let owner_id = order.patient_id.clone();
 
     // Log access
@@ -372,10 +390,23 @@ pub async fn create_radiology_report(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
-    let report = req.into_inner();
+    let mut report = req.into_inner();
+    report.radiologist = caller.id.clone();
+    if report
+        .study_datetime
+        .is_some_and(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0).is_none())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Study date/time is outside the supported range".into(),
+            code: "INVALID_STUDY_TIME".into(),
+        });
+    }
     let owner_id = report.patient_id.clone();
+    // Kept before `report` is moved into the repository: the demo re-seed
+    // branch below needs it to recognise its own fixture on a duplicate.
+    let report_id = report.report_id.clone();
 
     // Log access
     if let Err(response) = crate::support::require_durable_audit(
@@ -406,6 +437,13 @@ pub async fn create_radiology_report(
     {
         Ok(stored) => {
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
+        }
+        Err(crate::repositories::RepositoryError::Duplicate(_))
+            if crate::support::is_demo_mode() && report_id.starts_with("RAD-DEMO-") =>
+        {
+            HttpResponse::Ok().json(
+                serde_json::json!({ "id": report_id, "success": true, "already_seeded": true }),
+            )
         }
         Err(e) => {
             log::error!("radiology report could not be stored: {e}");
@@ -464,10 +502,13 @@ pub async fn get_radiology_report(
 /// specimen could not be booked in at all. Both shapes are accepted now: this
 /// DTO takes the accession, and the report fields stay optional so the same
 /// endpoint can carry a completed report.
+///
+/// There is no accession number here. The page used to send one it had built
+/// from the length of its own worklist, so two people accessioning at once sent
+/// the same number and the second insert failed. The server mints it
+/// (`accession_number`); a number a caller sends is ignored.
 #[derive(Debug, serde::Deserialize)]
 pub struct CreatePathologyRequest {
-    #[serde(alias = "specimenId", alias = "report_id", alias = "reportId")]
-    pub specimen_id: String,
     #[serde(alias = "patientId")]
     pub patient_id: String,
     #[serde(default, alias = "specimenType")]
@@ -497,6 +538,29 @@ pub struct CreatePathologyRequest {
     pub rest: std::collections::HashMap<String, serde_json::Value>,
 }
 
+/// Crockford base32: no I, L, O or U, so a number read over the phone or
+/// copied onto a specimen pot is not mistaken for another one.
+const ACCESSION_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+/// Eight characters is 2^40 numbers a year: at 100,000 specimens a year the
+/// chance of any two colliding is under half a percent, and a collision is a
+/// refused insert, never an overwritten report.
+const ACCESSION_SUFFIX_LEN: usize = 8;
+/// Every key a caller might send an accession number under.
+const CALLER_ACCESSION_KEYS: [&str; 4] = ["specimenId", "specimen_id", "reportId", "report_id"];
+
+/// A surgical-pathology accession number: `S`, the two-digit year, and a code
+/// drawn from `entropy`. Pure, so the format is tested without a clock.
+fn accession_number(year: i32, entropy: u128) -> String {
+    let mut number = format!("S{:02}-", year.rem_euclid(100));
+    let mut bits = entropy;
+    for _ in 0..ACCESSION_SUFFIX_LEN {
+        number.push(char::from(ACCESSION_ALPHABET[(bits & 31) as usize]));
+        bits >>= 5;
+    }
+    debug_assert_eq!(number.len(), 4 + ACCESSION_SUFFIX_LEN);
+    number
+}
+
 /// Create pathology specimen accession or report
 #[post("/api/surgical/pathology")]
 pub async fn create_pathology(
@@ -508,10 +572,12 @@ pub async fn create_pathology(
         Ok(user) => user,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let body = req.into_inner();
-    let id = body.specimen_id.clone();
+    let now = chrono::Utc::now();
+    // Minted here, never taken from the request.
+    let id = accession_number(chrono::Datelike::year(&now), uuid::Uuid::new_v4().as_u128());
     let owner_id = body.patient_id.clone();
 
     // Log access
@@ -534,7 +600,6 @@ pub async fn create_pathology(
         return response;
     }
 
-    let now = chrono::Utc::now();
     let parse_date = |value: &Option<String>| {
         value
             .as_deref()
@@ -548,7 +613,10 @@ pub async fn create_pathology(
     // typed columns cannot hold.
     let mut payload = serde_json::to_value(&body.rest).unwrap_or_else(|_| serde_json::json!({}));
     if let Some(object) = payload.as_object_mut() {
-        object.insert("specimenId".into(), serde_json::json!(body.specimen_id));
+        for key in CALLER_ACCESSION_KEYS {
+            object.remove(key);
+        }
+        object.insert("specimenId".into(), serde_json::json!(id));
         object.insert("patientId".into(), serde_json::json!(body.patient_id));
         object.insert("status".into(), serde_json::json!(body.status));
     }
@@ -727,7 +795,7 @@ pub async fn update_pathology_report(
     report.immunohistochemistry = Some(serde_json::json!(body.ihc_markers));
     report.comments = (!body.snomed_code.trim().is_empty()).then_some(body.snomed_code.clone());
     report.status = body.status;
-    report.pathologist_id = caller.wallet_address.clone();
+    report.pathologist_id = caller.id.clone();
     report.report_date = now;
     report.updated_at = now;
     let payload = report.data.as_object_mut();
@@ -752,7 +820,7 @@ pub async fn update_pathology_report(
         crate::AccessLogEntry {
             access_id: uuid::Uuid::new_v4().to_string(),
             patient_id: report.patient_id.clone(),
-            accessor_id: caller.wallet_address,
+            accessor_id: caller.id,
             accessor_role: caller.role.to_string(),
             access_type: "update_pathology_report".to_string(),
             location: None,
@@ -831,10 +899,27 @@ mod anesthesia_round_trip_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn state_with(role: Role, wallet: &str) -> web::Data<AppState> {
+    /// Omitted techniques remain unknown; recorded techniques use the database vocabulary.
+    #[actix_rt::test]
+    async fn anesthesia_techniques_preserve_unknown_and_reject_unsupported_values() {
+        for unknown in [None, Some(""), Some("  ")] {
+            assert_eq!(super::recorded_anesthesia_type(unknown), Ok(None));
+        }
+        for technique in [
+            "general", "regional", "local", "sedation", "combined", "mac", "spinal", "epidural",
+        ] {
+            assert_eq!(
+                super::recorded_anesthesia_type(Some(technique)),
+                Ok(Some(technique.into()))
+            );
+        }
+        assert!(super::recorded_anesthesia_type(Some("invented")).is_err());
+    }
+
+    fn state_with(role: Role, user_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -853,8 +938,66 @@ mod anesthesia_round_trip_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
+    }
+
+    /// HTTP reports preserve unknown/recorded times, reject invalid dates and bind the author.
+    #[actix_rt::test]
+    async fn radiology_time_contract_preserves_unknown_and_binds_author() {
+        for (timestamp, omit, expected) in [
+            (None, true, 201),
+            (None, false, 201),
+            (Some(1_755_003_600_i64), false, 201),
+            (Some(i64::MAX), false, 400),
+        ] {
+            let state = state_with(Role::Doctor, "5Doctor");
+            let mut payload = serde_json::json!({
+                "report_id":"RAD-TIME-QA", "patient_id":"PAT-QA", "order_id":"ORDER-QA",
+                "accession_number":"", "study_type":"XRay", "body_part":"Chest",
+                "study_datetime":timestamp, "technique":"Fictional QA", "clinical_history":"",
+                "findings":"No actual images reviewed", "impression":["Synthetic QA only"],
+                "critical_finding":false, "radiologist":"5ForgedAuthor", "status":"Preliminary"
+            });
+            if omit {
+                payload.as_object_mut().unwrap().remove("study_datetime");
+            }
+            let app = test::init_service(
+                App::new()
+                    .app_data(state.clone())
+                    .service(super::create_radiology_report),
+            )
+            .await;
+            let req = test::TestRequest::post()
+                .uri("/api/surgical/radiology/report")
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
+                .set_json(payload)
+                .to_request();
+            let response = test::call_service(&app, req).await;
+            assert_eq!(response.status().as_u16(), expected);
+            if expected == 201 {
+                let stored = state
+                    .repositories
+                    .radiology_reports
+                    .get_by_id("RAD-TIME-QA")
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    stored.study_datetime.map(|date| date.timestamp()),
+                    timestamp
+                );
+                assert_eq!(stored.radiologist_id, "5Doctor");
+                assert_eq!(stored.data["radiologist"], "5Doctor");
+            } else {
+                assert!(state
+                    .repositories
+                    .radiology_reports
+                    .list_all()
+                    .await
+                    .unwrap()
+                    .is_empty());
+            }
+        }
     }
 
     /// `AnesthesiaPage`'s payload, field for field -- camelCase, flat, and
@@ -889,7 +1032,7 @@ mod anesthesia_round_trip_tests {
 
     async fn post_then_list(
         data: web::Data<AppState>,
-        wallet: &str,
+        user_id: &str,
         body: serde_json::Value,
     ) -> (u16, u16, String) {
         let app = test::init_service(
@@ -905,14 +1048,14 @@ mod anesthesia_round_trip_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/surgical/anesthesia")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .set_json(body)
             .to_request();
         let created = test::call_service(&app, req).await.status().as_u16();
 
         let req = test::TestRequest::get()
             .uri("/api/surgical/anesthesia/list")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let listed = resp.status().as_u16();
@@ -990,20 +1133,23 @@ mod anesthesia_round_trip_tests {
         .await;
         let create = test::TestRequest::post()
             .uri("/api/surgical/pathology")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({
-                "specimen_id": "SP-PATH-1", "patient_id": "PAT-1", "status": "received"
+                "patient_id": "PAT-1", "status": "received"
             }))
             .to_request();
-        assert_eq!(
-            test::call_service(&app, create).await.status().as_u16(),
-            201
-        );
+        let created = test::call_service(&app, create).await;
+        assert_eq!(created.status().as_u16(), 201);
+        let created: serde_json::Value = test::read_body_json(created).await;
+        let accession = created["id"]
+            .as_str()
+            .expect("the minted accession number")
+            .to_string();
 
         let finalise = || {
             test::TestRequest::put()
-            .uri("/api/surgical/pathology/SP-PATH-1")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+            .uri(&format!("/api/surgical/pathology/{accession}"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({
                 "gross_description": "Two tissue fragments", "microscopic_description": "Benign tissue",
                 "diagnosis": "Benign lesion", "status": "final"
@@ -1032,20 +1178,65 @@ mod anesthesia_round_trip_tests {
         .await;
         let create = test::TestRequest::post()
             .uri("/api/surgical/pathology")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
-            .set_json(serde_json::json!({"specimen_id": "SP-PATH-2", "patient_id": "PAT-1"}))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
+            .set_json(serde_json::json!({"patient_id": "PAT-1"}))
             .to_request();
-        assert_eq!(
-            test::call_service(&app, create).await.status().as_u16(),
-            201
-        );
-        let incomplete = test::TestRequest::put().uri("/api/surgical/pathology/SP-PATH-2")
-            .insert_header(("X-User-Id", "5PathologyDoctor"))
+        let created = test::call_service(&app, create).await;
+        assert_eq!(created.status().as_u16(), 201);
+        let created: serde_json::Value = test::read_body_json(created).await;
+        let accession = created["id"]
+            .as_str()
+            .expect("the minted accession number")
+            .to_string();
+        let incomplete = test::TestRequest::put().uri(&format!("/api/surgical/pathology/{accession}"))
+            .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
             .set_json(serde_json::json!({"gross_description": "Gross", "microscopic_description": "", "diagnosis": "", "status": "final"}))
             .to_request();
         assert_eq!(
             test::call_service(&app, incomplete).await.status().as_u16(),
             400
         );
+    }
+
+    #[core::prelude::v1::test]
+    fn an_accession_number_is_the_year_and_an_unambiguous_code() {
+        assert_eq!(super::accession_number(2026, 0), "S26-00000000");
+        assert_eq!(super::accession_number(2026, u128::MAX), "S26-ZZZZZZZZ");
+        assert_eq!(super::accession_number(2031, 1), "S31-10000000");
+        let number = super::accession_number(2026, 0x1234_5678_9abc_def0);
+        assert_eq!(number.len(), 12);
+        assert!(number[4..]
+            .bytes()
+            .all(|b| super::ACCESSION_ALPHABET.contains(&b)));
+        assert!(!number.contains(['I', 'L', 'O', 'U']));
+    }
+
+    #[actix_rt::test]
+    async fn the_caller_cannot_choose_the_accession_number() {
+        let data = state_with(Role::Doctor, "5PathologyDoctor");
+        let app =
+            test::init_service(App::new().app_data(data).service(super::create_pathology)).await;
+        let accession = |named: &'static str| {
+            test::TestRequest::post()
+                .uri("/api/surgical/pathology")
+                .insert_header(crate::test_fixtures::as_user("5PathologyDoctor"))
+                .set_json(serde_json::json!({"specimenId": named, "patient_id": "PAT-1"}))
+                .to_request()
+        };
+        // Two orders naming the same number: the page built its number from the
+        // length of its worklist, so this is two people accessioning at once.
+        let first = test::call_service(&app, accession("S24-001")).await;
+        let second = test::call_service(&app, accession("S24-001")).await;
+        assert_eq!(first.status().as_u16(), 201);
+        assert_eq!(second.status().as_u16(), 201);
+        let first: serde_json::Value = test::read_body_json(first).await;
+        let second: serde_json::Value = test::read_body_json(second).await;
+        let (first, second) = (
+            first["id"].as_str().unwrap(),
+            second["id"].as_str().unwrap(),
+        );
+        assert_ne!(first, "S24-001");
+        assert_ne!(first, second);
+        assert!(first.starts_with('S') && first.len() == 12, "{first}");
     }
 }

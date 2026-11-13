@@ -1,0 +1,25 @@
+# Synthetic awards demonstration on the existing MediChain Compose project.
+# Keep the browser-test credential endpoint off even though IS_DEMO remains on.
+# The Cloudflare connector joins this Compose network and targets nginx:80.
+services:
+  api:
+    environment:
+      IS_DEMO: "true"
+      MEDICHAIN_DEV_MODE: ""
+      MEDICHAIN_BOOTSTRAP_KEY: ${MEDICHAIN_BOOTSTRAP_KEY:?Set a private bootstrap key}
+
+  nginx:
+    build:
+      args:
+        VITE_DEMO_MODE: "true"
+        VITE_DEMO_CREDENTIALS_ENABLED: "false"
+    ports: !override
+      - "127.0.0.1:80:80"
+
+  postgres:
+    ports: !override
+      - "127.0.0.1:5432:5432"
+
+  pgadmin:
+    profiles: ["manual-inspect"]
+    ports: !override []

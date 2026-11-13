@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { signIn, settle, selectPatient } from './support';
+import { signIn, settle, selectPatient, choose } from './support';
 
 /**
  * Three screens that documented a procedure and then forgot it.
@@ -58,7 +58,7 @@ test('an intubation survives leaving the page and coming back', async ({ browser
   expect(indication, 'no indication options were offered').toBeTruthy();
 
   await selectFirstPatient(page, '#intub-patient');
-  await page.locator('#intub-indication').selectOption(indication as string);
+  await choose(page.locator('#intub-indication'), indication as string);
   await page.getByRole('button', { name: /document intubation/i }).click();
 
   // The worklist is re-read from the API after the save.
@@ -93,7 +93,7 @@ test('a splint survives leaving the page and coming back', async ({ browser }) =
   for (const id of ['#splint-body-part', '#splint-indication']) {
     const value = await page.locator(`${id} option`).nth(1).getAttribute('value');
     expect(value, `no options offered by ${id}`).toBeTruthy();
-    await page.locator(id).selectOption(value as string);
+    await choose(page.locator(id), value as string);
   }
   await page.getByRole('button', { name: /save splint\/cast record/i }).click();
 
@@ -127,12 +127,12 @@ test('an anaesthetic record saves at all, and survives a return visit', async ({
 
   // Before the fix this never appeared: the request 400'd on every submission.
   await openHistory(page);
-  await expect(page.getByText(procedure, { exact: false })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(`Procedure: ${procedure}`, { exact: true })).toBeVisible({ timeout: 20000 });
 
   await settle(page, '/dashboard');
   await settle(page, '/anesthesia');
   await openHistory(page);
-  await expect(page.getByText(procedure, { exact: false })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(`Procedure: ${procedure}`, { exact: true })).toBeVisible({ timeout: 20000 });
 
   await page.close();
 });

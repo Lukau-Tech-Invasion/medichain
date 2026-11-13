@@ -1,4 +1,5 @@
 @import "../../shared/src/styles/tokens.css";
+@import "../../shared/src/styles/motion.css";
 
 @tailwind base;
 @tailwind components;
@@ -114,7 +115,7 @@ body {
 /* Patient card styling */
 @layer components {
   .patient-card {
-    @apply bg-surface rounded-xl shadow-card p-6 transition-all duration-200;
+    @apply bg-surface rounded-xl shadow-card p-4 sm:p-5 transition-all duration-200;
   }
 
   .patient-card:hover {
@@ -200,7 +201,7 @@ body {
 
 /* Loading skeleton animation */
 .skeleton {
-  @apply bg-border animate-pulse rounded;
+  @apply bg-border rounded;
 }
 
 /* Toast slide-in animation */
@@ -249,6 +250,22 @@ textarea,
 summary,
 [tabindex]:not([tabindex="-1"]) {
   scroll-margin-top: 4.5rem;
+}
+
+/* The same clearance at the bottom on a phone, where the five-tab bar
+ * (Layout.tsx) is fixed below `lg`: 56px plus the safe-area inset. A control
+ * scrolled into view from below then rests wholly above the bar, not partly
+ * behind it. */
+@media (max-width: 1023.98px) {
+  a[href],
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex="-1"]) {
+    scroll-margin-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* Print styles */

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { signIn, settle, selectPatient } from './support';
+import { signIn, settle, selectPatient, choose } from './support';
 
 /**
  * A lab technician can enter a result.
@@ -55,7 +55,7 @@ test('a lab technician enters a result and it reaches the review queue', async (
   const panel = page.locator('#lab-entry-panel');
   const panelValue = await panel.locator('option').nth(1).getAttribute('value');
   expect(panelValue, 'no panels were offered — the catalogue did not load').toBeTruthy();
-  await panel.selectOption(panelValue as string);
+  await choose(panel, panelValue as string);
 
   // One analyte. The rest stay blank and must not be submitted as results
   // nobody measured.
@@ -65,6 +65,11 @@ test('a lab technician enters a result and it reaches the review queue', async (
 
   const note = `Entered from the portal (e2e ${Date.now()})`;
   await page.locator('#lab-entry-notes').fill(note);
+  await page.getByRole('button', { name: /submit for review/i }).click();
+  await expect(page.getByRole('alert')).toContainText(/Select the reference group stated on the laboratory report/i);
+  // This fictional report explicitly uses adult-female ranges; never infer a
+  // reference group from the selected patient's name or missing demographics.
+  await choose(page.locator('#lab-reference-group'), 'female');
   await page.getByRole('button', { name: /submit for review/i }).click();
 
   // The page switches to the pending queue and re-reads it from the API.
@@ -86,11 +91,12 @@ test('a lab technician enters a result and it reaches the review queue', async (
   // empty rows would report values nobody measured -- rule 10, an unmeasured
   // thing is not a zero. Checked in the same session rather than its own test:
   // each sign-in costs a burst of requests, and two in a minute walks into the
-  // API's 120/minute limiter, which fails as something that looks like a
+  // API's per-minute limiter (240 by default), which fails as something that looks like a
   // product defect and is not.
   await page.getByRole('tab', { name: /enter result/i }).click();
   await selectPatient(page, '#lab-entry-patient', patientName);
-  await page.locator('#lab-entry-panel').selectOption(panelValue as string);
+  await choose(page.locator('#lab-entry-panel'), panelValue as string);
+  await choose(page.locator('#lab-reference-group'), 'female');
   // Every analyte left blank this time.
   await page.getByRole('button', { name: /submit for review/i }).click();
   await expect(page.getByRole('alert')).toContainText(/at least one value/i);

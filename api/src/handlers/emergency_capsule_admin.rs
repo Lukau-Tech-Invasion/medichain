@@ -1,8 +1,8 @@
 //! Emergency capsule lifecycle management (Horizon HZ-003).
 //!
 //! - `POST /api/patients/{id}/emergency-capsule` — publish a new capsule
-//!   version from the patient's current emergency information and anchor its
-//!   commitment on-chain.
+//!   version from the patient's current emergency information and record its
+//!   commitment in the sealed audit stream.
 //! - `POST /api/patients/{id}/emergency-capsule/revoke` — revoke a version.
 //! - `GET  /api/patients/{id}/emergency-capsule/access-log` — who read this
 //!   patient's emergency data, why, and which fields were revealed.
@@ -19,8 +19,7 @@ use crate::middleware::error_handling::{error_codes, error_envelope_json};
 
 /// Resolve the caller and require a healthcare-provider role.
 ///
-/// Publishing a capsule is provider-gated for the same reason the pallet gates
-/// `set_emergency_capsule_commitment`: the commitment must correspond to a
+/// Publishing a capsule is provider-gated: the commitment must correspond to a
 /// capsule the clinical system actually holds, so an arbitrary authenticated
 /// account must not be able to mint one.
 fn require_provider(data: &web::Data<AppState>, req: &HttpRequest) -> Result<String, HttpResponse> {
@@ -95,11 +94,12 @@ pub async fn get_emergency_capsule_versions(
     };
 
     // `caller_owns_patient_record` rather than comparing the ids directly: the
-    // caller is an SS58 wallet and `patient_id` is a `PAT-` record id, and the
+    // caller is an user id and `patient_id` is a `PAT-` record id, and the
     // obvious comparison fails closed and locks a patient out of their own
     // emergency directive.
     let is_own_record = crate::support::caller_owns_patient_record(&data, &uid, &patient_id);
-    if !user.role.is_healthcare_provider() && !user.role.is_admin() && !is_own_record {
+    if !user.role.is_healthcare_provider() && user.role != crate::Role::Paramedic && !is_own_record
+    {
         return HttpResponse::Forbidden().json(error_envelope_json(
             error_codes::INSUFFICIENT_ROLE,
             "Not permitted to read this patient's emergency capsule",
@@ -182,23 +182,13 @@ pub async fn publish_emergency_capsule(
     };
 
     match crate::emergency_capsule::publish_capsule(&data, &profile.emergency_info, &caller).await {
-        Ok(stored) => {
-            let anchoring = if stored.chain_finalized {
-                "finalized"
-            } else if crate::blockchain::blockchain_enabled() {
-                "pending"
-            } else {
-                "disabled"
-            };
-            HttpResponse::Ok().json(serde_json::json!({
-                "success": true,
-                "patient_id": stored.patient_id,
-                "version": stored.version,
-                "commitment": stored.commitment,
-                "anchoring": anchoring,
-                "blockchain_tx_hash": stored.chain_tx_hash,
-            }))
-        }
+        Ok(stored) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "patient_id": stored.patient_id,
+            "version": stored.version,
+            "commitment": stored.commitment,
+            "seal_status": stored.seal_status,
+        })),
         Err(e) => {
             log::error!("Capsule publication failed: {e}");
             HttpResponse::InternalServerError().json(error_envelope_json(
@@ -332,7 +322,7 @@ pub async fn get_emergency_capsule_access_log(
 /// patient is the data subject. Both of the obvious mistakes are serious:
 ///
 ///   * **Refusing the patient is a defect, not a safe default.** `patient_id`
-///     is a `PAT-` record id and the caller id is an SS58 wallet, so the
+///     is a `PAT-` record id and the caller id is an user id, so the
 ///     obvious comparison fails closed and locks a patient out of their own
 ///     DNR directive. `caller_owns_patient_record` is what bridges the two
 ///     namespaces, and this table exists so a refactor cannot quietly drop it.
@@ -343,9 +333,9 @@ mod capsule_read_access_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn user(role: Role, wallet: &str, linked: Option<&str>) -> User {
+    fn user(role: Role, user_id: &str, linked: Option<&str>) -> User {
         User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -367,13 +357,13 @@ mod capsule_read_access_tests {
         {
             let mut table = state.users.write().unwrap();
             for entry in users {
-                table.insert(entry.wallet_address.clone(), entry);
+                table.insert(entry.id.clone(), entry);
             }
         }
         web::Data::new(state)
     }
 
-    async fn status_for(data: web::Data<AppState>, wallet: &str, patient_id: &str) -> u16 {
+    async fn status_for(data: web::Data<AppState>, user_id: &str, patient_id: &str) -> u16 {
         let app = test::init_service(
             App::new()
                 .app_data(data)
@@ -382,24 +372,24 @@ mod capsule_read_access_tests {
         .await;
         let req = test::TestRequest::get()
             .uri(&format!("/api/patients/{patient_id}/emergency-capsule"))
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         test::call_service(&app, req).await.status().as_u16()
     }
 
     #[actix_web::test]
     async fn a_patient_may_read_their_own_capsule() {
-        let data = state(vec![user(Role::Patient, "wallet-a", Some("PAT-1"))]);
-        assert_eq!(status_for(data, "wallet-a", "PAT-1").await, 200);
+        let data = state(vec![user(Role::Patient, "user-a", Some("PAT-1"))]);
+        assert_eq!(status_for(data, "user-a", "PAT-1").await, 200);
     }
 
     #[actix_web::test]
     async fn a_patient_may_not_read_another_patients_capsule() {
         let data = state(vec![
-            user(Role::Patient, "wallet-a", Some("PAT-1")),
-            user(Role::Patient, "wallet-b", Some("PAT-2")),
+            user(Role::Patient, "user-a", Some("PAT-1")),
+            user(Role::Patient, "user-b", Some("PAT-2")),
         ]);
-        assert_eq!(status_for(data, "wallet-b", "PAT-1").await, 403);
+        assert_eq!(status_for(data, "user-b", "PAT-1").await, 403);
     }
 
     #[actix_web::test]
@@ -407,10 +397,12 @@ mod capsule_read_access_tests {
         let data = state(vec![
             user(Role::Doctor, "doc-1", None),
             user(Role::Nurse, "nurse-1", None),
+            user(Role::Paramedic, "ems-1", None),
             user(Role::Admin, "admin-1", None),
         ]);
         assert_eq!(status_for(data.clone(), "doc-1", "PAT-1").await, 200);
         assert_eq!(status_for(data.clone(), "nurse-1", "PAT-1").await, 200);
+        assert_eq!(status_for(data.clone(), "ems-1", "PAT-1").await, 200);
         assert_eq!(status_for(data, "admin-1", "PAT-1").await, 200);
     }
 

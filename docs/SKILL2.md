@@ -1,15 +1,3 @@
----
-name: testing-strategy
-description: >
-  Test strategy for MediChain across all layers — Rust unit tests, Anchor program integration
-  tests, backend API tests, frontend component/integration tests, and end-to-end paramedic
-  flow tests. Covers what to test, what not to test, the testing pyramid for blockchain
-  apps, property/fuzz testing for on-chain arithmetic, and the "always write a failing test
-  for the bug first" rule. Activate when the user asks "how do I test this?", "write tests
-  for X", "set up testing", "test coverage", "TDD", "regression", "fuzz", "property-based",
-  or when new functionality has been written WITHOUT tests — always suggest tests then.
-  Also activate when a bug is reported — write a failing test before fixing.
----
 
 # Testing Strategy for MediChain
 
@@ -19,25 +7,6 @@ the wrong allergies. Tests are non-negotiable.
 ---
 
 ## The Pyramid (MediChain version)
-
-```
-                       ┌────────────────────┐
-                       │  E2E (Playwright)  │   ← few, slow, full flows
-                       │  paramedic taps    │
-                       └────────────────────┘
-                  ┌──────────────────────────────┐
-                  │  Integration                 │   ← moderate count
-                  │  • anchor test (program +   │
-                  │    TS client)                │
-                  │  • backend HTTP tests        │
-                  └──────────────────────────────┘
-        ┌────────────────────────────────────────────┐
-        │  Unit                                       │   ← many, fast, focused
-        │  • Rust cargo test (pure functions)        │
-        │  • React component tests (vitest + RTL)    │
-        │  • property tests (proptest, fast-check)   │
-        └────────────────────────────────────────────┘
-```
 
 Aim: 100s of unit tests that run in <10 seconds. Dozens of integration tests in <2 minutes.
 A handful of E2E tests in <10 minutes. CI feedback under 15 min total.
@@ -119,55 +88,6 @@ the off-by-one. Use them for any function with non-trivial input space.
 
 ---
 
-## Anchor Program Tests
-
-Two layers:
-
-**Layer 1 — Pure Rust unit tests** for any logic that doesn't need the runtime:
-```rust
-#[test]
-fn blood_type_serialises_to_one_byte() {
-    let bytes = borsh::to_vec(&BloodType::OPos).unwrap();
-    assert_eq!(bytes.len(), 1);
-}
-```
-
-**Layer 2 — Integration via `anchor test`**, spinning up local validator:
-```typescript
-// tests/medichain.ts
-describe("grant consent", () => {
-  it("rejects unauthorised owner", async () => {
-    const attacker = anchor.web3.Keypair.generate();
-    await fundWallet(provider.connection, attacker.publicKey);
-
-    await expect(
-      program.methods
-        .grantConsent(doctorPubkey, 0x06, new BN(90))
-        .accounts({ patient: patientPda, owner: attacker.publicKey })
-        .signers([attacker])
-        .rpc()
-    ).to.be.rejectedWith(/has_one constraint/);
-  });
-
-  it("issues a consent and emits an event", async () => {
-    const tx = await program.methods
-      .grantConsent(doctorPubkey, 0x06, new BN(90))
-      .accounts({ patient: patientPda, owner: provider.wallet.publicKey })
-      .rpc();
-
-    const consent = await program.account.consentRecord.fetch(consentPda);
-    expect(consent.scopeBitmap).to.equal(0x06);
-    expect(consent.revoked).to.be.false;
-  });
-});
-```
-
-**Every constraint deserves a "should reject" test.** If you wrote `has_one = owner`,
-write a test that proves passing the wrong owner is rejected. Otherwise the constraint
-might be silently broken in a future refactor.
-
----
-
 ## Backend Tests (axum)
 
 ```rust
@@ -206,9 +126,6 @@ async fn grant_consent_idempotency() {
     assert_eq!(r1.json::<serde_json::Value>(), r2.json::<serde_json::Value>());
 }
 ```
-
-Mock the chain interaction at the trait boundary — don't spin up a validator for every
-backend test.
 
 ---
 
@@ -279,7 +196,6 @@ This is non-negotiable. A bug fixed without a test will return.
 ## Coverage Targets
 
 - **Shared / domain logic crates**: 90%+ line coverage
-- **Anchor program**: every instruction has happy-path + each constraint has a reject test
 - **Backend**: every route has at least one test, every error path covered
 - **Frontend**: every form, every transaction flow, every error state
 - **E2E**: paramedic flow, patient onboarding, doctor consent grant
@@ -299,32 +215,5 @@ Don't chase 100%. The last 5% is usually error paths that are easier to verify b
 ---
 
 ## CI Setup
-
-```yaml
-# .github/workflows/test.yml
-jobs:
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo nextest run --all-features
-
-  anchor:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: heyAyushh/setup-anchor@v4
-      - run: anchor test
-
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-      - run: cd frontend && npm ci && npm run test && npm run typecheck
-```
 
 Tests must be green before merge. Period.

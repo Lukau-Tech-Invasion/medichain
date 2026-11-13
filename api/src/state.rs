@@ -29,8 +29,9 @@ pub struct AppState {
     pub users: RwLock<HashMap<String, User>>,
     /// IPFS client for encrypted document storage
     pub ipfs_client: IpfsClient,
-    /// Substrate blockchain client (None if SUBSTRATE_WS_URL not set)
-    pub substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
+    /// The audit-sealing key and checkpoint sink (ADR-0010). Read by the sealing
+    /// job and by verification; never by a request path that must not fail.
+    pub audit_seal: crate::audit_seal::SealRuntime,
     /// WebSocket/SSE session manager for push notifications
     pub ws_manager: crate::websocket::WsSessionManager,
     /// Encryption key for medical records — the *current* version's key, for callers
@@ -58,7 +59,7 @@ pub struct AppState {
     pub patient_access: crate::patient_access::PatientAccessService,
     /// Phase 6 patient-owned mobile devices and ciphertext access capabilities.
     pub mobile_records: crate::mobile_records::MobileRecordStore,
-    /// Phase 8 local audit events for retryable chain anchoring and governance.
+    /// Phase 8 audit events (memory backend) and governance decisions.
     pub audit_outbox: crate::audit_outbox::AuditOutbox,
     /// NFC Card registry for demo
     pub card_registry: CardRegistry,
@@ -76,6 +77,41 @@ pub struct AppState {
     /// Manages telehealth sessions via a configurable provider
     /// (internal / Daily.co / Twilio Video).
     pub telehealth_service: crate::telehealth::TelehealthService,
+}
+
+/// A `user_mfa` row as read at startup.
+type MfaRow = (String, Vec<u8>, bool, chrono::DateTime<Utc>, Option<i64>);
+
+/// The sign-in handle (and optionally the credential) a new account is created
+/// with. See [`AppState::persist_user_with_login`].
+pub struct NewLogin<'a> {
+    pub login_id: &'a str,
+    /// Argon2id verifier over the client's auth proof. `None` leaves the account
+    /// unable to sign in until a one-time code is redeemed.
+    pub verifier: Option<&'a str>,
+}
+
+/// Which enrolments a TOTP code may be checked against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TotpScope {
+    /// Only a confirmed enrolment: sign-in, step-up, disabling, Class C.
+    Enabled,
+    /// An enrolment still waiting for its first code: confirming it.
+    Pending,
+}
+
+/// The result of checking a TOTP code and spending its step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TotpOutcome {
+    Accepted,
+    /// The code is wrong, or from a step outside the tolerated drift.
+    Invalid,
+    /// The code is right but its step (or a later one) was already used.
+    Replayed,
+    /// No enrolment of the requested kind exists for this user.
+    NotEnrolled,
+    /// The durable record could not be read or written; nothing was accepted.
+    Unavailable,
 }
 
 impl AppState {
@@ -99,13 +135,17 @@ impl AppState {
         let security = crate::security::SecurityState::new(db_pool.clone());
         let emergency_grants = crate::emergency_grants::EmergencyGrantStore::new();
 
+        let document_client = match db_pool.as_ref() {
+            Some(pool) => IpfsClient::from_env().with_postgres(pool.clone()),
+            None => IpfsClient::from_env(),
+        };
         Self {
             db_pool,
             idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
             users: RwLock::new(HashMap::new()),
-            ipfs_client: IpfsClient::from_env(),
-            substrate_client: None, // Use new_with_pool_async for blockchain support
+            ipfs_client: document_client,
+            audit_seal: crate::audit_seal::SealRuntime::unsigned_without_sink(),
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
             encryption_keyring,
@@ -125,10 +165,10 @@ impl AppState {
     }
 
     /// Create new AppState with optional PostgreSQL pool (async version)
-    /// Pass substrate_client to enable blockchain integration.
+    /// `audit_seal` is the validated sealing configuration (`SealRuntime::from_env`).
     pub async fn new_with_pool_async(
         db_pool: Option<sqlx::PgPool>,
-        substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
+        audit_seal: crate::audit_seal::SealRuntime,
     ) -> Self {
         // Loaded from ENCRYPTION_KEYS so it survives restarts (see encryption_keyring.rs);
         // falls back to an ephemeral key with a loud warning if unset.
@@ -222,13 +262,17 @@ impl AppState {
             _ => crate::device_lifecycle::DeviceLifecycleStore::new(),
         };
 
+        let document_client = match db_pool.as_ref() {
+            Some(pool) => IpfsClient::from_env().with_postgres(pool.clone()),
+            None => IpfsClient::from_env(),
+        };
         Self {
             db_pool,
             idempotency_memory: crate::middleware::idempotency::MemoryOperationStore::new(),
             repositories,
             users: RwLock::new(HashMap::new()),
-            ipfs_client: IpfsClient::from_env(),
-            substrate_client,
+            ipfs_client: document_client,
+            audit_seal,
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
             encryption_keyring,
@@ -277,7 +321,7 @@ impl AppState {
                 for row in rows {
                     let db_user = &row.user;
                     let user = User {
-                        wallet_address: db_user.wallet_address.clone(),
+                        id: db_user.id.to_string(),
                         username: db_user.username.clone(),
                         name: db_user
                             .name
@@ -287,6 +331,7 @@ impl AppState {
                             "Admin" => Role::Admin,
                             "Doctor" => Role::Doctor,
                             "Nurse" => Role::Nurse,
+                            "Paramedic" => Role::Paramedic,
                             "LabTechnician" => Role::LabTechnician,
                             "Pharmacist" => Role::Pharmacist,
                             "Patient" => Role::Patient,
@@ -313,7 +358,7 @@ impl AppState {
                         status: db_user.status.clone(),
                         last_login: db_user.last_login_at,
                     };
-                    users.insert(db_user.wallet_address.clone(), user);
+                    users.insert(user.id.clone(), user);
                     count += 1;
                 }
 
@@ -326,13 +371,29 @@ impl AppState {
     /// Upsert a user into the persistent `users` table. No-op when no DB pool
     /// is configured (memory-only demo mode).
     ///
-    /// Added 2026-07-22: `wallet_register`/`assign_role`/`update_user_profile`
-    /// previously only wrote to the in-memory `self.users` map — every
+    /// Account creation, role assignment, and profile updates previously only
+    /// wrote to the in-memory `self.users` map — every
     /// admin-registered user (and every profile edit) was silently lost on
     /// restart even with `MEDICHAIN_STORAGE=postgres` configured, since
     /// `load_demo_users_from_db` only re-seeds from what was actually
     /// persisted here.
     pub async fn persist_user(&self, user: &User) -> Result<(), String> {
+        self.persist_user_with_login(user, None).await
+    }
+
+    /// `persist_user`, also stamping the sign-in handle (and, for the first
+    /// administrator, the credential) on a NEW row.
+    ///
+    /// The login handle and verifier are written only by the INSERT: an update of
+    /// an existing row never touches them, so an ordinary profile edit cannot
+    /// clear or replace a credential. Doing both in one statement is what stops
+    /// an account existing without the handle its unique index should have
+    /// refused.
+    pub async fn persist_user_with_login(
+        &self,
+        user: &User,
+        login: Option<&NewLogin<'_>>,
+    ) -> Result<(), String> {
         let pool = match &self.db_pool {
             Some(p) => p,
             None => return Ok(()),
@@ -343,13 +404,17 @@ impl AppState {
         let is_active = status == "active";
         let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-        let user_id: uuid::Uuid = sqlx::query_scalar(
+        let user_id = crate::actor_directory::parse_user_id(&user.id)
+            .ok_or_else(|| format!("user id {:?} is not a UUID", user.id))?;
+        sqlx::query(
             "INSERT INTO users (
-                wallet_address, role, name, username, email, linked_patient_id,
-                is_active, status, last_login_at, created_by, created_at
+                id, role, name, username, email, linked_patient_id,
+                is_active, status, last_login_at, created_by, created_at,
+                login_id, credential_verifier, credential_updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (wallet_address) DO UPDATE SET
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    CASE WHEN $13::text IS NULL THEN NULL ELSE NOW() END)
+            ON CONFLICT (id) DO UPDATE SET
                 role = EXCLUDED.role,
                 name = EXCLUDED.name,
                 username = EXCLUDED.username,
@@ -357,11 +422,12 @@ impl AppState {
                 linked_patient_id = EXCLUDED.linked_patient_id,
                 is_active = EXCLUDED.is_active,
                 status = EXCLUDED.status,
-                last_login_at = EXCLUDED.last_login_at,
-                updated_at = NOW()
-            RETURNING id",
+                -- A profile save carries whatever the cache held, which can be
+                -- older than the sign-in recorded since: never move it back.
+                last_login_at = GREATEST(users.last_login_at, EXCLUDED.last_login_at),
+                updated_at = NOW()",
         )
-        .bind(&user.wallet_address)
+        .bind(user_id)
         .bind(&role)
         .bind(&user.name)
         .bind(&user.username)
@@ -372,29 +438,37 @@ impl AppState {
         .bind(user.last_login)
         .bind(&user.created_by)
         .bind(user.created_at)
-        .fetch_one(&mut *tx)
+        .bind(login.map(|l| l.login_id))
+        .bind(login.and_then(|l| l.verifier))
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
 
-        // Contact details are sealed here and never written to the plaintext
-        // `user_profiles.phone` column, which stays deprecated. A cleared phone
-        // number seals to NULL, so clearing one is durable rather than a value
-        // that resurrects on the next restart.
+        self.persist_user_profile_in(&mut tx, user_id, user).await?;
+
+        tx.commit().await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Keep profile and encrypted contact in the caller's account transaction.
+    pub async fn persist_user_profile_in(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        user_id: uuid::Uuid,
+        user: &User,
+    ) -> Result<(), String> {
         let contact = StaffContact {
             phone: user.phone.clone(),
         };
-        let contact_encrypted = seal_staff_contact(&contact, &self.encryption_keyring);
-
-        // Always upsert the professional profile, including NULL values.
-        // Skipping the write when every field is None would make a "clear all"
-        // profile edit survive only in memory and resurrect stale values after a
-        // restart.
+        let sealed = seal_staff_contact(&contact, &self.encryption_keyring);
+        if !contact.is_empty() && sealed.is_none() {
+            return Err("Staff contact could not be encrypted".to_string());
+        }
         sqlx::query(
             "INSERT INTO user_profiles (
                  user_id, department, specialty, license_number,
                  contact_encrypted, contact_key_version
-             )
-             VALUES ($1, $2, $3, $4, $5, $6)
+             ) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (user_id) DO UPDATE SET
                  department = EXCLUDED.department,
                  specialty = EXCLUDED.specialty,
@@ -407,13 +481,11 @@ impl AppState {
         .bind(&user.department)
         .bind(&user.specialty)
         .bind(&user.license_number)
-        .bind(contact_encrypted)
+        .bind(sealed)
         .bind(self.encryption_keyring.current_version() as i32)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
-
-        tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -422,7 +494,7 @@ impl AppState {
     /// The card registry is a cache; `nfc_tags` is the record. Until this
     /// existed, `POST /api/nfc/generate` wrote only to the cache, so every card
     /// ever issued stopped working at the next restart while the plastic in the
-    /// patient's wallet carried on looking exactly as valid as before.
+    /// patient's user id carried on looking exactly as valid as before.
     ///
     /// `create` for a new card, `update` for a status change: the caller knows
     /// which, and an upsert here would let a suspend silently re-create a card
@@ -492,11 +564,20 @@ impl AppState {
 
     /// Persist a user before publishing the change to the authorization cache.
     pub async fn persist_then_cache_user(&self, user: User) -> Result<(), String> {
-        self.persist_user(&user).await?;
+        self.persist_then_cache_user_with_login(user, None).await
+    }
+
+    /// Persist an account and its sign-in handle before exposing it to callers.
+    pub async fn persist_then_cache_user_with_login(
+        &self,
+        user: User,
+        login: Option<&NewLogin<'_>>,
+    ) -> Result<(), String> {
+        self.persist_user_with_login(&user, login).await?;
         self.users
             .write()
             .map_err(|_| "User cache is unavailable".to_string())?
-            .insert(user.wallet_address.clone(), user);
+            .insert(user.id.clone(), user);
         Ok(())
     }
 
@@ -509,7 +590,9 @@ impl AppState {
                 .map(|users| !users.is_empty())
                 .map_err(|_| "User cache is unavailable".to_string());
         };
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users)")
+        // The migration's inactive "System" row is not a person who could bootstrap.
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE id <> $1)")
+            .bind(crate::actor_directory::SYSTEM_USER_ID)
             .fetch_one(pool)
             .await
             .map_err(|e| e.to_string())
@@ -518,17 +601,19 @@ impl AppState {
     /// Soft-delete a user in the persistent `users` table (revoke access
     /// without destroying the audit record). No-op when no DB pool is
     /// configured. See `persist_user` for why this exists.
-    pub async fn deactivate_user_in_db(&self, wallet_address: &str) -> Result<(), String> {
+    pub async fn deactivate_user_in_db(&self, user_id: &str) -> Result<(), String> {
         let pool = match &self.db_pool {
             Some(p) => p,
             None => return Ok(()),
         };
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
 
         sqlx::query(
             "UPDATE users SET is_active = false, status = 'inactive', updated_at = NOW() \
-             WHERE wallet_address = $1",
+             WHERE id = $1",
         )
-        .bind(wallet_address)
+        .bind(user_uuid)
         .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
@@ -537,15 +622,12 @@ impl AppState {
     }
 
     /// Durably deactivate an account before evicting its cached permissions.
-    pub async fn deactivate_then_evict_user(
-        &self,
-        wallet_address: &str,
-    ) -> Result<Option<User>, String> {
-        self.deactivate_user_in_db(wallet_address).await?;
+    pub async fn deactivate_then_evict_user(&self, user_id: &str) -> Result<Option<User>, String> {
+        self.deactivate_user_in_db(user_id).await?;
         self.users
             .write()
             .map_err(|_| "User cache is unavailable".to_string())
-            .map(|mut users| users.remove(wallet_address))
+            .map(|mut users| users.remove(user_id))
     }
 
     /// Load persisted MFA enrollments (decrypting secrets) and recent security
@@ -561,8 +643,9 @@ impl AppState {
         self.security.load_alerts_from_db().await;
 
         // MFA enrollments: decrypt each secret with the app encryption key.
-        let rows: Vec<(String, Vec<u8>, bool, chrono::DateTime<Utc>)> = sqlx::query_as(
-            "SELECT wallet_address, secret_encrypted, enabled, created_at FROM user_mfa",
+        let rows: Vec<MfaRow> = sqlx::query_as(
+            "SELECT user_id::text, secret_encrypted, enabled, created_at, last_used_step
+             FROM user_mfa",
         )
         .fetch_all(pool)
         .await
@@ -570,7 +653,7 @@ impl AppState {
 
         let mut loaded = 0usize;
         if let Ok(mut map) = self.security.mfa.write() {
-            for (wallet, secret_encrypted, enabled, created_at) in rows {
+            for (user_id, secret_encrypted, enabled, created_at, last_used_step) in rows {
                 let secret_base32 =
                     match medichain_crypto::EncryptedData::from_bytes(&secret_encrypted)
                         .and_then(|ed| medichain_crypto::decrypt(&self.encryption_key, &ed))
@@ -580,7 +663,7 @@ impl AppState {
                             Err(_) => {
                                 log::warn!(
                                     "MFA secret for {} is not valid UTF-8; skipping",
-                                    wallet
+                                    user_id
                                 );
                                 continue;
                             }
@@ -591,11 +674,12 @@ impl AppState {
                         }
                     };
                 map.insert(
-                    wallet,
+                    user_id,
                     crate::security::mfa::MfaRecord {
                         secret_base32,
                         enabled,
                         created_at,
+                        last_used_step,
                     },
                 );
                 loaded += 1;
@@ -608,7 +692,7 @@ impl AppState {
     /// No-op (Ok) on the memory backend.
     pub async fn persist_mfa_enrollment(
         &self,
-        wallet: &str,
+        user_id: &str,
         secret_base32: &str,
         enabled: bool,
     ) -> Result<(), String> {
@@ -618,11 +702,12 @@ impl AppState {
         let encrypted = medichain_crypto::encrypt(&self.encryption_key, secret_base32.as_bytes())
             .map_err(|e| format!("encrypt MFA secret: {}", e))?
             .to_bytes();
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
         sqlx::query(
-            "INSERT INTO user_mfa (wallet_address, secret_encrypted, enabled) VALUES ($1, $2, $3) \
-             ON CONFLICT (wallet_address) DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, enabled = EXCLUDED.enabled",
+            "INSERT INTO user_mfa (user_id, secret_encrypted, enabled) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET secret_encrypted = EXCLUDED.secret_encrypted, enabled = EXCLUDED.enabled, last_used_step = NULL",
         )
-        .bind(wallet)
+        .bind(user_uuid)
         .bind(&encrypted)
         .bind(enabled)
         .execute(pool)
@@ -632,12 +717,14 @@ impl AppState {
     }
 
     /// Update the `enabled` flag of a persisted MFA enrollment. No-op on memory.
-    pub async fn update_mfa_enabled(&self, wallet: &str, enabled: bool) -> Result<(), String> {
+    pub async fn update_mfa_enabled(&self, user_id: &str, enabled: bool) -> Result<(), String> {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
-        let result = sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE wallet_address = $1")
-            .bind(wallet)
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
+        let result = sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE user_id = $1")
+            .bind(user_uuid)
             .bind(enabled)
             .execute(pool)
             .await
@@ -648,20 +735,67 @@ impl AppState {
         Ok(())
     }
 
-    /// Delete a persisted MFA enrollment. No-op on memory.
-    pub async fn delete_mfa_enrollment(&self, wallet: &str) -> Result<(), String> {
+    /// Delete a persisted MFA enrollment. Already absent is a successful no-op.
+    pub async fn delete_mfa_enrollment(&self, user_id: &str) -> Result<(), String> {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
-        let result = sqlx::query("DELETE FROM user_mfa WHERE wallet_address = $1")
-            .bind(wallet)
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
+        sqlx::query("DELETE FROM user_mfa WHERE user_id = $1")
+            .bind(user_uuid)
             .execute(pool)
             .await
             .map_err(|e| format!("delete MFA enrollment: {}", e))?;
-        if result.rows_affected() != 1 {
-            return Err("delete MFA enrollment: enrollment not found".to_string());
-        }
         Ok(())
+    }
+
+    /// Check a TOTP code for `user_id` and, if it is right, spend its step.
+    ///
+    /// A code is accepted once: the step it belongs to must be later than the last
+    /// step accepted for this user, which is recorded in `user_mfa` so the rule
+    /// holds across instances and restarts. The in-process record is advanced
+    /// first, so two concurrent requests presenting the same code on one instance
+    /// cannot both pass while the database write is in flight.
+    pub async fn verify_totp(&self, user_id: &str, code: &str, scope: TotpScope) -> TotpOutcome {
+        let Some(secret) = self.security.totp_secret(user_id, scope) else {
+            return TotpOutcome::NotEnrolled;
+        };
+        let now = Utc::now().timestamp().max(0) as u64;
+        let Some(step) = crate::security::mfa::matching_step(&secret, user_id, code, now) else {
+            return TotpOutcome::Invalid;
+        };
+        if !self.security.claim_totp_step(user_id, step) {
+            return TotpOutcome::Replayed;
+        }
+        match self.persist_totp_step(user_id, step).await {
+            Ok(true) => TotpOutcome::Accepted,
+            Ok(false) => TotpOutcome::Replayed,
+            Err(error) => {
+                log::error!("TOTP step could not be recorded: {error}");
+                TotpOutcome::Unavailable
+            }
+        }
+    }
+
+    /// Record `step` as used. `Ok(false)` means a step at or after it was already
+    /// recorded, i.e. the code is a replay. Always `Ok(true)` on the memory backend.
+    async fn persist_totp_step(&self, user_id: &str, step: i64) -> Result<bool, String> {
+        let Some(pool) = &self.db_pool else {
+            return Ok(true);
+        };
+        let user_uuid = crate::actor_directory::parse_user_id(user_id)
+            .ok_or_else(|| format!("user id {user_id:?} is not a UUID"))?;
+        let advanced = sqlx::query(
+            "UPDATE user_mfa SET last_used_step = $2
+             WHERE user_id = $1 AND (last_used_step IS NULL OR last_used_step < $2)",
+        )
+        .bind(user_uuid)
+        .bind(step)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("record TOTP step: {e}"))?;
+        Ok(advanced.rows_affected() == 1)
     }
 
     /// Load demo patients from PostgreSQL into the patient repository
@@ -703,7 +837,6 @@ impl AppState {
             .map_err(|e| format!("Failed to load patients: {}", e))?;
 
         let mut count = 0;
-        let mut unrecorded_blood_type = 0;
         let mut to_repo: Vec<(PatientProfile, NfcTagData)> = Vec::new();
 
         for row in rows {
@@ -730,14 +863,12 @@ impl AppState {
             let conditions_json: Option<serde_json::Value> = row.get("chronic_conditions");
             let languages_json: Option<serde_json::Value> = row.get("languages");
 
-            // A patient with no recorded blood group is not loaded. This used to
-            // default to O+ ("universal donor"), which put a blood group nobody
-            // measured in front of whoever read the record; the profile type has
-            // no way to say "unknown", so absent is the only honest option.
-            let Some(blood_type) = blood_type_str.and_then(|s| parse_blood_type(&s).ok()) else {
-                unrecorded_blood_type += 1;
-                continue;
-            };
+            // A missing or unreadable group is Unknown. This used to default to
+            // O+ ("universal donor"), which put a blood group nobody measured in
+            // front of whoever read the record.
+            let blood_type = blood_type_str
+                .and_then(|s| parse_blood_type(&s).ok())
+                .unwrap_or(BloodType::Unknown);
 
             // Parse JSON arrays to Vec<String>
             let allergies: Vec<String> = allergies_json
@@ -761,7 +892,7 @@ impl AppState {
                     .iter()
                     .map(|name| Allergy {
                         name: name.clone(),
-                        severity: AllergySeverity::Mild,
+                        severity: AllergySeverity::Unknown,
                         reaction: None,
                         verified_at: None,
                     })
@@ -819,12 +950,6 @@ impl AppState {
             to_repo.push((patient, nfc_tag));
 
             count += 1;
-        }
-        if unrecorded_blood_type > 0 {
-            log::warn!(
-                "{unrecorded_blood_type} patients have no recorded blood group and were not \
-                 loaded into the in-memory store"
-            );
         }
 
         // In the memory-backend demo config (DATABASE_URL set but MEDICHAIN_STORAGE

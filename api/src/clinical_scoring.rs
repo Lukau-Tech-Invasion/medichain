@@ -640,6 +640,510 @@ pub fn qsofa_score(
 }
 
 // ============================================================================
+// NEWS2 — NATIONAL EARLY WARNING SCORE 2
+// ============================================================================
+//
+// Royal College of Physicians, "National Early Warning Score (NEWS) 2", 2017,
+// chart 1 (scoring) and chart 2 (clinical response). The engineering library
+// does not cover clinical scores; the RCP publication is the source.
+//
+// SpO2 is scored on Scale 1. Scale 2 is for patients with hypercapnic
+// respiratory failure and needs a clinician's documented decision to use it;
+// nothing records that decision yet, so it is not offered.
+
+/// Consciousness on the ACVPU scale. Anything but Alert scores 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Acvpu {
+    Alert,
+    /// New confusion, disorientation or agitation.
+    NewConfusion,
+    Voice,
+    Pain,
+    Unresponsive,
+}
+
+impl Acvpu {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Acvpu::Alert => "alert",
+            Acvpu::NewConfusion => "new_confusion",
+            Acvpu::Voice => "voice",
+            Acvpu::Pain => "pain",
+            Acvpu::Unresponsive => "unresponsive",
+        }
+    }
+}
+
+/// The seven NEWS2 observations. Every one is optional.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct News2Inputs {
+    #[serde(default)]
+    pub respiratory_rate: Option<i32>,
+    #[serde(default)]
+    pub oxygen_saturation: Option<i32>,
+    /// On supplemental oxygen (true) or breathing room air (false).
+    #[serde(default)]
+    pub on_oxygen: Option<bool>,
+    #[serde(default)]
+    pub systolic_bp: Option<i32>,
+    #[serde(default)]
+    pub heart_rate: Option<i32>,
+    #[serde(default)]
+    pub consciousness: Option<Acvpu>,
+    #[serde(default)]
+    pub temperature_celsius: Option<f64>,
+}
+
+/// NEWS2 clinical-risk band (RCP chart 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum News2Band {
+    /// 0-4 with no single parameter scoring 3.
+    Low,
+    /// 0-4 with one parameter scoring 3: an urgent ward-based response.
+    LowMedium,
+    /// 5-6.
+    Medium,
+    /// 7 or more.
+    High,
+}
+
+/// The number of NEWS2 parameters.
+pub const NEWS2_PARAMETERS: u8 = 7;
+
+/// A NEWS2 result, with the working shown.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct News2Score {
+    /// Points from the parameters that were recorded; `None` when none were.
+    pub total: Option<u8>,
+    /// The band of `total`. When `complete` is false it is the band *so far*:
+    /// an unrecorded parameter can only add points.
+    pub band: Option<News2Band>,
+    /// Points per parameter, `None` where it was not recorded.
+    pub respiratory_rate: Option<u8>,
+    pub oxygen_saturation: Option<u8>,
+    pub supplemental_oxygen: Option<u8>,
+    pub systolic_bp: Option<u8>,
+    pub heart_rate: Option<u8>,
+    pub consciousness: Option<u8>,
+    pub temperature: Option<u8>,
+    pub parameters_measured: u8,
+    /// All seven recorded.
+    pub complete: bool,
+    /// Names of the parameters not recorded, in chart order.
+    pub not_measured: Vec<String>,
+}
+
+fn news2_respiratory_rate(rr: i32) -> u8 {
+    match rr {
+        i32::MIN..=8 => 3,
+        9..=11 => 1,
+        12..=20 => 0,
+        21..=24 => 2,
+        _ => 3,
+    }
+}
+
+fn news2_spo2_scale1(spo2: i32) -> u8 {
+    match spo2 {
+        i32::MIN..=91 => 3,
+        92..=93 => 2,
+        94..=95 => 1,
+        _ => 0,
+    }
+}
+
+fn news2_systolic(sbp: i32) -> u8 {
+    match sbp {
+        i32::MIN..=90 => 3,
+        91..=100 => 2,
+        101..=110 => 1,
+        111..=219 => 0,
+        _ => 3,
+    }
+}
+
+fn news2_pulse(hr: i32) -> u8 {
+    match hr {
+        i32::MIN..=40 => 3,
+        41..=50 => 1,
+        51..=90 => 0,
+        91..=110 => 1,
+        111..=130 => 2,
+        _ => 3,
+    }
+}
+
+fn news2_temperature(t: f64) -> u8 {
+    // The chart's bands are to one decimal place; 36.05 is read as 36.1.
+    let tenths = (t * 10.0).round() as i32;
+    match tenths {
+        i32::MIN..=350 => 3,
+        351..=360 => 1,
+        361..=380 => 0,
+        381..=390 => 1,
+        _ => 2,
+    }
+}
+
+/// NEWS2 from whatever was recorded. An unrecorded parameter is not scored as
+/// normal (rule 12): the result names it and says how many were measured.
+pub fn news2_score(inputs: &News2Inputs) -> News2Score {
+    let parts: [(&'static str, Option<u8>); 7] = [
+        (
+            "respiratory_rate",
+            inputs.respiratory_rate.map(news2_respiratory_rate),
+        ),
+        (
+            "oxygen_saturation",
+            inputs.oxygen_saturation.map(news2_spo2_scale1),
+        ),
+        (
+            "supplemental_oxygen",
+            inputs.on_oxygen.map(|o| if o { 2 } else { 0 }),
+        ),
+        ("systolic_bp", inputs.systolic_bp.map(news2_systolic)),
+        ("heart_rate", inputs.heart_rate.map(news2_pulse)),
+        (
+            "consciousness",
+            inputs
+                .consciousness
+                .map(|c| if c == Acvpu::Alert { 0 } else { 3 }),
+        ),
+        (
+            "temperature",
+            inputs.temperature_celsius.map(news2_temperature),
+        ),
+    ];
+    let measured = parts.iter().filter(|(_, p)| p.is_some()).count() as u8;
+    let total = (measured > 0).then(|| parts.iter().filter_map(|(_, p)| *p).sum::<u8>());
+    debug_assert!(total.unwrap_or(0) <= 20, "NEWS2 is at most 20");
+    let any_three = parts.iter().any(|(_, p)| *p == Some(3));
+    let band = total.map(|t| match t {
+        7.. => News2Band::High,
+        5..=6 => News2Band::Medium,
+        _ if any_three => News2Band::LowMedium,
+        _ => News2Band::Low,
+    });
+    News2Score {
+        total,
+        band,
+        respiratory_rate: parts[0].1,
+        oxygen_saturation: parts[1].1,
+        supplemental_oxygen: parts[2].1,
+        systolic_bp: parts[3].1,
+        heart_rate: parts[4].1,
+        consciousness: parts[5].1,
+        temperature: parts[6].1,
+        parameters_measured: measured,
+        complete: measured == NEWS2_PARAMETERS,
+        not_measured: parts
+            .iter()
+            .filter(|(_, p)| p.is_none())
+            .map(|(n, _)| (*n).to_string())
+            .collect(),
+    }
+}
+
+// ============================================================================
+// PRE-HOSPITAL VITALS TREND
+// ============================================================================
+
+/// One set of observations an ambulance crew recorded. Every reading optional.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PrehospitalVitals {
+    pub respiratory_rate: Option<i32>,
+    pub spo2: Option<i32>,
+    pub systolic_bp: Option<i32>,
+    pub heart_rate: Option<i32>,
+    pub temperature_celsius: Option<f64>,
+    pub gcs: Option<i32>,
+}
+
+/// How one observation moved between the first reading and the latest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VitalChange {
+    Better,
+    Worse,
+    Same,
+}
+
+/// The direction of the whole set: each observation measured both times,
+/// judged by the points NEWS2 gives it (GCS: by itself, higher is better).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VitalsDirection {
+    /// At least one better and none worse.
+    Improving,
+    /// At least one worse and none better.
+    Worsening,
+    /// Some better, some worse: the reader must look at the numbers.
+    Mixed,
+    /// Nothing moved by a NEWS2 band (or GCS point).
+    Unchanged,
+}
+
+/// The trend across an ambulance run's observations, with the working shown.
+///
+/// Compares the earliest reading with the latest, parameter by parameter,
+/// counting only parameters recorded in both: a reading taken once has no
+/// trend (rule 12). Change is measured in NEWS2 points (RCP 2017, SpO2 scale 1),
+/// so a pulse moving from 118 to 106 is "better" because it leaves the 111-130
+/// band, while 80 to 88 is "same". GCS is not a NEWS2 parameter; a rise is
+/// better. `None` means there is nothing to compare.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VitalsTrend {
+    pub direction: VitalsDirection,
+    pub respiratory_rate: Option<VitalChange>,
+    pub spo2: Option<VitalChange>,
+    pub systolic_bp: Option<VitalChange>,
+    pub heart_rate: Option<VitalChange>,
+    pub temperature: Option<VitalChange>,
+    pub gcs: Option<VitalChange>,
+    /// How many parameters were recorded in both readings.
+    pub parameters_compared: u8,
+}
+
+/// Lower points (or, for GCS, a higher score) is better.
+fn change_by_points(first: u8, latest: u8) -> VitalChange {
+    match latest.cmp(&first) {
+        std::cmp::Ordering::Less => VitalChange::Better,
+        std::cmp::Ordering::Greater => VitalChange::Worse,
+        std::cmp::Ordering::Equal => VitalChange::Same,
+    }
+}
+
+fn change_in<T: Copy>(
+    first: Option<T>,
+    latest: Option<T>,
+    points: fn(T) -> u8,
+) -> Option<VitalChange> {
+    Some(change_by_points(points(first?), points(latest?)))
+}
+
+/// Trend from the first to the latest reading; `None` when no parameter was
+/// recorded in both.
+pub fn prehospital_vitals_trend(
+    first: &PrehospitalVitals,
+    latest: &PrehospitalVitals,
+) -> Option<VitalsTrend> {
+    let gcs = match (first.gcs, latest.gcs) {
+        (Some(a), Some(b)) => Some(match b.cmp(&a) {
+            std::cmp::Ordering::Greater => VitalChange::Better,
+            std::cmp::Ordering::Less => VitalChange::Worse,
+            std::cmp::Ordering::Equal => VitalChange::Same,
+        }),
+        _ => None,
+    };
+    let changes = [
+        change_in(
+            first.respiratory_rate,
+            latest.respiratory_rate,
+            news2_respiratory_rate,
+        ),
+        change_in(first.spo2, latest.spo2, news2_spo2_scale1),
+        change_in(first.systolic_bp, latest.systolic_bp, news2_systolic),
+        change_in(first.heart_rate, latest.heart_rate, news2_pulse),
+        change_in(
+            first.temperature_celsius,
+            latest.temperature_celsius,
+            news2_temperature,
+        ),
+        gcs,
+    ];
+    let compared = changes.iter().flatten().count() as u8;
+    if compared == 0 {
+        return None;
+    }
+    let better = changes.contains(&Some(VitalChange::Better));
+    let worse = changes.contains(&Some(VitalChange::Worse));
+    let direction = match (better, worse) {
+        (true, false) => VitalsDirection::Improving,
+        (false, true) => VitalsDirection::Worsening,
+        (true, true) => VitalsDirection::Mixed,
+        (false, false) => VitalsDirection::Unchanged,
+    };
+    Some(VitalsTrend {
+        direction,
+        respiratory_rate: changes[0],
+        spo2: changes[1],
+        systolic_bp: changes[2],
+        heart_rate: changes[3],
+        temperature: changes[4],
+        gcs: changes[5],
+        parameters_compared: compared,
+    })
+}
+
+#[cfg(test)]
+mod prehospital_trend_tests {
+    use super::*;
+
+    fn reading(sbp: i32, hr: i32, spo2: i32, gcs: i32) -> PrehospitalVitals {
+        PrehospitalVitals {
+            systolic_bp: Some(sbp),
+            heart_rate: Some(hr),
+            spo2: Some(spo2),
+            gcs: Some(gcs),
+            ..PrehospitalVitals::default()
+        }
+    }
+
+    #[test]
+    fn a_patient_leaving_the_danger_bands_is_improving() {
+        // The c8 run: BP 92 -> 104, HR 118 -> 106, SpO2 91 -> 96, GCS 14 -> 15.
+        let t = prehospital_vitals_trend(&reading(92, 118, 91, 14), &reading(104, 106, 96, 15))
+            .unwrap();
+        assert_eq!(t.direction, VitalsDirection::Improving);
+        assert_eq!(t.systolic_bp, Some(VitalChange::Better));
+        assert_eq!(t.gcs, Some(VitalChange::Better));
+        assert_eq!(t.parameters_compared, 4);
+    }
+
+    #[test]
+    fn a_move_within_one_band_is_not_a_change() {
+        let t =
+            prehospital_vitals_trend(&reading(120, 80, 98, 15), &reading(130, 88, 97, 15)).unwrap();
+        assert_eq!(t.direction, VitalsDirection::Unchanged);
+    }
+
+    #[test]
+    fn one_better_and_one_worse_is_mixed() {
+        let t =
+            prehospital_vitals_trend(&reading(92, 80, 98, 15), &reading(120, 120, 98, 15)).unwrap();
+        assert_eq!(t.direction, VitalsDirection::Mixed);
+        assert_eq!(t.heart_rate, Some(VitalChange::Worse));
+    }
+
+    #[test]
+    fn falling_consciousness_is_worsening() {
+        let t =
+            prehospital_vitals_trend(&reading(120, 80, 98, 15), &reading(120, 80, 98, 12)).unwrap();
+        assert_eq!(t.direction, VitalsDirection::Worsening);
+    }
+
+    #[test]
+    fn a_parameter_recorded_once_is_not_compared() {
+        let first = PrehospitalVitals {
+            heart_rate: Some(118),
+            ..PrehospitalVitals::default()
+        };
+        let latest = PrehospitalVitals {
+            systolic_bp: Some(104),
+            ..PrehospitalVitals::default()
+        };
+        assert_eq!(prehospital_vitals_trend(&first, &latest), None);
+    }
+}
+
+#[cfg(test)]
+mod news2_tests {
+    use super::*;
+
+    fn all_normal() -> News2Inputs {
+        News2Inputs {
+            respiratory_rate: Some(16),
+            oxygen_saturation: Some(98),
+            on_oxygen: Some(false),
+            systolic_bp: Some(120),
+            heart_rate: Some(70),
+            consciousness: Some(Acvpu::Alert),
+            temperature_celsius: Some(37.0),
+        }
+    }
+
+    #[test]
+    fn nothing_recorded_is_no_score_not_zero() {
+        let s = news2_score(&News2Inputs::default());
+        assert_eq!(s.total, None);
+        assert_eq!(s.band, None);
+        assert_eq!(s.parameters_measured, 0);
+        assert_eq!(s.not_measured.len(), 7);
+    }
+
+    #[test]
+    fn a_complete_normal_set_scores_zero_and_low() {
+        let s = news2_score(&all_normal());
+        assert_eq!(
+            (s.total, s.band, s.complete),
+            (Some(0), Some(News2Band::Low), true)
+        );
+    }
+
+    #[test]
+    fn one_parameter_scoring_three_is_low_medium() {
+        let s = news2_score(&News2Inputs {
+            consciousness: Some(Acvpu::NewConfusion),
+            ..all_normal()
+        });
+        assert_eq!((s.total, s.band), (Some(3), Some(News2Band::LowMedium)));
+    }
+
+    #[test]
+    fn bands_follow_the_rcp_chart() {
+        // RR 22 (2) + SpO2 93 (2) + oxygen (2) = 6: medium.
+        let medium = News2Inputs {
+            respiratory_rate: Some(22),
+            oxygen_saturation: Some(93),
+            on_oxygen: Some(true),
+            ..all_normal()
+        };
+        assert_eq!(news2_score(&medium).band, Some(News2Band::Medium));
+        // + pulse 135 (3) = 9: high.
+        let high = News2Inputs {
+            heart_rate: Some(135),
+            ..medium
+        };
+        assert_eq!(news2_score(&high).band, Some(News2Band::High));
+    }
+
+    #[test]
+    fn boundaries_score_as_charted() {
+        assert_eq!(news2_respiratory_rate(8), 3);
+        assert_eq!(news2_respiratory_rate(9), 1);
+        assert_eq!(news2_respiratory_rate(20), 0);
+        assert_eq!(news2_respiratory_rate(25), 3);
+        assert_eq!(news2_spo2_scale1(91), 3);
+        assert_eq!(news2_spo2_scale1(96), 0);
+        assert_eq!(news2_systolic(90), 3);
+        assert_eq!(news2_systolic(111), 0);
+        assert_eq!(news2_systolic(220), 3);
+        assert_eq!(news2_pulse(40), 3);
+        assert_eq!(news2_pulse(91), 1);
+        assert_eq!(news2_pulse(131), 3);
+        assert_eq!(news2_temperature(35.0), 3);
+        assert_eq!(news2_temperature(36.1), 0);
+        assert_eq!(news2_temperature(38.1), 1);
+        assert_eq!(news2_temperature(39.1), 2);
+    }
+
+    #[test]
+    fn a_partial_set_says_what_is_missing() {
+        let s = news2_score(&News2Inputs {
+            systolic_bp: Some(148),
+            heart_rate: Some(104),
+            respiratory_rate: Some(20),
+            ..Default::default()
+        });
+        assert_eq!(
+            (s.total, s.parameters_measured, s.complete),
+            (Some(1), 3, false)
+        );
+        assert_eq!(
+            s.not_measured,
+            vec![
+                "oxygen_saturation",
+                "supplemental_oxygen",
+                "consciousness",
+                "temperature"
+            ]
+        );
+    }
+}
+
+// ============================================================================
 // SOFA — SEQUENTIAL ORGAN FAILURE ASSESSMENT
 // ============================================================================
 
@@ -686,9 +1190,9 @@ pub struct SofaInputs {
     /// Platelets, x10^3/µL.
     #[serde(default)]
     pub platelets: Option<f64>,
-    /// Bilirubin, mg/dL.
+    /// Bilirubin, µmol/L.
     #[serde(default)]
-    pub bilirubin_mg_dl: Option<f64>,
+    pub bilirubin_umol_l: Option<f64>,
     /// Mean arterial pressure, mmHg.
     #[serde(default)]
     pub mean_arterial_pressure: Option<f64>,
@@ -697,9 +1201,9 @@ pub struct SofaInputs {
     /// Glasgow Coma Scale, 3-15.
     #[serde(default)]
     pub glasgow_coma_scale: Option<i32>,
-    /// Creatinine, mg/dL.
+    /// Creatinine, µmol/L.
     #[serde(default)]
-    pub creatinine_mg_dl: Option<f64>,
+    pub creatinine_umol_l: Option<f64>,
     /// Urine output over 24 hours, mL. Scores renal alongside creatinine; the
     /// worse of the two is taken, which is what SOFA specifies.
     #[serde(default)]
@@ -757,15 +1261,20 @@ fn sofa_coagulation(inputs: &SofaInputs) -> Option<u8> {
     })
 }
 
+/// Liver, by bilirubin in µmol/L.
+///
+/// The SI bands published beside the mg/dL ones in the Sepsis-3 SOFA table
+/// (Singer et al., JAMA 2016;315(8):801-810, Table 1): <20, 20-32, 33-101,
+/// 102-204, >204.
 fn sofa_liver(inputs: &SofaInputs) -> Option<u8> {
-    let bilirubin = inputs.bilirubin_mg_dl?;
-    Some(if bilirubin >= 12.0 {
+    let bilirubin = inputs.bilirubin_umol_l?;
+    Some(if bilirubin > 204.0 {
         4
-    } else if bilirubin >= 6.0 {
+    } else if bilirubin >= 102.0 {
         3
-    } else if bilirubin >= 2.0 {
+    } else if bilirubin >= 33.0 {
         2
-    } else if bilirubin >= 1.2 {
+    } else if bilirubin >= 20.0 {
         1
     } else {
         0
@@ -818,15 +1327,18 @@ fn sofa_cns(inputs: &SofaInputs) -> Option<u8> {
 }
 
 /// Renal: the worse of creatinine and urine output, as SOFA specifies.
+///
+/// Creatinine in µmol/L, on the Sepsis-3 table's SI bands (Singer et al.,
+/// 2016, Table 1): <110, 110-170, 171-299, 300-440, >440.
 fn sofa_renal(inputs: &SofaInputs) -> Option<u8> {
-    let by_creatinine = inputs.creatinine_mg_dl.map(|c| {
-        if c >= 5.0 {
+    let by_creatinine = inputs.creatinine_umol_l.map(|c| {
+        if c > 440.0 {
             4
-        } else if c >= 3.5 {
+        } else if c >= 300.0 {
             3
-        } else if c >= 2.0 {
+        } else if c >= 171.0 {
             2
-        } else if c >= 1.2 {
+        } else if c >= 110.0 {
             1
         } else {
             0
@@ -1137,6 +1649,8 @@ pub fn catalog() -> serde_json::Value {
         // What the vitals screens colour as abnormal and critical. The same
         // limits raise the critical alerts on `POST /api/clinical/vitals`.
         "vital_signs": VITAL_BANDS,
+        // The toxicology form's level flags, with their units.
+        "toxicology": { "levels": TOXICOLOGY_LEVELS },
         // The critical-value call list, for the report form's preview. The
         // stored level is computed on the server when the report is filed.
         "critical_values": {
@@ -1225,7 +1739,7 @@ pub fn catalog() -> serde_json::Value {
             "max_per_system": 4,
             "max_total": 24,
             "respiration_top_tiers_need_support": true,
-            "renal_takes_worse_of": ["creatinine_mg_dl", "urine_output_ml_24h"],
+            "renal_takes_worse_of": ["creatinine_umol_l", "urine_output_ml_24h"],
         },
         "family_history": {
             "first_degree": FIRST_DEGREE_RELATIVES,
@@ -1511,9 +2025,11 @@ mod tests {
         assert_eq!(with(|i| i.platelets = Some(149.0)).coagulation, Some(1));
         assert_eq!(with(|i| i.platelets = Some(19.0)).coagulation, Some(4));
 
-        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(1.1)).liver, Some(0));
-        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(1.2)).liver, Some(1));
-        assert_eq!(with(|i| i.bilirubin_mg_dl = Some(12.0)).liver, Some(4));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(19.0)).liver, Some(0));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(20.0)).liver, Some(1));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(33.0)).liver, Some(2));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(204.0)).liver, Some(3));
+        assert_eq!(with(|i| i.bilirubin_umol_l = Some(205.0)).liver, Some(4));
 
         assert_eq!(
             with(|i| i.glasgow_coma_scale = Some(15)).central_nervous_system,
@@ -1533,8 +2049,11 @@ mod tests {
             "a GCS below 3 is not a GCS"
         );
 
-        assert_eq!(with(|i| i.creatinine_mg_dl = Some(1.1)).renal, Some(0));
-        assert_eq!(with(|i| i.creatinine_mg_dl = Some(5.0)).renal, Some(4));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(109.0)).renal, Some(0));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(110.0)).renal, Some(1));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(171.0)).renal, Some(2));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(440.0)).renal, Some(3));
+        assert_eq!(with(|i| i.creatinine_umol_l = Some(441.0)).renal, Some(4));
     }
 
     #[test]
@@ -1594,7 +2113,7 @@ mod tests {
     #[test]
     fn sofa_renal_takes_the_worse_of_creatinine_and_urine_output() {
         let both = sofa_score(&SofaInputs {
-            creatinine_mg_dl: Some(1.3),
+            creatinine_umol_l: Some(115.0),
             urine_output_ml_24h: Some(150.0),
             ..Default::default()
         });
@@ -1613,14 +2132,14 @@ mod tests {
             pao2_fio2: Some(50.0),
             respiratory_support: true,
             platelets: Some(10.0),
-            bilirubin_mg_dl: Some(20.0),
+            bilirubin_umol_l: Some(342.0),
             mean_arterial_pressure: Some(50.0),
             vasopressors: VasopressorSupport {
                 noradrenaline_mcg_kg_min: Some(0.5),
                 ..Default::default()
             },
             glasgow_coma_scale: Some(3),
-            creatinine_mg_dl: Some(6.0),
+            creatinine_umol_l: Some(530.0),
             urine_output_ml_24h: Some(100.0),
         });
         assert_eq!(worst.total, 24);
@@ -1973,11 +2492,14 @@ const fn threshold(
 /// in the browser and posted its own conclusion (rule 8). The table is the
 /// same one; the server now decides, and the page previews from the catalogue.
 pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
+    // SI throughout, like the rest of the list. Glucose, calcium and
+    // creatinine were in US units (mg/dL) beside potassium and sodium in
+    // mmol/L; the numbers below are the same limits converted, not new ones.
     threshold(
         "Glucose",
-        "mg/dL",
-        (Some(40.0), Some(500.0)),
-        (Some(20.0), Some(700.0)),
+        "mmol/L",
+        (Some(2.2), Some(27.8)),
+        (Some(1.1), Some(38.9)),
     ),
     threshold(
         "Potassium",
@@ -1993,9 +2515,9 @@ pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
     ),
     threshold(
         "Calcium",
-        "mg/dL",
-        (Some(6.0), Some(13.0)),
-        (Some(5.0), Some(15.0)),
+        "mmol/L",
+        (Some(1.5), Some(3.24)),
+        (Some(1.25), Some(3.74)),
     ),
     threshold("Hemoglobin", "g/dL", (Some(5.0), None), (Some(4.0), None)),
     threshold(
@@ -2012,7 +2534,12 @@ pub const CRITICAL_VALUE_THRESHOLDS: [CriticalThreshold; 13] = [
     ),
     threshold("INR", "ratio", (None, Some(5.0)), (None, Some(8.0))),
     threshold("Troponin", "ng/mL", (None, Some(0.5)), (None, Some(10.0))),
-    threshold("Creatinine", "mg/dL", (None, Some(5.0)), (None, Some(10.0))),
+    threshold(
+        "Creatinine",
+        "µmol/L",
+        (None, Some(442.0)),
+        (None, Some(884.0)),
+    ),
     threshold("pH", "", (Some(7.20), Some(7.60)), (Some(7.10), Some(7.70))),
     threshold(
         "pCO2",
@@ -2293,6 +2820,58 @@ pub struct VitalBand {
     pub critical_high: Option<f64>,
 }
 
+/// A drug level the toxicology form flags when a measured value exceeds it.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct DrugLevel {
+    /// The form's field, and the key the level is stored under.
+    pub key: &'static str,
+    pub name: &'static str,
+    pub unit: &'static str,
+    pub flag_above: f64,
+}
+
+/// The toxicology form's levels, in SI units.
+///
+/// These were literals in `ToxicologyPage` (rule 8), in US units: ethanol
+/// 80 mg/dL, paracetamol 150 mcg/mL, salicylate 30 mg/dL, lithium 1.5 mEq/L,
+/// digoxin 2.0 ng/mL. The numbers below are those converted -- not new
+/// clinical choices, and not clinically approved: 80 mg/dL ethanol is a
+/// driving limit rather than a toxic level, and 150 mg/L paracetamol is the
+/// four-hour nomogram line, which means nothing without the time since
+/// ingestion. Recorded for the clinical owner in the debt register.
+pub const TOXICOLOGY_LEVELS: [DrugLevel; 5] = [
+    DrugLevel {
+        key: "ethanol",
+        name: "Ethanol",
+        unit: "mmol/L",
+        flag_above: 17.4,
+    },
+    DrugLevel {
+        key: "acetaminophen",
+        name: "Paracetamol",
+        unit: "\u{00b5}mol/L",
+        flag_above: 993.0,
+    },
+    DrugLevel {
+        key: "salicylate",
+        name: "Salicylate",
+        unit: "mmol/L",
+        flag_above: 2.17,
+    },
+    DrugLevel {
+        key: "lithium",
+        name: "Lithium",
+        unit: "mmol/L",
+        flag_above: 1.5,
+    },
+    DrugLevel {
+        key: "digoxin",
+        name: "Digoxin",
+        unit: "nmol/L",
+        flag_above: 2.56,
+    },
+];
+
 /// The single definition. `VitalSignsPage` used to carry its own copy, and its
 /// critical systolic limit was 70 where this server alerted below 90 -- a
 /// reading the server had flagged Hypotension rendered as merely abnormal.
@@ -2353,12 +2932,15 @@ pub const VITAL_BANDS: [VitalBand; 9] = [
         critical_low: Some(9.0),
         critical_high: None,
     },
+    // mmol/L. Converted from the mg/dL band this used to carry (70-140,
+    // critical below 50 or above 400) at 18.016 mg/dL per mmol/L -- the same
+    // limits, in the unit South African laboratories and meters report.
     VitalBand {
         key: "blood_glucose",
-        normal_low: Some(70.0),
-        normal_high: Some(140.0),
-        critical_low: Some(50.0),
-        critical_high: Some(400.0),
+        normal_low: Some(3.9),
+        normal_high: Some(7.8),
+        critical_low: Some(2.8),
+        critical_high: Some(22.2),
     },
 ];
 
@@ -2377,6 +2959,34 @@ pub fn vital_beyond(key: &str, value: f64) -> (bool, bool) {
         ),
         None => (false, false),
     }
+}
+
+/// Above this a blood glucose "in mmol/L" is almost certainly mg/dL typed
+/// from habit: 110 mg/dL is a normal reading, 110 mmol/L is not survivable.
+///
+/// An engineering plausibility check in the manner of
+/// `blood_pressure_is_transposed`, not a clinical threshold -- genuine
+/// hyperosmolar readings reach the 30s and occasionally the 50s mmol/L, and
+/// point-of-care meters read "HI" above about 33. The clinical owner may move it.
+pub const GLUCOSE_MMOL_L_PLAUSIBLE_MAX: f64 = 60.0;
+
+/// Whether a glucose submitted as mmol/L looks like a mg/dL value.
+pub fn glucose_looks_like_mg_dl(value: f64) -> bool {
+    value > GLUCOSE_MMOL_L_PLAUSIBLE_MAX
+}
+
+/// The critical alerts one blood glucose (mmol/L) raises, from the same band
+/// the vitals screens colour by.
+pub fn glucose_alerts(value: f64) -> Vec<String> {
+    let (low, high) = vital_beyond("blood_glucose", value);
+    let mut alerts = Vec::new();
+    if low {
+        alerts.push(format!("Hypoglycaemia: glucose {value} mmol/L"));
+    }
+    if high {
+        alerts.push(format!("Hyperglycaemia: glucose {value} mmol/L"));
+    }
+    alerts
 }
 
 /// A blood pressure whose systolic is not above its diastolic has almost

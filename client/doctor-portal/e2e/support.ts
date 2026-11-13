@@ -1,6 +1,7 @@
-import { expect, type Page } from '@playwright/test';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { fixtureManifestPath as findFixtureFile } from './fixture-manifest';
+import { portalPath } from './portal-path';
 
 /** Where the shared signed-in session is stored between projects. */
 export const AUTH_STATE = 'e2e/.auth/doctor.json';
@@ -26,7 +27,7 @@ export const AUTH_STATE = 'e2e/.auth/doctor.json';
  * refuse self-approval; it is not a distinct role to audit, so it is absent
  * here.
  */
-export const ROLES = ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin'] as const;
+export const ROLES = ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin', 'Paramedic'] as const;
 export type RoleName = (typeof ROLES)[number];
 
 interface StaffFixture {
@@ -36,52 +37,28 @@ interface StaffFixture {
 }
 
 const fixtureCursor = new Map<RoleName, number>();
-const fixtureLoginTimes = new Map<string, number[]>();
-
-/**
- * Locate `.browser-test/fixtures.json` from wherever the run was launched.
- *
- * This was `resolve(cwd, '..', ...)`, which only resolves when the suite is
- * started from inside `client/doctor-portal`. Started from the repository root
- * -- which is how the documented `npx playwright test --config=...` line reads,
- * and how CI invokes it -- every test failed with a bare ENOENT naming a
- * `client/.browser-test` that has never existed, and the failure reads as
- * "nobody seeded the fixtures" rather than "the harness looked in the wrong
- * place". Walking up is cwd-independent and bounded by the filesystem root.
- */
-function findFixtureFile(): string {
-  let directory = process.cwd();
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = resolve(directory, '.browser-test', 'fixtures.json');
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-    const parent = dirname(directory);
-    if (parent === directory) {
-      break;
-    }
-    directory = parent;
-  }
-  throw new Error(
-    `No .browser-test/fixtures.json above ${process.cwd()}; run the browser fixture seed ` +
-      '(npx tsx scripts/seed-browser-test-fixtures.ts --i-understand-this-writes-accounts).'
-  );
-}
 
 /** Read the exact synthetic account produced by the current seed run. */
-function getStaffFixture(role: RoleName): StaffFixture {
+export function getStaffFixture(role: RoleName, index?: number): StaffFixture {
   const fixturePath = findFixtureFile();
   const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8')) as { staff?: StaffFixture[] };
   const candidates = fixtures.staff?.filter((staff) => staff.role === role) ?? [];
   if (candidates.length === 0) {
     throw new Error(`No ${role} account exists in ${fixturePath}; run the browser fixture seed.`);
   }
-  const cursor = fixtureCursor.get(role) ?? 0;
-  fixtureCursor.set(role, cursor + 1);
-  return candidates[cursor % candidates.length];
+  const cursor = index ?? fixtureCursor.get(role) ?? 0;
+  if (index === undefined) fixtureCursor.set(role, cursor + 1);
+  const fixture = candidates[cursor % candidates.length];
+  if (role === 'Admin' && !fixture.password) {
+    const password = process.env.MEDICHAIN_ADMIN_PASSWORD;
+    if (!password) {
+      throw new Error('MEDICHAIN_ADMIN_PASSWORD is required for main database admin browser tests.');
+    }
+    return { ...fixture, password };
+  }
+  return fixture;
 }
 
-/** Respect the API's durable five-challenges-per-wallet rolling budget. */
 /** The seeded patient's record id, for the routes that show one patient. */
 export function fixturePatientId(): string {
   const fixtures = JSON.parse(readFileSync(findFixtureFile(), 'utf8')) as {
@@ -90,22 +67,6 @@ export function fixturePatientId(): string {
   const id = fixtures.patient?.linked_patient_id;
   if (!id) throw new Error('The browser fixtures name no patient; run the browser fixture seed.');
   return id;
-}
-
-async function waitForFixtureAuthBudget(loginId: string): Promise<void> {
-  const windowMs = 61_000;
-  const recent = (fixtureLoginTimes.get(loginId) ?? []).filter(
-    (startedAt) => Date.now() - startedAt < windowMs
-  );
-  if (recent.length >= 5) {
-    await new Promise((resolveWait) =>
-      setTimeout(resolveWait, windowMs - (Date.now() - recent[0]))
-    );
-  }
-  const current = (fixtureLoginTimes.get(loginId) ?? []).filter(
-    (startedAt) => Date.now() - startedAt < windowMs
-  );
-  fixtureLoginTimes.set(loginId, [...current, Date.now()]);
 }
 
 /**
@@ -126,6 +87,7 @@ export const ROLE_HOME: Record<RoleName, string> = {
   Pharmacist: '/dashboard',
   LabTechnician: '/dashboard',
   Admin: '/dashboard',
+  Paramedic: '/ems-run',
 };
 
 /**
@@ -154,7 +116,7 @@ export const ROLE_HOME: Record<RoleName, string> = {
  * it, and the suite would go back to racing without anyone knowing why.
  */
 export async function skipFirstVisitReload(page: Page) {
-  const response = await page.request.get('/index.html');
+  const response = await page.request.get(portalPath('/index.html'));
   const version = /APP_VERSION\s*=\s*'([^']+)'/.exec(await response.text())?.[1];
   expect(
     version,
@@ -170,12 +132,11 @@ export async function skipFirstVisitReload(page: Page) {
   }, version);
 }
 
-export async function signIn(page: Page, role: RoleName = 'Doctor') {
+export async function signIn(page: Page, role: RoleName = 'Doctor', fixtureIndex?: number) {
   await skipFirstVisitReload(page);
-  await page.goto('/login');
-  const fixture = getStaffFixture(role);
-  await waitForFixtureAuthBudget(fixture.login_id);
-  await page.getByRole('textbox', { name: 'Employee ID or work email' }).fill(fixture.login_id);
+  await page.goto(portalPath('/login'));
+  const fixture = getStaffFixture(role, fixtureIndex);
+  await page.getByRole('textbox', { name: 'Employee ID or username' }).fill(fixture.login_id);
   await page.getByRole('textbox', { name: 'Password' }).fill(fixture.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
@@ -227,7 +188,13 @@ export async function settle(page: Page, path: string) {
   // re-signing-in then goto-ing again just repeated the loop. Clicking the
   // in-app link keeps the React Router history and the in-memory session
   // intact, which is also what a real clinician does.
-  if (!page.url().includes(path)) {
+  // Already there only if the address IS the route. A substring test read a
+  // patient's chart at /patients/<id>/triage as "already on /triage" and left
+  // the test inside the chart, looking for the department's queue.
+  const here = new URL(page.url());
+  const target = portalPath(path);
+  const already = target.includes('?') ? `${here.pathname}${here.search}` === target : here.pathname === target;
+  if (!already) {
     // Expand any collapsed navigation sections first. The sidebar groups routes
     // under collapsible headers, so a link like /emergency is simply absent
     // from the DOM until its section is open — and the history-push fallback
@@ -255,7 +222,7 @@ export async function settle(page: Page, path: string) {
     // It also still covers the original case this comment was written for: at
     // 320px the sidebar collapses, so the link exists in the DOM and is not
     // visible, and the reflow tests must not stall on it.
-    const link = page.locator(`a[href="${path}"]:visible`).first();
+    const link = page.locator(`a[href="${portalPath(path)}"]:visible`).first();
     const clickable = (await link.count()) > 0;
     // A short timeout, then fall back. "Visible" is not the same as "inside the
     // viewport", and a click on an off-screen element retries until the whole
@@ -273,7 +240,7 @@ export async function settle(page: Page, path: string) {
       await page.evaluate(p => {
         window.history.pushState({}, '', p);
         window.dispatchEvent(new PopStateEvent('popstate'));
-      }, path);
+      }, portalPath(path));
     }
   }
 
@@ -313,9 +280,9 @@ export async function settle(page: Page, path: string) {
  * specs went on driving the old control, failing in a way that looks exactly
  * like a broken page.
  *
- * `search` narrows the list; omitting it opens the picker and takes whatever
- * the server offers first, which is what the specs that deliberately do not
- * name a fixture want. Returns the chosen patient's visible name.
+ * `search` narrows the list; omitting it selects the named primary fixture.
+ * The unrelated second patient exists for denial tests and must not become
+ * the subject of a positive clinical workflow because list order changed.
  */
 export async function selectPatient(
   page: Page,
@@ -334,28 +301,298 @@ export async function selectPatient(
   await expect(input).toBeVisible({ timeout: 20000 });
   await input.click();
   // Typing drives the query; an empty search still opens the list.
-  await input.fill(search ?? '');
+  await input.fill(search ?? fixturePatientId());
 
   // The picker debounces, and the options are buttons inside the dropdown that
   // follows the input's own container.
   const options = page
     .locator('div.absolute.z-50 button[type="button"]')
     .or(page.locator('[role="listbox"] button'));
-  await expect(options.first()).toBeVisible({ timeout: 20000 });
+  // A record id is matched on the option's data attribute: rows show name and
+  // date of birth, not the id (UX plan 1.2). A name is matched as text.
+  const wanted = search ?? fixturePatientId();
+  const matchingOption = (/^PAT-/.test(wanted)
+    ? page.locator(`[data-patient-id="${wanted}"]`)
+    : options.filter({ hasText: wanted })).first();
+  await expect(matchingOption).toBeVisible({ timeout: 20000 });
 
   // An option renders as: the avatar initial, then the full name, then
   // "PAT-... • HID-...". Taking line 0 yields the single-letter initial, which
   // is not the patient's name and is useless as a later search term.
   const chosen =
-    (await options.first().innerText())
+    (await matchingOption.innerText())
       .split('\n')
       .map((line) => line.trim())
       .find((line) => line.length > 1 && !line.startsWith('PAT-')) ?? '';
-  await options.first().click();
+  await matchingOption.click();
+  await declareAccessReason(page);
 
   // The control collapses to the chosen patient once the selection lands.
   await expect(page.getByText(chosen, { exact: false }).first()).toBeVisible({
     timeout: 10000,
   });
   return chosen;
+}
+
+// ---------------------------------------------------------------------------
+// Credential sign-in, sign-out and the sweeps built on them
+// ---------------------------------------------------------------------------
+
+/**
+ * Sign in as ANY account through the form: Employee ID and password, then the
+ * authenticator code when the account has one.
+ *
+ * `signIn` above reads a role's account from the fixture manifest. Specs about
+ * sign-in itself (a locked account, a two-factor account, a freshly activated
+ * one, a changed password) need an account they name, and need to decide what
+ * happens after the first submit, so this one returns once the form has been
+ * submitted and the sidebar is showing -- or throws with what the page said.
+ *
+ * The selectors are the field ids rather than the labels `signIn` uses: a label is
+ * a translated string, an id is not, so these keep working under another locale.
+ *
+ * @param totp - Supplies the code when the form asks for one. A function, not a
+ *   string, so the code is computed when the field appears rather than before a
+ *   PBKDF2 derivation that can take a step of the clock.
+ */
+export async function signInWithCredentials(
+  page: Page,
+  loginId: string,
+  password: string,
+  totp?: () => Promise<string>
+) {
+  await skipFirstVisitReload(page);
+  await page.goto(portalPath('/login'));
+  await page.locator('input#identifier').fill(loginId);
+  await page.locator('input#password').fill(password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  if (totp) {
+    const codeField = page.locator('input#totp-code');
+    await expect(codeField, 'the account was not asked for its authenticator code').toBeVisible({
+      timeout: 30000,
+    });
+    await codeField.fill(await totp());
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  }
+  await expect(page.getByRole('navigation', { name: /sidebar/i })).toBeVisible({ timeout: 30000 });
+}
+
+/** Sign out through the sidebar and land on the sign-in page. */
+export async function signOut(page: Page) {
+  const logout = page.locator('button:visible').filter({ hasText: /^\s*logout\s*$/i }).first();
+  await logout.click();
+  await expect(page).toHaveURL(/\/login/, { timeout: 15000 });
+  await expect(page.locator('input#identifier')).toBeVisible({ timeout: 15000 });
+}
+
+/** The sign-in page is showing and nothing signed-in is: no sidebar, the form is there. */
+export async function expectSignedOut(page: Page) {
+  await expect(page.locator('input#identifier')).toBeVisible({ timeout: 30000 });
+  await expect(page.getByRole('navigation', { name: /sidebar/i })).toHaveCount(0);
+}
+
+/**
+ * Open a patient's chart, declaring why when the reason gate asks.
+ *
+ * A chart is not mounted until the clinician says why (WP10), and the reason is
+ * remembered per tab, so the gate may or may not be showing. Opening a chart is
+ * also what writes the access-log row a patient later sees.
+ */
+export async function openChartWithReason(
+  page: Page,
+  patientId: string,
+  reason: 'Treatment' | 'Referral' | 'Emergency' | 'Administrative' = 'Treatment'
+) {
+  await settle(page, `/patients/${patientId}`);
+  await declareAccessReason(page, reason);
+}
+
+/** Complete the chart's required purpose prompt before checking chart content. */
+export async function declareAccessReason(
+  page: Page,
+  reason: 'Treatment' | 'Referral' | 'Emergency' | 'Administrative' = 'Treatment'
+) {
+  const gate = page.getByTestId('access-reason-gate');
+  if (await gate.isVisible().catch(() => false)) {
+    await gate.getByRole('button', { name: reason, exact: true }).click();
+  }
+  await expect(gate).toHaveCount(0, { timeout: 30000 });
+}
+
+/**
+ * Choose a specific patient in a `PatientSelect` by record id.
+ *
+ * `selectPatient` takes whatever the server lists first, which is right for a
+ * spec that names no fixture and wrong for one that must act on a particular
+ * patient: it takes the unfiltered list while the search is still debouncing.
+ */
+export async function pickPatientById(page: Page, selector: string, patientId: string) {
+  const input = page.locator(selector);
+  if (!(await input.isVisible().catch(() => false))) {
+    await page.locator(`${selector}-selected`).click();
+  }
+  await input.click();
+  await input.fill(patientId);
+  // Rows show name and date of birth, not the id; the id is on the row.
+  const option = page.locator(`[data-patient-id="${patientId}"]`);
+  await expect(option.first()).toBeVisible({ timeout: 20000 });
+  await option.first().click();
+  await declareAccessReason(page);
+}
+
+/**
+ * Wait for the step-up dialog and answer it with a code, when it appears.
+ *
+ * Resolves `true` if the dialog was shown and answered, `false` if it never
+ * appeared inside `waitMs`. A demo-mode API exempts the Class B gate, so "no
+ * dialog" is a legitimate outcome and the caller decides what that means.
+ */
+export async function answerStepUp(
+  page: Page,
+  code: () => Promise<string | undefined>,
+  waitMs = 6000
+): Promise<boolean> {
+  const dialog = page.getByRole('dialog').filter({ has: page.locator('#step-up-code') });
+  const shown = await dialog
+    .waitFor({ state: 'visible', timeout: waitMs })
+    .then(() => true)
+    .catch(() => false);
+  if (!shown) return false;
+  const value = await code();
+  if (!value) throw new Error('The step-up dialog asked for a code but no authenticator is paired.');
+  await dialog.locator('#step-up-code').fill(value);
+  await dialog.getByRole('button', { name: /^confirm$/i }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 30000 });
+  return true;
+}
+
+/**
+ * Answer an ADR-0008 Class C password confirmation with this fixture account's
+ * credentials, when the action asks for one. Returns whether it was asked: a
+ * gated action only asks when there is something to confirm (for example a
+ * device that still carries someone else's emergency grant).
+ */
+export async function answerPasswordConfirmation(
+  page: Page,
+  role: RoleName,
+  fixtureIndex?: number,
+  waitMs = 6000
+): Promise<boolean> {
+  const dialog = page.getByRole('dialog').filter({ has: page.locator('#step-up-password') });
+  const shown = await dialog
+    .waitFor({ state: 'visible', timeout: waitMs })
+    .then(() => true)
+    .catch(() => false);
+  if (!shown) return false;
+  const fixture = getStaffFixture(role, fixtureIndex ?? 0);
+  const loginField = dialog.locator('#step-up-login-id');
+  if (await loginField.isVisible()) await loginField.fill(fixture.login_id);
+  await dialog.locator('#step-up-password').fill(fixture.password);
+  await dialog.getByRole('button', { name: /^confirm$/i }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 30000 });
+  return true;
+}
+
+/** Every route the signed-in account's own sidebar offers, sections expanded. */
+export async function sidebarRoutes(page: Page): Promise<string[]> {
+  for (let pass = 0; pass < 2; pass += 1) {
+    const closed = page.locator('nav button[aria-expanded="false"]:visible');
+    const count = await closed.count();
+    for (let i = 0; i < count; i += 1) {
+      await closed.first().click({ timeout: 2000 }).catch(() => undefined);
+    }
+  }
+  const hrefs = await page
+    .locator('nav a[href^="/"]')
+    .evaluateAll((links) => links.map((a) => a.getAttribute('href') || ''));
+  return Array.from(new Set(hrefs.filter((h) => h && h !== '/' && !h.startsWith('/login'))));
+}
+
+/**
+ * Keep a page under the API's per-minute budget, counted from its own requests.
+ * Returns a function to `await` between navigations.
+ */
+export function requestPacer(page: Page, perMinute = 90) {
+  const stamps: number[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/')) stamps.push(Date.now());
+  });
+  return async () => {
+    for (;;) {
+      const cutoff = Date.now() - 60_000;
+      while (stamps.length && stamps[0] < cutoff) stamps.shift();
+      if (stamps.length < perMinute) return;
+      await page.waitForTimeout(stamps[0] + 60_500 - Date.now());
+    }
+  };
+}
+
+/**
+ * Everything on the page a person could read: the visible text plus the text
+ * that lives in attributes (placeholder, aria-label, title, alt, value of a
+ * button).
+ */
+export async function readablePageText(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const parts: string[] = [document.body.innerText];
+    document.querySelectorAll('[placeholder],[aria-label],[title],[alt]').forEach((el) => {
+      for (const name of ['placeholder', 'aria-label', 'title', 'alt']) {
+        const value = el.getAttribute(name);
+        if (value) parts.push(value);
+      }
+    });
+    return parts.join('\n');
+  });
+}
+
+/**
+ * Answer a field the way a user would, whichever control it is now.
+ *
+ * Short fixed lists moved from `<select>` to `ChoiceChips`: a fieldset of
+ * radios, each inside its own label. A spec that names the field by id keeps
+ * working: a group is answered by pressing the chip, a dropdown by choosing.
+ */
+export async function choose(
+  field: Locator,
+  option: string | { value?: string; label?: string },
+): Promise<void> {
+  const wanted = typeof option === 'string' ? { value: option } : option;
+  const tag = await field.evaluate((element) => element.tagName);
+  if (tag !== 'FIELDSET') {
+    await field.selectOption(wanted);
+    return;
+  }
+  const chip = wanted.value !== undefined
+    ? field.locator(`label:has(input[value="${wanted.value}"])`)
+    : field.locator('label', { hasText: new RegExp(`^\\s*${wanted.label}\\s*$`) });
+  await chip.click();
+  await expect(chip.locator('input')).toBeChecked();
+}
+
+/**
+ * The vitals entry form (mockup c3). Opened from a patient's chart it is
+ * already open; on the standalone page it waits for "Record vitals". Its
+ * fields are found by label -- their ids are generated per form.
+ */
+export async function openVitalsForm(page: Page) {
+  const heartRate = page.getByLabel('Heart Rate (bpm)', { exact: true });
+  // Picking a patient on the standalone page moves into their chart, where the
+  // form opens by itself. Clicking the standalone button while that move is in
+  // flight hits a page that is being replaced; give the move time to land.
+  const opened = await heartRate.waitFor({ state: 'visible', timeout: 15000 }).then(() => true, () => false);
+  if (!opened) {
+    await page.getByRole('button', { name: /^record (first )?vitals$/i }).first().click();
+  }
+  await expect(heartRate).toBeVisible({ timeout: 20000 });
+  return {
+    field: (label: string) => page.getByLabel(label, { exact: true }),
+    /** Pain, glucose, weight, GCS and notes are folded under "More details". */
+    async more() {
+      const glucose = page.getByLabel('Blood Glucose (mmol/L)', { exact: true });
+      if (!(await glucose.isVisible().catch(() => false))) {
+        await page.locator('details summary').filter({ hasText: /more details/i }).first().click();
+      }
+      await expect(glucose).toBeVisible();
+    },
+  };
 }

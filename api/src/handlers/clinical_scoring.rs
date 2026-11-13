@@ -31,7 +31,7 @@ pub async fn get_scoring_catalog(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let caller = get_current_user_id(&http_req).and_then(|wallet| get_user(&data, &wallet));
+    let caller = get_current_user_id(&http_req).and_then(|user_id| get_user(&data, &user_id));
     if caller.is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "Unauthorized".to_string(),

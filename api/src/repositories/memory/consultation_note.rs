@@ -1,5 +1,6 @@
 //! In-memory consultation note repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     ConsultationNoteEntity, ConsultationNoteRepository, PaginatedResult, Pagination,
     RepositoryError, RepositoryResult,
@@ -28,7 +29,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         &self,
         mut consultation: ConsultationNoteEntity,
     ) -> RepositoryResult<ConsultationNoteEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&consultation.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -46,7 +47,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<ConsultationNoteEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("Consultation note with ID {} not found", id))
         })
@@ -57,7 +58,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ConsultationNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut consultations: Vec<ConsultationNoteEntity> = storage
             .values()
@@ -80,7 +81,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         provider_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ConsultationNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut consultations: Vec<ConsultationNoteEntity> = storage
             .values()
@@ -105,7 +106,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         &self,
         mut consultation: ConsultationNoteEntity,
     ) -> RepositoryResult<ConsultationNoteEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&consultation.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -124,7 +125,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         status: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ConsultationNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut consultations: Vec<ConsultationNoteEntity> = storage
             .values()
@@ -143,7 +144,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
     }
 
     async fn list_all(&self) -> RepositoryResult<Vec<ConsultationNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         let mut items: Vec<ConsultationNoteEntity> =
             storage.values().filter(|c| c.is_active).cloned().collect();
         items.sort_by_key(|b| std::cmp::Reverse(b.requested_at));

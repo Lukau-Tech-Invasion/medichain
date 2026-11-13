@@ -41,11 +41,11 @@ opened and read; everything marked *untriaged* was not.
 
 **206 write endpoints. 83 have no caller in either client.**
 
-### A. Dead code — registered nowhere (1, verified)
+### A. Dead code — registered nowhere (1 found, since resolved; verified)
 
 | Endpoint | Evidence |
 |---|---|
-| `POST /api/auth/login` | Handler `wallet_login` carries `#[allow(dead_code)] // route is unregistered`, and is absent from `routes.rs`. Unreachable. |
+| `POST /api/auth/login` | **Resolved.** The unregistered legacy sign-in handler found here was deleted under ADR-0010; the path is now the registered login ID + password handler `password_login` (`routes.rs`). |
 
 ### B. Superseded duplicates — the screen uses a different route (verified)
 
@@ -246,7 +246,8 @@ not owe one.
 the screen says so rather than appearing to lose it.
 
 **Covered by the journey, not the browser suite.** The patient application's e2e
-harness signs in by creating a fresh demo wallet, and the consent endpoints
+harness signed in, when this was written, with a throwaway demo identity (since
+replaced by login ID + password sign-in as the fixture patient), and the consent endpoints
 answer 401 for it, so a browser test would assert nothing about authorisation.
 The journey runs as the real fixture patient and asserts the withdrawn consent
 is *absent* afterwards — the only way to tell a real withdrawal from a 200 that
@@ -260,7 +261,7 @@ all sat in the shared client with no caller. What Settings showed instead was a
 **switch that wrote `twoFactorEnabled: true` into the user's settings blob** and
 nothing else — no secret, no paired authenticator, the server's `user_mfa` state
 untouched. The screen reported two-factor as on while `mfa_enabled()` returned
-false for that wallet. A security control that claims to be enabled when it is
+false for that account. A security control that claims to be enabled when it is
 not is worse than one plainly absent.
 
 **And it is a production blocker, not a nicety.**

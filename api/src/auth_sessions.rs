@@ -23,6 +23,12 @@ fn token_hash(token: &str) -> String {
     format!("{:x}", Sha3_256::digest(token.as_bytes()))
 }
 
+/// The database key for a user id; anything that is not a UUID names no session owner.
+fn parse_user_id(user_id: &str) -> Result<Uuid, sqlx::Error> {
+    crate::actor_directory::parse_user_id(user_id)
+        .ok_or_else(|| sqlx::Error::Protocol("user id is not a UUID".into()))
+}
+
 /// Open a login session and its first refresh generation, returning the `sid`
 /// the access token should carry.
 ///
@@ -30,29 +36,30 @@ fn token_hash(token: &str) -> String {
 /// did not persist, so the caller mints the access token only after this returns.
 pub async fn create(
     pool: &PgPool,
-    wallet_address: &str,
+    user_id: &str,
     refresh_token: &str,
     refresh_jti: &str,
     expires_at: DateTime<Utc>,
 ) -> Result<Uuid, sqlx::Error> {
+    let user_id = parse_user_id(user_id)?;
     let login_session_id = Uuid::new_v4();
     let generation_id = Uuid::new_v4();
     let refresh_jti = Uuid::parse_str(refresh_jti)
         .map_err(|_| sqlx::Error::Protocol("invalid refresh JTI".into()))?;
 
     let mut transaction = pool.begin().await?;
-    sqlx::query("INSERT INTO auth_login_sessions (id, wallet_address) VALUES ($1, $2)")
+    sqlx::query("INSERT INTO auth_login_sessions (id, user_id) VALUES ($1, $2)")
         .bind(login_session_id)
-        .bind(wallet_address)
+        .bind(user_id)
         .execute(&mut *transaction)
         .await?;
     sqlx::query(
         "INSERT INTO auth_sessions
-             (id, wallet_address, refresh_token_hash, refresh_jti, expires_at, login_session_id)
+             (id, user_id, refresh_token_hash, refresh_jti, expires_at, login_session_id)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(generation_id)
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(token_hash(refresh_token))
     .bind(refresh_jti)
     .bind(expires_at)
@@ -61,6 +68,60 @@ pub async fn create(
     .await?;
     transaction.commit().await?;
     Ok(login_session_id)
+}
+
+/// Seconds after a rotation during which presenting the old generation again
+/// is treated as a race (two tabs refreshing at once), not as theft: the late
+/// caller is refused, but the login survives. After this, it is reuse.
+pub const REUSE_GRACE_SECONDS: i64 = 10;
+
+/// Whether this exact generation was retired by a rotation more than
+/// [`REUSE_GRACE_SECONDS`] ago, i.e. a copy of it is being replayed.
+async fn generation_was_rotated(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    token: &str,
+    jti: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let replayed: Option<bool> = sqlx::query_scalar(
+        "SELECT revocation_reason = 'rotated'
+                AND revoked_at < NOW() - make_interval(secs => $4)
+         FROM auth_sessions
+         WHERE user_id = $1 AND refresh_token_hash = $2 AND refresh_jti = $3",
+    )
+    .bind(user_id)
+    .bind(token_hash(token))
+    .bind(jti)
+    .bind(REUSE_GRACE_SECONDS as f64)
+    .fetch_optional(&mut **transaction)
+    .await?;
+    Ok(replayed == Some(true))
+}
+
+/// Revoke a login session and its live generations inside a transaction that
+/// already holds the session row.
+async fn revoke_login_in(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    login_session_id: Uuid,
+    reason: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE auth_login_sessions SET revoked_at = NOW(), revocation_reason = $2
+         WHERE id = $1 AND revoked_at IS NULL",
+    )
+    .bind(login_session_id)
+    .bind(reason)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "UPDATE auth_sessions SET revoked_at = NOW(), revocation_reason = $2
+         WHERE login_session_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(login_session_id)
+    .bind(reason)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 /// Revoke one login session and, with it, every refresh generation beneath it.
@@ -104,45 +165,62 @@ pub async fn revoke_session(
     Ok(true)
 }
 
-/// Revoke every active login session for one wallet ("log out everywhere").
+/// Revoke every active login session for one user ("log out everywhere").
 /// Returns how many sessions were ended.
-pub async fn revoke_all_for_wallet(
+pub async fn revoke_all_for_user(
     pool: &PgPool,
-    wallet_address: &str,
+    user_id: &str,
     reason: &str,
 ) -> Result<u64, sqlx::Error> {
+    let user_id = parse_user_id(user_id)?;
     let mut transaction = pool.begin().await?;
-    // Lock every parent for this wallet before touching any generation, in a
+    let ended = revoke_sessions_in(&mut transaction, user_id, None, reason).await?;
+    transaction.commit().await?;
+    Ok(ended)
+}
+
+/// Revoke a user's active sessions inside a transaction the caller owns, so a
+/// credential change and the end of the sessions it invalidates commit or fail
+/// together. `keep` exempts one login session.
+pub async fn revoke_sessions_in(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    user_id: Uuid,
+    keep: Option<Uuid>,
+    reason: &str,
+) -> Result<u64, sqlx::Error> {
+    // Lock every parent for this user before touching any generation, in a
     // deterministic id order so two concurrent logout-alls cannot deadlock each
     // other. Rotation locks a single parent, so it serializes against this too.
     sqlx::query(
         "SELECT id FROM auth_login_sessions
-         WHERE wallet_address = $1 AND revoked_at IS NULL
+         WHERE user_id = $1 AND revoked_at IS NULL
          ORDER BY id
          FOR UPDATE",
     )
-    .bind(wallet_address)
-    .fetch_all(&mut *transaction)
+    .bind(user_id)
+    .fetch_all(&mut **transaction)
     .await?;
     let parents = sqlx::query(
         "UPDATE auth_login_sessions
          SET revoked_at = NOW(), revocation_reason = $2
-         WHERE wallet_address = $1 AND revoked_at IS NULL",
+         WHERE user_id = $1 AND revoked_at IS NULL AND id IS DISTINCT FROM $3",
     )
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(reason)
-    .execute(&mut *transaction)
+    .bind(keep)
+    .execute(&mut **transaction)
     .await?;
     sqlx::query(
         "UPDATE auth_sessions
          SET revoked_at = NOW(), revocation_reason = $2
-         WHERE wallet_address = $1 AND revoked_at IS NULL",
+         WHERE user_id = $1 AND revoked_at IS NULL
+           AND login_session_id IS DISTINCT FROM $3",
     )
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(reason)
-    .execute(&mut *transaction)
+    .bind(keep)
+    .execute(&mut **transaction)
     .await?;
-    transaction.commit().await?;
     Ok(parents.rows_affected())
 }
 
@@ -171,13 +249,14 @@ pub async fn is_session_active(pool: &PgPool, login_session_id: Uuid) -> Result<
 /// rotated, expired, or belonging to a login that has since been revoked.
 pub async fn rotate(
     pool: &PgPool,
-    wallet_address: &str,
+    user_id: &str,
     previous_token: &str,
     previous_jti: &str,
     replacement_token: &str,
     replacement_jti: &str,
     replacement_expires_at: DateTime<Utc>,
 ) -> Result<Option<Uuid>, sqlx::Error> {
+    let user_id = parse_user_id(user_id)?;
     let (Ok(previous_jti), Ok(replacement_jti)) = (
         Uuid::parse_str(previous_jti),
         Uuid::parse_str(replacement_jti),
@@ -199,12 +278,12 @@ pub async fn rotate(
         "SELECT s.id, s.revoked_at
          FROM auth_login_sessions AS s
          JOIN auth_sessions AS g ON g.login_session_id = s.id
-         WHERE g.wallet_address = $1
+         WHERE g.user_id = $1
            AND g.refresh_token_hash = $2
            AND g.refresh_jti = $3
          FOR UPDATE OF s",
     )
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(token_hash(previous_token))
     .bind(previous_jti)
     .fetch_optional(&mut *transaction)
@@ -227,29 +306,38 @@ pub async fn rotate(
     let retired = sqlx::query(
         "UPDATE auth_sessions
          SET revoked_at = NOW(), last_used_at = NOW(), revocation_reason = 'rotated'
-         WHERE wallet_address = $1
+         WHERE user_id = $1
            AND refresh_token_hash = $2
            AND refresh_jti = $3
            AND revoked_at IS NULL
            AND expires_at > NOW()",
     )
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(token_hash(previous_token))
     .bind(previous_jti)
     .execute(&mut *transaction)
     .await?;
     if retired.rows_affected() != 1 {
+        // A generation that was already rotated away being presented again is
+        // refresh-token reuse: someone holds a copy. End the whole login, so
+        // neither the copy nor the legitimate holder's successor works (WP12).
+        if generation_was_rotated(&mut transaction, user_id, previous_token, previous_jti).await? {
+            revoke_login_in(&mut transaction, login_session_id, "refresh_token_reuse").await?;
+            transaction.commit().await?;
+            log::warn!("Refresh-token reuse on login session {login_session_id}: session revoked");
+            return Ok(None);
+        }
         transaction.rollback().await?;
         return Ok(None);
     }
 
     sqlx::query(
         "INSERT INTO auth_sessions
-             (id, wallet_address, refresh_token_hash, refresh_jti, expires_at, login_session_id)
+             (id, user_id, refresh_token_hash, refresh_jti, expires_at, login_session_id)
          VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(Uuid::new_v4())
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(token_hash(replacement_token))
     .bind(replacement_jti)
     .bind(replacement_expires_at)

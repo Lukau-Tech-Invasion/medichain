@@ -1,13 +1,20 @@
+import { OfflineStatusBar } from '../offline/OfflineStatusBar';
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store';
 import {
   useSidebarData,
   useSSE,
-  useApiStatus,
   useTranslation,
   RestrictedSection,
+  refreshNotificationBadges,
+  NavigationGuard,
+  confirmSignOutWithUnsent,
+  formatDateOnly,
+  formatTimestamp,
 } from '@medichain/shared';
+import { findDirectoryPatient } from './PatientSelect';
+import { clearLocalRuns } from '../ems/runStore';
 import {
   LogOut,
   Shield,
@@ -18,16 +25,12 @@ import {
   X,
   ChevronLeft,
   Bell,
-  RefreshCw,
-  WifiOff,
 } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import { useToastActions } from './Toast';
 import {
   getNavForRole,
   getThemeForRole,
-  getDefaultExpandedSections,
-  getQuickActionsForRole,
   rolesOwningRoute,
   type NavSection,
   type NavItem,
@@ -46,8 +49,18 @@ const ROLE_PLURAL: Record<Role, string> = {
   Nurse: 'nurses',
   LabTechnician: 'laboratory technicians',
   Pharmacist: 'pharmacists',
+  Paramedic: 'paramedics',
   Patient: 'patients',
 };
+
+const PARAMEDIC_ALLOWED_ROUTES = new Set(['/dashboard', '/emergency', '/ems-handoff', '/ems-run', '/mci', '/settings']);
+
+/** The ambulance run is the paramedic's home screen (the dashboard redirects
+ *  there), including one run opened by id. It was missing from the list, so
+ *  every paramedic landed on a refusal. */
+function paramedicMayOpen(pathname: string): boolean {
+  return PARAMEDIC_ALLOWED_ROUTES.has(pathname) || pathname.startsWith('/ems-run/');
+}
 
 /** "nurses", or "doctors and nurses" — never "doctors, nurses". */
 function formatRoleList(names: string[]): string {
@@ -67,6 +80,27 @@ interface NavSectionProps {
   isCollapsed: boolean;
   getBadgeCount: (itemId: string) => number | null;
   onMobileClose?: () => void;
+}
+
+const RECENT_NAV_KEY = 'medichain.nav.recent';
+const RECENT_NAV_LIMIT = 4;
+
+/** Recently opened menu routes; empty when storage is unavailable. */
+function readRecentNav(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_NAV_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.filter((r): r is string => typeof r === 'string').slice(0, RECENT_NAV_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentNav(routes: string[]): void {
+  try {
+    localStorage.setItem(RECENT_NAV_KEY, JSON.stringify(routes));
+  } catch {
+    // A private window or blocked storage just means no "Recent" list.
+  }
 }
 
 interface NavItemProps {
@@ -89,6 +123,7 @@ const BADGE_MAPPINGS: Record<string, string> = {
   'pending-labs': 'pendingLabApprovals',
   'critical-labs': 'criticalValues',
   'code-blue': 'codeBlues',
+  'ems-incoming': 'incomingAmbulances',
   
   // Nurse badges
   'vitals': 'vitalsDue',
@@ -115,6 +150,17 @@ const BADGE_MAPPINGS: Record<string, string> = {
 // Navigation Item Component
 // =============================================================================
 
+/** Priority dot and active-item border for each role theme's background. */
+const NAV_ACCENT: Record<string, { dot: string; border: string }> = {
+  'bg-brand': { dot: 'bg-brand', border: 'border-brand' },
+  'bg-caution': { dot: 'bg-caution', border: 'border-caution' },
+  'bg-ok': { dot: 'bg-ok', border: 'border-ok' },
+  'bg-pink-700': { dot: 'bg-pink-500', border: 'border-pink-500' },
+  'bg-purple-700': { dot: 'bg-purple-500', border: 'border-purple-500' },
+  'bg-teal-700': { dot: 'bg-teal-500', border: 'border-teal-500' },
+  default: { dot: 'bg-content-muted', border: 'border-border-strong' },
+};
+
 function NavItemComponent({
   item,
   theme,
@@ -123,15 +169,9 @@ function NavItemComponent({
   onMobileClose,
 }: NavItemProps) {
   const ItemIcon = item.icon;
-  const baseColor = (() => {
-    try {
-      return theme.bg.replace(/^bg-/, '').replace(/-\d+$/, '');
-    } catch {
-      return 'gray';
-    }
-  })();
-
-  const priorityDotClass = `w-2 h-2 rounded-full bg-${baseColor}-500`;
+  // Written out in full: a class name assembled from a colour at runtime is
+  // invisible to Tailwind's compiler and shipped as no colour at all.
+  const accent = NAV_ACCENT[theme.bg] ?? NAV_ACCENT.default;
   
   return (
     <li>
@@ -142,7 +182,7 @@ function NavItemComponent({
         className={({ isActive }) =>
           `flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 text-sm group relative ${
             isActive
-              ? `${theme.activeBg} ${theme.activeText} font-medium border-l-4 border-${baseColor}-500 pl-2`
+              ? `${theme.activeBg} ${theme.activeText} font-medium border-l-4 ${accent.border} pl-2`
               : 'text-content-muted hover:bg-surface-sunken hover:text-content'
           } ${isCollapsed ? 'justify-center' : ''}`
         }
@@ -164,11 +204,6 @@ function NavItemComponent({
           `}>
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
-        )}
-        
-        {/* Priority indicator (if no badge) */}
-          {(badgeCount === null || badgeCount === 0) && item.priority === 'high' && (
-          <span className={`${isCollapsed ? 'absolute top-1 right-1' : 'ml-auto'} ${priorityDotClass}`} />
         )}
         
         {/* Tooltip for collapsed mode */}
@@ -303,6 +338,9 @@ function Layout() {
   const { t } = useTranslation();
   const { user, logout } = useAuthStore();
   
+  // A patient's chart or one of its forms: the workspace brings its own navigation.
+  const patientOpen = /^\/patients\/[^/]+/.test(location.pathname);
+
   // Sidebar state
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -311,8 +349,6 @@ function Layout() {
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
   const { showInfo, showWarning, showSuccess } = useToastActions();
-  // Connectivity status (offline banner + pending-write count)
-  const { isOnline, queueSize, checkConnection } = useApiStatus();
   const lastProcessedEventRef = useRef<number>(0);
 
   // Rendering still needs a stable navigation shape while auth initializes,
@@ -344,31 +380,61 @@ function Layout() {
     30000 // Refresh every 30 seconds
   );
 
+  /** "Thandiwe Ndlovu, born 12 Mar 1992" -- or "a patient" when the directory cannot say. */
+  const patientLabel = useCallback(async (patientId: string | null | undefined): Promise<string> => {
+    const p = patientId ? await findDirectoryPatient(patientId).catch(() => null) : null;
+    if (!p?.full_name) return t('liveEvents.aPatient');
+    return p.date_of_birth ? t('liveEvents.patientBorn', { name: p.full_name, dob: formatDateOnly(p.date_of_birth) }) : p.full_name;
+  }, [t]);
+
   // Handle incoming real-time events
   useEffect(() => {
     if (events.length > 0) {
       const latestEvent = events[0];
       if (latestEvent.timestamp > lastProcessedEventRef.current) {
         lastProcessedEventRef.current = latestEvent.timestamp;
+        refreshNotificationBadges();
         
         switch (latestEvent.event_type) {
-          case 'cds_alert':
-            showWarning(
-              latestEvent.payload.title || 'Clinical Alert',
-              // An absent severity used to interpolate as the literal string
-              // "undefined severity" into a clinical alert. Say nothing about
-              // the severity rather than say that.
-              latestEvent.payload.severity
-                ? `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
-                : `Patient ${latestEvent.patient_id}`
+          case 'message':
+            // A message for this account arrived: say so, and tell an open
+            // Messages page to reload. It used to appear only on a reload.
+            showInfo(
+              latestEvent.payload.sender_name
+                ? `From ${latestEvent.payload.sender_name}`
+                : 'You have a new message',
+              'New message'
             );
+            window.dispatchEvent(new Event('medichain:messages-refresh'));
             break;
+          case 'cds_alert': {
+            const { title, severity } = latestEvent.payload;
+            // The patient by name and date of birth, never by record id. An
+            // absent severity used to read "undefined severity"; it is left out.
+            void patientLabel(latestEvent.patient_id).then((who) => showWarning(
+              severity ? t('liveEvents.cdsAlertSeverity', { who, severity }) : t('liveEvents.cdsAlert', { who }),
+              title || t('liveEvents.cdsAlertTitle'),
+            ));
+            break;
+          }
           case 'lab_result':
-            showSuccess(
-              `New lab results available for patient ${latestEvent.patient_id}`,
-              'Lab Result Ready'
-            );
+            void patientLabel(latestEvent.patient_id).then((who) => showSuccess(
+              t('liveEvents.labResult', { who }), t('liveEvents.labResultTitle'),
+            ));
             break;
+          case 'ems_incoming': {
+            // An ambulance is heading here or has arrived: the board reloads
+            // now rather than at its next poll, and staff elsewhere are told.
+            window.dispatchEvent(new Event('medichain:ems-incoming'));
+            const status = latestEvent.payload.status as string | undefined;
+            const eta = latestEvent.payload.eta as string | null | undefined;
+            if (status === 'arrived') showWarning(t('liveEvents.ambulanceArrived'), t('liveEvents.ambulanceTitle'));
+            else if (status === 'en_route') {
+              showInfo(eta ? t('liveEvents.ambulanceEta', { time: formatTimestamp(eta, { timeStyle: 'short' }) }) : t('liveEvents.ambulanceComing'),
+                t('liveEvents.ambulanceTitle'));
+            }
+            break;
+          }
           case 'reminder_due':
             showInfo(
               latestEvent.payload.message || 'Medication reminder due',
@@ -386,7 +452,7 @@ function Layout() {
         refetchBadges();
       }
     }
-  }, [events, showInfo, showWarning, showSuccess, refetchBadges]);
+  }, [events, showInfo, showWarning, showSuccess, refetchBadges, t, patientLabel]);
 
   // Get role-specific configuration
   const theme = useMemo(() => getThemeForRole(userRole), [userRole]);
@@ -410,9 +476,34 @@ function Layout() {
     () => rolesOwningRoute(userRole, location.pathname),
     [userRole, location.pathname]
   );
-  const defaultExpanded = useMemo(() => getDefaultExpandedSections(userRole), [userRole]);
-  
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(defaultExpanded);
+  const paramedicRestricted = userRole === 'Paramedic'
+    && !paramedicMayOpen(location.pathname);
+  // Under "More", every section starts folded: the screens used most are
+  // already above it, and an open section would only repeat them.
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
+
+  // The role's high-priority destinations, once each, at the top.
+  const pinned = useMemo(() => {
+    const seen = new Set<string>();
+    return navigation.flatMap((s) => s.items).filter((i) => i.priority === 'high' && !seen.has(i.to) && seen.add(i.to));
+  }, [navigation]);
+
+  // The last few screens this person opened from the menu. Route ids only --
+  // nothing about a patient -- in local storage, so it survives a reload.
+  const [recentIds, setRecentIds] = useState<string[]>(() => readRecentNav());
+  useEffect(() => {
+    const hit = navigation.flatMap((s) => s.items).find((i) => i.to === location.pathname);
+    if (!hit || pinned.some((p) => p.to === hit.to)) return;
+    setRecentIds((prev) => {
+      const next = [hit.to, ...prev.filter((to) => to !== hit.to)].slice(0, RECENT_NAV_LIMIT);
+      writeRecentNav(next);
+      return next;
+    });
+  }, [location.pathname, navigation, pinned]);
+  const recent = useMemo(() => {
+    const items = navigation.flatMap((s) => s.items);
+    return recentIds.map((to) => items.find((i) => i.to === to)).filter((i): i is NavItem => Boolean(i));
+  }, [recentIds, navigation]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -452,7 +543,15 @@ function Layout() {
 
   
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const proceed = await confirmSignOutWithUnsent({
+      title: t('forms.unsentTitle'),
+      message: (n) => t('forms.unsentMessage', { n: String(n) }),
+      confirm: t('forms.unsentConfirm'),
+      cancel: t('forms.unsentCancel'),
+    });
+    if (!proceed) return;
+    clearLocalRuns();
     logout();
     navigate('/login');
   };
@@ -509,11 +608,11 @@ function Layout() {
    */
   const renderSidebar = (isMobile = false) => (
     <>
-      {/* Logo with role-based gradient */}
-      <div className={`p-4 bg-gradient-to-r ${theme.bgGradient}`}>
-        <div className="flex items-center gap-3">
-          <div className={`${isCollapsed && !isMobile ? 'w-8 h-8' : 'w-10 h-10'} bg-surface/20 rounded-lg flex items-center justify-center transition-all duration-200`}>
-            <Shield className="text-white" size={isCollapsed && !isMobile ? 20 : 24} />
+      {/* Logo, product and the collapse toggle in one quiet row. */}
+      <div className="border-b border-border p-3">
+        <div className={`flex items-center gap-3 ${isCollapsed && !isMobile ? 'flex-col' : ''}`}>
+          <div className={`h-9 w-9 shrink-0 rounded-lg bg-gradient-to-r ${theme.bgGradient} flex items-center justify-center`}>
+            <Shield className="text-white" size={20} />
           </div>
           {(!isCollapsed || isMobile) && (
             <div className="flex-1 min-w-0">
@@ -528,87 +627,88 @@ function Layout() {
                 name repeated twice tells them nothing about where they are
                 (WCAG 2.2 SC 1.3.1). The page heading is now the only h1.
               */}
-              <span className="block font-bold text-lg text-white">MediChain</span>
-              <span className="text-xs text-white">{portalTitle}</span>
+              <span className="block font-bold text-content">MediChain</span>
+              <span className="text-xs text-content-muted">{portalTitle}</span>
             </div>
           )}
           {/* Mobile close button */}
           {isMobile && (
             <button
               onClick={closeMobileMenu}
-              className="p-1 rounded-lg bg-surface/10 hover:bg-surface/20 transition-colors"
+              className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-surface-sunken transition-colors"
               aria-label="Close menu"
             >
-              <X className="text-white" size={20} />
+              <X className="text-content-secondary" size={20} />
+            </button>
+          )}
+          {!isMobile && (
+            <button
+              onClick={toggleCollapse}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-content-muted transition-colors hover:bg-surface-sunken hover:text-content-secondary"
+              aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <ChevronLeft size={18} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
             </button>
           )}
         </div>
       </div>
 
-      {/* Role Badge & Collapse Toggle */}
-      <div className={`px-4 py-2 border-b border-border flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'justify-between'}`}>
-        {(!isCollapsed || isMobile) && (
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${theme.bgLight} ${theme.text}`}>
-            {user?.role || 'Unknown Role'}
-          </span>
-        )}
-        {/* Desktop collapse toggle */}
-        {!isMobile && (
-          <button
-            onClick={toggleCollapse}
-            className="p-1.5 rounded-lg hover:bg-surface-sunken transition-colors text-content-muted hover:text-content-secondary"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <ChevronLeft size={18} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
-          </button>
-        )}
-      </div>
-
-      {/* Navigation */}
+      {/* Navigation: what this role uses most, what this person used last,
+          and everything else folded away -- not 50 links at once. */}
       <nav role="navigation" aria-label="Sidebar navigation" className="flex-1 p-3 overflow-y-auto scrollbar-hide">
-        {navigation.map((section) => (
+        {(isCollapsed && !isMobile) ? navigation.map((section) => (
           <NavSectionComponent
             key={section.id}
             section={section}
-            isExpanded={expandedSections.has(section.id)}
+            isExpanded={false}
             onToggle={() => toggleSection(section.id)}
             theme={theme}
-            isCollapsed={isCollapsed && !isMobile}
+            isCollapsed
             getBadgeCount={getBadgeCount}
-            onMobileClose={isMobile ? closeMobileMenu : undefined}
           />
-        ))}
+        )) : (
+          <>
+            <ul className="space-y-1">
+              {pinned.map((item) => (
+                <NavItemComponent key={item.id} item={item} theme={theme} isCollapsed={false}
+                  badgeCount={getBadgeCount(item.id)} onMobileClose={isMobile ? closeMobileMenu : undefined} />
+              ))}
+            </ul>
+            {recent.length > 0 && (
+              <>
+                <p className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-content-muted">Recent</p>
+                <ul className="space-y-1">
+                  {recent.map((item) => (
+                    <NavItemComponent key={item.id} item={item} theme={theme} isCollapsed={false}
+                      badgeCount={getBadgeCount(item.id)} onMobileClose={isMobile ? closeMobileMenu : undefined} />
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-content-muted">More</p>
+            {navigation.map((section) => (
+              <NavSectionComponent
+                key={section.id}
+                section={section}
+                isExpanded={expandedSections.has(section.id)}
+                onToggle={() => toggleSection(section.id)}
+                theme={theme}
+                isCollapsed={false}
+                getBadgeCount={getBadgeCount}
+                onMobileClose={isMobile ? closeMobileMenu : undefined}
+              />
+            ))}
+          </>
+        )}
       </nav>
 
-      {/* Quick Actions */}
-      {(!isCollapsed || isMobile) && (
-        <div className="px-3 py-3 border-t border-border">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-content-muted uppercase tracking-wide">Quick Actions</span>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {getQuickActionsForRole(userRole).map(action => (
-              <button
-                key={action.id}
-                onClick={() => { navigate(action.to); if (isMobile) closeMobileMenu(); }}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm bg-surface border hover:bg-surface-sunken ${theme.hoverBg}`}
-                aria-label={action.label}
-              >
-                <action.icon size={14} />
-                <span className="hidden sm:inline">{action.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* User info & logout */}
-      <div className="p-3 border-t border-border">
+      <div className="shrink-0 p-2 border-t border-border">
         {(!isCollapsed || isMobile) ? (
           <>
-            <div className="flex items-center gap-3 mb-3 px-2">
-              <div className={`w-10 h-10 ${theme.bgLight} rounded-full flex items-center justify-center`}>
+            <div className="flex items-center gap-2 mb-1 px-2">
+              <div className={`w-8 h-8 ${theme.bgLight} rounded-full flex items-center justify-center`}>
                 <Activity className={theme.textLight} size={20} />
               </div>
               <div className="flex-1 min-w-0">
@@ -623,9 +723,10 @@ function Layout() {
                 full-screen portal -- which is how every clinician runs this --
                 there was no control for notifications anywhere on the page.
                 The badge counted them and nothing could open them. */}
+            <div className="flex items-center gap-1">
             <button
               onClick={() => navigate('/notifications')}
-              className="w-full flex items-center justify-between gap-2 px-4 py-2 mb-1 text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
+              className="flex-1 min-h-[44px] flex items-center justify-between gap-1 px-2 py-2 text-sm text-content-muted hover:text-content hover:bg-surface-sunken rounded-lg transition-colors"
               // The tooltip names what the control does. It used to report the
               // SSE connection state, so hovering "Notifications" said "Live
               // Connection Active" -- which describes the bell's colour, not
@@ -653,11 +754,12 @@ function Layout() {
             </button>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
+              className="min-h-[44px] flex items-center justify-center gap-1 px-2 py-2 text-sm text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
             >
               <LogOut size={18} />
               <span>Logout</span>
             </button>
+            </div>
           </>
         ) : (
           <>
@@ -694,6 +796,7 @@ function Layout() {
 
   return (
     <div className="flex h-screen bg-surface-sunken">
+      <NavigationGuard />
       {/*
         The skip link is the FIRST focusable element in the document, and that
         placement is the whole feature. It previously lived inside the sidebar,
@@ -711,6 +814,10 @@ function Layout() {
       >
         Skip to main content
       </a>
+      {/* With a patient open, the patient workspace is the whole screen (mockup
+          c4): its banner and form list are the only navigation, and "Close
+          patient" is the way back. Two side menus at once read as two apps. */}
+      {!patientOpen && <>
       {/* Mobile Header */}
       <div className="fixed top-0 left-0 right-0 h-14 bg-surface shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
         <button
@@ -744,6 +851,7 @@ function Layout() {
       {/* Mobile Overlay */}
       {isMobileOpen && (
         <div
+          // ux-allow(overlay): the backdrop behind the mobile navigation drawer; a click on it closes the drawer.
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={closeMobileMenu}
           aria-hidden="true"
@@ -771,29 +879,19 @@ function Layout() {
       >
         {renderSidebar()}
       </aside>
+      </>}
 
       {/* Main content */}
-      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken">
-        {/* Offline indicator — writes are queued locally and synced on reconnect */}
-        {!isOnline && (
-          <div className="flex items-center gap-2 bg-caution text-caution-fg text-sm px-4 py-2">
-            <WifiOff className="w-4 h-4" />
-            <span>You're offline. Changes are saved locally and will sync when the connection returns.</span>
-            {queueSize > 0 && (
-              <span className="ml-1 px-2 py-0.5 bg-amber-700 rounded-full text-xs font-medium">
-                {queueSize} pending
-              </span>
-            )}
-            <button
-              onClick={() => checkConnection()}
-              className="ml-auto inline-flex items-center gap-1.5 min-h-[24px] underline hover:no-underline"
-            >
-              <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
-              Retry
-            </button>
-          </div>
-        )}
-        {routeOwners.length > 0 ? (
+      <main id="main-content" role="main" className={`relative flex-1 bg-surface-sunken ${patientOpen ? 'flex min-h-0 flex-col overflow-hidden' : 'overflow-auto pt-14 lg:pt-0'}`}>
+        <OfflineStatusBar />
+        {paramedicRestricted ? (
+          <RestrictedSection
+            title="This screen"
+            audience="clinical chart staff"
+            currentRole={t('docRoles.Paramedic')}
+            guidance="Use the emergency, handover, or mass casualty workspace."
+          />
+        ) : routeOwners.length > 0 ? (
           <RestrictedSection
             title="This screen"
             audience={formatRoleList(routeOwners.map((r) => ROLE_PLURAL[r]))}

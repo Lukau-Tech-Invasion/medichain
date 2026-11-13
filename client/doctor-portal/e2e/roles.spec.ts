@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import { portalPath } from './portal-path';
 import { signIn, settle, ROLES, ROLE_HOME, type RoleName } from './support';
-import { auditContrast, auditTargetSize, setTheme, reportContrast } from './audit';
+import { auditContrast, auditTargetSize, setTheme, reportContrast, freezeMotion } from './audit';
 
 /**
  * Every account the portal serves, audited as itself.
@@ -62,6 +63,7 @@ const FORBIDDEN: Record<RoleName, string> = {
   // was never "should this be refused?" but "why does the navigation say one
   // thing and the router another?".
   Admin: '/mar',
+  Paramedic: '/admin',
 };
 
 /** Read what this account can actually navigate to, from its own sidebar. */
@@ -152,7 +154,7 @@ for (const role of ROLES) {
       await page.evaluate((p) => {
         window.history.pushState({}, '', p);
         window.dispatchEvent(new PopStateEvent('popstate'));
-      }, forbidden);
+      }, portalPath(forbidden));
       await page.waitForTimeout(1500);
 
       const body = (await page.locator('body').innerText().catch(() => '')).toLowerCase();
@@ -184,6 +186,13 @@ for (const role of ROLES) {
       // merely did not settle.
       const crashed: string[] = [];
       let sampled = 0;
+
+      // `setTheme` samples two frames after the flip and assumes nothing is
+      // animating. Without this every theme flip was measured mid-transition:
+      // a dark sidebar reported as light, a button halfway between two
+      // colours, and 60-odd "failures" on screens the colour sweep reads as
+      // clean. colour-sweep.spec.ts has always frozen motion; this did not.
+      await freezeMotion(page);
 
       for (const route of routes) {
         // Keep `settle`'s own message. It already reports the URL and the first

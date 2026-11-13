@@ -27,6 +27,9 @@ describe('EmergencyPatientCard', () => {
     expect(screen.queryByText('Not a Registered Donor')).not.toBeInTheDocument();
     expect(screen.getAllByText('None recorded')).toHaveLength(2);
     expect(screen.getByText(/Last updated: None recorded/i)).toBeInTheDocument();
+    expect(screen.getByText('Allergy history not recorded')).toBeInTheDocument();
+    expect(screen.getByText('Medication history not recorded')).toBeInTheDocument();
+    expect(screen.getByText('Chronic condition history not recorded')).toBeInTheDocument();
   });
 
   it('texts the emergency contacts after confirmation and says who was reached', async () => {

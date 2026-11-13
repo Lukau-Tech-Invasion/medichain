@@ -1,347 +1,166 @@
-/**
- * Nurse Dashboard Page
- * 
- * Nurse-specific dashboard with medications due, patient care tasks, vitals, and shift handoff
- */
-
-import { useEffect, useState } from 'react';
+/** Nursing overview: only confirmed successful reads may produce empty-work claims. */
 import { useNavigate } from 'react-router-dom';
-import {
-  Users,
-  Activity,
-  AlertTriangle,
-  Droplets,
-  HeartPulse,
-  Pill,
-  ClipboardList,
-  FileText,
-} from 'lucide-react';
-import { getNurseDashboard, getNurseTasks, useTranslation,
-  type NurseDashboardResponse,
-  type NursingOrderTask,
-} from '@medichain/shared';
-import {
-  StatCard,
-  CriticalAlertsBanner,
-  QuickActionsPanel,
-  PatientListPanel,
-  type CriticalAlert,
-  type QuickAction,
-} from '../components/dashboard';
-import type { PatientListItem } from '../components/dashboard/PatientListPanel';
+import { Users, Activity, AlertTriangle, Droplets, HeartPulse, Pill, ClipboardList, FileText } from 'lucide-react';
+import { useTranslation, type NurseDashboardResponse, type NursingOrderTask } from '@medichain/shared';
+import { StatCard, CriticalAlertsBanner, QuickActionsPanel, PatientListPanel, type CriticalAlert, type QuickAction } from '../components/dashboard';
+import { useAuthStore } from '../store';
+import { useNurseDashboardReads, type NurseRead } from '../hooks/useNurseDashboardReads';
+import MyWardPanel from '../components/MyWardPanel';
 
+type DashboardRead = NurseRead<NurseDashboardResponse>;
+
+/** Render independent dashboard and order resources without suppressing either successful result. */
 export default function NurseDashboardPage() {
   const { t } = useTranslation();
+  const { user } = useAuthStore();
+  const { dashboard, orders } = useNurseDashboardReads(user?.userId ?? '');
+  return <div className="min-w-0 p-4 sm:p-6 space-y-6 bg-surface-sunken min-h-screen">
+    <header><h1 className="text-2xl font-bold text-content">{t('docNurseDashboard.title')}</h1>
+      <p className="text-sm text-content-muted mt-1">{t('docNurseDashboard.subtitle')}</p></header>
+    <NurseReadStatus resource={dashboard} kind="dashboard" />
+    <NurseReadStatus resource={orders} kind="orders" />
+    {dashboard.data && <NurseVitalAlerts data={dashboard.data} />}
+    {dashboard.data && <NurseMedications data={dashboard.data} />}
+    <NurseStats resource={dashboard} />
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 [&>*]:min-w-0">
+      <MyWardPanel />
+      <NurseTasks dashboard={dashboard} orders={orders} />
+    </div>
+    {/* The roster above is "my patients". This list is the facility's most
+        recently registered patients, labelled as such: it used to be titled
+        "My Patients" and was the first 15 rows of the patients table. */}
+    <NursePatients resource={dashboard} />
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 [&>*]:min-w-0"><NurseQuickActions /><NurseIo resource={dashboard} /></div>
+  </div>;
+}
+
+/** Announce unknown resources and provide a retry scoped to only that read. */
+function NurseReadStatus({ resource, kind }: { resource: NurseRead<unknown>; kind: 'dashboard' | 'orders' }) {
+  const { t } = useTranslation();
+  if (resource.status === 'ready') return null;
+  if (resource.status === 'loading') return <p role="status">{t(kind === 'dashboard' ? 'docNurseDashboard.loadingDashboard' : 'docNurseDashboard.loadingOrders')}</p>;
+  return <div role="alert" className="bg-caution-subtle text-caution-subtle-fg rounded-lg p-4">
+    <p>{t(kind === 'dashboard' ? 'docNurseDashboard.dashboardFailed' : 'docNurseDashboard.ordersFailed')}</p>
+    <button className="mt-2 rounded-lg border border-current px-3 py-2 font-semibold focus-visible:outline focus-visible:outline-2" onClick={() => void resource.reload()}>
+      {t(kind === 'dashboard' ? 'docNurseDashboard.retryDashboard' : 'docNurseDashboard.retryOrders')}
+    </button>
+  </div>;
+}
+
+/** Preserve the dashboard's existing abnormal-observation alert mapping. */
+function NurseVitalAlerts({ data }: { data: NurseDashboardResponse }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  const [data, setData] = useState<NurseDashboardResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Outstanding nursing orders. `null` while unknown, so a failed read is not
-  // shown as "nothing outstanding".
-  const [orderTasks, setOrderTasks] = useState<NursingOrderTask[] | null>(null);
-  const [orderTasksUnknown, setOrderTasksUnknown] = useState(false);
+  const alerts: CriticalAlert[] = data.vitals_needing_attention.map(v => ({
+    id: v.flowsheet_id || v.patient_id, type: 'critical_value', title: t('docNurseDashboard.abnormalVitals'),
+    description: v.abnormal_values?.join(', ') || t('docNurseDashboard.checkVitals'),
+    patient_name: v.patient_name, timestamp: new Date().toISOString(), severity: 'high',
+  }));
+  return <CriticalAlertsBanner alerts={alerts} onViewAll={() => navigate('/critical-value')} />;
+}
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
+/** Keep MAR-provided route/time/dose fields; missing observations are not inferred as oral dosing. */
+function NurseMedications({ data }: { data: NurseDashboardResponse }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const medications = data.medication_records.slice(0, 5);
+  if (!medications.length) return null;
+  return <div className="bg-ok-subtle border-2 border-ok rounded-lg p-4">
+    <div className="flex items-start justify-between mb-3 gap-3">
+      <h3 className="text-lg font-bold text-ok-subtle-fg flex gap-2"><Pill size={24} />{t('docNurseDashboard.medsDueNow', { count: medications.length })}</h3>
+      <button onClick={() => navigate('/mar')} className="font-medium text-ok-subtle-fg">{t('docNurseDashboard.openMar')}</button>
+    </div>
+    <div className="space-y-2">{medications.map(med => <div key={med.record_id} className="flex items-center justify-between gap-3 p-3 bg-surface rounded border border-ok">
+      <div className="flex-1 min-w-0"><p className="font-medium text-content">{med.patient_name || t('docNurseDashboard.unknown')} - {med.medication_name || t('docNurseDashboard.unknown')} {med.dosage || ''}</p>
+        <p className="text-sm text-content-muted">{med.route || t('docNurseDashboard.unknown')} - {t('docNurseDashboard.due')}: {med.scheduled_time || t('docNurseDashboard.unknown')}</p></div>
+      <button className="px-3 py-2 rounded bg-brand text-brand-fg" onClick={() => navigate('/mar')}>{t('docNurseDashboard.administer')}</button>
+    </div>)}</div>
+  </div>;
+}
 
-  const loadDashboard = async () => {
-    try {
-      setLoading(true);
-      const [response, tasks] = await Promise.allSettled([getNurseDashboard(), getNurseTasks()]);
-      if (response.status === 'fulfilled') setData(response.value);
-      else console.error('Failed to load nurse dashboard:', response.reason);
-      if (tasks.status === 'fulfilled') {
-        setOrderTasks(tasks.value.tasks ?? []);
-        setOrderTasksUnknown(false);
-      } else {
-        setOrderTasks(null);
-        setOrderTasksUnknown(true);
-      }
-    } catch (error) {
-      console.error('Failed to load nurse dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+/** Unknown dashboard counters stay unavailable rather than becoming zero. */
+function NurseStats({ resource }: { resource: DashboardRead }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const data = resource.data;
+  const cards = [
+    { label: 'statMyPatients', value: data?.patients.total, icon: Users, color: 'bg-ok-subtle', iconColor: 'text-ok-subtle-fg', path: '/patients' },
+    { label: 'statVitalsDue', value: data?.tasks.vitals_due, icon: Activity, color: 'bg-caution-subtle', iconColor: 'text-caution-subtle-fg', path: '/vitals' },
+    { label: 'statFallRisk', value: data?.fall_risk_patients.length, icon: AlertTriangle, color: 'bg-critical-subtle', iconColor: 'text-critical-subtle-fg' },
+    { label: 'statIvChecks', value: data?.tasks.ivs_to_check, icon: Droplets, color: 'bg-notice-subtle', iconColor: 'text-notice-subtle-fg', path: '/iv-site' },
+    { label: 'statWoundsToAssess', value: data?.tasks.wounds_to_assess, icon: HeartPulse, color: 'bg-caution-subtle', iconColor: 'text-caution-subtle-fg', path: '/wound-care' },
+  ];
+  return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">{cards.map(card => <StatCard key={card.label}
+    label={t(`docNurseDashboard.${card.label}`)} value={typeof card.value === 'number' && Number.isFinite(card.value) ? card.value : t('docNurseDashboard.unavailable')}
+    icon={<card.icon size={24} className={card.iconColor} />} color={card.color} loading={resource.status === 'loading'}
+    onClick={card.path ? () => navigate(card.path!) : undefined} />)}</div>;
+}
 
-  // The ward drug round, from the medication administration record.
-  //
-  // `/api/dashboard/nurse` used to serve `medication_reminders` here — the
-  // patient-adherence feed, which has no route, no scheduled time and no
-  // patient name. The `||` fallbacks hid that, and one was actively dangerous:
-  // `route: med.route || 'PO'` told a nurse every drug on the ward was oral,
-  // including the ones given IV or IM.
-  //
-  // The MAR carries all three. Where a MAR entry genuinely omits one, it still
-  // shows as unknown — a question rather than a wrong answer.
-  const medicationsDue = data?.medication_records?.slice(0, 5).map((med) => ({
-    id: med.record_id,
-    patient_name: med.patient_name || t('docNurseDashboard.unknown'),
-    medication: med.medication_name || t('docNurseDashboard.unknown'),
-    time_due: med.scheduled_time || t('docNurseDashboard.unknown'),
-    route: med.route || t('docNurseDashboard.unknown'),
-    dose: med.dosage || '',
-  })) || [];
+/** Render only a confirmed patient roster as empty; an unavailable roster is a separate state. */
+function NursePatients({ resource }: { resource: DashboardRead }) {
+  const { t } = useTranslation();
+  const patients = resource.data?.patients.list.map(patient => ({
+    patient_id: patient.patient_id, full_name: patient.full_name, room: patient.room, esi_level: patient.esi_level,
+    flags: { fall_risk: patient.fall_risk, iv_site: patient.iv_site, wound_care: patient.wound_care_due },
+  })) ?? [];
+  if (resource.status === 'failed') return <section className="bg-surface rounded-lg shadow p-4 border border-border">
+    <h3 className="font-semibold">{t('docNurseDashboard.statMyPatients')}</h3><p>{t('docNurseDashboard.unavailable')}</p>
+  </section>;
+  return <PatientListPanel patients={patients} title={t('docNurseDashboard.statMyPatients')}
+    emptyMessage={t('docNurseDashboard.myPatientsEmpty')} loading={resource.status === 'loading'} />;
+}
 
-  const quickActions: QuickAction[] = [
+/** Combine known observations/orders, but claim no outstanding work only when both reads succeeded. */
+function NurseTasks({ dashboard, orders }: { dashboard: DashboardRead; orders: NurseRead<NursingOrderTask[]> }) {
+  const { t } = useTranslation();
+  const tasks = [
+    ...(dashboard.data?.vitals_needing_attention ?? []).map(v => ({ id: v.flowsheet_id || v.patient_id,
+      task: t('docNurseDashboard.taskVitalsFor'), patient: v.patient_name || v.patient_id, detail: v.abnormal_values?.join(', ') || '' })),
+    ...(orders.data ?? []).map(order => ({ id: order.id, task: t(`docNurseDashboard.taskKind_${order.type}`),
+      patient: order.patient_id, detail: [order.frequency, order.instructions].filter(Boolean).join(' — ') })),
+  ];
+  const complete = dashboard.status === 'ready' && orders.status === 'ready';
+  return <section className="bg-surface rounded-lg shadow p-4 border border-border">
+    <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3"><ClipboardList size={16} aria-hidden="true" />{t('docNurseDashboard.tasksDue')}</h3>
+    {!complete && <p className="text-sm text-content-muted">{t('docNurseDashboard.tasksUnknown')}</p>}
+    {complete && !tasks.length && <p className="text-sm text-content-muted p-2">{t('docNurseDashboard.tasksNone')}</p>}
+    <div className="space-y-2">{tasks.map(task => <div key={task.id} className="flex flex-wrap gap-3 p-2 border rounded">
+      <span className="text-sm text-content flex-1">{task.task}</span><span className="text-sm text-content-muted">{task.patient}</span>
+      {task.detail && <span className="text-sm text-content-muted">{task.detail}</span>}
+    </div>)}</div>
+  </section>;
+}
+
+/** Keep existing workflow navigation available even while overview reads are unavailable. */
+function NurseQuickActions() {
+  const { t } = useTranslation();
+  const actions: QuickAction[] = [
     { id: 'mar', label: t('docNurseDashboard.qaOpenMar'), icon: Pill, href: '/mar', color: 'green' },
     { id: 'vitals', label: t('docNurseDashboard.qaRecordVitals'), icon: Activity, href: '/vitals', color: 'blue' },
     { id: 'io', label: t('docNurseDashboard.qaIoDoc'), icon: Droplets, href: '/intake-output', color: 'amber' },
     { id: 'care-plan', label: t('docNurseDashboard.qaUpdateCarePlan'), icon: ClipboardList, href: '/care-plan', color: 'purple' },
   ];
+  return <QuickActionsPanel actions={actions} columns={2} />;
+}
 
-  // `/api/dashboard/nurse` returns these now: the bed and acuity from the
-  // patient's latest triage assessment, the fall-risk band from their latest
-  // Morse assessment, the live cannula from the IV records, and whether a wound
-  // is overdue for reassessment.
-  //
-  // They are still optional, and still passed through undefined rather than
-  // defaulted. A patient with no triage assessment has no bed; one never
-  // assessed for falls has no band. Absent means "not recorded", which is not
-  // low risk — `room` used to fall back to "Pending" for every bed on the ward,
-  // which is the failure this shape exists to prevent.
-  const patients: PatientListItem[] = data?.patients?.list?.map((p) => ({
-    patient_id: p.patient_id,
-    full_name: p.full_name,
-    room: p.room,
-    esi_level: p.esi_level,
-    flags: {
-      fall_risk: p.fall_risk,
-      iv_site: p.iv_site,
-      wound_care: p.wound_care_due,
-    },
-  })) || [];
-
-  const criticalAlerts: CriticalAlert[] = data?.vitals_needing_attention?.map((v) => ({
-    id: v.flowsheet_id || String(Math.random()),
-    type: 'critical_value' as const,
-    title: t('docNurseDashboard.abnormalVitals'),
-    description: v.abnormal_values?.join(', ') || t('docNurseDashboard.checkVitals'),
-    patient_name: v.patient_name,
-    timestamp: new Date().toISOString(),
-    severity: 'high' as const,
-  })) || [];
-
-  // Derived from what the API actually reports, which is
-  // `vitals_needing_attention` — patients whose recorded observations are
-  // outside range. Everything else on this panel used to be invented:
-  //
-  //   08:30  Dressing change    Room 403
-  //   09:00  IV site assessment ICU-2
-  //
-  // Those times, those locations and those two tasks exist nowhere in the
-  // backend; `/api/dashboard/nurse` returns only `tasks.vitals_due` and a
-  // hardcoded `ivs_to_check: 0`. The remaining two rows interpolated the real
-  // `vitals_due` count into fixed 08:00 and 09:00 slots, so a nurse saw
-  // "Vitals x0" and "Blood sugar x0" listed as scheduled work.
-  //
-  // A task list is a work instruction. Four fabricated rows — one naming a
-  // specific room — are worse than an empty panel: a nurse either acts on
-  // them or stops believing the panel, and both outcomes are caused by the
-  // screen rather than by the ward.
-  const tasksData = [
-    ...(data?.vitals_needing_attention ?? []).map((v) => ({
-      id: v.flowsheet_id ?? v.patient_id ?? v.patient_name,
-      task: t('docNurseDashboard.taskVitalsFor'),
-      patient: v.patient_name ?? v.patient_id ?? '',
-      detail: v.abnormal_values?.join(', ') ?? '',
-    })),
-    // What the physicians ordered the nurses to do, still outstanding
-    // (`GET /api/nurse/tasks`, which had no screen).
-    ...(orderTasks ?? []).map((task) => ({
-      id: task.id,
-      task: t(`docNurseDashboard.taskKind_${task.type}`),
-      patient: task.patient_id,
-      detail: [task.frequency, task.instructions].filter(Boolean).join(' — '),
-    })),
-  ];
-
-  return (
-    <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-content">{t('docNurseDashboard.title')}</h1>
-        <p className="text-sm text-content-muted mt-1">{t('docNurseDashboard.subtitle')}</p>
-      </div>
-
-      {/* Critical Alerts */}
-      <CriticalAlertsBanner
-        alerts={criticalAlerts}
-        onViewAll={() => navigate('/critical-value')}
-      />
-
-      {/* Medications Due Banner */}
-      {medicationsDue.length > 0 && (
-        <div className="bg-ok-subtle border-2 border-ok rounded-lg p-4">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Pill className="text-ok-subtle-fg" size={24} />
-              <h3 className="text-lg font-bold text-ok-subtle-fg">
-                {t('docNurseDashboard.medsDueNow', { count: medicationsDue.length })}
-              </h3>
-            </div>
-            <button
-              onClick={() => navigate('/mar')}
-              className="text-sm text-ok-subtle-fg hover:text-ok-subtle-fg font-medium"
-            >
-              {t('docNurseDashboard.openMar')}
-            </button>
-          </div>
-          <div className="space-y-2">
-            {medicationsDue.map((med) => (
-              <div
-                key={med.id}
-                className="flex items-center justify-between p-3 bg-surface rounded border border-ok"
-              >
-                <div className="flex-1">
-                  <p className="font-medium text-content">
-                    {med.patient_name} - {med.medication} {med.dose}
-                  </p>
-                  <p className="text-sm text-content-muted">
-                    {med.route} - {t('docNurseDashboard.due')}: {med.time_due}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/mar')}
-                  className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok"
-                >
-                  {t('docNurseDashboard.administer')}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Stat Cards Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          label={t('docNurseDashboard.statMyPatients')}
-          value={data?.patients?.total || 0}
-          icon={<Users className="text-ok-subtle-fg" size={24} />}
-          color="bg-ok-subtle"
-          onClick={() => navigate('/patients')}
-          loading={loading}
-        />
-        <StatCard
-          label={t('docNurseDashboard.statVitalsDue')}
-          value={data?.tasks?.vitals_due || 0}
-          icon={<Activity className="text-caution-subtle-fg" size={24} />}
-          color="bg-caution-subtle"
-          onClick={() => navigate('/vitals')}
-          loading={loading}
-        />
-        <StatCard
-          label={t('docNurseDashboard.statFallRisk')}
-          value={data?.fall_risk_patients?.length || 0}
-          icon={<AlertTriangle className="text-critical-subtle-fg" size={24} />}
-          color="bg-critical-subtle"
-          loading={loading}
-        />
-        <StatCard
-          label={t('docNurseDashboard.statIvChecks')}
-          value={data?.tasks?.ivs_to_check || 0}
-          icon={<Droplets className="text-notice-subtle-fg" size={24} />}
-          color="bg-notice-subtle"
-          onClick={() => navigate('/iv-site')}
-          loading={loading}
-        />
-        {/* Wounds overdue for reassessment. The API counts this now; the badge
-            was left off the panel entirely while nobody computed it. */}
-        <StatCard
-          label={t('docNurseDashboard.statWoundsToAssess')}
-          value={data?.tasks?.wounds_to_assess || 0}
-          icon={<HeartPulse className="text-caution-subtle-fg" size={24} />}
-          color="bg-caution-subtle"
-          onClick={() => navigate('/wound-care')}
-          loading={loading}
-        />
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* My Patients */}
-        <PatientListPanel
-          patients={patients}
-          title={t('docNurseDashboard.statMyPatients')}
-          loading={loading}
-        />
-
-        {/* Tasks Due Timeline */}
-        <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3 min-h-[24px] py-1">
-            <ClipboardList size={16} aria-hidden="true" /> {t('docNurseDashboard.tasksDue')}
-          </h3>
-          <div className="space-y-2">
-            {orderTasksUnknown && (
-              <p className="text-xs text-content-muted p-2" role="status">
-                {t('docNurseDashboard.orderTasksUnknown')}
-              </p>
-            )}
-            {tasksData.length === 0 ? (
-              <p className="text-sm text-content-muted p-2">
-                {t('docNurseDashboard.tasksNone')}
-              </p>
-            ) : (
-              tasksData.map((task: { id: string; task: string; patient: string; detail: string }) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 p-2 border rounded hover:bg-surface-sunken"
-                >
-                  <span className="flex-1 text-sm text-content">{task.task}</span>
-                  <span className="text-sm text-content-muted">{task.patient}</span>
-                  {task.detail && (
-                    <span className="text-sm text-content-muted">{task.detail}</span>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Quick Actions */}
-        <QuickActionsPanel actions={quickActions} />
-
-        {/* I/O Summary */}
-        <div className="bg-surface rounded-lg shadow p-4 border border-border">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3 min-h-[24px] py-1">
-            <FileText size={16} aria-hidden="true" /> {t('docNurseDashboard.ioSummaryToday')}
-          </h3>
-          {data?.io_records && data.io_records.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-content-muted border-b">
-                    <th className="pb-2">{t('docNurseDashboard.colPatient')}</th>
-                    <th className="pb-2">{t('docNurseDashboard.colIntake')}</th>
-                    <th className="pb-2">{t('docNurseDashboard.colOutput')}</th>
-                    <th className="pb-2">{t('docNurseDashboard.colBalance')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.io_records.slice(0, 5).map((io, idx) => (
-                    <tr key={idx} className="border-b">
-                      <td className="py-2">{io.patient_name || t('docNurseDashboard.unknown')}</td>
-                      <td className="py-2">{io.total_intake || 0} mL</td>
-                      <td className="py-2">{io.total_output || 0} mL</td>
-                      <td className="py-2">
-                        {((io.total_intake || 0) - (io.total_output || 0)) > 0 ? '+' : ''}
-                        {(io.total_intake || 0) - (io.total_output || 0)} mL
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-content-muted">{t('docNurseDashboard.noIoRecords')}</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+/** Present confirmed intake/output rows; unknown measurements or failed reads cannot imply zero. */
+function NurseIo({ resource }: { resource: DashboardRead }) {
+  const { t } = useTranslation();
+  const records = resource.data?.io_records;
+  const volume = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? `${value} mL` : t('docNurseDashboard.unknown');
+  const balance = (record: NurseDashboardResponse['io_records'][number]) => {
+    if (typeof record.total_intake !== 'number' || typeof record.total_output !== 'number') return t('docNurseDashboard.unknown');
+    const difference = record.total_intake - record.total_output;
+    return Number.isFinite(difference) ? `${difference > 0 ? '+' : ''}${difference} mL` : t('docNurseDashboard.unknown');
+  };
+  return <section className="bg-surface rounded-lg shadow p-4 border border-border">
+    <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3"><FileText size={16} aria-hidden="true" />{t('docNurseDashboard.ioSummaryToday')}</h3>
+    {!records ? <p>{t('docNurseDashboard.unavailable')}</p> : !records.length ? <p className="text-sm text-content-muted">{t('docNurseDashboard.noIoRecords')}</p> :
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-content-muted border-b">
+        {['colPatient', 'colIntake', 'colOutput', 'colBalance'].map(label => <th key={label} className="pb-2">{t(`docNurseDashboard.${label}`)}</th>)}
+      </tr></thead><tbody>{records.map((record, index) => <tr key={index} className="border-b">
+        <td className="py-2">{record.patient_name || t('docNurseDashboard.unknown')}</td><td>{volume(record.total_intake)}</td><td>{volume(record.total_output)}</td>
+        <td>{balance(record)}</td>
+      </tr>)}</tbody></table></div>}
+  </section>;
 }

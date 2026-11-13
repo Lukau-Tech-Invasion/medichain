@@ -14,14 +14,15 @@ export type Role =
   | 'Nurse' 
   | 'LabTechnician' 
   | 'Pharmacist' 
+  | 'Paramedic'
   | 'Patient';
 
 /**
- * User authenticated via blockchain wallet
+ * A signed-in account
  */
 export interface User {
-  /** SS58 encoded wallet address (primary identifier) */
-  wallet_address: string;
+  /** The account's id (UUID); the only identifier of a user */
+  user_id: string;
   /** Optional display username */
   username?: string;
   /** Full name of the user */
@@ -30,7 +31,7 @@ export interface User {
   role: Role;
   /** When the user was created (ISO 8601) */
   created_at: string;
-  /** Wallet address of admin who created this user */
+  /** `user_id` of the admin who created this user */
   created_by?: string;
   /** Patient ID if this user is linked to a patient record */
   linked_patient_id?: string;
@@ -51,10 +52,10 @@ export interface User {
 }
 
 /**
- * User info returned from wallet auth endpoints
+ * User info returned from the auth endpoints
  */
-export interface WalletUserInfo {
-  wallet_address: string;
+export interface UserInfo {
+  user_id: string;
   name: string;
   username?: string;
   role: Role;
@@ -95,45 +96,21 @@ export interface UserPermissions {
  * The single source for the frontend's provider context. Anything a form might
  * otherwise ask a signed-in clinician to type belongs here.
  */
-export interface CurrentUser extends WalletUserInfo {
+export interface CurrentUser extends UserInfo {
   permissions: UserPermissions;
-}
-
-/**
- * Request to register a new user with wallet
- */
-export interface WalletRegisterRequest {
-  wallet_address: string;
-  name: string;
-  username?: string;
-  role: string;
-  linked_patient_id?: string;
-  email?: string;
-  phone?: string;
-  department?: string;
-  specialty?: string;
-  license_number?: string;
-}
-
-/**
- * Response from wallet registration
- */
-export interface WalletRegisterResponse {
-  success: boolean;
-  wallet_address: string;
-  role: string;
-  message: string;
 }
 
 // ============================================================================
 // Patient Types
 // ============================================================================
 
-export type BloodType = 
-  | 'A+' | 'A-' 
-  | 'B+' | 'B-' 
-  | 'AB+' | 'AB-' 
-  | 'O+' | 'O-';
+export type BloodType =
+  | 'A+' | 'A-'
+  | 'B+' | 'B-'
+  | 'AB+' | 'AB-'
+  | 'O+' | 'O-'
+  // Not typed. Recorded as such rather than guessed.
+  | 'Unknown';
 
 /**
  * Allergy severity levels (FHIR R5 AllergyIntolerance compatible)
@@ -320,10 +297,10 @@ export interface EmergencyInfo {
 export interface PatientProfile {
   patient_id: string;
   /**
-   * The wallet bound to this patient, from the row rather than the encrypted
-   * profile. `null` when none was bound at registration.
+   * The account (`user_id`) linked to this patient, from the row rather than
+   * the encrypted profile. `null` until the patient has activated their account.
    */
-  wallet_address?: string | null;
+  user_id?: string | null;
   full_name: string;
   date_of_birth: string;
   /** Returned by the API for neonatal records, where the date alone is not enough. */
@@ -356,14 +333,13 @@ export interface PatientProfile {
 
 export interface RegisterPatientRequest {
   full_name: string;
-  wallet_address?: string;
   date_of_birth: string;
   national_id: string;
   /** Absent when not stated; never `''`, which the server stores as a stated blank. */
   gender?: string;
   /** The patient's own number. Absent when not collected. */
   phone?: string;
-  blood_type: string;
+  blood_type?: string;
   /** Allergies - simple strings (converted to Mild severity on backend) */
   allergies: string[];
   current_medications: string[];
@@ -381,9 +357,41 @@ export interface RegisterPatientResponse {
   success: boolean;
   patient_id: string;
   nfc_tag_id: string;
-  chain_status?: 'disabled' | 'pending' | 'finalized';
-  blockchain_tx_hash?: string;
   message: string;
+  /** The patient's account, created unactivated. */
+  user_id?: string;
+  /**
+   * One-time activation code (XXXX-XXXX-XXXX). Returned once, at registration:
+   * the server keeps only a hash, so it cannot be shown again.
+   */
+  activation_code: string;
+  /** When the code stops working (ISO 8601). */
+  activation_expires_at: string;
+}
+
+// ============================================================================
+// Sealed audit stream
+// ============================================================================
+
+/**
+ * Where an audit entry, record digest or capsule commitment stands in the
+ * sealed audit stream. `pending` = not yet in a sealed batch; `sealed` = in a
+ * chained, signed batch; `exported` = sealed and its checkpoint written to the
+ * external sink.
+ */
+export type SealStatus = 'pending' | 'sealed' | 'exported';
+
+/** Whether a sealed batch's signature checked out. `unsigned` is weaker than `valid`. */
+export type SealSignature = 'valid' | 'invalid' | 'unsigned';
+
+/** The `audit_seal` object the health, dashboard, analytics and compliance reads carry. */
+export interface AuditSealSummary {
+  /** Audit entries not yet in a sealed batch. */
+  unsealed_events: number;
+  last_sealed_at: string | null;
+  last_exported_at: string | null;
+  sink: 'none' | 'filesystem';
+  signing: 'ed25519' | 'unsigned';
 }
 
 // ============================================================================
@@ -405,6 +413,8 @@ export interface MedicalRecordReference {
   record_type: RecordType;
   uploaded_at: number;
   content_checksum: string;
+  /** Where the record's content digest stands in the sealed audit stream. */
+  seal_status?: SealStatus | null;
 }
 
 export interface UploadMedicalRecordRequest {
@@ -420,10 +430,8 @@ export interface UploadMedicalRecordResponse {
   ipfs_hash: string;
   metadata_hash: string;
   record_reference: MedicalRecordReference;
-  record_chain_status: 'disabled' | 'pending' | 'finalized';
-  record_blockchain_tx_hash?: string;
-  access_chain_status: 'disabled' | 'pending' | 'finalized';
-  access_blockchain_tx_hash?: string;
+  /** Where the stored record's content digest stands in the sealed audit stream. */
+  seal_status?: SealStatus;
   message: string;
 }
 
@@ -447,13 +455,20 @@ export interface DownloadMedicalRecordResponse {
 // ============================================================================
 
 /** Strict emergency path: all authorisation bindings are enforced server-side. */
-export interface GrantBoundEmergencyAccessRequest {
-  nfc_tag_id: string;
+/**
+ * What the responder holds: the patient's NFC card tag id, or the patient id
+ * and possession proof scanned from their Medical ID QR. Exactly one.
+ */
+export type EmergencySubject =
+  | { nfc_tag_id: string; patient_id?: never; qr_proof?: never }
+  | { patient_id: string; qr_proof: string; nfc_tag_id?: never };
+
+export type GrantBoundEmergencyAccessRequest = EmergencySubject & {
   device_id: string;
   work_context_id: string;
   reason_code: string;
   reason_text?: string;
-}
+};
 
 export interface GrantBoundEmergencyAccessResponse {
   grant_id: string;
@@ -493,18 +508,42 @@ export interface AccessLogEntry {
   patient_id: string;
   accessor_id: string;
   /**
-   * The accessor's display name, when the server could resolve their wallet.
+   * The accessor's display name, when the server could resolve their `user_id`.
    *
-   * Null for an accessor who is not a known user. A patient cannot resolve a
-   * wallet themselves — the provider directory is staff-only — so without this
-   * their own access log reads as a list of SS58 addresses.
+   * Null for an accessor who is not a known user. A patient cannot resolve an
+   * id themselves — the provider directory is staff-only — so without this
+   * their own access log reads as a list of UUIDs.
    */
   accessor_name?: string | null;
   accessor_role: string;
   access_type: string;
-  location?: string;
+  /**
+   * The clinician's declared reason for opening the record ("Treatment",
+   * "Referral", ...). "Not stated" when none was given; null only on rows
+   * written before reasons were recorded.
+   */
+  access_reason?: string | null;
+  /** Plain-language description of what was disclosed, e.g. "Vital signs". */
+  resource_type?: string;
+  resource_id?: string | null;
+  /** Department of the accessor, when known. Shown when no facility is on record. */
+  accessor_department?: string | null;
+  location?: string | null;
   timestamp: string;
   emergency: boolean;
+  /**
+   * Where this entry stands in the sealed audit stream: `pending` means it is
+   * not yet in a sealed batch. Absent or null means the server did not say --
+   * show nothing rather than guess.
+   */
+  seal_status?: SealStatus | null;
+  /**
+   * What authorised the access (WP9): `care_relationship`, `break_glass`,
+   * `patient_grant`, `guardian`, `admin`, ... Null on older entries.
+   */
+  authority_type?: string | null;
+  /** For a care relationship: where it came from (`encounter`, `referral`). */
+  authority_source?: string | null;
 }
 
 export interface AccessLogsResponse {
@@ -565,7 +604,7 @@ export interface ApiError {
 // ============================================================================
 
 export interface AssignRoleRequest {
-  wallet_address: string;
+  user_id: string;
   name: string;
   username?: string;
   role: string;
@@ -573,18 +612,18 @@ export interface AssignRoleRequest {
 
 export interface AssignRoleResponse {
   success: boolean;
-  wallet_address: string;
+  user_id: string;
   role: string;
   message: string;
 }
 
 export interface RevokeRoleRequest {
-  wallet_address: string;
+  user_id: string;
 }
 
 export interface RevokeRoleResponse {
   success: boolean;
-  wallet_address: string;
+  user_id: string;
   message: string;
 }
 

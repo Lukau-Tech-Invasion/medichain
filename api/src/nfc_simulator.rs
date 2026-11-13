@@ -3,7 +3,7 @@
 //! Simulates NFC card functionality for MediChain emergency access.
 //! In production, this would interface with actual NFC hardware.
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
@@ -43,7 +43,7 @@ pub struct NFCCard {
     /// Unique card identifier (UUID v4)
     pub card_id: String,
 
-    /// Patient's blockchain/system ID (e.g., "MCHI-1234-5678")
+    /// Patient's system ID (e.g., "MCHI-1234-5678")
     pub patient_id: String,
 
     /// SHA3-256 hash of card_id + patient_id for verification
@@ -385,7 +385,7 @@ pub fn generate_qr_image(data: &QRCodeData) -> Result<String, String> {
 ///
 /// It was neither, until 2026-09-11: a pair of `RwLock<HashMap>` with nothing
 /// behind them, so every card issued was gone when the process stopped, while
-/// the physical card in the patient's wallet kept working right up to the tap
+/// the physical card in the patient's user id kept working right up to the tap
 /// that answered `CARD_NOT_FOUND`.
 pub struct CardRegistry {
     cards: RwLock<HashMap<String, NFCCard>>,

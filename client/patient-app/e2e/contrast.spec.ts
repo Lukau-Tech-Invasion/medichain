@@ -3,7 +3,7 @@ import { signIn, settle, ROUTES } from './support';
 // The one auditor both applications use. This file kept its own copy, which
 // measured only a fixed list of tags and skipped form-control values -- the
 // blind spot that let the white insurance policy number through.
-import { auditContrast, reportContrast, setTheme } from '../../shared/src/testing/contrastAudit';
+import { auditContrast, freezeMotion, reportContrast, setTheme } from '../../shared/src/testing/contrastAudit';
 
 /**
  * Measured contrast audit of the patient app, in both themes.
@@ -31,6 +31,8 @@ for (const route of ROUTES) {
   for (const theme of ['light', 'dark'] as const) {
     test(`${route.name} meets WCAG AA in ${theme} mode`, async ({ page }) => {
       await settle(page, route.path);
+      // `settle` performs a full navigation, which removes injected styles.
+      await freezeMotion(page);
       // Guard against a silent redirect to /login leaving the audit measuring
       // the wrong screen and reporting coverage it never had.
       expect(page.url(), `${route.name} redirected away from ${route.path}`).toContain(route.path);

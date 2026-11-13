@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import RadiologyPage from './RadiologyPage';
+import RadiologyPage, { toRadiologyStudy } from './RadiologyPage';
 import { useAuthStore } from '../store/authStore';
+import { fillField } from '../test/fields';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -20,7 +21,7 @@ global.fetch = mockFetch;
 
 describe('RadiologyPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Radiologist',
   };
 
@@ -93,6 +94,67 @@ describe('RadiologyPage', () => {
       // Radiology reports are pending -> in-progress -> preliminary -> final
       // -> addendum; there is no 'completed' state.
       expect(screen.getAllByText(/Final/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it.each([
+    ['xray', 'XR'], ['X-Ray', 'XR'], ['CR', 'XR'],
+    ['mr', 'MRI'], ['ultrasound', 'US'], ['ct', 'CT'],
+  ])('keeps a stored %s study visible under its modality filter', async (modality, filter) => {
+    mockFetch.mockImplementation((input: RequestInfo | URL) => Promise.resolve({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve(String(input).includes('radiology-orders') ? [{
+        id: 'RAD-FILTER', patient_id: 'PAT-QA', modality,
+        special_instructions: 'Synthetic modality filter study', status: 'Ordered',
+      }] : []),
+    }));
+    render(<MemoryRouter><RadiologyPage /></MemoryRouter>);
+    await screen.findByText('Synthetic modality filter study');
+    fillField('Modality', filter);
+    expect(screen.getByText('Synthetic modality filter study')).toBeInTheDocument();
+    fillField('Modality', filter === 'CT' ? 'MRI' : 'CT');
+    expect(screen.queryByText('Synthetic modality filter study')).not.toBeInTheDocument();
+  });
+
+  it('opens the complete stored report without replacing unknown or false values', async () => {
+    mockFetch.mockImplementation((input: RequestInfo | URL) => Promise.resolve({
+      ok: true, headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve(String(input).includes('radiology-reports') ? [{
+        report_id: 'RAD-READ-QA', patient_id: 'PAT-QA', status: 'Preliminary',
+        technique: 'Fictional stored acquisition note', comparison: 'No real comparison performed',
+        findings: 'Fictional stored findings', impression: ['Synthetic QA only'],
+        contrast: null, critical_finding: false, image_count: 0,
+      }] : []),
+    }));
+    render(<MemoryRouter><RadiologyPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: /^Search$/ }));
+    const disclosure = await screen.findByText('Read saved report');
+    fireEvent.click(disclosure);
+    const detail = disclosure.closest('details')!;
+    expect(detail).toHaveAttribute('open');
+    for (const observation of ['Fictional stored acquisition note', 'No real comparison performed',
+      'Fictional stored findings', 'Not recorded', 'No', '0']) {
+      expect(detail).toHaveTextContent(observation);
+    }
+    expect(screen.queryByRole('button', { name: /Finalize Report/i })).not.toBeInTheDocument();
+  });
+});
+
+
+describe('durable radiology order mapping', () => {
+  it('preserves identifiers, clinical description, ordering date and pending status', () => {
+    const study = toRadiologyStudy({
+      id: 'RAD-123', patient_id: 'PAT-123', body_part: 'Chest',
+      special_instructions: 'Synthetic chest radiograph', modality: 'xray',
+      created_at: '2026-10-08T08:00:00Z', ordering_provider_id: 'DOC-123',
+      status: 'Ordered', priority: 'Routine',
+    });
+    expect(study).toMatchObject({
+      id: 'RAD-123', patientId: 'PAT-123', patientName: 'PAT-123',
+      bodyPart: 'Chest', studyDescription: 'Synthetic chest radiograph',
+      studyDate: '', orderCreatedAt: '2026-10-08T08:00:00Z', referringPhysician: 'DOC-123',
+      status: 'pending', priority: 'routine',
     });
   });
 });

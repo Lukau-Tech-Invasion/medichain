@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { createRef } from 'react';
 import { ErrorBoundary, withErrorBoundary } from '../components/ErrorBoundary';
 
 // Component that throws an error
@@ -28,6 +29,28 @@ afterEach(() => {
 });
 
 describe('ErrorBoundary', () => {
+  it('reloads a missing deployed lazy module on explicit retry', () => {
+    const boundary = createRef<ErrorBoundary>();
+    const MissingModule = () => { throw new TypeError('Failed to fetch dynamically imported module: /doctor/assets/old.js'); };
+    render(<ErrorBoundary ref={boundary}><MissingModule /></ErrorBoundary>);
+    const reload = vi.spyOn(boundary.current!, 'handleReload').mockImplementation(() => undefined);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: /try.*again/i }));
+      expect(reload).toHaveBeenCalledOnce();
+    } finally {
+      reload.mockRestore();
+    }
+  });
+  it('does not disclose raw exception details in a deployed build', () => {
+    vi.stubEnv('DEV', false);
+    try {
+      render(<ErrorBoundary><ThrowingComponent /></ErrorBoundary>);
+      expect(screen.queryByText('Test error message')).not.toBeInTheDocument();
+      expect(screen.getByText(/This screen could not be loaded/)).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it('renders children when there is no error', () => {
     render(
       <ErrorBoundary>

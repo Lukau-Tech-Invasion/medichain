@@ -40,7 +40,7 @@ pub async fn create_triage_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -139,6 +139,17 @@ pub async fn create_triage_assessment(
         }
     }
 
+    if let Some(glucose) = req.vital_signs.blood_glucose {
+        if crate::clinical_scoring::glucose_looks_like_mg_dl(glucose) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "A blood glucose of {glucose} mmol/L is not plausible; enter it in mmol/L, not mg/dL"
+                ),
+                code: "GLUCOSE_UNIT_SUSPECT".to_string(),
+            });
+        }
+    }
+
     // Generate assessment ID
     let assessment_id = format!(
         "TRIAGE-{}",
@@ -172,7 +183,7 @@ pub async fn create_triage_assessment(
             .or(req.vital_signs.pain_scale)
             .map(|v| v as i32),
         gcs_score: req.vital_signs.gcs_score.map(|v| v as i32),
-        blood_glucose: req.vital_signs.blood_glucose.map(|v| v as i32),
+        blood_glucose: req.vital_signs.blood_glucose,
         weight: req.vital_signs.weight_kg.map(|v| v as f64),
         is_critical: has_critical_vitals,
         requires_isolation: false,
@@ -180,7 +191,7 @@ pub async fn create_triage_assessment(
         disposition: None,
         assigned_bed: None,
         notes: req.notes.clone().filter(|n| !n.trim().is_empty()),
-        triage_time: Utc::now(),
+        triage_time: crate::support::clinical_time(&http_req),
         seen_by_provider_at: None,
         performed_by: current_user_id.clone(),
         facility_id: None,
@@ -212,9 +223,10 @@ pub async fn create_triage_assessment(
         is_emergency_access: esi_level.level() <= 2,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
 
     if let Err(response) = crate::support::require_durable_audit(&data, log_entity).await {
@@ -256,7 +268,7 @@ pub async fn get_triage_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -303,7 +315,7 @@ pub async fn get_triage_assessment(
                     oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
                     pain_scale: entity.pain_scale.map(|v| v as u8),
                     gcs_score: entity.gcs_score.map(|v| v as u8),
-                    blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                    blood_glucose: entity.blood_glucose,
                     weight_kg: entity.weight.map(|v| v as f32),
                 },
                 pain_scale: entity.pain_scale.map(|v| v as u8),
@@ -333,7 +345,7 @@ pub async fn get_patient_triage_assessments(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -390,7 +402,7 @@ pub async fn get_patient_triage_assessments(
                         // database kept them, and every reader saw blanks.
                         pain_scale: entity.pain_scale.map(|v| v as u8),
                         gcs_score: entity.gcs_score.map(|v| v as u8),
-                        blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                        blood_glucose: entity.blood_glucose,
                         weight_kg: entity.weight.map(|v| v as f32),
                     },
                     pain_scale: entity.pain_scale.map(|v| v as u8),
@@ -406,11 +418,18 @@ pub async fn get_patient_triage_assessments(
                 "total": result.total
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "patient_id": patient_id,
-            "assessments": [],
-            "total": 0
-        })),
+        // A failed read is an outage, not "no triage history": an empty list
+        // asserts the patient was never triaged.
+        Err(error) => {
+            log::error!("triage history read failed: {error}");
+            HttpResponse::ServiceUnavailable().json(
+                crate::middleware::error_handling::error_envelope_json(
+                    "TRIAGE_UNAVAILABLE",
+                    "Triage history could not be loaded",
+                    None,
+                ),
+            )
+        }
     }
 }
 
@@ -425,7 +444,7 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -480,7 +499,7 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
                         // a triage assessment.
                         pain_scale: entity.pain_scale.map(|v| v as u8),
                         gcs_score: entity.gcs_score.map(|v| v as u8),
-                        blood_glucose: entity.blood_glucose.map(|v| v as u16),
+                        blood_glucose: entity.blood_glucose,
                         weight_kg: entity.weight.map(|v| v as f32),
                     },
                     pain_scale: entity.pain_scale.map(|v| v as u8),
@@ -492,16 +511,39 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
                 })
                 .collect();
 
+            // Each entry carries the patient's name: the client used to look it
+            // up in the first 50 patients and showed a bare id for the rest.
+            let ids: Vec<String> = assessments.iter().map(|a| a.patient_id.clone()).collect();
+            let names = crate::support::resolve_patient_names(&data, &ids).await;
+            let total = assessments.len();
+            let queue: Vec<serde_json::Value> = assessments
+                .into_iter()
+                .map(|assessment| {
+                    let name = names.get(&assessment.patient_id).cloned();
+                    let mut entry = serde_json::to_value(assessment).unwrap_or_default();
+                    if let (Some(name), Some(object)) = (name, entry.as_object_mut()) {
+                        object.insert("patient_name".to_string(), serde_json::Value::String(name));
+                    }
+                    entry
+                })
+                .collect();
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
-                "queue": assessments,
-                "total": assessments.len()
+                "queue": queue,
+                "total": total
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "queue": [],
-            "total": 0
-        })),
+        // A failed read is an outage, not an empty waiting room: answering
+        // `queue: []` told the nurse nobody was waiting.
+        Err(error) => {
+            log::error!("triage queue read failed: {error}");
+            HttpResponse::ServiceUnavailable().json(
+                crate::middleware::error_handling::error_envelope_json(
+                    "TRIAGE_UNAVAILABLE",
+                    "The triage queue could not be loaded",
+                    None,
+                ),
+            )
+        }
     }
 }

@@ -20,11 +20,12 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   listProgressNotes: vi.fn(),
   createProgressNote: vi.fn(),
+  openAccessContext: vi.fn(),
 }));
 
 describe('ProgressNotePage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -35,6 +36,7 @@ describe('ProgressNotePage', () => {
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
     vi.mocked(shared.listProgressNotes).mockResolvedValue([]);
+    vi.mocked(shared.openAccessContext).mockResolvedValue({ expires_at: new Date(Date.now() + 3600000).toISOString(), access_context_id: 'CTX-TEST' } as Awaited<ReturnType<typeof shared.openAccessContext>>);
   });
 
   it('renders progress note page', async () => {
@@ -48,6 +50,18 @@ describe('ProgressNotePage', () => {
 
     expect(screen.getAllByText(/Progress Notes/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Clinical documentation and patient timeline/i)).toBeInTheDocument();
+  });
+
+  it('does not label an author a physician when the record did not store a role', async () => {
+    vi.mocked(shared.listProgressNotes).mockResolvedValue([
+      { id: 'NOTE-nurse', patient_id: 'PAT-1', created_by: 'NURSE-1',
+        created_at: '2026-10-10T05:00:00Z', updated_at: '2026-10-10T05:00:00Z',
+        status: 'draft', assessment: 'QA nurse draft' },
+    ] as unknown as Awaited<ReturnType<typeof shared.listProgressNotes>>);
+    render(<ProgressNotePage />);
+    fireEvent.click(await screen.findByRole('button', { name: /QA nurse draft/ }));
+    expect(screen.getByText(/Role not recorded/)).toBeInTheDocument();
+    expect(screen.queryByText(/Physician/)).not.toBeInTheDocument();
   });
 
   it('displays note sections', async () => {
@@ -78,6 +92,8 @@ describe('ProgressNotePage', () => {
     fireEvent.click(screen.getByText(/New Note/i));
     fireEvent.focus(document.getElementById('progress-patient')!);
     fireEvent.click(await screen.findByRole('button', { name: /Ama Mensah/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Treatment' }));
+    await waitFor(() => expect(shared.openAccessContext).toHaveBeenCalledWith('PAT-1', 'treatment'));
     fireEvent.change(screen.getByLabelText(/Subjective/i), {
       target: { value: 'Slept poorly.' },
     });

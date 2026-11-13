@@ -1,0 +1,117 @@
+﻿portal,page,path,App_reference_line,family,status
+doctor-portal,AccessLogsPage,client/doctor-portal/src/pages/AccessLogsPage.tsx,45,Consent and accountability,Source-present; inspect route connection
+doctor-portal,ActivatePage,client/doctor-portal/src/pages/ActivatePage.tsx,24,Administration and governance,Source-present; inspect route connection
+doctor-portal,AdminDashboardPage,client/doctor-portal/src/pages/AdminDashboardPage.tsx,136,Administration and governance,Source-present; inspect route connection
+doctor-portal,AMAPage,client/doctor-portal/src/pages/AMAPage.tsx,64,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,AnalyticsPage,client/doctor-portal/src/pages/AnalyticsPage.tsx,143,Financial and research workflows,Source-present; inspect route connection
+doctor-portal,AnesthesiaPage,client/doctor-portal/src/pages/AnesthesiaPage.tsx,110,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,AppointmentSchedulerPage,client/doctor-portal/src/pages/AppointmentSchedulerPage.tsx,147,Appointments and communication,Source-present; inspect route connection
+doctor-portal,AutopsyPage,client/doctor-portal/src/pages/AutopsyPage.tsx,133,Sensitive administrative records,Source-present; inspect route connection
+doctor-portal,BarcodePage,client/doctor-portal/src/pages/BarcodePage.tsx,142,Emergency identity and handover,Source-present; inspect route connection
+doctor-portal,BloodBankPage,client/doctor-portal/src/pages/BloodBankPage.tsx,119,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,BurnPage,client/doctor-portal/src/pages/BurnPage.tsx,95,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,CardiacPage,client/doctor-portal/src/pages/CardiacPage.tsx,73,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,CarePlanPage,client/doctor-portal/src/pages/CarePlanPage.tsx,80,Family and prevention,Source-present; inspect route connection
+doctor-portal,CDSAlertsPage,client/doctor-portal/src/pages/CDSAlertsPage.tsx,144,Orders and decision support,Source-present; inspect route connection
+doctor-portal,ChainOfCustodyPage,client/doctor-portal/src/pages/ChainOfCustodyPage.tsx,116,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,ClaimsEobPage,client/doctor-portal/src/pages/ClaimsEobPage.tsx,138,Financial and research workflows,Source-present; inspect route connection
+doctor-portal,CodeBluePage,client/doctor-portal/src/pages/CodeBluePage.tsx,69,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,ConsultPage,client/doctor-portal/src/pages/ConsultPage.tsx,63,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,CriticalValuePage,client/doctor-portal/src/pages/CriticalValuePage.tsx,118,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,DashboardPage,client/doctor-portal/src/pages/DashboardPage.tsx,25,Administration and governance,Source-present; inspect route connection
+doctor-portal,DeathCertificatePage,client/doctor-portal/src/pages/DeathCertificatePage.tsx,131,Sensitive administrative records,Source-present; inspect route connection
+doctor-portal,DischargePage,client/doctor-portal/src/pages/DischargePage.tsx,62,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,DrugInteractionsPage,client/doctor-portal/src/pages/DrugInteractionsPage.tsx,92,Medicines and pharmacy,Source-present; inspect route connection
+doctor-portal,EmergencyAccessPage,client/doctor-portal/src/pages/EmergencyAccessPage.tsx,67,Emergency identity and handover,Source-present; inspect route connection
+doctor-portal,EmergencyProtocolsPage,client/doctor-portal/src/pages/EmergencyProtocolsPage.tsx,68,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,EmsHandoffPage,client/doctor-portal/src/pages/EmsHandoffPage.tsx,71,Emergency identity and handover,Source-present; inspect route connection
+doctor-portal,EPrescribePage,client/doctor-portal/src/pages/EPrescribePage.tsx,90,Medicines and pharmacy,Source-present; inspect route connection
+doctor-portal,FallRiskPage,client/doctor-portal/src/pages/FallRiskPage.tsx,85,Nursing continuity,Source-present; inspect route connection
+doctor-portal,FamilyHistoryPage,client/doctor-portal/src/pages/FamilyHistoryPage.tsx,128,Family and prevention,Source-present; inspect route connection
+doctor-portal,HealthIdCardsPage,client/doctor-portal/src/pages/HealthIdCardsPage.tsx,132,Emergency identity and handover,Source-present; inspect route connection
+doctor-portal,HistoryAndPhysicalPage,client/doctor-portal/src/pages/HistoryAndPhysicalPage.tsx,61,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,ImagingPage,client/doctor-portal/src/pages/ImagingPage.tsx,122,Imaging and pathology,Source-present; inspect route connection
+doctor-portal,ImmunizationPage,client/doctor-portal/src/pages/ImmunizationPage.tsx,127,Family and prevention,Source-present; inspect route connection
+doctor-portal,IncidentReportPage,client/doctor-portal/src/pages/IncidentReportPage.tsx,86,Nursing continuity,Source-present; inspect route connection
+doctor-portal,IntakeOutputPage,client/doctor-portal/src/pages/IntakeOutputPage.tsx,81,Nursing continuity,Source-present; inspect route connection
+doctor-portal,IntubationPage,client/doctor-portal/src/pages/IntubationPage.tsx,102,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,IVSitePage,client/doctor-portal/src/pages/IVSitePage.tsx,83,Nursing continuity,Source-present; inspect route connection
+doctor-portal,LabQCPage,client/doctor-portal/src/pages/LabQCPage.tsx,117,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,LabResultPage,client/doctor-portal/src/pages/LabResultPage.tsx,114,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,LabResultsPage,client/doctor-portal/src/pages/LabResultsPage.tsx,113,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,LabReviewPage,client/doctor-portal/src/pages/LabReviewPage.tsx,50,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,LabTechDashboardPage,client/doctor-portal/src/pages/LabTechDashboardPage.tsx,156,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,LacerationRepairPage,client/doctor-portal/src/pages/LacerationRepairPage.tsx,103,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,LoginPage,client/doctor-portal/src/pages/LoginPage.tsx,23,Administration and governance,Source-present; inspect route connection
+doctor-portal,ManagedDevicesPage,client/doctor-portal/src/pages/ManagedDevicesPage.tsx,46,Administration and governance,Source-present; inspect route connection
+doctor-portal,MCIPage,client/doctor-portal/src/pages/MCIPage.tsx,75,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,MedicationAdminPage,client/doctor-portal/src/pages/MedicationAdminPage.tsx,91,Medicines and pharmacy,Source-present; inspect route connection
+doctor-portal,MessagesPage,client/doctor-portal/src/pages/MessagesPage.tsx,152,Appointments and communication,Source-present; inspect route connection
+doctor-portal,NationalIdReviewsPage,client/doctor-portal/src/pages/NationalIdReviewsPage.tsx,49,Administration and governance,Source-present; inspect route connection
+doctor-portal,NoteTemplatesPage,client/doctor-portal/src/pages/NoteTemplatesPage.tsx,141,Orders and decision support,Source-present; inspect route connection
+doctor-portal,NotificationsPage,client/doctor-portal/src/pages/NotificationsPage.tsx,54,Appointments and communication,Source-present; inspect route connection
+doctor-portal,NurseDashboardPage,client/doctor-portal/src/pages/NurseDashboardPage.tsx,155,Nursing continuity,Source-present; inspect route connection
+doctor-portal,NursingCarePlanPage,client/doctor-portal/src/pages/NursingCarePlanPage.tsx,79,Nursing continuity,Source-present; inspect route connection
+doctor-portal,NursingPage,client/doctor-portal/src/pages/NursingPage.tsx,78,Nursing continuity,Source-present; inspect route connection
+doctor-portal,ObstetricsPage,client/doctor-portal/src/pages/ObstetricsPage.tsx,99,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,OperativeNotePage,client/doctor-portal/src/pages/OperativeNotePage.tsx,108,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,OrderSetsPage,client/doctor-portal/src/pages/OrderSetsPage.tsx,140,Orders and decision support,Source-present; inspect route connection
+doctor-portal,OrdersPage,client/doctor-portal/src/pages/OrdersPage.tsx,89,Orders and decision support,Source-present; inspect route connection
+doctor-portal,PathologyPage,client/doctor-portal/src/pages/PathologyPage.tsx,124,Imaging and pathology,Source-present; inspect route connection
+doctor-portal,PatientDetailPage,client/doctor-portal/src/pages/PatientDetailPage.tsx,30,Patient identity and records,Source-present; inspect route connection
+doctor-portal,PatientSearchPage,client/doctor-portal/src/pages/PatientSearchPage.tsx,29,Patient identity and records,Source-present; inspect route connection
+doctor-portal,PediatricsPage,client/doctor-portal/src/pages/PediatricsPage.tsx,98,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,PharmacistDashboardPage,client/doctor-portal/src/pages/PharmacistDashboardPage.tsx,157,Medicines and pharmacy,Source-present; inspect route connection
+doctor-portal,PostOpPage,client/doctor-portal/src/pages/PostOpPage.tsx,109,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,PreOpPage,client/doctor-portal/src/pages/PreOpPage.tsx,107,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,ProgressNotePage,client/doctor-portal/src/pages/ProgressNotePage.tsx,60,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,ProviderSchedulePage,client/doctor-portal/src/pages/ProviderSchedulePage.tsx,148,Appointments and communication,Source-present; inspect route connection
+doctor-portal,PsychPage,client/doctor-portal/src/pages/PsychPage.tsx,96,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,RadiologyPage,client/doctor-portal/src/pages/RadiologyPage.tsx,123,Imaging and pathology,Source-present; inspect route connection
+doctor-portal,RegisterPatientPage,client/doctor-portal/src/pages/RegisterPatientPage.tsx,44,Patient identity and records,Source-present; inspect route connection
+doctor-portal,ResearchExportsPage,client/doctor-portal/src/pages/ResearchExportsPage.tsx,139,Financial and research workflows,Source-present; inspect route connection
+doctor-portal,RetentionPage,client/doctor-portal/src/pages/RetentionPage.tsx,47,Administration and governance,Source-present; inspect route connection
+doctor-portal,SecurityIncidentsPage,client/doctor-portal/src/pages/SecurityIncidentsPage.tsx,48,Administration and governance,Source-present; inspect route connection
+doctor-portal,SepsisPage,client/doctor-portal/src/pages/SepsisPage.tsx,74,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,SettingsPage,client/doctor-portal/src/pages/SettingsPage.tsx,53,Administration and governance; Accessibility and connectivity,Source-present; inspect route connection
+doctor-portal,ShiftHandoffPage,client/doctor-portal/src/pages/ShiftHandoffPage.tsx,84,Nursing continuity,Source-present; inspect route connection
+doctor-portal,SOAPNotePage,client/doctor-portal/src/pages/SOAPNotePage.tsx,58,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,SpecimenPage,client/doctor-portal/src/pages/SpecimenPage.tsx,115,Laboratory workflow,Source-present; inspect route connection
+doctor-portal,SplintPage,client/doctor-portal/src/pages/SplintPage.tsx,104,Procedures and perioperative care,Source-present; inspect route connection
+doctor-portal,StrokePage,client/doctor-portal/src/pages/StrokePage.tsx,72,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,TelehealthPage,client/doctor-portal/src/pages/TelehealthPage.tsx,151,Virtual consultations,Source-present; inspect route connection
+doctor-portal,ToxicologyPage,client/doctor-portal/src/pages/ToxicologyPage.tsx,97,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,TraumaPage,client/doctor-portal/src/pages/TraumaPage.tsx,70,Acute and specialist workflows,Source-present; inspect route connection
+doctor-portal,TriagePage,client/doctor-portal/src/pages/TriagePage.tsx,57,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,UserManagementPage,client/doctor-portal/src/pages/UserManagementPage.tsx,137,Administration and governance,Source-present; inspect route connection
+doctor-portal,VitalSignsPage,client/doctor-portal/src/pages/VitalSignsPage.tsx,59,Clinical assessment and notes,Source-present; inspect route connection
+doctor-portal,WoundCarePage,client/doctor-portal/src/pages/WoundCarePage.tsx,82,Nursing continuity,Source-present; inspect route connection
+patient-app,AccessHistoryPage,client/patient-app/src/pages/AccessHistoryPage.tsx,25,Consent and accountability,Source-present; inspect route connection
+patient-app,ActivatePage,client/patient-app/src/pages/ActivatePage.tsx,10,Administration and governance,Source-present; inspect route connection
+patient-app,AppointmentsPage,client/patient-app/src/pages/AppointmentsPage.tsx,37,Appointments and communication,Source-present; inspect route connection
+patient-app,ConsentManagementPage,client/patient-app/src/pages/ConsentManagementPage.tsx,22,Consent and accountability,Source-present; inspect route connection
+patient-app,DashboardPage,client/patient-app/src/pages/DashboardPage.tsx,11,Administration and governance,Source-present; inspect route connection
+patient-app,EmergencyAccessHistory,client/patient-app/src/pages/EmergencyAccessHistory.tsx,,Consent and accountability,No direct App import match; follow-up
+patient-app,EmergencyCardPage,client/patient-app/src/pages/EmergencyCardPage.tsx,28,Emergency identity and handover,Source-present; inspect route connection
+patient-app,FamilyGroupPage,client/patient-app/src/pages/FamilyGroupPage.tsx,52,Family and prevention,Source-present; inspect route connection
+patient-app,InsurancePage,client/patient-app/src/pages/InsurancePage.tsx,59,Financial and research workflows,Source-present; inspect route connection
+patient-app,LabResultsPage,client/patient-app/src/pages/LabResultsPage.tsx,68,Laboratory workflow,Source-present; inspect route connection
+patient-app,LabTrendsPage,client/patient-app/src/pages/LabTrendsPage.tsx,58,Patient self-management,Source-present; inspect route connection
+patient-app,LanguageSettingsPage,client/patient-app/src/pages/LanguageSettingsPage.tsx,62,Accessibility and connectivity,Source-present; inspect route connection
+patient-app,LoginPage,client/patient-app/src/pages/LoginPage.tsx,9,Administration and governance,Source-present; inspect route connection
+patient-app,MedicalHistoryPage,client/patient-app/src/pages/MedicalHistoryPage.tsx,74,Patient identity and records; Patient self-management,Source-present; inspect route connection
+patient-app,MedicalIdPage,client/patient-app/src/pages/MedicalIdPage.tsx,46,Emergency identity and handover,Source-present; inspect route connection
+patient-app,MedicationRemindersPage,client/patient-app/src/pages/MedicationRemindersPage.tsx,49,Medicines and pharmacy,Source-present; inspect route connection
+patient-app,MedicationsPage,client/patient-app/src/pages/MedicationsPage.tsx,34,Medicines and pharmacy,Source-present; inspect route connection
+patient-app,MessagesPage,client/patient-app/src/pages/MessagesPage.tsx,40,Appointments and communication,Source-present; inspect route connection
+patient-app,MyProfilePage,client/patient-app/src/pages/MyProfilePage.tsx,16,Patient identity and records,Source-present; inspect route connection
+patient-app,MyRecordsPage,client/patient-app/src/pages/MyRecordsPage.tsx,19,Patient identity and records,Source-present; inspect route connection
+patient-app,NotificationsPage,client/patient-app/src/pages/NotificationsPage.tsx,71,Appointments and communication,Source-present; inspect route connection
+patient-app,OfflineSyncPage,client/patient-app/src/pages/OfflineSyncPage.tsx,63,Accessibility and connectivity,Source-present; inspect route connection
+patient-app,SatisfactionSurveyPage,client/patient-app/src/pages/SatisfactionSurveyPage.tsx,60,Patient self-management,Source-present; inspect route connection
+patient-app,SettingsPage,client/patient-app/src/pages/SettingsPage.tsx,31,Administration and governance; Accessibility and connectivity,Source-present; inspect route connection
+patient-app,SymptomCheckerPage,client/patient-app/src/pages/SymptomCheckerPage.tsx,61,Patient self-management,Source-present; inspect route connection
+patient-app,SymptomTrackerPage,client/patient-app/src/pages/SymptomTrackerPage.tsx,43,Patient self-management,Source-present; inspect route connection
+patient-app,TelehealthPage,client/patient-app/src/pages/TelehealthPage.tsx,55,Virtual consultations,Source-present; inspect route connection
+patient-app,VitalsPage,client/patient-app/src/pages/VitalsPage.tsx,65,Clinical assessment and notes,Source-present; inspect route connection
+patient-app,WearablesPage,client/patient-app/src/pages/WearablesPage.tsx,57,Accessibility and connectivity,Source-present; inspect route connection

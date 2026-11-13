@@ -61,7 +61,8 @@ Exercised via `localhost:5173/api/*` — i.e. the exact path the browser takes:
 | Emergency Protocols page | `GET /api/emergency/{code-blue,trauma,stroke,cardiac,sepsis}/patient/{id}` | 200 (all five) |
 
 The shared typed client (`client/shared/src/api/`) and the auth flow
-(`X-User-Id` in demo, wallet+JWT otherwise) are the connection path for
+(login ID + password or a one-time credential code, then a JWT bearer
+session) are the connection path for
 everything above.
 
 ## Remaining route drift
@@ -165,7 +166,7 @@ is ever wanted.
 | ~~NursingPage / CarePlanPage~~ | `/api/nursing/mar`, `/api/nursing/intake-output`, `/api/nursing/care-plans` | **Connected 2026-07-30** — `/api/nursing/*` read-aliases (`handlers::nursing`) over the repository stores, provider-gated; write shortcuts mirror `/api/emergency/*` (see debt register) |
 | IntakeOutputPage | `/api/clinical/io/{p}/{date}/{shift}` | Maps to `/api/emergency/io/{patient_id}/{type}/{timestamp}` — param semantics differ |
 | IVSitePage | `/api/clinical/iv-sites/{id}` | `/api/emergency/iv-site/{id}` — patient-vs-assessment id mismatch |
-| ShiftHandoffPage | `/api/clinical/shift-handoff/{wallet}` | `/api/emergency/handoff/{id}` — id semantics differ |
+| ShiftHandoffPage | `/api/clinical/shift-handoff/{provider_id}` | `/api/emergency/handoff/{id}` — id semantics differ |
 | CardiacPage | `/api/clinical/patient/{id}/emergency` | Use the aggregate `/api/emergency/patient/{id}` |
 | OrdersPage | `/api/clinical/orders/{id}/status` | Confirm the status-update route |
 | MyRecordsPage (patient) | `/api/records/{id}/download` | Confirm the download route |

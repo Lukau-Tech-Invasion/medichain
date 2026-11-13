@@ -240,7 +240,7 @@ pub async fn fhir_get_encounters(
                 "issue": [{
                     "severity": "error",
                     "code": "security",
-                    "diagnostics": "Missing X-User-Id header"
+                    "diagnostics": "Authentication required"
                 }]
             }));
         }
@@ -394,7 +394,7 @@ pub async fn fhir_get_diagnostic_reports(
                 "issue": [{
                     "severity": "error",
                     "code": "security",
-                    "diagnostics": "Missing X-User-Id header"
+                    "diagnostics": "Authentication required"
                 }]
             }));
         }
@@ -483,8 +483,10 @@ fn radiology_diagnostic_report_entry(
     let has_critical = report.critical_finding;
     let study_type_str = format!("{:?}", report.study_type);
 
-    let effective_dt =
-        chrono::DateTime::from_timestamp(report.study_datetime, 0).map(|dt| dt.to_rfc3339());
+    let effective_dt = report
+        .study_datetime
+        .and_then(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0))
+        .map(|dt| dt.to_rfc3339());
     let issued_dt = report
         .final_time
         .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
@@ -509,13 +511,17 @@ fn radiology_diagnostic_report_entry(
             "text": &study_type_str
         },
         "subject": {"reference": format!("Patient/{}", patient_id)},
-        "effectiveDateTime": effective_dt,
-        "issued": issued_dt,
         "performer": [{
             "reference": format!("Practitioner/{}", report.radiologist)
         }],
         "conclusion": &report.impression
     });
+    if let Some(time) = effective_dt {
+        resource["effectiveDateTime"] = serde_json::json!(time);
+    }
+    if let Some(time) = issued_dt {
+        resource["issued"] = serde_json::json!(time);
+    }
 
     if has_critical {
         resource["conclusionCode"] = serde_json::json!([{
@@ -531,4 +537,39 @@ fn radiology_diagnostic_report_entry(
         "fullUrl": format!("urn:uuid:{}", id),
         "resource": resource
     }))
+}
+
+#[cfg(test)]
+mod radiology_time_tests {
+    /// FHIR carries observed time only when known, while preserving report content and status.
+    #[test]
+    fn radiology_unknown_time_is_omitted_from_fhir_without_fabricating_a_date() {
+        for timestamp in [None, Some(1_755_003_600_i64)] {
+            let entity = crate::repositories::traits::RadiologyReportEntity {
+                id: "RAD-FHIR-QA".into(),
+                data: serde_json::json!({
+                    "report_id":"RAD-FHIR-QA", "patient_id":"PAT-QA", "order_id":"ORDER-QA",
+                    "accession_number":"", "study_type":"XRay", "body_part":"Chest",
+                    "study_datetime":timestamp, "technique":"Fictional QA", "clinical_history":"",
+                    "findings":"No real imaging interpreted", "impression":["Synthetic QA only"],
+                    "critical_finding":false, "radiologist":"DOC-QA", "status":"Preliminary"
+                }),
+                ..Default::default()
+            };
+            let entry = super::radiology_diagnostic_report_entry(&entity, "PAT-QA").unwrap();
+            let resource = &entry["resource"];
+            assert_eq!(resource["status"], "preliminary");
+            assert!(resource.get("issued").is_none());
+            if let Some(value) = timestamp {
+                assert_eq!(
+                    resource["effectiveDateTime"],
+                    chrono::DateTime::from_timestamp(value, 0)
+                        .unwrap()
+                        .to_rfc3339()
+                );
+            } else {
+                assert!(resource.get("effectiveDateTime").is_none());
+            }
+        }
+    }
 }

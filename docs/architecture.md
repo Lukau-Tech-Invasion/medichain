@@ -46,8 +46,8 @@ graph TB
 
     NID["National ID registries<br/>Fayda · Ghana Card · NIN<br/>Smart ID · Huduma Namba"]
     SMS["SMS gateway<br/>Africa's Talking"]
-    CHAIN["Substrate chain<br/>audit and integrity anchor"]
-    IPFS["IPFS<br/>encrypted document store"]
+    SINK["Checkpoint sink<br/>local directory now;<br/>write-once cloud store later"]
+    BLOBS["PostgreSQL<br/>encrypted document blobs"]
 
     PARAMEDIC -->|"taps NFC card"| MC
     CLINICIAN -->|"records care"| MC
@@ -56,18 +56,18 @@ graph TB
 
     MC -->|"verify identity<br/>or queue manual review"| NID
     MC -->|"notify"| SMS
-    MC -->|"anchor hashes"| CHAIN
-    MC -->|"store encrypted blobs"| IPFS
+    MC -->|"export sealed audit batches"| SINK
+    MC -->|"store encrypted blobs"| BLOBS
 ```
 
 Demo-only integrations may be disabled, but production dependencies fail closed.
 Absent a national-ID API key the verifier reports
 `verification_method: manual_review_required`, persists a privacy-minimised
 manual-review case, and never implies that an identity was verified.
-Blockchain-disabled demo flows
-report `disabled`; production requires a qualified node. A failed chain write is
-reported as `pending` only after its exact operation is durably stored for retry,
-and no code path fabricates a transaction hash.
+Audit sealing and checkpoint export are asynchronous and never gate a request: a
+sink failure leaves batches `sealed` rather than `exported`, is reported in
+`GET /api/health` (`audit_seal`), and refuses no clinical read or write. Demo
+mode without a signing key seals batches **unsigned**, and verification says so.
 
 ---
 
@@ -93,27 +93,21 @@ graph TB
     subgraph data["Data tier"]
         MEM[("<b>In-memory</b><br/>default · ephemeral")]
         PG[("<b>PostgreSQL 16</b><br/>38 migrations → 179 tables")]
-        IPFSN[("<b>IPFS (kubo)</b><br/>ChaCha20-Poly1305 blobs")]
+        BLOBS[("<b>PostgreSQL</b><br/>ChaCha20-Poly1305 blobs")]
     end
 
-    subgraph chain["Blockchain tier — polkadot-sdk"]
-        RT["<b>runtime</b><br/>construct_runtime!"]
-        P1["pallet-access-control<br/>21 tests"]
-        P2["pallet-medical-records<br/>19 tests"]
-        P3["pallet-patient-identity<br/>12 tests"]
-        ND["<b>node</b><br/>chain spec · service · RPC"]
-        RT --- P1
-        RT --- P2
-        RT --- P3
-        ND --- RT
+    subgraph seal["Audit sealing (background job)"]
+        SJ["<b>sealing job</b><br/>Merkle batch · hash chain · Ed25519"]
+        SK[("<b>Checkpoint sink</b><br/>filesystem now; write-once store later")]
+        SJ --> SK
     end
 
     SH -->|"HTTPS / JSON"| MW
     MW --> HAND --> DOM --> REPO
     REPO --> MEM
     REPO --> PG
-    DOM --> IPFSN
-    DOM -->|"subxt · signed extrinsics"| ND
+    DOM --> BLOBS
+    PG -.->|"unsealed access + audit rows"| SJ
 ```
 
 ### Why two storage backends
@@ -137,7 +131,7 @@ graph LR
     REQ(["HTTP request"]) --> SEC["security_headers"]
     SEC --> VER["versioning<br/>/api/v1"]
     VER --> RL["rate_limit"]
-    RL --> AUTH["signature_auth<br/>Sr25519 · JWT · X-User-Id"]
+    RL --> AUTH["session_state<br/>JWT bearer · revoked-session check"]
     AUTH --> IDEM["idempotency"]
     IDEM --> ROUTE{"route dispatch<br/>385 services"}
 
@@ -150,7 +144,7 @@ graph LR
     SVC --> EC["emergency_capsule<br/>commit · verify · revoke · log"]
     SVC --> RET["retention<br/>evaluator · job · execution"]
     SVC --> LB["types::legal_basis<br/>POPIA §11/§32/§35 · Children's Act §129"]
-    SVC --> BC["blockchain<br/>finalized subxt · durable outbox"]
+    SVC --> BC["audit_events<br/>sealed later by the batching job"]
 
     EC --> RP[("repositories")]
     RET --> RP
@@ -180,7 +174,7 @@ invariant now exists without it.
 ## 4. The emergency path
 
 This is the sequence the product exists for. Note what is **absent**: no patient
-interaction, no chain round-trip, no decryption key held by the patient.
+interaction, no audit-sealing round-trip, no decryption key held by the patient.
 
 ```mermaid
 sequenceDiagram
@@ -231,44 +225,46 @@ investigation happens afterwards.
 
 ## 5. Where data lives, and why
 
-**No personal health information goes on-chain.** The ledger holds only hashes,
-commitments, pointers, public keys and audit entries.
+**No personal health information goes into the audit stream.** Audit events,
+sealed batches and exported checkpoints hold only hashes, commitments, pointers,
+public keys and privacy-minimised entries.
 
 | Data | Location | Rationale |
 |---|---|---|
 | Emergency capsule (blood type, organ donor, DNR + provenance) | PostgreSQL, encrypted under the **server** keyring | Must be readable in an emergency without the patient online to approve a decryption |
-| Capsule commitment + version | On-chain | 32-byte digest makes off-chain tampering detectable without publishing the values |
-| Clinical documents | IPFS, ChaCha20-Poly1305 | Content-addressed, encrypted at rest |
-| IPFS content hash | On-chain | Proves the document has not been swapped |
-| Queryable clinical data | PostgreSQL | Needs indexes, joins, reporting — a ledger cannot serve this |
+| Capsule commitment + version | `audit_events` row, then sealed | 32-byte digest makes tampering with the capsule detectable without publishing the values |
+| Clinical documents | PostgreSQL `encrypted_document_blobs`, ChaCha20-Poly1305 | Content-addressed, encrypted at rest |
+| Encrypted blob identifier / record content digest | `audit_events` row, then sealed | Detects a swapped document |
+| Queryable clinical data | PostgreSQL | Needs indexes, joins, reporting — a sealed log cannot serve this |
 | National ID | Keyed digest only | Never stored in the clear; keyed so digests are not brute-forceable |
-| Access audit entries | PostgreSQL + on-chain | Off-chain for query, on-chain for immutability |
+| Access audit entries | PostgreSQL (`access_logs`), sealed in batches | Queryable in the database; each row is a Merkle leaf in a hash-chained batch exported as a checkpoint. A signature is present only when a signing key is configured. |
 
 ```mermaid
 flowchart LR
-    subgraph offchain["Off-chain — correctable, deletable"]
+    subgraph live["Correctable, deletable"]
         CAP["Emergency capsule<br/>(encrypted, versioned, revocable)"]
-        DOC["Clinical documents<br/>(encrypted in IPFS)"]
+        DOC["Clinical documents<br/>(encrypted in PostgreSQL)"]
         CLIN["Queryable clinical data"]
     end
 
-    subgraph onchain["On-chain — immutable, therefore no PHI"]
-        COMMIT["commitment: [u8; 32]<br/>version: u32"]
-        IHASH["IPFS content hash"]
-        AUD["audit entries"]
+    subgraph sealed["Sealed — immutable, therefore no PHI"]
+        COMMIT["commitment: 32 bytes<br/>version: u32"]
+        IHASH["content digest"]
+        AUD["access + audit leaves"]
     end
 
     CAP -->|"SHA3-256, domain-separated,<br/>length-prefixed"| COMMIT
-    DOC -->|"content hash"| IHASH
+    DOC -->|"content digest"| IHASH
     CLIN -.->|"access events"| AUD
 ```
 
-This split is the direct consequence of a legal finding: an immutable ledger
-cannot satisfy POPIA's correction, deletion and retention-limitation duties, and
-pseudonymity does not cure it because an account may later correlate to a real
-person. Plaintext `blood_type` / `organ_donor` / `dnr_status` were therefore
-removed from pallet storage in favour of a commitment.
-See [ADR-0004](adr/0004-commitment-not-plaintext-on-chain.md).
+The capsule exists because of a legal finding: health information must be
+correctable, deletable and subject to retention limits under POPIA, and
+pseudonymity does not change that because an identifier may later correlate to
+a real person. Plaintext `blood_type` / `organ_donor` / `dnr_status` are
+therefore never written anywhere immutable — the audit stream carries only a
+commitment to the capsule. See [`AUDIT_LOG.md`](AUDIT_LOG.md#the-sealed-runtime-audit-stream)
+for how the stream is sealed.
 
 ---
 
@@ -383,10 +379,9 @@ erDiagram
     emergency_capsules {
         varchar patient_id PK
         int version PK "strictly increasing"
-        char commitment "SHA3-256 hex, on-chain"
+        char commitment "SHA3-256 hex, sealed in audit_events"
         bytea capsule_encrypted "server keyring"
         timestamptz revoked_at "revocation is not deletion"
-        boolean chain_finalized "false = pending or disabled"
     }
     emergency_capsule_access_log {
         varchar id PK
@@ -440,7 +435,7 @@ flowchart TB
     subgraph external["External — outside our control"]
         NIDX["National ID APIs"]
         SMSX["SMS gateway"]
-        NODEX["Chain nodes<br/>possibly foreign"]
+        SINKX["Checkpoint sink<br/>digests only"]
     end
 
     BROWSER -->|"TLS · never trusted for role claims"| APIS
@@ -450,7 +445,7 @@ flowchart TB
     APIS --> DBS
     APIS -->|"no PHI crosses this line"| NIDX
     APIS -->|"no PHI crosses this line"| SMSX
-    APIS -->|"hashes only"| NODEX
+    APIS -->|"signed batch headers only"| SINKX
 ```
 
 Rules that hold at every boundary:
@@ -458,11 +453,13 @@ Rules that hold at every boundary:
 1. **Roles come from the server-side user record, never from a client header
    claim.** `X-User-Id` identifies; it does not authorise.
 2. **No PHI crosses into an external system.** National-ID calls send a digest;
-   SMS carries no clinical content; the chain receives hashes.
-3. **Cross-border replication is a live compliance question.** Chain nodes may
-   run outside South Africa, which POPIA treats as a transborder transfer
-   requiring assessment — tracked in
-   [`GOVERNANCE_RECORD.md`](GOVERNANCE_RECORD.md).
+   SMS carries no clinical content; the checkpoint sink receives signed batch
+   headers and digests.
+3. **Cross-organisation trust uses signed checkpoints.** Each hospital
+   deployment keeps its own audit stream and signing key
+   ([ADR-0006](adr/0006-federated-deployment.md)). Where trust across
+   organisations is needed it uses organisation signing keys and exchanged
+   signed checkpoints.
 
 ---
 
@@ -470,18 +467,18 @@ Rules that hold at every boundary:
 
 | Attribute | Target | How it is achieved |
 |---|---|---|
-| **Emergency latency** | < 3 s, offline | Local read, no chain call, no patient round-trip |
+| **Emergency latency** | < 3 s, offline | Local read, no sealing call, no patient round-trip |
 | **Safety** | NASA Power of 10 | No recursion, bounded loops, functions ≤ 60 lines, assertions on invariants |
 | **Confidentiality** | Encrypted at rest | ChaCha20-Poly1305 AEAD, Argon2id KDF, keyring versioning for rotation |
 | **Integrity** | Tamper-evident | SHA3-256 commitments, domain-separated and length-prefixed so no two distinct inputs share a digest |
 | **Injection resistance** | Zero string-built SQL | `sqlx` with bound parameters only |
 | **Auditability** | Field-level | Every emergency disclosure records which fields were shown |
-| **Availability** | Degrade, don't fail | Every external dependency optional; chain/ID failures are non-fatal and honestly reported |
+| **Availability** | Degrade, don't fail | Every external dependency optional; sealing, export and ID-verification failures are non-fatal and honestly reported |
 
 ### Deliberate non-goals
 
 - **Not** a general EHR replacement. The emergency subset is the wedge.
-- **Not** a public ledger of health data. If it must be correctable, it is off-chain.
+- **Not** a public ledger of health data. If it must be correctable, it is not in the audit stream.
 - **Not** claiming production readiness for real patient data — seven gates
   block that, four of which no code can close.
 
@@ -505,8 +502,6 @@ find client/patient-app/src/pages   -name '*.tsx' | wc -l                       
 
 # Tests
 cargo test -p medichain-api --bin medichain-api                                 # 305
-for p in access-control medical-records patient-identity; do
-  cargo test -p pallet-$p 2>&1 | grep 'test result'; done                       # 21, 19, 12
 cargo test -p medichain-crypto 2>&1 | grep 'test result'                        # 23
 bash scripts/synthetic-e2e-test.sh                                              # 40 assertions
 ```
@@ -523,5 +518,5 @@ bash scripts/synthetic-e2e-test.sh                                              
 | [`PRODUCTION_READINESS_GATES.md`](PRODUCTION_READINESS_GATES.md) | What blocks real patient data |
 | [`../SECURITY.md`](../SECURITY.md) | Security posture and disclosure policy |
 | [`TECHNICAL_DEBT_REGISTER.md`](TECHNICAL_DEBT_REGISTER.md) | Known debt, deferred deliberately |
-| [`BLOCKCHAIN_OPERATIONS.md`](BLOCKCHAIN_OPERATIONS.md) | Node and chain operations |
+| [`AUDIT_LOG.md`](AUDIT_LOG.md) | The sealed audit stream: batches, signing, checkpoint export |
 | [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) | Incident playbook |

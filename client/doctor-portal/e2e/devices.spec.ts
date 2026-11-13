@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle } from './support';
+import { api, fixtureStaff, fixtureToken } from './identity';
+import { signIn, settle, choose } from './support';
 
 /**
  * Break-glass, end to end, through the screens a person actually uses.
@@ -23,11 +24,22 @@ import { signIn, settle } from './support';
  */
 test('a device is enrolled, credentialed, and then offered for emergency access', async ({
   browser,
+  request,
 }) => {
   test.setTimeout(240000);
   const page = await browser.newPage();
   await signIn(page, 'Admin');
   await settle(page, '/devices');
+
+  const doctor = fixtureStaff('Doctor');
+  const token = await fixtureToken(request, doctor);
+  const work = await api(request, 'POST', '/api/identity/context/work', { token, data: {} });
+  expect(work.status).toBe(200);
+  const { organization_id, facility_id } = work.body.context ?? {};
+  expect(organization_id).toBeTruthy();
+  expect(facility_id).toBeTruthy();
+  await choose(page.locator('#device-org'), String(organization_id));
+  await choose(page.locator('#device-facility'), String(facility_id));
 
   await expect(page.getByRole('heading', { name: /approved devices/i })).toBeVisible({
     timeout: 20000,
@@ -54,8 +66,10 @@ test('a device is enrolled, credentialed, and then offered for emergency access'
 
   // The clinician's side. A device an administrator can see but nobody can
   // pick is still a dead end, so this reads the emergency screen's own picker.
-  await settle(page, '/emergency');
-  const picker = page.locator('#approved-device');
+  const clinician = await browser.newPage();
+  await signIn(clinician, 'Doctor', 0);
+  await settle(clinician, '/emergency');
+  const picker = clinician.locator('#approved-device');
   await expect(picker).toBeVisible({ timeout: 20000 });
   await expect(picker.locator(`option[value="${deviceId}"]`)).toHaveCount(1, { timeout: 20000 });
 
@@ -66,13 +80,15 @@ test('a device is enrolled, credentialed, and then offered for emergency access'
   await again.getByRole('button', { name: /^revoke$/i }).click();
   await expect(again).toContainText(/revoked/i, { timeout: 20000 });
 
-  await settle(page, '/emergency');
-  const afterRevocation = page.locator('#approved-device');
+  await settle(clinician, '/dashboard');
+  await settle(clinician, '/emergency');
+  const afterRevocation = clinician.locator('#approved-device');
   await expect(afterRevocation).toBeVisible({ timeout: 20000 });
   await expect(afterRevocation.locator(`option[value="${deviceId}"]`)).toHaveCount(0, {
     timeout: 20000,
   });
 
+  await clinician.close();
   await page.close();
 });
 

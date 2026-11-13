@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, getPatientStrokes, formatTimestamp, useTranslation, type StrokeListRow } from '@medichain/shared';
+import { createStroke, getPatients, getPatientStrokes, formatTimestamp, notifySuccess, useTranslation, type StrokeListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -13,12 +12,13 @@ import {
   History
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 
 
 export default function StrokePage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
   // The roster this page fetched existed only to fill a patient dropdown.
@@ -29,6 +29,8 @@ export default function StrokePage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<StrokeListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const submission = useSubmission('stroke');
   
   // Stroke Assessment State
   const [lastKnownWell, setLastKnownWell] = useState('');
@@ -54,25 +56,36 @@ export default function StrokePage() {
     try {
       await getPatients();
     } catch (error) {
+      // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
       console.error('Failed to load patients', error);
     }
   };
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientStrokes(patientId));
-    } catch (e) {
-      console.error(e);
+      const history = await getPatientStrokes(patientId);
+      if (current()) setEmergencyHistory(history);
+    } catch {
+      if (!current()) return;
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docStroke.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatient) return;
+    // Said in words; the button is no longer greyed out to mean "choose a patient".
+    if (!selectedPatient) { showError(t('docStroke.errorSelectPatient')); return; }
 
     try {
       const strokeData = {
@@ -93,8 +106,11 @@ export default function StrokePage() {
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
-      await createStroke(strokeData);
-      navigate('/dashboard');
+      // One record per event: a double click or a retry is the same submission.
+      const saved = await submitOnce(submission, strokeData, () => createStroke(strokeData));
+      if (saved === 'busy') return;
+      notifySuccess(t(saved === 'saved' ? 'forms.saved' : saved === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
+      returnAfterSave();
     } catch (error) {
       console.error('Failed to save stroke assessment', error);
       showError(t('docStroke.saveFailed'));
@@ -115,7 +131,7 @@ export default function StrokePage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Patient Selection */}
-        <div className="bg-surface shadow rounded-lg p-6">
+        <div data-patient-picker-card className="bg-surface shadow rounded-lg p-6">
           <label htmlFor="stroke-patient" className="block text-sm font-medium text-content-secondary mb-2">
             {t('docStroke.selectPatient')}
           </label>
@@ -141,6 +157,8 @@ export default function StrokePage() {
             </h3>
             {historyLoading ? (
               <p className="text-content-muted text-sm">{t('docStroke.loadingHistory')}</p>
+            ) : historyError ? (
+              <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
             ) : emergencyHistory.length === 0 ? (
               <p className="text-content-muted text-sm italic">{t('docStroke.noEvents')}</p>
             ) : (
@@ -271,39 +289,40 @@ export default function StrokePage() {
               <input
                 id="stroke-blood-glucose"
                 type="number"
+                step="0.1"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={bloodGlucose}
                 onChange={(e) => setBloodGlucose(e.target.value)}
               />
             </div>
             <div>
-              <label htmlFor="stroke-ct-head-result" className="block text-sm font-medium text-content-secondary">{t('docStroke.ctHeadResult')}</label>
-              <select
+              <ChoiceChips
                 id="stroke-ct-head-result"
-                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                label={t('docStroke.ctHeadResult')}
                 value={ctHeadResult}
-                onChange={(e) => setCtHeadResult(e.target.value)}
-              >
-                <option value="pending">{t('docStroke.ctPending')}</option>
-                <option value="negative">{t('docStroke.ctNegative')}</option>
-                <option value="hemorrhage">{t('docStroke.ctHemorrhage')}</option>
-                <option value="infarct">{t('docStroke.ctInfarct')}</option>
-                <option value="tumor">{t('docStroke.ctTumor')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setCtHeadResult(next); }}
+                options={[
+                  { value: 'pending', label: t('docStroke.ctPending') },
+                  { value: 'negative', label: t('docStroke.ctNegative') },
+                  { value: 'hemorrhage', label: t('docStroke.ctHemorrhage') },
+                  { value: 'infarct', label: t('docStroke.ctInfarct') },
+                  { value: 'tumor', label: t('docStroke.ctTumor') },
+                ]}
+              />
             </div>
             <div>
-              <label htmlFor="stroke-tpa-eligibility" className="block text-sm font-medium text-content-secondary">{t('docStroke.tpaEligibility')}</label>
-              <select
+              <ChoiceChips
                 id="stroke-tpa-eligibility"
-                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                label={t('docStroke.tpaEligibility')}
                 value={tpaCandidate}
-                onChange={(e) => setTpaCandidate(e.target.value)}
-              >
-                <option value="evaluating">{t('docStroke.tpaEvaluating')}</option>
-                <option value="eligible">{t('docStroke.tpaEligible')}</option>
-                <option value="contraindicated">{t('docStroke.tpaContraindicated')}</option>
-                <option value="refused">{t('docStroke.tpaRefused')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setTpaCandidate(next); }}
+                options={[
+                  { value: 'evaluating', label: t('docStroke.tpaEvaluating') },
+                  { value: 'eligible', label: t('docStroke.tpaEligible') },
+                  { value: 'contraindicated', label: t('docStroke.tpaContraindicated') },
+                  { value: 'refused', label: t('docStroke.tpaRefused') },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -323,8 +342,8 @@ export default function StrokePage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={!selectedPatient}
-            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
+            aria-disabled={submission.status === 'saving' || undefined}
+            className="aria-disabled:cursor-wait flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700"
           >
             <Save className="h-5 w-5 mr-2" />
             {t('docStroke.saveAssessment')}

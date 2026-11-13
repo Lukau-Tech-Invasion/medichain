@@ -35,7 +35,7 @@ vi.mock('../components/Toast', () => ({
 
 describe('MedicationAdminPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Nurse',
   };
 

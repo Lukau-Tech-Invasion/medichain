@@ -28,7 +28,7 @@ import os
 import re
 
 API = os.path.join('api', 'src')
-SHARED = os.path.join('client', 'shared', 'src', 'api', 'endpoints.ts')
+SHARED = os.path.join('client', 'shared', 'src', 'api', 'endpoints')
 ROOTS = [
     os.path.join('client', 'doctor-portal', 'src'),
     os.path.join('client', 'patient-app', 'src'),
@@ -57,7 +57,10 @@ def api_routes():
 
 
 def shared_functions():
-    src = open(SHARED, encoding='utf-8').read()
+    src = '\n'.join(
+        open(os.path.join(SHARED, n), encoding='utf-8').read()
+        for n in sorted(os.listdir(SHARED)) if n.endswith('.ts')
+    )
     out = {}
     for m in re.finditer(r'export async function (\w+)\s*[(<]', src):
         name, start = m.group(1), m.end()
@@ -78,7 +81,7 @@ def client_sources():
                 if not n.endswith(('.ts', '.tsx')) or n.endswith('.test.tsx'):
                     continue
                 p = os.path.join(d, n)
-                if os.path.abspath(p) == os.path.abspath(SHARED):
+                if os.path.abspath(d) == os.path.abspath(SHARED):
                     continue
                 t = open(p, encoding='utf-8').read()
                 blobs.append(t)

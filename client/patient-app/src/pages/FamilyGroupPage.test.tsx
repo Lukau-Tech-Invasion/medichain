@@ -37,7 +37,7 @@ describe('FamilyGroupPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -138,7 +138,7 @@ describe('FamilyGroupPage (Patient)', () => {
     await waitFor(() => {
       expect(shared.createFamilyGroup).toHaveBeenCalledWith(expect.objectContaining({
         group_name: 'New Family Group',
-        primary_contact_id: mockPatient.walletAddress,
+        primary_contact_id: mockPatient.userId,
       }));
     });
   });
@@ -156,15 +156,15 @@ describe('FamilyGroupPage (Patient)', () => {
     });
   });
 
-  it('adds a member using the wallet identity the server authorizes', async () => {
+  it('adds a member using the account id the server authorizes', async () => {
     vi.mocked(shared.addFamilyMember).mockResolvedValue({ success: true, message: 'added' });
 
     render(<MemoryRouter><FamilyGroupPage /></MemoryRouter>);
     await screen.findByText(/The Smiths/i);
     fireEvent.click(screen.getByRole('button', { name: /The Smiths/i }));
     fireEvent.click(await screen.findByRole('button', { name: /Add Family Member/i }));
-    fireEvent.change(screen.getByPlaceholderText(/Member wallet address/i), {
-      target: { value: '5FnewMemberWallet' },
+    fireEvent.change(screen.getByPlaceholderText(/Member account ID/i), {
+      target: { value: 'new-member-user-id' },
     });
     fireEvent.change(screen.getByPlaceholderText(/Relationship/i), {
       target: { value: 'Spouse' },
@@ -173,7 +173,7 @@ describe('FamilyGroupPage (Patient)', () => {
 
     await waitFor(() => {
       expect(shared.addFamilyMember).toHaveBeenCalledWith('group1', expect.objectContaining({
-        patient_id: '5FnewMemberWallet', relationship: 'Spouse',
+        patient_id: 'new-member-user-id', relationship: 'Spouse',
       }));
     });
   });
@@ -184,7 +184,7 @@ describe('FamilyGroupPage (Patient)', () => {
       count: 1,
       relationships: [{
         id: 'ward-relationship-1',
-        guardian_wallet: mockPatient.walletAddress,
+        guardian_user_id: mockPatient.userId,
         ward_patient_id: 'PAT-CHILD-001',
         relationship_type: 'parent_or_guardian',
         permissions: ['view_records'],

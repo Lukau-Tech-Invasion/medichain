@@ -18,10 +18,6 @@ Google discovered CVE-2025-48530 (CVSS 8.1) in CrabbyAVIF, an AVIF parser in *un
 
 **Key Insight:** Rust adoption drives memory safety bugs below 20% for the first time, showing 1000x reduction in memory safety vulnerability density compared to C/C++ code, with Rust code requiring 25% less time in code review and 4x lower rollback rate.
 
-### **Blockchain Reality Check**
-
-Over $2.7 billion in digital assets were compromised across hundreds of incidents in 2025, with smart contract exploits accounting for roughly 40% of total losses. Medical data on blockchain faces unique challenges.
-
 ### **HIPAA Landscape 2025**
 
 From 2018-2023, reports of large breaches increased by 102%, and the number of individuals affected increased by 1002%, primarily because of hacking and ransomware attacks. In 2023, over 167 million individuals were affected by large breaches.
@@ -35,7 +31,6 @@ From 2018-2023, reports of large breaches increased by 102%, and the number of i
 1. [Critical Vulnerabilities We Didn't Address](#critical-vulnerabilities)
 2. [Supply Chain Security (The Hidden Threat)](#supply-chain-security)
 3. [Unsafe Rust: When Safety Guarantees Disappear](#unsafe-rust)
-4. [Smart Contract Vulnerabilities](#smart-contract-vulnerabilities)
 5. [HIPAA Compliance Deep Dive](#hipaa-compliance)
 6. [Cryptographic Implementation Flaws](#cryptographic-flaws)
 7. [Side-Channel Attacks](#side-channel-attacks)
@@ -99,41 +94,6 @@ pub fn access_medical_record(
 4. Record is still retrieved and decrypted
 
 **Fix:**
-```rust
-// ✅ SECURE: Atomic check-and-use
-pub fn access_medical_record(
-    accessor: AccountId,
-    patient_id: AccountId,
-    record_hash: H256,
-) -> DispatchResult {
-    // Atomic transaction wrapper
-    with_transaction(|| {
-        // Rule 5: Assertion 1
-        ensure!(
-            Self::has_access(&accessor, &patient_id),
-            Error::<T>::AccessDenied
-        );
-        
-        // Rule 5: Assertion 2 - Permission still valid
-        assert!(
-            Self::has_access(&accessor, &patient_id),
-            "Permission changed during transaction"
-        );
-        
-        let record = RecordData::get(record_hash)
-            .ok_or(Error::<T>::RecordNotFound)?;
-        
-        // Log access BEFORE returning data
-        AccessLog::<T>::insert(
-            &patient_id,
-            &record_hash,
-            (accessor.clone(), <frame_system::Pallet<T>>::block_number()),
-        );
-        
-        Ok(record)
-    })
-}
-```
 
 ### **1.2 Integer Overflow in Medical Calculations**
 
@@ -244,72 +204,6 @@ fn verify_record_hash(claimed: H256, actual: H256) -> bool {
 subtle = "2.5"
 ```
 
-### **1.4 Blockchain State Consistency Issues**
-
-**What We Missed:**
-Substrate transactions can be re-ordered, causing race conditions.
-
-**The Vulnerability:**
-```rust
-// ❌ VULNERABLE: Assumes sequential execution
-pub fn transfer_medical_records(
-    from_hospital: AccountId,
-    to_hospital: AccountId,
-    record_count: u32,
-) -> DispatchResult {
-    let records = HospitalRecords::<T>::get(&from_hospital);
-    
-    // BUG: Another transaction could modify records here
-    
-    HospitalRecords::<T>::mutate(&from_hospital, |r| *r -= record_count);
-    HospitalRecords::<T>::mutate(&to_hospital, |r| *r += record_count);
-    
-    Ok(())
-}
-```
-
-**The Attack:**
-1. Hospital initiates transfer of 100 records
-2. Attacker submits transaction that modifies record count
-3. Both transactions execute → inconsistent state
-
-**Fix:**
-```rust
-// ✅ SECURE: Atomic state transitions
-pub fn transfer_medical_records(
-    from_hospital: AccountId,
-    to_hospital: AccountId,
-    record_count: u32,
-) -> DispatchResult {
-    // Rule 5: Assertions
-    assert!(record_count > 0, "Must transfer at least one record");
-    assert!(record_count < MAX_RECORDS_PER_TRANSFER, "Too many records");
-    
-    // Atomic mutation with validation
-    HospitalRecords::<T>::try_mutate(&from_hospital, |from_records| {
-        HospitalRecords::<T>::try_mutate(&to_hospital, |to_records| {
-            // Validate source has enough records
-            ensure!(
-                *from_records >= record_count,
-                Error::<T>::InsufficientRecords
-            );
-            
-            // Validate destination won't overflow
-            let new_to_count = to_records.checked_add(record_count)
-                .ok_or(Error::<T>::RecordCountOverflow)?;
-            
-            // Atomic update (both or neither)
-            *from_records -= record_count;
-            *to_records = new_to_count;
-            
-            Ok(())
-        })
-    })?;
-    
-    Ok(())
-}
-```
-
 ### **1.5 Deserialization Vulnerabilities**
 
 **What We Missed:**
@@ -411,37 +305,11 @@ pub fn parse_incoming_record(data: &[u8]) -> Result<MedicalRecord, ParseError> {
 
 The Rust crate "evm-units" was uploaded to crates.io in mid-April 2025, attracting more than 7,000 downloads over eight months. Another package "uniswap-utils" listed "evm-units" as dependency and was downloaded over 7,400 times. The packages contained cross-platform malware that downloaded payloads based on victim's OS.
 
-Malicious Rust crates "faster_log" and "async_println" were published on May 25, 2025, amassing 8,424 downloads total. They included working logging code for cover but embedded routines that scan source files for Solana and Ethereum private keys, then exfiltrate matches via HTTP POST to a C2 endpoint.
-
 **Critical Insight:** 90% of Rust crates carry potential supply chain risks. The average Rust project pulls in 40+ indirect dependencies, 62% of popular crates have only one maintainer, and 44% of crates don't receive regular security updates.
 
 ### **2.2 Dependency Auditing (Mandatory)**
 
 **Cargo.toml - Security Configuration:**
-```toml
-[package]
-name = "medichain"
-version = "1.0.0"
-
-[dependencies]
-# Pin exact versions (not ^1.0 ranges)
-substrate-frame = "=3.0.0"
-chacha20poly1305 = "=0.10.1"
-serde = "=1.0.193"
-
-# Avoid dependencies with many transitive dependencies
-# Review every crate before adding
-
-[dev-dependencies]
-# Test dependencies also need auditing
-cargo-audit = "0.20"
-cargo-deny = "0.14"
-
-# Audit configuration
-[package.metadata.audit]
-# Fail build on any vulnerability
-ignore = []
-```
 
 **Mandatory Security Tools:**
 
@@ -528,43 +396,6 @@ allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 Typosquatting involves publishing a malicious package with a name similar to legitimate packages. Running `cargo add rustdecimal` instead of `rust_decimal` could install malware. This exact attack occurred on crates.io in 2022, where malicious rustdecimal mimicked rust_decimal but contained a Decimal::new function that executed a malicious binary.
 
 **Defense Strategy:**
-```bash
-# Script to detect typosquats
-#!/bin/bash
-# scripts/check-typosquats.sh
-
-# Extract all dependencies
-DEPS=$(cargo tree --depth 1 | grep -v "medichain" | awk '{print $1}')
-
-# Known good packages (whitelist)
-WHITELIST=(
-    "substrate-frame"
-    "chacha20poly1305"
-    "serde"
-    "tokio"
-    # ... add all your dependencies
-)
-
-# Check each dependency
-for dep in $DEPS; do
-    # Check against whitelist
-    if [[ ! " ${WHITELIST[@]} " =~ " ${dep} " ]]; then
-        echo "⚠️  UNKNOWN DEPENDENCY: $dep"
-        echo "Review this package before proceeding"
-        
-        # Check similarity to known packages
-        for known in "${WHITELIST[@]}"; do
-            # Simple Levenshtein-like check
-            if [[ "${dep}" =~ "${known:0:5}" ]]; then
-                echo "🚨 POSSIBLE TYPOSQUAT of $known"
-                exit 1
-            fi
-        done
-    fi
-done
-
-echo "✅ No typosquats detected"
-```
 
 ### **2.4 Build-Time Attacks**
 
@@ -606,18 +437,6 @@ find ~/.cargo/registry -name "build.rs" -exec echo {} \;
 Dependency confusion exploits package manager logic. Researcher Alex Birsan demonstrated this in 2021 by publishing packages with same names as internal packages to public registries, tricking package managers into downloading his version instead. He identified vulnerabilities across 35 organizations including Shopify, Apple, Netflix, Uber, and Yelp.
 
 **Defense:**
-```toml
-# Use private registry for internal crates
-[registries]
-medichain-internal = { index = "https://internal-registry.medichain.org/" }
-
-[dependencies]
-# Force internal crates to use private registry
-medichain-common = { version = "1.0", registry = "medichain-internal" }
-
-# Public crates from crates.io
-substrate = { version = "3.0", registry = "crates-io" }
-```
 
 ---
 
@@ -794,191 +613,6 @@ cargo fuzz run medical_image --sanitizer=address
 
 ---
 
-## 4. SMART CONTRACT VULNERABILITIES
-
-### **4.1 Reentrancy Attacks**
-
-The DAO was victim to reentrancy vulnerability, where attacker exploited recursive calls to drain funds before contract could update its internal state, leading to theft of approximately $60 million. Despite being known since 2016, reentrancy remains top exploit vector in 2025, accounting for $420 million in losses by Q3.
-
-**The Vulnerability in Substrate:**
-```rust
-// ❌ VULNERABLE: External call before state update
-pub fn grant_temporary_access(
-    origin,
-    doctor: AccountId,
-    patient: AccountId,
-    duration: BlockNumber,
-) -> DispatchResult {
-    let caller = ensure_signed(origin)?;
-    
-    // External call (could re-enter)
-    Self::notify_doctor(&doctor, &patient)?;
-    
-    // BUG: State updated AFTER external call
-    TemporaryAccess::<T>::insert(
-        (&doctor, &patient),
-        <frame_system::Pallet<T>>::block_number() + duration,
-    );
-    
-    Ok(())
-}
-```
-
-**The Attack:**
-Malicious `notify_doctor` re-enters `grant_temporary_access`, granting multiple access periods.
-
-**Fix: Checks-Effects-Interactions Pattern:**
-```rust
-// ✅ SECURE: State updated BEFORE external calls
-pub fn grant_temporary_access(
-    origin,
-    doctor: AccountId,
-    patient: AccountId,
-    duration: BlockNumber,
-) -> DispatchResult {
-    let caller = ensure_signed(origin)?;
-    
-    // Rule 5: Assertions
-    ensure!(caller == patient, Error::<T>::Unauthorized);
-    assert!(duration > 0 && duration < MAX_ACCESS_DURATION, "Invalid duration");
-    
-    // CHECKS: Validate all preconditions
-    ensure!(
-        Self::is_registered_doctor(&doctor),
-        Error::<T>::NotADoctor
-    );
-    
-    // EFFECTS: Update state FIRST
-    let expiry = <frame_system::Pallet<T>>::block_number()
-        .checked_add(duration)
-        .ok_or(Error::<T>::BlockNumberOverflow)?;
-    
-    TemporaryAccess::<T>::insert((&doctor, &patient), expiry);
-    
-    // INTERACTIONS: External calls LAST (after state update)
-    Self::notify_doctor(&doctor, &patient)?;
-    
-    Ok(())
-}
-```
-
-### **4.2 Integer Overflow/Underflow**
-
-Integer overflow/underflow bugs exposed $10 million in tokens and are still routinely flagged in audits. Access control flaws led to financial losses totaling $953.2 million and remain a leading cause of smart contract breaches.
-
-**Fix: Always Use Checked Arithmetic:**
-```rust
-// In Cargo.toml
-[profile.release]
-overflow-checks = true  // MANDATORY
-
-[profile.dev]
-overflow-checks = true  // Also in dev
-```
-
-**Code:**
-```rust
-pub fn increment_patient_visit_count(
-    patient_id: AccountId,
-) -> Result<u32, Error<T>> {
-    PatientVisits::<T>::try_mutate(&patient_id, |count| {
-        // ✅ SECURE: checked_add returns None on overflow
-        *count = count.checked_add(1)
-            .ok_or(Error::<T>::VisitCountOverflow)?;
-        Ok(*count)
-    })
-}
-```
-
-### **4.3 Access Control Failures**
-
-**Always validate caller:**
-```rust
-pub fn update_patient_diagnosis(
-    origin,
-    patient_id: AccountId,
-    new_diagnosis: Vec<u8>,
-) -> DispatchResult {
-    let doctor = ensure_signed(origin)?;
-    
-    // ✅ CRITICAL: Validate doctor is authorized
-    ensure!(
-        Self::is_authorized_doctor(&doctor, &patient_id),
-        Error::<T>::Unauthorized
-    );
-    
-    // ✅ CRITICAL: Validate input size
-    ensure!(
-        new_diagnosis.len() <= MAX_DIAGNOSIS_SIZE,
-        Error::<T>::DiagnosisTooLarge
-    );
-    
-    // Update diagnosis...
-    Ok(())
-}
-```
-
-### **4.4 Front-Running Protection**
-
-Front-running occurs when malicious actors gain knowledge of pending transactions and leverage them for unfair advantage. This typically occurs when attackers can see blockchain mempool, which stores unconfirmed transactions.
-
-**Defense: Commit-Reveal Scheme:**
-```rust
-pub struct AccessRequest {
-    commit_hash: H256,
-    reveal_block: BlockNumber,
-}
-
-// Phase 1: Commit (hide actual request)
-pub fn commit_access_request(
-    origin,
-    commit_hash: H256,
-) -> DispatchResult {
-    let requester = ensure_signed(origin)?;
-    
-    let reveal_block = <frame_system::Pallet<T>>::block_number() + REVEAL_DELAY;
-    
-    AccessRequests::<T>::insert(
-        &requester,
-        AccessRequest { commit_hash, reveal_block },
-    );
-    
-    Ok(())
-}
-
-// Phase 2: Reveal (after delay)
-pub fn reveal_access_request(
-    origin,
-    patient_id: AccountId,
-    record_hash: H256,
-    nonce: u64,
-) -> DispatchResult {
-    let requester = ensure_signed(origin)?;
-    
-    let request = AccessRequests::<T>::get(&requester)
-        .ok_or(Error::<T>::NoCommitFound)?;
-    
-    // Verify reveal is after delay
-    let current_block = <frame_system::Pallet<T>>::block_number();
-    ensure!(
-        current_block >= request.reveal_block,
-        Error::<T>::RevealTooEarly
-    );
-    
-    // Verify commitment matches
-    let actual_hash = T::Hashing::hash_of(&(&patient_id, &record_hash, &nonce));
-    ensure!(
-        actual_hash == request.commit_hash,
-        Error::<T>::CommitmentMismatch
-    );
-    
-    // Grant access...
-    Ok(())
-}
-```
-
----
-
 ## 5. HIPAA COMPLIANCE DEEP DIVE
 
 ### **5.1 2025 HIPAA Updates (CRITICAL)**
@@ -990,57 +624,6 @@ HHS proposes to require regulated entities to maintain network map of their elec
 ### **5.2 Required Technical Safeguards**
 
 **164.312(a)(1) - Access Control (REQUIRED)**
-```rust
-// Unique User Identification
-pub struct UserIdentifier {
-    pub user_id: AccountId,
-    pub mfa_verified: bool,
-    pub session_token: SessionToken,
-    pub created_at: Timestamp,
-}
-
-// Emergency Access Procedure
-pub fn emergency_access_override(
-    emergency_responder: AccountId,
-    patient_id: AccountId,
-    justification: Vec<u8>,
-) -> DispatchResult {
-    // Log EVERYTHING for audit trail
-    EmergencyAccessLog::<T>::append(EmergencyAccessEvent {
-        responder: emergency_responder.clone(),
-        patient: patient_id.clone(),
-        timestamp: <frame_system::Pallet<T>>::block_number(),
-        justification: justification.clone(),
-        ip_address: Self::get_caller_ip(),
-    });
-    
-    // Automatically notify compliance officer
-    Self::alert_compliance_officer(&emergency_responder, &patient_id)?;
-    
-    // Grant temporary access (expires in 1 hour)
-    Self::grant_temporary_access(emergency_responder, patient_id, ONE_HOUR)?;
-    
-    Ok(())
-}
-
-// Automatic Logoff
-pub struct Session {
-    user: AccountId,
-    last_activity: BlockNumber,
-    timeout: BlockNumber,
-}
-
-pub fn check_session_timeout(session: &Session) -> Result<(), Error> {
-    let current_block = <frame_system::Pallet<T>>::block_number();
-    let idle_time = current_block.saturating_sub(session.last_activity);
-    
-    if idle_time > session.timeout {
-        return Err(Error::SessionExpired);
-    }
-    
-    Ok(())
-}
-```
 
 **164.312(a)(2)(i) - Encryption (REQUIRED)**
 ```rust
@@ -1077,76 +660,6 @@ pub fn encrypt_phi(plaintext: &[u8], key: &EncryptionKey) -> Result<Vec<u8>, Cry
 ```
 
 **164.312(b) - Audit Controls (REQUIRED)**
-```rust
-#[derive(Encode, Decode, Clone, RuntimeDebug, TypeInfo)]
-pub struct AuditLogEntry {
-    /// Who accessed the data
-    pub accessor: AccountId,
-    
-    /// What data was accessed
-    pub resource_id: H256,
-    
-    /// When (block number)
-    pub timestamp: BlockNumber,
-    
-    /// Where (IP address, if available)
-    pub source_ip: Option<Vec<u8>>,
-    
-    /// Why (access reason)
-    pub access_reason: AccessReason,
-    
-    /// Success or failure
-    pub result: AccessResult,
-    
-    /// Device used
-    pub device_info: Option<Vec<u8>>,
-}
-
-#[derive(Encode, Decode, Clone, RuntimeDebug, TypeInfo)]
-pub enum AccessReason {
-    Treatment,
-    Payment,
-    HealthcareOperations,
-    Research,
-    Emergency,
-    PatientRequest,
-}
-
-#[derive(Encode, Decode, Clone, RuntimeDebug, TypeInfo)]
-pub enum AccessResult {
-    Success,
-    Denied(DenialReason),
-}
-
-// Immutable audit trail (on blockchain)
-pub fn log_access_attempt(
-    accessor: AccountId,
-    patient_id: AccountId,
-    record_hash: H256,
-    reason: AccessReason,
-    result: AccessResult,
-) {
-    let entry = AuditLogEntry {
-        accessor: accessor.clone(),
-        resource_id: record_hash,
-        timestamp: <frame_system::Pallet<T>>::block_number(),
-        source_ip: Self::get_source_ip(),
-        access_reason: reason,
-        result,
-        device_info: Self::get_device_info(),
-    };
-    
-    // Store on-chain (immutable)
-    AuditLog::<T>::append(entry);
-    
-    // Also emit event for off-chain monitoring
-    Self::deposit_event(Event::AccessAttempt {
-        accessor,
-        patient: patient_id,
-        success: matches!(result, AccessResult::Success),
-    });
-}
-```
 
 **164.312(c)(1) - Integrity (REQUIRED)**
 ```rust
@@ -1171,225 +684,16 @@ pub fn verify_record_integrity(
 ```
 
 **164.312(d) - Person or Entity Authentication (REQUIRED)**
-```rust
-// Multi-Factor Authentication
-pub struct MFAChallenge {
-    pub user: AccountId,
-    pub challenge_code: u32,
-    pub expires_at: BlockNumber,
-    pub attempts: u8,
-}
-
-pub fn initiate_mfa(user: AccountId) -> Result<(), AuthError> {
-    // Generate 6-digit code
-    let code = generate_secure_random_u32() % 1_000_000;
-    
-    // Send via SMS/Email (off-chain worker)
-    Self::send_mfa_code(&user, code)?;
-    
-    // Store challenge
-    MFAChallenges::<T>::insert(
-        &user,
-        MFAChallenge {
-            user: user.clone(),
-            challenge_code: code,
-            expires_at: <frame_system::Pallet<T>>::block_number() + MFA_TIMEOUT,
-            attempts: 0,
-        },
-    );
-    
-    Ok(())
-}
-
-pub fn verify_mfa(
-    user: AccountId,
-    provided_code: u32,
-) -> Result<(), AuthError> {
-    let mut challenge = MFAChallenges::<T>::get(&user)
-        .ok_or(AuthError::NoChallenge)?;
-    
-    // Check expiration
-    let current_block = <frame_system::Pallet<T>>::block_number();
-    ensure!(
-        current_block < challenge.expires_at,
-        AuthError::ChallengeExpired
-    );
-    
-    // Check attempts (prevent brute force)
-    challenge.attempts += 1;
-    if challenge.attempts > MAX_MFA_ATTEMPTS {
-        MFAChallenges::<T>::remove(&user);
-        return Err(AuthError::TooManyAttempts);
-    }
-    
-    // Verify code (constant-time comparison)
-    if challenge.challenge_code != provided_code {
-        MFAChallenges::<T>::insert(&user, challenge);
-        return Err(AuthError::InvalidCode);
-    }
-    
-    // Success - remove challenge
-    MFAChallenges::<T>::remove(&user);
-    
-    Ok(())
-}
-```
 
 ### **5.3 Breach Notification Requirements**
 
 HIPAA breach must be reported whenever unsecured PHI or ePHI has been used or disclosed impermissibly unless there is low probability that data has been compromised. Once covered entity knows or by reasonable diligence should have known (date of discovery) that breach occurred, entity has obligation to notify relevant parties without unreasonable delay or up to 60 calendar days following discovery.
 
 **Automated Breach Detection:**
-```rust
-pub struct BreachDetector {
-    // Suspicious patterns
-    failed_access_attempts: HashMap<AccountId, u32>,
-    unusual_access_patterns: Vec<AccessPattern>,
-    data_exfiltration_alerts: Vec<DataTransfer>,
-}
-
-impl BreachDetector {
-    // Detect potential breach
-    pub fn analyze_access_pattern(
-        &mut self,
-        accessor: AccountId,
-        records_accessed: Vec<H256>,
-        timestamp: BlockNumber,
-    ) -> BreachRiskLevel {
-        // Rule 5: Assertions
-        assert!(!records_accessed.is_empty(), "No records accessed");
-        
-        // Check for mass data access
-        if records_accessed.len() > MASS_ACCESS_THRESHOLD {
-            self.trigger_breach_investigation(
-                BreachType::MassDataAccess,
-                accessor.clone(),
-                records_accessed.len(),
-            );
-            return BreachRiskLevel::High;
-        }
-        
-        // Check for unusual time patterns
-        if Self::is_unusual_time(timestamp) {
-            return BreachRiskLevel::Medium;
-        }
-        
-        // Check for rapid successive access
-        if self.is_rapid_access(&accessor) {
-            return BreachRiskLevel::Medium;
-        }
-        
-        BreachRiskLevel::Low
-    }
-    
-    // Automatic breach notification
-    fn trigger_breach_investigation(
-        &self,
-        breach_type: BreachType,
-        actor: AccountId,
-        severity: usize,
-    ) {
-        // Immediate logging
-        log::error!(
-            "POTENTIAL BREACH DETECTED: {:?} by {:?}, severity: {}",
-            breach_type,
-            actor,
-            severity
-        );
-        
-        // Notify compliance officer (off-chain)
-        Self::send_breach_alert(&breach_type, &actor, severity);
-        
-        // Freeze suspicious account
-        Self::suspend_account(&actor);
-        
-        // Start 60-day countdown for HIPAA notification
-        BreachTimeline::<T>::insert(
-            actor,
-            BreachInvestigation {
-                discovered_at: <frame_system::Pallet<T>>::block_number(),
-                notification_deadline: <frame_system::Pallet<T>>::block_number() + SIXTY_DAYS_IN_BLOCKS,
-                status: InvestigationStatus::Active,
-            },
-        );
-    }
-}
-```
 
 ### **5.4 Business Associate Agreements (BAA)**
 
 **Every third-party vendor MUST sign BAA:**
-```rust
-pub struct BusinessAssociate {
-    pub entity_id: AccountId,
-    pub baa_signed_date: BlockNumber,
-    pub baa_expiry_date: BlockNumber,
-    pub permitted_uses: Vec<PHIUse>,
-    pub security_audit_passed: bool,
-    pub last_audit_date: Option<BlockNumber>,
-}
-
-pub fn register_business_associate(
-    entity_id: AccountId,
-    baa_document_hash: H256,
-    permitted_uses: Vec<PHIUse>,
-) -> DispatchResult {
-    // Verify BAA document integrity
-    ensure!(
-        Self::verify_baa_signature(&baa_document_hash),
-        Error::<T>::InvalidBAA
-    );
-    
-    // Store BAA
-    BusinessAssociates::<T>::insert(
-        &entity_id,
-        BusinessAssociate {
-            entity_id: entity_id.clone(),
-            baa_signed_date: <frame_system::Pallet<T>>::block_number(),
-            baa_expiry_date: <frame_system::Pallet<T>>::block_number() + BAA_DURATION,
-            permitted_uses,
-            security_audit_passed: false,  // Requires audit
-            last_audit_date: None,
-        },
-    );
-    
-    Ok(())
-}
-
-pub fn verify_business_associate_access(
-    entity_id: &AccountId,
-    intended_use: PHIUse,
-) -> Result<(), Error<T>> {
-    let ba = BusinessAssociates::<T>::get(entity_id)
-        .ok_or(Error::<T>::NotABusinessAssociate)?;
-    
-    // Check BAA hasn't expired
-    let current_block = <frame_system::Pallet<T>>::block_number();
-    ensure!(
-        current_block < ba.baa_expiry_date,
-        Error::<T>::BAA Expired
-    );
-    
-    // Check security audit is current (annual requirement)
-    if let Some(last_audit) = ba.last_audit_date {
-        let one_year_in_blocks = 365 * 24 * 3600 / 6; // Assuming 6-second blocks
-        ensure!(
-            current_block - last_audit < one_year_in_blocks,
-            Error::<T>::SecurityAuditExpired
-        );
-    } else {
-        return Err(Error::<T>::NoSecurityAudit);
-    }
-    
-    // Check permitted use
-    ensure!(
-        ba.permitted_uses.contains(&intended_use),
-        Error::<T>::UnauthorizedUse
-    );
-    
-    Ok(())
-}
-```
 
 ---
 

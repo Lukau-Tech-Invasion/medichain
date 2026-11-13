@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { takeNoteDraft } from '../utils/noteDraft';
 import {
   FileText,
   Search,
@@ -10,20 +11,21 @@ import {
 } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
 import StaffName from '../components/StaffName';
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import {
   createProgressNote,
-  getPatients,
   listProgressNotes,
   useTranslation,
   clickable,
   Textarea,
   useValidatedForm,
   progressNoteSchema,
-  progressNoteDraftSchema,
+  progressNoteDraftSchema, ModalPanel,
+  notifySuccess, submitOnce, useSubmission, ChoiceChips, useDraftFields, draftFieldsOf
 } from '@medichain/shared';
 import type { ProgressNote as ProgressNotePayload, ProgressNoteListItem } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
-import PatientSelect, { type Patient } from '../components/PatientSelect';
+import PatientSelect, { type Patient, useDirectoryNames } from '../components/PatientSelect';
 
 /**
  * ProgressNotePage
@@ -57,12 +59,18 @@ interface ProgressNote {
 
 const ProgressNotePage: React.FC = () => {
   const { t } = useTranslation();
-  // Who did it, by name: records store the actor's wallet address.
+  const submission = useSubmission('progress-note');
+  // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'notes' | 'new' | 'timeline'>('notes');
-  const [notes, setNotes] = useState<ProgressNote[]>([]);
+  const [storedNotes, setNotes] = useState<ProgressNote[]>([]);
+  // Names resolved on the server per patient; the first page of the directory
+  // labelled anyone past the fiftieth "Unknown patient".
+  const noteNames = useDirectoryNames(storedNotes.map((n) => n.patientId));
+  const notes = storedNotes.map((n) => ({ ...n, patientName: noteNames.get(n.patientId) ?? n.patientName }));
   const [selectedNote, setSelectedNote] = useState<ProgressNote | null>(null);
+  const [printNote, setPrintNote] = useState<ProgressNote | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<NoteType | 'all'>('all');
   const [loading, setLoading] = useState(true);
@@ -72,6 +80,25 @@ const ProgressNotePage: React.FC = () => {
     patientId: '', patientName: '', noteType: 'daily' as NoteType,
     subjective: '', objective: '', assessment: '', plan: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  useDraftFields('progress-note', form.patientId || undefined, t('docProgressNote.formLabel'),
+    draftFieldsOf(form, setForm, ['noteType', 'subjective', 'objective', 'assessment', 'plan']));
+
+  // A template started from the template screen fills the note once, on arrival.
+  useEffect(() => {
+    const draft = takeNoteDraft();
+    if (!draft) return;
+    setForm((current) => ({
+      ...current,
+      subjective: draft.subjective || current.subjective,
+      objective: draft.objective || current.objective,
+      assessment: draft.assessment || current.assessment,
+      plan: draft.plan || current.plan,
+    }));
+    notifySuccess(t('docNoteTemplates.templateApplied', { name: draft.templateName }));
+    // Runs once: the draft is removed as it is read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const fetchNotes = async () => {
@@ -81,10 +108,7 @@ const ProgressNotePage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const [data, patients] = await Promise.all([listProgressNotes(), getPatients()]);
-          const patientNames = new Map(
-            patients.map((patient) => [patient.patient_id, patient.full_name])
-          );
+        const data = await listProgressNotes();
           // The list endpoint returns a bare array of record entities of the
           // shape { id, patient_id, data: {...the note...}, created_at }. Flatten
           // the inner `data` up so the note's own fields (note_type, status, …)
@@ -99,12 +123,13 @@ const ProgressNotePage: React.FC = () => {
             return ({
             id: note?.note_id || item.id,
             patientId: item.patient_id,
-            patientName: patientNames.get(item.patient_id) || t('docProgressNote.unknownPatient'),
+            patientName: t('docProgressNote.unknownPatient'),
             mrn: item.patient_id,
             noteType: (note?.note_type || item.note_type || 'daily') as NoteType,
             status: (item.status === 'final' ? 'signed' : item.status || 'draft') as NoteStatus,
             author: note?.author || item.created_by || '',
-            authorRole: 'Physician',
+            // The stored record has no historical author-role field.
+            authorRole: 'Role not recorded',
             createdAt: new Date(item.created_at || Date.now()),
             updatedAt: new Date(item.updated_at || Date.now()),
             subjective: note?.subjective || item.subjective || '',
@@ -196,7 +221,7 @@ const ProgressNotePage: React.FC = () => {
   const { validate: validateDraft } = useValidatedForm(progressNoteDraftSchema);
 
   const saveNote = async (status: 'draft' | 'signed') => {
-    if (!user) return;
+    if (!user || saving) return;
     // Two things were wrong here. The message said "patient required" whatever
     // was actually missing -- a clinician who left the plan blank was told to
     // pick a patient they had already picked. And the same requirement applied
@@ -230,7 +255,10 @@ const ProgressNotePage: React.FC = () => {
     };
 
     try {
-      await createProgressNote(payload);
+      // One key per submission: a double tap, or a retry after a timeout that
+      // had in fact saved, is answered "already saved" instead of writing twice.
+      const outcome = await submitOnce(submission, payload, () => createProgressNote(payload));
+      if (outcome === 'busy') return;
       setNotes(current => [{
         id: noteId, patientId: form.patientId, patientName: form.patientName,
         mrn: form.patientId, noteType: form.noteType, status,
@@ -241,6 +269,7 @@ const ProgressNotePage: React.FC = () => {
       }, ...current]);
       setForm({ patientId: '', patientName: '', noteType: 'daily', subjective: '', objective: '', assessment: '', plan: '' });
       setActiveTab('notes');
+      notifySuccess(outcome === 'queued' ? t('forms.queued') : 'Progress note saved.');
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docProgressNote.cannotConnect'));
     } finally {
@@ -250,6 +279,7 @@ const ProgressNotePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Progress note" record={printNote} onClose={() => setPrintNote(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-700 to-violet-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -320,7 +350,7 @@ const ProgressNotePage: React.FC = () => {
           <div className="flex gap-2 mb-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-              <input
+              <input aria-label={t('docProgressNote.searchPlaceholder')}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -329,6 +359,7 @@ const ProgressNotePage: React.FC = () => {
               />
             </div>
             <select
+              aria-label="Filter notes by type"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as NoteType | 'all')}
               className="border rounded-lg px-3 py-2"
@@ -339,10 +370,12 @@ const ProgressNotePage: React.FC = () => {
               <option value="discharge">{t('docProgressNote.filterDischarge')}</option>
               <option value="procedure">{t('docProgressNote.filterProcedure')}</option>
               <option value="consultation">{t('docProgressNote.filterConsultation')}</option>
+              <option value="transfer">{t('docProgressNote.ntTransfer')}</option>
             </select>
           </div>
 
           <div className="space-y-3">
+            {filteredNotes.length === 0 && <p role="status" className="rounded-lg bg-surface p-4 text-content-muted">No notes match the selected patient or note type.</p>}
             {filteredNotes.map(note => (
               <div
                 key={note.id}
@@ -388,6 +421,7 @@ const ProgressNotePage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docProgressNote.newNote')}</h2>
 
+            <form onSubmit={(event) => { event.preventDefault(); void saveNote('draft'); }} noValidate>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -396,16 +430,20 @@ const ProgressNotePage: React.FC = () => {
                     placeholder={t('docProgressNote.selectPatient')} required />
                 </div>
                 <div>
-                  <label htmlFor="progress-note-type" className="block text-sm font-medium mb-1">{t('docProgressNote.noteTypeRequired')}</label>
-                  <select id="progress-note-type" value={form.noteType}
-                    onChange={e => updateForm('noteType', e.target.value)} className="w-full border rounded-lg px-3 py-2">
-                    <option value="daily">{t('docProgressNote.typeDailyProgress')}</option>
-                    <option value="admission">{t('docProgressNote.typeAdmission')}</option>
-                    <option value="discharge">{t('docProgressNote.typeDischarge')}</option>
-                    <option value="procedure">{t('docProgressNote.typeProcedure')}</option>
-                    <option value="consultation">{t('docProgressNote.typeConsultation')}</option>
-                    <option value="transfer">{t('docProgressNote.typeTransfer')}</option>
-                  </select>
+                  <ChoiceChips
+                    id="progress-note-type"
+                    label={t('docProgressNote.noteTypeRequired')}
+                    value={form.noteType}
+                    onChange={(next) => { if (next === undefined) return; updateForm('noteType', next); }}
+                    options={[
+                      { value: 'daily', label: t('docProgressNote.typeDailyProgress') },
+                      { value: 'admission', label: t('docProgressNote.typeAdmission') },
+                      { value: 'discharge', label: t('docProgressNote.typeDischarge') },
+                      { value: 'procedure', label: t('docProgressNote.typeProcedure') },
+                      { value: 'consultation', label: t('docProgressNote.typeConsultation') },
+                      { value: 'transfer', label: t('docProgressNote.typeTransfer') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -458,16 +496,17 @@ const ProgressNotePage: React.FC = () => {
               />
 
               <div className="flex gap-2">
-                <button type="button" disabled={saving} onClick={() => saveNote('draft')}
-                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                <button type="submit" aria-disabled={saving || undefined}
+                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium aria-disabled:cursor-wait">
                   {t('docProgressNote.saveDraft')}
                 </button>
-                <button type="button" disabled={saving} onClick={() => saveNote('signed')}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                <button type="button" aria-disabled={saving || undefined} onClick={() => void saveNote('signed')}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 aria-disabled:cursor-wait">
                   <Edit className="w-5 h-5" /> {t('docProgressNote.signNote')}
                 </button>
               </div>
             </div>
+            </form>
           </div>
         </div>
       )}
@@ -506,17 +545,19 @@ const ProgressNotePage: React.FC = () => {
 
       {/* Note Detail Modal */}
       {selectedNote && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="progress-note-dialog-title" onClose={() => setSelectedNote(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold">{selectedNote.patientName}</h2>
+                  <h2 id="progress-note-dialog-title" className="text-xl font-semibold">{selectedNote.patientName}</h2>
                   {getStatusBadge(selectedNote.status)}
                 </div>
                 <p className="text-sm text-content-muted">{t('docProgressNote.noteSuffix', { type: noteTypeLabel(selectedNote.noteType), date: selectedNote.createdAt.toLocaleString() })}</p>
               </div>
-              <button onClick={() => setSelectedNote(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
+              <button type="button" onClick={() => setPrintNote(selectedNote)} className="mr-2 px-3 py-1 text-sm rounded-lg border">
+                {t('docProgressNote.printNote')}
+              </button>
+              <button aria-label={t('common.close')} onClick={() => setSelectedNote(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
@@ -556,8 +597,7 @@ const ProgressNotePage: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

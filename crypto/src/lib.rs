@@ -30,6 +30,9 @@ use chacha20poly1305::{
 use rand::rngs::OsRng;
 use zeroize::Zeroize;
 
+pub mod auth_proof;
+pub mod seal;
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -296,6 +299,32 @@ pub fn generate_salt() -> Result<[u8; SALT_SIZE], CryptoError> {
     Ok(salt)
 }
 
+/// Fill a fixed-size array from the OS random source.
+///
+/// For secrets a person will read or type (one-time codes) where a UUID's fixed
+/// version and variant bits would waste entropy.
+pub fn random_bytes<const N: usize>() -> Result<[u8; N], CryptoError> {
+    let mut out = [0u8; N];
+    getrandom(&mut out)?;
+    Ok(out)
+}
+
+/// Compare two byte strings without stopping at the first difference.
+///
+/// Used for one-time-code digests, so a caller cannot learn how many leading
+/// bytes of a guess were right from how long the answer took. Differing lengths
+/// are unequal immediately; the lengths of the compared digests are public.
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut difference = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        difference |= x ^ y;
+    }
+    difference == 0
+}
+
 // =============================================================================
 // UTILITY FUNCTIONS
 // =============================================================================
@@ -315,14 +344,8 @@ pub fn to_hex(bytes: &[u8]) -> String {
 
 /// Convert hex string to bytes.
 ///
-/// An optional `0x`/`0X` prefix is accepted. That is the canonical Substrate
-/// and polkadot-js encoding — `u8aToHex` emits it by default — and rejecting it
-/// silently broke every signature produced by the browser: the sr25519
-/// signature was valid, the key was right, and verification failed at the hex
-/// decoder with `InvalidSignatureFormat`, which the API reports as the generic
-/// "Signature verification failed". Demo deployments hid it because they fall
-/// back to header identity; with `REQUIRE_SIGNATURES=true` it made the whole
-/// credential sign-in path unusable.
+/// An optional `0x`/`0X` prefix is accepted: many tools emit hex that way, and a
+/// key or digest pasted from one should not fail at the decoder.
 pub fn from_hex(hex: &str) -> Result<Vec<u8>, CryptoError> {
     let hex = hex
         .strip_prefix("0x")
@@ -443,6 +466,22 @@ mod tests {
     }
 
     #[test]
+    fn constant_time_eq_agrees_with_equality() {
+        assert!(constant_time_eq(b"abcdef", b"abcdef"));
+        assert!(!constant_time_eq(b"abcdef", b"abcdeg"));
+        assert!(!constant_time_eq(b"abcdef", b"abcde"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn random_bytes_fills_the_whole_array_differently_each_time() {
+        let a = random_bytes::<32>().unwrap();
+        let b = random_bytes::<32>().unwrap();
+        assert_ne!(a, b);
+        assert_ne!(a, [0u8; 32]);
+    }
+
+    #[test]
     fn test_hex_conversion() {
         let original = vec![0xde, 0xad, 0xbe, 0xef];
         let hex = to_hex(&original);
@@ -452,12 +491,10 @@ mod tests {
         assert_eq!(original, restored);
     }
 
-    /// polkadot-js `u8aToHex` prefixes with `0x` by default, so every signature
-    /// the browser produces arrives prefixed. Rejecting it here failed
-    /// verification at the decoder, which the API surfaces as the generic
-    /// "Signature verification failed" — a valid signature reported as forged.
+    /// Hex copied from other tooling often carries a `0x` prefix; it is stripped
+    /// rather than rejected.
     #[test]
-    fn from_hex_accepts_the_substrate_0x_prefix() {
+    fn from_hex_accepts_the_0x_prefix() {
         let expected = vec![0xde, 0xad, 0xbe, 0xef];
         assert_eq!(from_hex("0xdeadbeef").unwrap(), expected);
         assert_eq!(from_hex("0Xdeadbeef").unwrap(), expected);
@@ -514,516 +551,14 @@ mod tests {
     }
 }
 
-// =============================================================================
-// WALLET SIGNATURE VERIFICATION (SEC-005)
-// =============================================================================
-//
-// This module provides cryptographic verification of wallet signatures
-// to prevent spoofing of the X-User-Id header in API requests.
-//
-// Message format: "<timestamp>:<wallet_address>"
-// Example: "1704067200:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-
-pub mod signature {
-    use blake2::{Blake2b512, Digest};
-    use sp_core::sr25519::{Public, Signature};
-    use sp_core::Pair;
-
-    /// Maximum allowed timestamp drift in seconds (5 minutes)
-    pub const MAX_TIMESTAMP_DRIFT_SECS: i64 = 300;
-
-    /// Signature verification error types
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum SignatureError {
-        /// Invalid signature format
-        InvalidSignatureFormat,
-        /// Invalid public key format
-        InvalidPublicKey,
-        /// Signature verification failed
-        VerificationFailed,
-        /// Timestamp too old or in future
-        TimestampExpired,
-        /// Invalid message format
-        InvalidMessageFormat,
-        /// SS58 address decode error
-        Ss58DecodeError,
-    }
-
-    impl std::fmt::Display for SignatureError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                SignatureError::InvalidSignatureFormat => write!(f, "Invalid signature format"),
-                SignatureError::InvalidPublicKey => write!(f, "Invalid public key"),
-                SignatureError::VerificationFailed => write!(f, "Signature verification failed"),
-                SignatureError::TimestampExpired => write!(f, "Timestamp expired or invalid"),
-                SignatureError::InvalidMessageFormat => write!(f, "Invalid message format"),
-                SignatureError::Ss58DecodeError => write!(f, "SS58 address decode error"),
-            }
-        }
-    }
-
-    impl std::error::Error for SignatureError {}
-
-    /// Decode SS58 address to public key bytes
-    ///
-    /// SS58 format: <version_byte><public_key_32_bytes><checksum_2_bytes>
-    fn decode_ss58_to_pubkey(ss58_address: &str) -> Result<[u8; 32], SignatureError> {
-        // Decode base58
-        let decoded = bs58::decode(ss58_address)
-            .into_vec()
-            .map_err(|_| SignatureError::Ss58DecodeError)?;
-
-        // SS58 with checksum: 1 byte version + 32 bytes pubkey + 2 bytes checksum = 35 bytes
-        // Simple SS58: 1 byte version + 32 bytes pubkey = 33 bytes
-        if decoded.len() < 33 {
-            return Err(SignatureError::Ss58DecodeError);
-        }
-
-        // Extract public key (skip version byte, take 32 bytes)
-        let mut pubkey = [0u8; 32];
-        pubkey.copy_from_slice(&decoded[1..33]);
-
-        // Verify checksum if present (35 bytes total)
-        if decoded.len() >= 35 {
-            let checksum_data = [&b"SS58PRE"[..], &decoded[..33]].concat();
-            let hash: [u8; 64] = Blake2b512::digest(&checksum_data).into();
-
-            if decoded[33] != hash[0] || decoded[34] != hash[1] {
-                return Err(SignatureError::Ss58DecodeError);
-            }
-        }
-
-        Ok(pubkey)
-    }
-
-    /// Verify an sr25519 signature against a message
-    ///
-    /// # Arguments
-    /// * `signature_hex` - Hex-encoded 64-byte sr25519 signature
-    /// * `message` - Original message that was signed (format: "<timestamp>:<wallet>")
-    /// * `wallet_address` - SS58-encoded wallet address
-    /// * `current_timestamp` - Current Unix timestamp for drift check
-    ///
-    /// # Returns
-    /// Ok(()) if signature is valid, Err with reason otherwise
-    ///
-    /// # Security
-    /// - Verifies signature cryptographically
-    /// - Checks timestamp is within MAX_TIMESTAMP_DRIFT_SECS window
-    /// - Constant-time signature comparison (via sp_core)
-    pub fn verify_wallet_signature(
-        signature_hex: &str,
-        message: &str,
-        wallet_address: &str,
-        current_timestamp: i64,
-    ) -> Result<(), SignatureError> {
-        // Parse message format: "<timestamp>:<wallet_address>"
-        let parts: Vec<&str> = message.splitn(2, ':').collect();
-        if parts.len() != 2 {
-            return Err(SignatureError::InvalidMessageFormat);
-        }
-
-        let msg_timestamp: i64 = parts[0]
-            .parse()
-            .map_err(|_| SignatureError::InvalidMessageFormat)?;
-        let msg_wallet = parts[1];
-
-        // Verify wallet address in message matches claimed wallet
-        if msg_wallet != wallet_address {
-            return Err(SignatureError::VerificationFailed);
-        }
-
-        // Check timestamp drift (Rule 2: bounded check)
-        let drift = (current_timestamp - msg_timestamp).abs();
-        if drift > MAX_TIMESTAMP_DRIFT_SECS {
-            return Err(SignatureError::TimestampExpired);
-        }
-
-        // Decode signature from hex
-        let sig_bytes =
-            crate::from_hex(signature_hex).map_err(|_| SignatureError::InvalidSignatureFormat)?;
-
-        if sig_bytes.len() != 64 {
-            return Err(SignatureError::InvalidSignatureFormat);
-        }
-
-        let mut sig_array = [0u8; 64];
-        sig_array.copy_from_slice(&sig_bytes);
-        let signature = Signature::from_raw(sig_array);
-
-        // Decode SS58 address to public key
-        let pubkey_bytes = decode_ss58_to_pubkey(wallet_address)?;
-        let public = Public::from_raw(pubkey_bytes);
-
-        // Verify signature using sp_core
-        if sp_core::sr25519::Pair::verify(&signature, message.as_bytes(), &public) {
-            Ok(())
-        } else {
-            Err(SignatureError::VerificationFailed)
-        }
-    }
-
-    /// Verify a signature over an application-defined, already freshness-bound
-    /// message. Login challenges use this because their durable nonce, expiry,
-    /// and single-use consumption provide replay protection; they are not the
-    /// timestamp-shaped messages used by request-signature middleware.
-    pub fn verify_wallet_message_signature(
-        signature_hex: &str,
-        message: &str,
-        wallet_address: &str,
-    ) -> Result<(), SignatureError> {
-        let sig_bytes =
-            crate::from_hex(signature_hex).map_err(|_| SignatureError::InvalidSignatureFormat)?;
-        if sig_bytes.len() != 64 {
-            return Err(SignatureError::InvalidSignatureFormat);
-        }
-        let mut sig_array = [0u8; 64];
-        sig_array.copy_from_slice(&sig_bytes);
-        let signature = Signature::from_raw(sig_array);
-        let pubkey_bytes = decode_ss58_to_pubkey(wallet_address)?;
-        let public = Public::from_raw(pubkey_bytes);
-
-        if sp_core::sr25519::Pair::verify(&signature, message.as_bytes(), &public) {
-            Ok(())
-        } else {
-            Err(SignatureError::VerificationFailed)
-        }
-    }
-
-    /// Generate the message that should be signed by the wallet
-    ///
-    /// # Arguments
-    /// * `timestamp` - Unix timestamp
-    /// * `wallet_address` - SS58-encoded wallet address
-    ///
-    /// # Returns
-    /// Message string in format "<timestamp>:<wallet_address>"
-    ///
-    /// This format proves wallet ownership at a point in time and is
-    /// deliberately kept as-is for `issue_jwt`'s login/JWT-issuance flow — a
-    /// login has no specific method/path/body to bind to. For per-request
-    /// authorization (`SignatureAuthMiddleware`), use
-    /// [`create_bound_sign_message`] / [`verify_wallet_signature_bound`]
-    /// instead (Horizon HZ-007).
-    pub fn create_sign_message(timestamp: i64, wallet_address: &str) -> String {
-        format!("{}:{}", timestamp, wallet_address)
-    }
-
-    /// Generate the message a client must sign to authorize one specific
-    /// request (Horizon HZ-007).
-    ///
-    /// Format: `"<timestamp>:<wallet>:<method>:<path>:<body_hash_hex>"`
-    /// (`body_hash_hex` = lowercase-hex SHA-256 of the exact request body
-    /// bytes; the empty body hashes to `SHA-256("")`). Binding the signature
-    /// to the method, path, and body — not just timestamp and wallet — means
-    /// a captured `(signature, timestamp)` pair authorizes only the exact
-    /// request it was made for, not any action as that wallet for the
-    /// remainder of the timestamp window.
-    pub fn create_bound_sign_message(
-        timestamp: i64,
-        wallet_address: &str,
-        method: &str,
-        path: &str,
-        body_hash_hex: &str,
-    ) -> String {
-        format!(
-            "{}:{}:{}:{}:{}",
-            timestamp, wallet_address, method, path, body_hash_hex
-        )
-    }
-
-    /// Verify a signature over a [`create_bound_sign_message`]-shaped message.
-    ///
-    /// Same cryptographic and timestamp checks as [`verify_wallet_signature`],
-    /// plus binding checks that the message's method, path, and body hash
-    /// match what the server actually received.
-    #[allow(clippy::too_many_arguments)]
-    pub fn verify_wallet_signature_bound(
-        signature_hex: &str,
-        message: &str,
-        wallet_address: &str,
-        expected_method: &str,
-        expected_path: &str,
-        expected_body_hash_hex: &str,
-        current_timestamp: i64,
-    ) -> Result<(), SignatureError> {
-        // Format is unambiguous with a 5-way splitn: SS58 wallets, HTTP
-        // methods, and this API's static route paths never contain ':', and
-        // body_hash_hex (hex digits only) is the final segment, so it can
-        // safely contain none either.
-        let parts: Vec<&str> = message.splitn(5, ':').collect();
-        if parts.len() != 5 {
-            return Err(SignatureError::InvalidMessageFormat);
-        }
-        let (msg_timestamp_str, msg_wallet, msg_method, msg_path, msg_body_hash) =
-            (parts[0], parts[1], parts[2], parts[3], parts[4]);
-
-        let msg_timestamp: i64 = msg_timestamp_str
-            .parse()
-            .map_err(|_| SignatureError::InvalidMessageFormat)?;
-
-        if msg_wallet != wallet_address {
-            return Err(SignatureError::VerificationFailed);
-        }
-        if msg_method != expected_method || msg_path != expected_path {
-            return Err(SignatureError::VerificationFailed);
-        }
-        if msg_body_hash != expected_body_hash_hex {
-            return Err(SignatureError::VerificationFailed);
-        }
-
-        let drift = (current_timestamp - msg_timestamp).abs();
-        if drift > MAX_TIMESTAMP_DRIFT_SECS {
-            return Err(SignatureError::TimestampExpired);
-        }
-
-        let sig_bytes =
-            crate::from_hex(signature_hex).map_err(|_| SignatureError::InvalidSignatureFormat)?;
-        if sig_bytes.len() != 64 {
-            return Err(SignatureError::InvalidSignatureFormat);
-        }
-        let mut sig_array = [0u8; 64];
-        sig_array.copy_from_slice(&sig_bytes);
-        let signature = Signature::from_raw(sig_array);
-
-        let pubkey_bytes = decode_ss58_to_pubkey(wallet_address)?;
-        let public = Public::from_raw(pubkey_bytes);
-
-        if sp_core::sr25519::Pair::verify(&signature, message.as_bytes(), &public) {
-            Ok(())
-        } else {
-            Err(SignatureError::VerificationFailed)
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn test_ss58_decode_valid_address() {
-            // Alice's well-known test address
-            let alice = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-            let result = decode_ss58_to_pubkey(alice);
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap().len(), 32);
-        }
-
-        #[test]
-        fn test_ss58_decode_invalid_address() {
-            let invalid = "invalid_address";
-            let result = decode_ss58_to_pubkey(invalid);
-            assert!(result.is_err());
-        }
-
-        /// The browser signs with polkadot-js, whose `u8aToHex` emits a `0x`
-        /// prefix. This asserts the wire format the frontend actually sends
-        /// verifies — the prefixed form used to fail at the hex decoder, so a
-        /// correctly signed login was rejected as a bad signature and the
-        /// credential sign-in path could never obtain a JWT.
-        #[test]
-        fn wallet_signature_verifies_with_or_without_the_0x_prefix() {
-            use sp_core::{sr25519, Pair};
-
-            // Alice: the well-known development identity, and the address the
-            // other tests in this module already use.
-            let pair = sr25519::Pair::from_string("//Alice", None).expect("dev key");
-            let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-            // Fixed timestamp, passed as "now" too, so drift is zero and the
-            // test cannot fail on clock skew.
-            let timestamp = 1_704_067_200i64;
-            let message = create_sign_message(timestamp, wallet);
-            let unprefixed = crate::to_hex(&pair.sign(message.as_bytes()).0);
-
-            for candidate in [unprefixed.clone(), format!("0x{unprefixed}")] {
-                assert!(
-                    verify_wallet_signature(&candidate, &message, wallet, timestamp).is_ok(),
-                    "signature form {candidate} must verify"
-                );
-            }
-        }
-
-        #[test]
-        fn test_create_sign_message() {
-            let timestamp = 1704067200i64;
-            let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-            let message = create_sign_message(timestamp, wallet);
-            assert_eq!(
-                message,
-                "1704067200:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-            );
-        }
-
-        #[test]
-        fn test_verify_timestamp_expired() {
-            let old_timestamp = 1000000i64;
-            let current_timestamp = 1704067200i64;
-            let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-            let message = create_sign_message(old_timestamp, wallet);
-
-            // Using a dummy signature - will fail on timestamp check first
-            let result = verify_wallet_signature(
-                "00".repeat(64).as_str(),
-                &message,
-                wallet,
-                current_timestamp,
-            );
-            assert_eq!(result, Err(SignatureError::TimestampExpired));
-        }
-
-        #[test]
-        fn test_verify_invalid_message_format() {
-            let result = verify_wallet_signature(
-                "00".repeat(64).as_str(),
-                "invalid_message",
-                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-                1704067200,
-            );
-            assert_eq!(result, Err(SignatureError::InvalidMessageFormat));
-        }
-
-        #[test]
-        fn test_verify_wallet_mismatch() {
-            let timestamp = 1704067200i64;
-            let wallet1 = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-            let wallet2 = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
-            let message = create_sign_message(timestamp, wallet1);
-
-            let result =
-                verify_wallet_signature("00".repeat(64).as_str(), &message, wallet2, timestamp);
-            assert_eq!(result, Err(SignatureError::VerificationFailed));
-        }
-
-        // ------------------------------------------------------------------
-        // HZ-007: request-bound signature tests
-        // ------------------------------------------------------------------
-
-        fn real_keypair() -> (sp_core::sr25519::Pair, String) {
-            use sp_core::crypto::Ss58Codec;
-            use sp_core::Pair as _;
-            let (pair, _seed) = sp_core::sr25519::Pair::generate();
-            let wallet = pair.public().to_ss58check();
-            (pair, wallet)
-        }
-
-        fn sign_hex(pair: &sp_core::sr25519::Pair, message: &str) -> String {
-            use sp_core::Pair as _;
-            crate::to_hex(pair.sign(message.as_bytes()).0.as_slice())
-        }
-
-        #[test]
-        fn bound_signature_verifies_for_the_exact_request_it_was_signed_for() {
-            let (pair, wallet) = real_keypair();
-            let timestamp = 1_800_000_000i64;
-            let message =
-                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash");
-            let signature = sign_hex(&pair, &message);
-
-            let result = verify_wallet_signature_bound(
-                &signature, &message, &wallet, "POST", "/api/x", "bodyhash", timestamp,
-            );
-            assert_eq!(result, Ok(()));
-        }
-
-        /// The exact HZ-007 regression: a signature valid for one request must
-        /// be rejected when replayed against a different path.
-        #[test]
-        fn bound_signature_rejects_replay_against_a_different_path() {
-            let (pair, wallet) = real_keypair();
-            let timestamp = 1_800_000_000i64;
-            let message =
-                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash");
-            let signature = sign_hex(&pair, &message);
-
-            let result = verify_wallet_signature_bound(
-                &signature, &message, &wallet, "POST", "/api/y", "bodyhash", timestamp,
-            );
-            assert_eq!(result, Err(SignatureError::VerificationFailed));
-        }
-
-        /// Same request, different body — must also be rejected.
-        #[test]
-        fn bound_signature_rejects_replay_against_a_different_body() {
-            let (pair, wallet) = real_keypair();
-            let timestamp = 1_800_000_000i64;
-            let message =
-                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash-a");
-            let signature = sign_hex(&pair, &message);
-
-            let result = verify_wallet_signature_bound(
-                &signature,
-                &message,
-                &wallet,
-                "POST",
-                "/api/x",
-                "bodyhash-b",
-                timestamp,
-            );
-            assert_eq!(result, Err(SignatureError::VerificationFailed));
-        }
-
-        /// Same request, different method — must also be rejected.
-        #[test]
-        fn bound_signature_rejects_replay_against_a_different_method() {
-            let (pair, wallet) = real_keypair();
-            let timestamp = 1_800_000_000i64;
-            let message =
-                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash");
-            let signature = sign_hex(&pair, &message);
-
-            let result = verify_wallet_signature_bound(
-                &signature, &message, &wallet, "DELETE", "/api/x", "bodyhash", timestamp,
-            );
-            assert_eq!(result, Err(SignatureError::VerificationFailed));
-        }
-
-        #[test]
-        fn bound_signature_still_enforces_timestamp_drift() {
-            let (pair, wallet) = real_keypair();
-            let old_timestamp = 1_000_000i64;
-            let current_timestamp = 1_800_000_000i64;
-            let message =
-                create_bound_sign_message(old_timestamp, &wallet, "POST", "/api/x", "bodyhash");
-            let signature = sign_hex(&pair, &message);
-
-            let result = verify_wallet_signature_bound(
-                &signature,
-                &message,
-                &wallet,
-                "POST",
-                "/api/x",
-                "bodyhash",
-                current_timestamp,
-            );
-            assert_eq!(result, Err(SignatureError::TimestampExpired));
-        }
-    }
-}
-
-// Re-export signature module
-pub use signature::{
-    create_bound_sign_message, create_sign_message, verify_wallet_message_signature,
-    verify_wallet_signature, verify_wallet_signature_bound, SignatureError,
-    MAX_TIMESTAMP_DRIFT_SECS,
-};
-
-/// Password verification for staff credential login.
+/// Password verification for credential sign-in.
 ///
-/// # What this is and is not
+/// # What this is
 ///
-/// This authenticates a *person* against a stored verifier. It does **not**
-/// replace wallet signatures: MediChain's authority to act still comes from an
-/// sr25519 key, and every mutating request is still signed by one. A password
-/// only gets the clinician *to* their key, which is held encrypted and
-/// decrypted in their browser.
-///
-/// That distinction is the whole design. The alternative — a password that
-/// mints a session server-side while the server also holds the signing key —
-/// would make the server able to forge any clinician's signature. Here the
-/// server stores a verifier it cannot invert and an encrypted keystore it
-/// cannot open, because the keystore is sealed with a key derived from the
-/// same password down a *different* domain-separated path that never leaves
-/// the client (see `deriveKeystoreSecret` in `client/shared/src/auth`).
+/// This authenticates a *person* against a stored verifier. The client derives
+/// an auth proof from the password with PBKDF2 and HKDF and sends only that; the
+/// server stores Argon2id over the proof, so a stolen database yields a verifier
+/// and never a password.
 ///
 /// Uses Argon2id with the crate's existing cost parameters and the PHC string
 /// format, so the parameters travel with each hash and can be raised later

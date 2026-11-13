@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useReducer } from 'react';
+import {
+  emptySepsisForm, sepsisFormReducer, toSepsisRequest,
+  type SepsisClassification, type SepsisForm, type SepsisFormAction, type SofaField,
+} from './SepsisPage.form';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatients, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp } from '@medichain/shared';
+import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest, useScoringCatalog, qsofaPreview } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
 import {
   Thermometer,
   Clock,
@@ -21,22 +23,8 @@ import {
   Wind,
   History
 } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
-
-interface BundleItem {
-  id: string;
-  label: string;
-  description: string;
-  completed: boolean;
-  completedAt?: string;
-  completedBy?: string;
-}
-
-interface LactateReading {
-  timestamp: string;
-  value: number;
-  source: string;
-}
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 const INFECTION_SOURCE_KEYS: Record<string, string> = {
   'Pneumonia': 'pneumonia',
@@ -53,10 +41,9 @@ const INFECTION_SOURCE_KEYS: Record<string, string> = {
 
 
 export default function SepsisPage() {
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,77 +54,33 @@ export default function SepsisPage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<SepsisListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [sepsisStartTime, setSepsisStartTime] = useState<Date | null>(null);
   const [elapsedMinutes, setElapsedMinutes] = useState(0);
 
-  // qSOFA Scoring
-  const [respiratoryRate, setRespiratoryRate] = useState<number>(0);
-  const [systolicBP, setSystolicBP] = useState<number>(120);
-  const [gcsScore, setGcsScore] = useState<number>(15);
-  const [qsofaScore, setQsofaScore] = useState(0);
+  // Everything the clinician enters is one object; SepsisPage.form.ts owns its rules.
+  const [form, dispatch] = useReducer(sepsisFormReducer, undefined, emptySepsisForm);
+  const {
+    respiratoryRate, systolicBP, gcsScore, pao2fio2, respiratorySupport, platelets,
+    bilirubin, map, creatinine, urineOutput, noradrenaline, lactateReadings,
+    newLactate, classification, hour1Bundle, hour3Bundle, infectionSource, suspectedOrganism,
+    antibioticsGiven, fluidVolume, vasopressorType, narrative,
+  } = form;
+  const setField = <K extends keyof SepsisForm>(field: K, value: SepsisForm[K]) =>
+    dispatch({ type: 'set', field, value } as SepsisFormAction);
 
-  // SOFA Scoring for ICU
-  // SOFA inputs. Empty, not pre-filled with normal values.
-  //
-  // These were `400 / 150 / 1.0 / 70 / 1.0` — every one a normal result — with
-  // no control to change them and a `_calculateSOFA` that was never called. So
-  // the page submitted `sofa_score: 0` for every patient, which reads as "no
-  // organ dysfunction" on someone septic. An organ nobody measured is not an
-  // organ that is working, and the server scores absent as absent.
-  const [pao2fio2, setPao2fio2] = useState<string>('');
-  const [respiratorySupport, setRespiratorySupport] = useState(false);
-  const [platelets, setPlatelets] = useState<string>('');
-  const [bilirubin, setBilirubin] = useState<string>('');
-  const [map, setMap] = useState<string>('');
-  const [creatinine, setCreatinine] = useState<string>('');
-  const [urineOutput, setUrineOutput] = useState<string>('');
-  const [noradrenaline, setNoradrenaline] = useState<string>('');
   // What the server scored, once the assessment is filed.
   const [savedScores, setSavedScores] = useState<SepsisCreateResult | null>(null);
 
-  // Lactate Trending
-  const [lactateReadings, setLactateReadings] = useState<LactateReading[]>([]);
-  const [newLactate, setNewLactate] = useState('');
-
-  // Sepsis Classification
-  const [classification, setClassification] = useState<'sirs' | 'sepsis' | 'severe_sepsis' | 'septic_shock'>('sepsis');
-
-  // Hour-1 Bundle
-  const [hour1Bundle, setHour1Bundle] = useState<BundleItem[]>([
-    { id: 'lactate', label: 'Measure Lactate Level', description: 'Draw initial lactate level', completed: false },
-    { id: 'blood_cultures', label: 'Obtain Blood Cultures', description: 'Before antibiotics if possible', completed: false },
-    { id: 'antibiotics', label: 'Administer Broad-Spectrum Antibiotics', description: 'Within 1 hour of recognition', completed: false },
-    { id: 'fluids', label: 'Begin 30mL/kg Crystalloid', description: 'For hypotension or lactate ≥4', completed: false },
-    { id: 'vasopressors', label: 'Apply Vasopressors', description: 'If hypotensive during/after fluid', completed: false }
-  ]);
-
-  // 3-Hour Bundle (legacy but still tracked)
-  const [hour3Bundle, setHour3Bundle] = useState<BundleItem[]>([
-    { id: 'repeat_lactate', label: 'Repeat Lactate', description: 'If initial lactate >2', completed: false },
-    { id: 'reassess_volume', label: 'Reassess Volume Status', description: 'Document hemodynamic response', completed: false },
-    { id: 'perfusion_check', label: 'Reassess Tissue Perfusion', description: 'Check cap refill, skin mottling', completed: false }
-  ]);
-
-  // Infection Source
-  const [infectionSource, setInfectionSource] = useState<string>('');
-  const [suspectedOrganism, setSuspectedOrganism] = useState<string>('');
-  const [antibioticsGiven, setAntibioticsGiven] = useState<string[]>([]);
-  const [fluidVolume, setFluidVolume] = useState<number>(0);
-  const [vasopressorType, setVasopressorType] = useState<string>('');
-  const [narrative, setNarrative] = useState('');
-
-  useEffect(() => {
-    loadPatients();
-  }, []);
-
-  useEffect(() => {
-    // Calculate qSOFA
-    let score = 0;
-    if (respiratoryRate >= 22) score++;
-    if (systolicBP <= 100) score++;
-    if (gcsScore < 15) score++;
-    setQsofaScore(score);
-  }, [respiratoryRate, systolicBP, gcsScore]);
+  // qSOFA. Before filing this is a preview from the catalog's cut-points --
+  // the page holds none of its own, and shows a dash until they arrive. Once
+  // filed it is the server's score.
+  const { catalog } = useScoringCatalog();
+  const qsofa = savedScores?.qsofa
+    ?? qsofaPreview({ respiratoryRate, systolicBP, gcs: gcsScore }, catalog);
+  // The total is only shown for a complete screen: 1/3 from one observation
+  // reads as a low score, not as two observations missing.
+  const qsofaShown = qsofa !== null && qsofa.criteria_measured === 3 ? qsofa : null;
 
   useEffect(() => {
     // Timer for elapsed time
@@ -151,79 +94,67 @@ export default function SepsisPage() {
     }
   }, [sepsisStartTime]);
 
-  const loadPatients = async () => {
-    try {
-      const data = await getPatients();
-      setPatients(data);
-    } catch (err) {
-      console.error('Failed to load patients', err);
-    }
-  };
-
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientSepsisAssessments(patientId));
-    } catch (e) {
-      console.error(e);
+      const history = await getPatientSepsisAssessments(patientId);
+      if (current()) setEmergencyHistory(history);
+    } catch {
+      if (!current()) return;
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docSepsis.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 
   // The hand-rolled name/id filter went with the dropdown it fed:
   // `PatientSelect` searches the server rather than a page-held roster.
 
-  const selectedPatientData = patients.find(p => p.patient_id === selectedPatient);
+  // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+  const { entry: selectedPatientData } = useDirectoryPatient(selectedPatient);
 
   const startSepsisProtocol = () => {
     setSepsisStartTime(new Date());
   };
 
   const toggleBundleItem = (bundleType: 'hour1' | 'hour3', itemId: string) => {
-    const setBundles = bundleType === 'hour1' ? setHour1Bundle : setHour3Bundle;
-    const bundles = bundleType === 'hour1' ? hour1Bundle : hour3Bundle;
-    
-    setBundles(bundles.map(item => {
-      if (item.id === itemId) {
-        return {
-          ...item,
-          completed: !item.completed,
-          completedAt: !item.completed ? new Date().toISOString() : undefined,
-          completedBy: !item.completed ? user?.userId : undefined
-        };
-      }
-      return item;
-    }));
+    dispatch({ type: 'toggleBundleItem', bundle: bundleType, id: itemId, at: new Date().toISOString(), by: user?.userId });
+  };
+
+  /** Something else on the form shows the item was done. Never un-ticks it. */
+  const completeBundleItem = (bundleType: 'hour1' | 'hour3', itemId: string) => {
+    dispatch({ type: 'completeBundleItem', bundle: bundleType, id: itemId, at: new Date().toISOString(), by: user?.userId });
   };
 
   const addLactateReading = () => {
     const value = parseFloat(newLactate);
     if (isNaN(value)) return;
     
-    setLactateReadings(prev => [...prev, {
-      timestamp: new Date().toISOString(),
-      value,
-      source: 'venous'
-    }]);
-    setNewLactate('');
+    dispatch({ type: 'addLactate', timestamp: new Date().toISOString() });
     
     // Auto-complete bundle item if this is first lactate
     if (lactateReadings.length === 0) {
-      toggleBundleItem('hour1', 'lactate');
+      completeBundleItem('hour1', 'lactate');
     }
   };
 
   /** The SOFA measurements, in the order SOFA lists its organ systems. */
-  const SOFA_FIELDS = [
-    { id: 'pao2fio2', labelKey: 'docSepsis.sofaPao2Fio2', value: pao2fio2, set: setPao2fio2, step: '1' },
-    { id: 'platelets', labelKey: 'docSepsis.sofaPlatelets', value: platelets, set: setPlatelets, step: '1' },
-    { id: 'bilirubin', labelKey: 'docSepsis.sofaBilirubin', value: bilirubin, set: setBilirubin, step: '0.1' },
-    { id: 'map', labelKey: 'docSepsis.sofaMap', value: map, set: setMap, step: '1' },
-    { id: 'noradrenaline', labelKey: 'docSepsis.sofaNoradrenaline', value: noradrenaline, set: setNoradrenaline, step: '0.01' },
-    { id: 'creatinine', labelKey: 'docSepsis.sofaCreatinine', value: creatinine, set: setCreatinine, step: '0.1' },
-    { id: 'urine-output', labelKey: 'docSepsis.sofaUrineOutput', value: urineOutput, set: setUrineOutput, step: '10' },
+  const SOFA_FIELDS: { id: string; labelKey: string; value: string; field: SofaField; step: string }[] = [
+    { id: 'pao2fio2', labelKey: 'docSepsis.sofaPao2Fio2', value: pao2fio2, field: 'pao2fio2', step: '1' },
+    { id: 'platelets', labelKey: 'docSepsis.sofaPlatelets', value: platelets, field: 'platelets', step: '1' },
+    { id: 'bilirubin', labelKey: 'docSepsis.sofaBilirubin', value: bilirubin, field: 'bilirubin', step: '1' },
+    { id: 'map', labelKey: 'docSepsis.sofaMap', value: map, field: 'map', step: '1' },
+    { id: 'noradrenaline', labelKey: 'docSepsis.sofaNoradrenaline', value: noradrenaline, field: 'noradrenaline', step: '0.01' },
+    { id: 'creatinine', labelKey: 'docSepsis.sofaCreatinine', value: creatinine, field: 'creatinine', step: '1' },
+    { id: 'urine-output', labelKey: 'docSepsis.sofaUrineOutput', value: urineOutput, field: 'urineOutput', step: '10' },
   ];
 
   // SOFA is scored by the API, from the measurements below.
@@ -239,8 +170,15 @@ export default function SepsisPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docSepsis.errorSelectPatient'));
+      return;
+    }
+    // Nothing is pre-selected, and the server files an absent severity as
+    // "sepsis" -- so an assessment nobody classified must not be sent.
+    if (!classification) {
+      setError(t('docSepsis.errorSelectClassification'));
       return;
     }
 
@@ -249,57 +187,13 @@ export default function SepsisPage() {
 
     try {
       // A number the clinician did not enter is sent as absent, not as a
-      // normal result. `num('')` is undefined, and the server scores an
-      // unmeasured organ as unmeasured.
-      const num = (v: string) => (v.trim() === '' ? undefined : Number(v));
-
-      // Neither score is sent: qSOFA and SOFA are both computed by the API from
-      // the measurements. `sofa_score` used to go as a constant 0.
-      const sepsisData = {
-        patient_id: selectedPatient,
-        severity: classification,
-        suspected_source: infectionSource,
-        vital_signs: {
-          respiratory_rate: respiratoryRate,
-          systolic_blood_pressure: systolicBP,
-          glasgow_coma_scale: gcsScore,
-          mean_arterial_pressure: num(map)
-        },
-        sofa_inputs: {
-          pao2_fio2: num(pao2fio2),
-          respiratory_support: respiratorySupport,
-          platelets: num(platelets),
-          bilirubin_mg_dl: num(bilirubin),
-          mean_arterial_pressure: num(map),
-          creatinine_mg_dl: num(creatinine),
-          urine_output_ml_24h: num(urineOutput),
-          vasopressors: {
-            noradrenaline_mcg_kg_min: num(noradrenaline)
-          }
-        },
-        labs: {
-          lactate_readings: lactateReadings
-        },
-        infection: {
-          source: infectionSource,
-          suspected_organism: suspectedOrganism,
-          antibiotics: antibioticsGiven
-        },
-        bundle_completion: {
-          hour_1: hour1Bundle,
-          hour_3: hour3Bundle,
-          all_hour1_complete: hour1Complete,
-          all_hour3_complete: hour3Complete
-        },
-        treatment: {
-          fluid_volume_ml: fluidVolume,
-          vasopressor: vasopressorType
-        },
-        vasopressors_required: Boolean(vasopressorType),
-        protocol_start_time: sepsisStartTime?.toISOString(),
-        elapsed_minutes: elapsedMinutes,
-        narrative
-      };
+      // normal result, and neither score is sent: qSOFA and SOFA are both
+      // computed by the API from the measurements.
+      const sepsisData = toSepsisRequest(form, {
+        patientId: selectedPatient,
+        protocolStartTime: sepsisStartTime?.toISOString(),
+        elapsedMinutes,
+      });
 
       const saved = await createSepsis(sepsisData);
       // Show what the server scored, including how much of SOFA was actually
@@ -307,7 +201,7 @@ export default function SepsisPage() {
       // clinical pictures.
       setSavedScores(saved);
       setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docSepsis.errorSaveFailed'));
       console.error('Failed to save sepsis data', err);
@@ -424,6 +318,8 @@ export default function SepsisPage() {
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docSepsis.loading')}</p>
+                    ) : historyError ? (
+                      <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
                     ) : emergencyHistory.length === 0 ? (
                       <p className="text-content-muted text-xs italic">{t('docSepsis.noPriorEvents')}</p>
                     ) : (
@@ -453,7 +349,7 @@ export default function SepsisPage() {
                     <button
                       key={cls.value}
                       type="button"
-                      onClick={() => setClassification(cls.value as typeof classification)}
+                      onClick={() => setField('classification', cls.value as SepsisClassification)}
                       className={`w-full p-3 rounded-lg text-left font-medium transition-all ${
                         classification === cls.value
                           ? cls.color
@@ -479,20 +375,20 @@ export default function SepsisPage() {
                         <Wind className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaRR')}
                       </span>
-                      <span className={`font-bold ${respiratoryRate >= 22 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {respiratoryRate >= 22 ? '1' : '0'}
+                      <span className={`font-bold ${qsofa?.respiratory_rate_high ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {qsofa?.respiratory_rate_high == null ? '—' : qsofa.respiratory_rate_high ? '1' : '0'}
                       </span>
                     </label>
                     <input
                       id="sepsis-respiratory-rate"
-                      type="range"
+                      type="number"
                       min="10"
                       max="40"
-                      value={respiratoryRate}
-                      onChange={(e) => setRespiratoryRate(parseInt(e.target.value))}
+                      value={respiratoryRate ?? ''}
+                      onChange={(e) => setField('respiratoryRate', e.target.value === '' ? null : Number(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-content-muted text-center">{respiratoryRate} {t('docSepsis.perMin')}</p>
+                    <p className="text-xs text-content-muted text-center">{respiratoryRate ?? '—'} {t('docSepsis.perMin')}</p>
                   </div>
                   <div>
                     <label htmlFor="sepsis-systolic-bp" className="flex items-center justify-between">
@@ -500,20 +396,20 @@ export default function SepsisPage() {
                         <Heart className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaSBP')}
                       </span>
-                      <span className={`font-bold ${systolicBP <= 100 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {systolicBP <= 100 ? '1' : '0'}
+                      <span className={`font-bold ${qsofa?.systolic_bp_low ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {qsofa?.systolic_bp_low == null ? '—' : qsofa.systolic_bp_low ? '1' : '0'}
                       </span>
                     </label>
                     <input
                       id="sepsis-systolic-bp"
-                      type="range"
+                      type="number"
                       min="60"
                       max="180"
-                      value={systolicBP}
-                      onChange={(e) => setSystolicBP(parseInt(e.target.value))}
+                      value={systolicBP ?? ''}
+                      onChange={(e) => setField('systolicBP', e.target.value === '' ? null : Number(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-content-muted text-center">{systolicBP} {t('docSepsis.mmHg')}</p>
+                    <p className="text-xs text-content-muted text-center">{systolicBP ?? '—'} {t('docSepsis.mmHg')}</p>
                   </div>
                   <div>
                     <label htmlFor="sepsis-gcs-score" className="flex items-center justify-between">
@@ -521,30 +417,30 @@ export default function SepsisPage() {
                         <Brain className="h-4 w-4 inline mr-1" />
                         {t('docSepsis.qsofaGCS')}
                       </span>
-                      <span className={`font-bold ${gcsScore < 15 ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
-                        {gcsScore < 15 ? '1' : '0'}
+                      <span className={`font-bold ${qsofa?.altered_mentation ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
+                        {qsofa?.altered_mentation == null ? '—' : qsofa.altered_mentation ? '1' : '0'}
                       </span>
                     </label>
                     <input
                       id="sepsis-gcs-score"
-                      type="range"
+                      type="number"
                       min="3"
                       max="15"
-                      value={gcsScore}
-                      onChange={(e) => setGcsScore(parseInt(e.target.value))}
+                      value={gcsScore ?? ''}
+                      onChange={(e) => setField('gcsScore', e.target.value === '' ? null : Number(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-content-muted text-center">{t('docSepsis.gcsLabel', { score: gcsScore })}</p>
+                    <p className="text-xs text-content-muted text-center">{t('docSepsis.gcsLabel', { score: gcsScore ?? '—' })}</p>
                   </div>
                 </div>
                 <div className={`mt-4 p-4 rounded-lg text-center ${
-                  qsofaScore >= 2 ? 'bg-critical-subtle' : 'bg-ok-subtle'
+                  !qsofaShown ? 'bg-surface-sunken' : qsofaShown.positive ? 'bg-critical-subtle' : 'bg-ok-subtle'
                 }`}>
                   <p className="text-sm font-medium text-content-secondary">{t('docSepsis.qsofaScore')}</p>
-                  <p className={`text-4xl font-bold ${qsofaScore >= 2 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                    {qsofaScore}/3
+                  <p className={`text-4xl font-bold ${!qsofaShown ? 'text-content-muted' : qsofaShown.positive ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
+                    {qsofaShown ? `${qsofaShown.total}/3` : '—'}
                   </p>
-                  {qsofaScore >= 2 && (
+                  {qsofaShown?.positive && (
                     <p className="flex items-center gap-1 text-xs text-critical-subtle-fg mt-1">
                       <AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.qsofaHighRisk')}
                     </p>
@@ -565,7 +461,7 @@ export default function SepsisPage() {
                 </h2>
                 <p className="text-xs text-content-muted mb-4">{t('docSepsis.sofaInfo')}</p>
                 <div className="grid grid-cols-2 gap-3">
-                  {SOFA_FIELDS.map(({ id, labelKey, value, set, step }) => (
+                  {SOFA_FIELDS.map(({ id, labelKey, value, field, step }) => (
                     <div key={id}>
                       <label htmlFor={`sepsis-${id}`} className="block text-xs text-content-secondary mb-1">
                         {t(labelKey)}
@@ -576,7 +472,7 @@ export default function SepsisPage() {
                         step={step}
                         min="0"
                         value={value}
-                        onChange={(e) => set(e.target.value)}
+                        onChange={(e) => setField(field, e.target.value)}
                         placeholder={t('docSepsis.notMeasured')}
                         className="w-full p-2 border border-border-interactive rounded text-sm"
                       />
@@ -588,7 +484,7 @@ export default function SepsisPage() {
                     id="sepsis-respiratory-support"
                     type="checkbox"
                     checked={respiratorySupport}
-                    onChange={(e) => setRespiratorySupport(e.target.checked)}
+                    onChange={(e) => setField('respiratorySupport', e.target.checked)}
                     className="h-4 w-4 rounded border-border-interactive"
                   />
                   <span className="text-content-secondary">{t('docSepsis.respiratorySupport')}</span>
@@ -680,7 +576,7 @@ export default function SepsisPage() {
                     type="number"
                     step="0.1"
                     value={newLactate}
-                    onChange={(e) => setNewLactate(e.target.value)}
+                    onChange={(e) => setField('newLactate', e.target.value)}
                     placeholder={t('docSepsis.lactatePlaceholder')}
                     className="flex-1 p-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                   />
@@ -736,7 +632,7 @@ export default function SepsisPage() {
                 <select
                   id="sepsis-infection-source"
                   value={infectionSource}
-                  onChange={(e) => setInfectionSource(e.target.value)}
+                  onChange={(e) => setField('infectionSource', e.target.value)}
                   className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500 mb-4"
                 >
                   <option value="">{t('docSepsis.selectSource')}</option>
@@ -749,7 +645,7 @@ export default function SepsisPage() {
                   id="sepsis-suspected-organism"
                   type="text"
                   value={suspectedOrganism}
-                  onChange={(e) => setSuspectedOrganism(e.target.value)}
+                  onChange={(e) => setField('suspectedOrganism', e.target.value)}
                   placeholder={t('docSepsis.suspectedOrganismPlaceholder')}
                   className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                 />
@@ -773,12 +669,12 @@ export default function SepsisPage() {
                         checked={antibioticsGiven.includes(abx)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setAntibioticsGiven([...antibioticsGiven, abx]);
+                            setField('antibioticsGiven', [...antibioticsGiven, abx]);
                             if (antibioticsGiven.length === 0) {
-                              toggleBundleItem('hour1', 'antibiotics');
+                              completeBundleItem('hour1', 'antibiotics');
                             }
                           } else {
-                            setAntibioticsGiven(antibioticsGiven.filter(a => a !== abx));
+                            setField('antibioticsGiven', antibioticsGiven.filter(a => a !== abx));
                           }
                         }}
                         className="rounded border-border-interactive text-content-secondary focus:ring-orange-500"
@@ -805,42 +701,37 @@ export default function SepsisPage() {
                       type="number"
                       value={fluidVolume}
                       onChange={(e) => {
-                        setFluidVolume(parseInt(e.target.value));
-                        if (parseInt(e.target.value) >= 2000) {
-                          toggleBundleItem('hour1', 'fluids');
+                        setField('fluidVolume', e.target.value);
+                        if (Number(e.target.value) >= 2000) {
+                          completeBundleItem('hour1', 'fluids');
                         }
                       }}
                       placeholder={t('docSepsis.fluidVolumePlaceholder')}
                       className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
-                    {selectedPatientData && fluidVolume > 0 && (
+                    {selectedPatientData && Number(fluidVolume) > 0 && (
                       <p className="text-xs text-content-muted mt-1">
                         {t('docSepsis.fluidTarget', { volume: Math.round(70 * 30) })}
                       </p>
                     )}
                   </div>
                   <div>
-                    <label htmlFor="sepsis-vasopressor" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docSepsis.vasopressorLabel')}
-                    </label>
-                    <select
+                    <ChoiceChips
                       id="sepsis-vasopressor"
-                      value={vasopressorType}
-                      onChange={(e) => {
-                        setVasopressorType(e.target.value);
-                        if (e.target.value) {
-                          toggleBundleItem('hour1', 'vasopressors');
-                        }
-                      }}
-                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="">{t('docSepsis.none')}</option>
-                      <option value="norepinephrine">Norepinephrine (1st line)</option>
-                      <option value="vasopressin">Vasopressin</option>
-                      <option value="epinephrine">Epinephrine</option>
-                      <option value="dopamine">Dopamine</option>
-                      <option value="phenylephrine">Phenylephrine</option>
-                    </select>
+                      label={t('docSepsis.vasopressorLabel')}
+                      value={(vasopressorType) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setField('vasopressorType', next);
+                        if (next) {
+                          completeBundleItem('hour1', 'vasopressors');
+                        } }}
+                      options={[
+                        { value: 'norepinephrine', label: 'Norepinephrine (1st line)' },
+                        { value: 'vasopressin', label: 'Vasopressin' },
+                        { value: 'epinephrine', label: 'Epinephrine' },
+                        { value: 'dopamine', label: 'Dopamine' },
+                        { value: 'phenylephrine', label: 'Phenylephrine' },
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
@@ -889,7 +780,7 @@ export default function SepsisPage() {
                 <textarea
                   id="sepsis-narrative"
                   value={narrative}
-                  onChange={(e) => setNarrative(e.target.value)}
+                  onChange={(e) => setField('narrative', e.target.value)}
                   placeholder={t('docSepsis.narrativePlaceholder')}
                   rows={5}
                   className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
@@ -902,15 +793,15 @@ export default function SepsisPage() {
           <div className="mt-6 flex justify-end space-x-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => returnAfterSave()}
               className="px-6 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
             >
               {t('docSepsis.cancel')}
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait px-6 py-3 bg-orange-700 text-white rounded-lg hover:bg-orange-800 flex items-center"
             >
               {isSubmitting ? (
                 <>

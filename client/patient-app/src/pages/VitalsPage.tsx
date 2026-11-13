@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Scale,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 type VitalReading = PatientVitalReading;
 
@@ -34,7 +35,7 @@ type VitalReading = PatientVitalReading;
  * - Trend indicators (up/down/stable) compared to previous reading
  * - Full vitals history list
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function VitalsPage() {
   const navigate = useNavigate();
@@ -163,13 +164,14 @@ export function VitalsPage() {
               >
                 <p className="text-sm text-content">
                   {t('vitals.fluidLine', {
-                    intake: String(record.total_intake_ml ?? record.intake_ml ?? '—'),
-                    output: String(record.total_output_ml ?? record.output_ml ?? '—'),
+                    intake: String(record.total_intake ?? record.total_intake_ml ?? record.intake_ml ?? '—'),
+                    output: String(record.total_output ?? record.total_output_ml ?? record.output_ml ?? '—'),
                   })}
                 </p>
-                {record.recorded_at ? (
+                {record.recorded_at || record.record_date ? (
                   <p className="text-xs text-content-muted">
-                    {formatTimestamp(String(record.recorded_at))}
+                    {record.recorded_at ? formatTimestamp(String(record.recorded_at)) :
+                      formatTimestamp(String(record.record_date), { dateStyle: 'medium' })}
                   </p>
                 ) : null}
               </li>
@@ -181,7 +183,7 @@ export function VitalsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('vitals.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('vitals.title')}</PageTitle>
           <p className="text-content-muted">{t('vitals.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">

@@ -1,3 +1,4 @@
+import PharmacistDashboardPage from './PharmacistDashboardPage';
 import React, { useState } from 'react';
 import {
   createEPrescription,
@@ -8,10 +9,17 @@ import {
   Input,
   useValidatedForm,
   prescriptionSchema,
+  notifySuccess,
+  useDraftFields,
+  draftFieldsOf,
+  ChoiceChips,
+  submitForReply,
+  useSubmission,
 } from '@medichain/shared';
 import { FileText, Send, AlertCircle, Download } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
+import { PRESCRIBER_ATTESTATION, RefillRequestQueue } from '../components/RefillRequestQueue';
 import { useAuthStore } from '../store/authStore';
 
 export default function EPrescribePage() {
@@ -32,12 +40,18 @@ export default function EPrescribePage() {
     directions: '',
     refills_allowed: 0,
     is_controlled: false,
-    pharmacy_ncpdp: '1234567',
-    pharmacy_name: 'Main Street Pharmacy',
+    // Named only if the patient has a pharmacy. This used to pre-select a
+    // fictional "Main Street Pharmacy" and send a fixed NCPDP id with it.
+    pharmacy_name: '',
     diagnosis_codes: [] as string[],
     patient_instructions: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const draft = useDraftFields('e-prescribe', formData.patient_id || undefined, t('docEPrescribe.formLabel'),
+    draftFieldsOf(formData, setFormData, ['medication_name', 'strength', 'form', 'quantity', 'days_supply', 'directions',
+      'refills_allowed', 'is_controlled', 'pharmacy_name', 'diagnosis_codes', 'patient_instructions']));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const prescriptionSubmission = useSubmission('e-prescription');
   const [success, setSuccess] = useState(false);
   const [lastPrescription, setLastPrescription] = useState<typeof formData | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -73,18 +87,33 @@ export default function EPrescribePage() {
       // "Send Prescription" has to actually send it. Creating alone leaves the
       // prescription in Draft, which is why every prescription in the system sat
       // unsigned and untransmitted and no pharmacy would ever have received one.
-      const created = await createEPrescription(formData);
-      const prescriptionId = created?.prescription_id;
-      if (prescriptionId) {
-        await signEPrescription(prescriptionId, {
-          signature_method: 'wallet',
-          attestation:
-            'I certify that this prescription is issued for a legitimate medical purpose in the usual course of my professional practice.',
-        });
-        await transmitEPrescription(prescriptionId);
+      // A pharmacy nobody named is absent, not an empty string (rule 9).
+      const { pharmacy_name: pharmacyName, ...rest } = formData;
+      const prescription = pharmacyName.trim() ? { ...rest, pharmacy_name: pharmacyName.trim() } : rest;
+      // Create, sign and transmit travel as one submission, so pressing Send
+      // again after a timeout cannot write a second prescription.
+      const outcome = await submitForReply(prescriptionSubmission, prescription, async () => {
+        const created = await createEPrescription(prescription);
+        const prescriptionId = created?.prescription_id;
+        if (prescriptionId) {
+          await signEPrescription(prescriptionId, {
+            signature_method: 'password',
+            attestation: PRESCRIBER_ATTESTATION,
+          });
+          await transmitEPrescription(prescriptionId);
+        }
+        return created;
+      });
+      if (outcome.kind === 'busy') return;
+      if (outcome.kind !== 'saved') {
+        // Not a fresh send: an earlier attempt already created it (whether it
+        // was also signed and sent shows on the prescription list), or it is
+        // held on this device. Either way this screen has no new prescription.
+        notifySuccess(t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       }
-      setSuccess(true);
+      setSuccess(outcome.kind === 'saved');
       setLastPrescription(formData);
+      draft.markSaved();
       setTimeout(() => setSuccess(false), 3000);
       // Reset form
       setFormData({
@@ -127,7 +156,7 @@ export default function EPrescribePage() {
             heading: t('docEPrescribe.patientPharmacy'),
             lines: [
               `${t('docEPrescribe.patient')}: ${lastPrescription.patient_id}`,
-              `${t('docEPrescribe.pharmacy')}: ${lastPrescription.pharmacy_name}`,
+              `${t('docEPrescribe.pharmacy')}: ${lastPrescription.pharmacy_name || t('docEPrescribe.pharmacyNone')}`,
             ],
           },
           ...(lastPrescription.patient_instructions
@@ -156,6 +185,9 @@ export default function EPrescribePage() {
           : value
     }));
   };
+
+  // Pharmacists review and dispense existing prescriptions in their own workspace.
+  if (user?.role === 'Pharmacist') return <PharmacistDashboardPage />;
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -203,7 +235,8 @@ export default function EPrescribePage() {
           </div>
         </div>
       )}
-      <form onSubmit={handleSubmit} className="space-y-6">
+      {mayPrescribe && <RefillRequestQueue />}
+      {mayPrescribe && <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
         <div className="bg-surface shadow rounded-lg p-6">
           <h3 className="text-lg font-medium text-content mb-4">{t('docEPrescribe.patientPharmacy')}</h3>
@@ -215,20 +248,19 @@ export default function EPrescribePage() {
               onChange={(patientId) => setFormData(prev => ({...prev, patient_id: patientId}))}
               placeholder={t('docEPrescribe.patientPlaceholder')}
               required
+              error={errors.patient_id}
             />
             <div>
               <label htmlFor="pharmacy_name" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.pharmacy')}</label>
-              <select 
+              <input
                 id="pharmacy_name"
-                name="pharmacy_name" 
-                value={formData.pharmacy_name} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="Main Street Pharmacy">Main Street Pharmacy</option>
-                <option value="Central Hospital Pharmacy">Central Hospital Pharmacy</option>
-                <option value="Community Drugstore">Community Drugstore</option>
-              </select>
+                name="pharmacy_name"
+                type="text"
+                value={formData.pharmacy_name}
+                onChange={handleChange}
+                placeholder={t('docEPrescribe.pharmacyPlaceholder')}
+                className="mt-1 w-full border border-border-interactive bg-surface text-content rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
             </div>
           </div>
         </div>
@@ -260,21 +292,20 @@ export default function EPrescribePage() {
               required
             />
             <div>
-              <label htmlFor="form" className="block text-sm font-medium text-content-secondary">{t('docEPrescribe.form')}</label>
-              <select
+              <ChoiceChips
                 id="form"
-                name="form"
+                label={t('docEPrescribe.form')}
                 value={formData.form}
-                onChange={handleChange}
-                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="tablet">{t('docEPrescribe.formTablet')}</option>
-                <option value="capsule">{t('docEPrescribe.formCapsule')}</option>
-                <option value="liquid">{t('docEPrescribe.formLiquid')}</option>
-                <option value="injection">{t('docEPrescribe.formInjection')}</option>
-                <option value="cream">{t('docEPrescribe.formCream')}</option>
-                <option value="inhaler">{t('docEPrescribe.formInhaler')}</option>
-              </select>
+                onChange={(next) => { if (next !== undefined) setFormData((prev) => ({ ...prev, form: next })); }}
+                options={[
+                  { value: 'tablet', label: t('docEPrescribe.formTablet') },
+                  { value: 'capsule', label: t('docEPrescribe.formCapsule') },
+                  { value: 'liquid', label: t('docEPrescribe.formLiquid') },
+                  { value: 'injection', label: t('docEPrescribe.formInjection') },
+                  { value: 'cream', label: t('docEPrescribe.formCream') },
+                  { value: 'inhaler', label: t('docEPrescribe.formInhaler') },
+                ]}
+              />
             </div>
             <Input
               id="quantity"
@@ -368,14 +399,14 @@ export default function EPrescribePage() {
         <div className="flex justify-end">
           <button 
             type="submit" 
-            disabled={isSubmitting || !mayPrescribe}
-            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
+            aria-disabled={isSubmitting || undefined}
+            className="aria-disabled:cursor-wait flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
           >
             <Send className="h-5 w-5 mr-2" />
             {isSubmitting ? t('docEPrescribe.sending') : t('docEPrescribe.send')}
           </button>
         </div>
-      </form>
+      </form>}
     </div>
   );
 }

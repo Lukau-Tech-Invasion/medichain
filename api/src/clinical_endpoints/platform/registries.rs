@@ -7,8 +7,8 @@ use super::*;
 /// Gate for the deployment-wide clinical registries below.
 ///
 /// Every handler in this file previously guarded with
-/// `if http_req.headers().get("X-User-Id").is_none() { 401 }` and then called
-/// `list_all()`. `X-User-Id` is caller-supplied, so that check was satisfied by
+/// a check that some identity header was present and then called
+/// `list_all()`. The header was caller-supplied, so that check was satisfied by
 /// any string: an unauthenticated caller could read every pathology report,
 /// critical-value notification, blood-bank record and specimen chain of custody
 /// in the deployment. This is the "authentication mistaken for authorization"
@@ -26,7 +26,7 @@ use super::*;
 /// deployment-wide. Real multi-hospital isolation needs organization/facility
 /// ownership pushed *into the query*; filtering afterwards is not isolation.
 /// This narrows who can call these endpoints, not what they return.
-async fn require_registry_reader(
+pub(crate) async fn require_registry_reader(
     data: &web::Data<AppState>,
     http_req: &HttpRequest,
 ) -> Result<(), HttpResponse> {
@@ -171,7 +171,7 @@ pub async fn list_critical_values(
     match data.repositories.critical_values.list_all().await {
         Ok(list) => HttpResponse::Ok().json(
             list.iter()
-                .map(crate::clinical_endpoints::critical_value_view)
+                .map(crate::handlers::critical_value_view)
                 .collect::<Vec<_>>(),
         ),
         Err(e) => registry_read_error(&http_req, e),
@@ -264,7 +264,7 @@ pub async fn list_my_immunizations(
     let patient_id = current_user
         .linked_patient_id
         .clone()
-        .unwrap_or(current_user.wallet_address);
+        .unwrap_or(current_user.id);
     match data
         .repositories
         .immunization_records
@@ -288,18 +288,26 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
     // order raised on `BloodBankPage` and the transfusion documented against
     // it were invisible on the register that exists to show them. That
     // repository has been removed.
-    let ordered = data
-        .repositories
-        .blood_type_screen_records
-        .list_all()
-        .await
-        .unwrap_or_default();
-    let transfusions = data
-        .repositories
-        .transfusion_event_records
-        .list_all()
-        .await
-        .unwrap_or_default();
+    let ordered = match data.repositories.blood_type_screen_records.list_all().await {
+        Ok(records) => records,
+        Err(_) => {
+            log::error!("Blood-bank type-screen register unavailable");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Blood-bank records are temporarily unavailable.".to_string(),
+                code: "BLOOD_BANK_REGISTER_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let transfusions = match data.repositories.transfusion_event_records.list_all().await {
+        Ok(records) => records,
+        Err(_) => {
+            log::error!("Blood-bank transfusion register unavailable");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Blood-bank records are temporarily unavailable.".to_string(),
+                code: "BLOOD_BANK_REGISTER_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     let screens: Vec<serde_json::Value> = ordered.into_iter().map(|r| r.data).collect();
     let transfusions: Vec<serde_json::Value> = transfusions.into_iter().map(|r| r.data).collect();
@@ -516,7 +524,14 @@ pub async fn list_ama_discharges(
         .list_all(Pagination::new(0, 100))
         .await
     {
-        Ok(result) => HttpResponse::Ok().json(registry_rows(result.items)),
+        // The register's own row, not the stored record: see `AmaRegisterRow`.
+        Ok(result) => HttpResponse::Ok().json(
+            result
+                .items
+                .iter()
+                .map(AmaRegisterRow::from)
+                .collect::<Vec<_>>(),
+        ),
         Err(e) => registry_read_error(&http_req, e),
     }
 }
@@ -528,20 +543,34 @@ pub async fn list_ama_discharges(
 /// child's — and an all-patients read here would add another unscoped bulk read
 /// to a backlog the project is actively trying to shrink. `get_by_patient` is
 /// already on the repository trait, so this needs no new storage surface.
+/// Optional history paging preserves the existing default of 100 records per request.
+#[derive(serde::Deserialize)]
+pub struct PediatricHistoryQuery {
+    page: Option<u32>,
+    limit: Option<u32>,
+}
+
 #[get("/api/clinical/peds/patient/{patient_id}")]
 pub async fn list_peds_for_patient(
     data: web::Data<AppState>,
     path: web::Path<String>,
     http_req: HttpRequest,
+    query: web::Query<PediatricHistoryQuery>,
 ) -> impl Responder {
     if let Err(resp) = require_registry_reader(&data, &http_req).await {
         return resp;
     }
     let patient_id = path.into_inner();
+    let page = query.page.unwrap_or(1).max(1);
+    if page > i32::MAX as u32 / 100 {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"code":"INVALID_PAGE", "error":"Invalid history page"}));
+    }
+    let pagination = Pagination::new(page - 1, query.limit.unwrap_or(100).clamp(1, 100));
     match data
         .repositories
         .pediatric_assessments
-        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .get_by_patient(&patient_id, pagination)
         .await
     {
         Ok(result) => HttpResponse::Ok().json(serde_json::json!({
@@ -560,7 +589,7 @@ pub async fn list_peds_for_patient(
 /// makes two things worth pinning down, and neither is visible by reading the
 /// handler:
 ///
-///   1. The nurse files against a `PAT-` id and the patient asks with a wallet
+///   1. The nurse files against a `PAT-` id and the patient asks with a user id
 ///      address. `linked_patient_id` bridges them. If that resolution breaks, a
 ///      patient is told they have had no vaccinations — the answer that gets
 ///      one repeated.
@@ -573,9 +602,9 @@ mod patient_immunization_card_tests {
 
     fn state_with_users(users: &[(Role, &str, Option<&str>)]) -> web::Data<AppState> {
         let state = AppState::new();
-        for (role, wallet, linked) in users {
+        for (role, user_id, linked) in users {
             let user = User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
                 name: "Test".to_string(),
                 role: role.clone(),
@@ -594,7 +623,7 @@ mod patient_immunization_card_tests {
                 .users
                 .write()
                 .unwrap()
-                .insert(wallet.to_string(), user);
+                .insert(user_id.to_string(), user);
         }
         web::Data::new(state)
     }
@@ -639,7 +668,7 @@ mod patient_immunization_card_tests {
         for (patient_id, vaccine) in doses {
             let req = test::TestRequest::post()
                 .uri("/api/surgical/immunization")
-                .insert_header(("X-User-Id", nurse.to_string()))
+                .insert_header(crate::test_fixtures::as_user(nurse))
                 .set_json(dose(patient_id, vaccine))
                 .to_request();
             let resp = test::call_service(&app, req).await;
@@ -652,7 +681,7 @@ mod patient_immunization_card_tests {
 
         let req = test::TestRequest::get()
             .uri("/api/clinical/immunizations")
-            .insert_header(("X-User-Id", reader.to_string()))
+            .insert_header(crate::test_fixtures::as_user(reader))
             .to_request();
         let resp = test::call_service(&app, req).await;
         let status = resp.status().as_u16();
@@ -730,7 +759,7 @@ mod patient_immunization_card_tests {
     }
 
     /// A clinician's own card, not the deployment register. The staff account
-    /// has no `linked_patient_id`, so the scope falls back to their wallet —
+    /// has no `linked_patient_id`, so the scope falls back to their user id —
     /// which matches no record, rather than matching everything.
     #[actix_rt::test]
     async fn an_unlinked_staff_caller_gets_their_own_empty_card() {
@@ -747,7 +776,7 @@ mod patient_immunization_card_tests {
         );
     }
 
-    /// An unregistered wallet is not a caller. `require_registered_caller`
+    /// An unregistered user id is not a caller. `require_registered_caller`
     /// resolves against the user store, so a forged header is refused before
     /// any scoping decision is made.
     #[actix_rt::test]
@@ -761,7 +790,7 @@ mod patient_immunization_card_tests {
         .await;
         let req = test::TestRequest::get()
             .uri("/api/clinical/immunizations")
-            .insert_header(("X-User-Id", "5NobodyAtAll"))
+            .insert_header(crate::test_fixtures::as_user("5NobodyAtAll"))
             .to_request();
         let status = test::call_service(&app, req).await.status().as_u16();
         assert!(status == 401 || status == 403, "got {status}");

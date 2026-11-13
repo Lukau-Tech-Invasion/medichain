@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import StaffName from '../components/StaffName';
 import {
   ClipboardList,
   User,
@@ -24,6 +26,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { StoredValue } from '../components/StoredSoapDetails';
 import {
   createHistoryPhysical,
   updateHistoryPhysicalDraft,
@@ -34,9 +37,17 @@ import {
   useValidatedForm,
   historyAndPhysicalSchema,
   historyAndPhysicalDraftSchema,
+  formatTimestamp, ChoiceChips,
+  ModalPanel,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
+import { PatientName } from '../components/PatientName';
+
+/** The badge for a value that has no style of its own. */
+const NEUTRAL_BADGE = 'bg-surface-sunken text-content-secondary';
 
 /**
  * HistoryAndPhysicalPage
@@ -124,10 +135,50 @@ interface HistoryAndPhysical {
   providerCredentials: string;
   status: HPStatus;
   signedAt?: Date;
+  addenda?: { addendum_id: string; content: string; author_id: string; created_at: string }[];
+}
+
+/** Convert a saved API examination for both initial load and post-save refresh. */
+export function normalizeHistoryPhysical(record: unknown): HistoryAndPhysical {
+  const row = record as HistoryAndPhysical & {
+    hp_id?: string; patient_id?: string; patient_name?: string;
+    exam_type?: HistoryAndPhysical['examType']; chief_complaint?: string;
+    history_of_present_illness?: string; past_medical_history?: string[];
+    past_surgical_history?: string[]; family_history?: string[];
+    social_history?: HistoryAndPhysical['socialHistory'];
+    review_of_systems?: HistoryAndPhysical['reviewOfSystems'];
+    physical_exam?: HistoryAndPhysical['physicalExam']; vital_signs?: Partial<VitalSigns>;
+    date_of_exam?: string; signed_at?: string;
+  };
+  const signed = row.signedAt || row.signed_at;
+  return {
+    ...row,
+    id: row.id || row.hp_id || '',
+    patientId: row.patientId || row.patient_id || '',
+    patientName: row.patientName || row.patient_name || '',
+    mrn: row.mrn || '',
+    examType: row.examType || row.exam_type,
+    chiefComplaint: row.chiefComplaint || row.chief_complaint || '',
+    historyOfPresentIllness: row.historyOfPresentIllness || row.history_of_present_illness || '',
+    pastMedicalHistory: row.pastMedicalHistory || row.past_medical_history || [],
+    pastSurgicalHistory: row.pastSurgicalHistory || row.past_surgical_history || [],
+    familyHistory: row.familyHistory || row.family_history || [],
+    socialHistory: row.socialHistory || row.social_history || { smoking: '', alcohol: '', drugs: '', occupation: '', exercise: '' },
+    reviewOfSystems: row.reviewOfSystems || row.review_of_systems || {},
+    physicalExam: row.physicalExam || row.physical_exam || {},
+    medications: row.medications || [],
+    allergies: row.allergies || [],
+    vitalSigns: { ...BLANK_VITALS, ...(row.vitalSigns || row.vital_signs || {}) },
+    dateOfExam: new Date(row.dateOfExam || row.date_of_exam || Date.now()),
+    signedAt: signed ? new Date(signed) : undefined,
+  };
 }
 
 const HistoryAndPhysicalPage: React.FC = () => {
   const { t } = useTranslation();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('history-physical');
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'templates'>('list');
   const [hpRecords, setHpRecords] = useState<HistoryAndPhysical[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,11 +211,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
     medications: '',
     allergies: '',
     socialHistory: {
-      smoking: 'never',
-      alcohol: 'none',
-      drugs: 'none',
+      smoking: '',
+      alcohol: '',
+      drugs: '',
       occupation: '',
-      exercise: 'moderate'
+      exercise: ''
     },
     familyHistory: '',
     // Shares `VitalSigns` with the read side, so the form and the record it
@@ -182,7 +233,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
     'Endocrine', 'Hematologic/Lymphatic'
   ];
 
-  const useHistoryTemplate = (examType: HistoryAndPhysical['examType']) => {
+  const applyHistoryTemplate = (examType: HistoryAndPhysical['examType']) => {
     setEditingHpId(null);
     setFormData(current => ({ ...current, examType }));
     setCurrentSection(0);
@@ -215,6 +266,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
     setIsAppendingAddendum(true);
     try {
       await addHistoryPhysicalAddendum(selectedRecord.id, addendumText.trim());
+      const records = (await listHistoryPhysicals()).map(normalizeHistoryPhysical);
+      setHpRecords(records);
+      setSelectedRecord(records.find((record) => record.id === selectedRecord.id) || null);
       setAddendumText('');
       showSuccess(t('docHistoryPhysical.addendumAdded'));
     } catch (error) {
@@ -227,7 +281,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!user?.walletAddress) {
+      if (!user?.userId) {
         setLoading(false);
         return;
       }
@@ -238,43 +292,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
         
         const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
         if (Array.isArray(records)) {
-          setHpRecords(records.map((record) => {
-            // Snake_case off the wire, camelCase in the component.
-            //
-            // `GET /api/clinical/hp` returns `patient_name`; this page reads
-            // `record.patientName` and calls `.toLowerCase()` on it in the
-            // search filter. With one saved record that is
-            // `undefined.toLowerCase()`, which throws during render — so the
-            // ErrorBoundary replaced the whole screen with "An unexpected error
-            // occurred" the moment any H&P existed. An empty list rendered
-            // fine, which is why every unit test passed.
-            const row = record as HistoryAndPhysical & {
-              date_of_exam?: string;
-              signed_at?: string;
-              patient_name?: string;
-              patient_id?: string;
-              hp_id?: string;
-              vital_signs?: VitalSigns;
-            };
-            const signed = row.signedAt || row.signed_at;
-            return {
-              ...row,
-              id: row.id || row.hp_id || '',
-              patientId: row.patientId || row.patient_id || '',
-              patientName: row.patientName || row.patient_name || '',
-              mrn: row.mrn || '',
-              // `vital_signs` on the wire, `vitalSigns` in the component — and
-              // the summary strip below reads `record.vitalSigns.bloodPressure`
-              // directly. Undefined there is a second crash of the same shape as
-              // `patientName`, and it fires *after* the fetch resolves, so it
-              // took down whichever screen the clinician had moved on to.
-              // (Only the outer key differs; the vitals inside are already
-              // camelCase.)
-              vitalSigns: row.vitalSigns || row.vital_signs || BLANK_VITALS,
-              dateOfExam: new Date(row.dateOfExam || row.date_of_exam || Date.now()),
-              signedAt: signed ? new Date(signed) : undefined,
-            };
-          }));
+          setHpRecords(records.map(normalizeHistoryPhysical));
         }
       } catch (err) {
         console.error('Failed to load data:', err);
@@ -307,6 +325,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const { validate: validateDraft } = useValidatedForm(historyAndPhysicalDraftSchema);
 
   const handleSaveHp = async (status: 'in-progress' | 'signed') => {
+    if (isSubmitting) return;
     // The same requirement used to apply to 'in-progress' and 'signed' alike,
     // which made a work-in-progress save mean the same thing as signing. An H&P
     // is written across an admission; saving what exists so far needs only to
@@ -345,7 +364,14 @@ const HistoryAndPhysicalPage: React.FC = () => {
       if (editingHpId) {
         await updateHistoryPhysicalDraft(editingHpId, payload);
       } else {
-        await createHistoryPhysical(payload);
+        const outcome = await submitOnce(submission, payload, () => createHistoryPhysical(payload));
+        if (outcome === 'busy') return;
+        if (outcome === 'queued') {
+          // Kept on this device; the list cannot show it until it is sent.
+          showSuccess(t('forms.queued'));
+          setActiveTab('list');
+          return;
+        }
       }
       showSuccess(status === 'signed' ? t('docHistoryPhysical.successSigned') : t('docHistoryPhysical.successDraft'));
       setActiveTab('list');
@@ -354,15 +380,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
       // Refresh list
       const hpData = await listHistoryPhysicals();
       const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
-      setHpRecords(records.map((record) => {
-        const row = record as HistoryAndPhysical & { date_of_exam?: string; signed_at?: string };
-        const signed = row.signedAt || row.signed_at;
-        return {
-          ...row,
-          dateOfExam: new Date(row.dateOfExam || row.date_of_exam || Date.now()),
-          signedAt: signed ? new Date(signed) : undefined,
-        };
-      }));
+      setHpRecords(records.map(normalizeHistoryPhysical));
     } catch (err) {
       console.error('Failed to save H&P:', err);
       showError(t('docHistoryPhysical.errorSave'));
@@ -381,6 +399,14 @@ const HistoryAndPhysicalPage: React.FC = () => {
     setExpandedSections(newExpanded);
   };
 
+  // A value this screen has no label for -- written by another client, or a
+  // status the API accepts that the form does not offer ("final") -- is shown
+  // as itself. It used to render as the raw key, with `undefined` for a class.
+  const labelled = (key: string, value: string) => {
+    const text = t(key);
+    return text === key ? value : text;
+  };
+
   const getStatusBadge = (status: HPStatus) => {
     const styles: Record<HPStatus, string> = {
       'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
@@ -389,8 +415,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
       'addendum': 'bg-surface-sunken text-content-secondary'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
-        {t(`docHistoryPhysical.status_${status}`)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] ?? NEUTRAL_BADGE}`}>
+        {labelled(`docHistoryPhysical.status_${status}`, status)}
       </span>
     );
   };
@@ -404,8 +430,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
       'consultation': 'bg-surface-sunken text-content-secondary'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[type]}`}>
-        {t(`docHistoryPhysical.examType_${type}`)}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[type] ?? NEUTRAL_BADGE}`}>
+        {labelled(`docHistoryPhysical.examType_${type}`, type)}
       </span>
     );
   };
@@ -503,19 +529,19 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
-                <label htmlFor="hp-status-filter" className="sr-only">{t('docHistoryPhysical.filterByStatus')}</label>
-                <select
+                <ChoiceChips
                   id="hp-status-filter"
+                  label={t('docHistoryPhysical.filterByStatus')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as HPStatus | 'all')}
-                  className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="all">{t('docHistoryPhysical.allStatuses')}</option>
-                  <option value="in-progress">{t('docHistoryPhysical.status_in-progress')}</option>
-                  <option value="complete">{t('docHistoryPhysical.status_complete')}</option>
-                  <option value="signed">{t('docHistoryPhysical.status_signed')}</option>
-                  <option value="addendum">{t('docHistoryPhysical.addendumFilterOption')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as HPStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docHistoryPhysical.allStatuses') },
+                    { value: 'in-progress', label: t('docHistoryPhysical.status_in-progress') },
+                    { value: 'complete', label: t('docHistoryPhysical.status_complete') },
+                    { value: 'signed', label: t('docHistoryPhysical.status_signed') },
+                    { value: 'addendum', label: t('docHistoryPhysical.addendumFilterOption') },
+                  ]}
+                />
                 <button
                   onClick={() => { setEditingHpId(null); setActiveTab('new'); }}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
@@ -554,7 +580,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           <Edit className="w-5 h-5 text-content-muted" />
                         </button>
                       )}
-                      <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
+                      <button type="button" onClick={() => setSelectedRecord(record)} className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
                         <Printer className="w-5 h-5 text-content-muted" />
                       </button>
                     </div>
@@ -614,6 +640,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
       {/* New H&P Tab */}
       {activeTab === 'new' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSaveHp('in-progress'); }} noValidate>
         <div className="p-6">
           <div className="flex gap-6">
             {/* Section Navigation */}
@@ -622,7 +649,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 <h3 className="font-semibold text-content mb-3">Sections</h3>
                 <nav className="space-y-1">
                   {formSections.map((section, idx) => (
-                    <button
+                    <button type="button"
                       key={section}
                       onClick={() => setCurrentSection(idx)}
                       className={`w-full text-left px-3 py-2 rounded text-sm ${
@@ -642,7 +669,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
             <div className="flex-1 space-y-6">
               {/* Patient Info */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('patient-info')}
                   className="w-full flex items-center justify-between"
                 >
@@ -658,7 +685,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 </button>
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 space-y-4">
-                    <div className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
+                    <div data-patient-picker-card className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
                       {/* Search by name or id. This was a dropdown of whatever
                           roster the page had fetched, with the id and the name
                           also free-typed beside it -- so an H&P could be filed
@@ -728,7 +755,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Chief Complaint */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('chief-complaint')}
                   className="w-full flex items-center justify-between"
                 >
@@ -774,7 +801,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Past Medical History */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('history')}
                   className="w-full flex items-center justify-between"
                 >
@@ -842,35 +869,44 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <span id="hp-social-history-heading" className="block text-sm font-medium text-content-secondary mb-2">{t('docHistoryPhysical.socialHistoryLabel')}</span>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="group" aria-labelledby="hp-social-history-heading">
                         <div>
-                          <label htmlFor="hp-tobacco" className="block text-xs text-content-muted mb-1">{t('docHistoryPhysical.tobaccoUseLabel')}</label>
-                          <select id="hp-tobacco" className="w-full border rounded-lg px-3 py-2 text-sm"
-                            value={formData.socialHistory.smoking}
-                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, smoking: e.target.value } })}>
-                            <option value="never">{t('docHistoryPhysical.smoking_never')}</option>
-                            <option value="former">{t('docHistoryPhysical.smoking_former')}</option>
-                            <option value="current">{t('docHistoryPhysical.smoking_current')}</option>
-                          </select>
+                          <ChoiceChips
+                            id="hp-tobacco"
+                            label={t('docHistoryPhysical.tobaccoUseLabel')}
+                            value={(formData.socialHistory.smoking) || undefined}
+                            onChange={(chosen) => { const next = chosen ?? ''; setFormData({ ...formData, socialHistory: { ...formData.socialHistory, smoking: next } }); }}
+                            options={[
+                              { value: 'never', label: t('docHistoryPhysical.smoking_never') },
+                              { value: 'former', label: t('docHistoryPhysical.smoking_former') },
+                              { value: 'current', label: t('docHistoryPhysical.smoking_current') },
+                            ]}
+                          />
                         </div>
                         <div>
-                          <label htmlFor="hp-alcohol" className="block text-xs text-content-muted mb-1">{t('docHistoryPhysical.alcoholUseLabel')}</label>
-                          <select id="hp-alcohol" className="w-full border rounded-lg px-3 py-2 text-sm"
-                            value={formData.socialHistory.alcohol}
-                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, alcohol: e.target.value } })}>
-                            <option value="none">{t('docHistoryPhysical.alcohol_none')}</option>
-                            <option value="social">{t('docHistoryPhysical.alcohol_social')}</option>
-                            <option value="moderate">{t('docHistoryPhysical.alcohol_moderate')}</option>
-                            <option value="heavy">{t('docHistoryPhysical.alcohol_heavy')}</option>
-                          </select>
+                          <ChoiceChips
+                            id="hp-alcohol"
+                            label={t('docHistoryPhysical.alcoholUseLabel')}
+                            value={(formData.socialHistory.alcohol) || undefined}
+                            onChange={(chosen) => { const next = chosen ?? ''; setFormData({ ...formData, socialHistory: { ...formData.socialHistory, alcohol: next } }); }}
+                            options={[
+                              { value: 'none', label: t('docHistoryPhysical.alcohol_none') },
+                              { value: 'social', label: t('docHistoryPhysical.alcohol_social') },
+                              { value: 'moderate', label: t('docHistoryPhysical.alcohol_moderate') },
+                              { value: 'heavy', label: t('docHistoryPhysical.alcohol_heavy') },
+                            ]}
+                          />
                         </div>
                         <div>
-                          <label htmlFor="hp-drugs" className="block text-xs text-content-muted mb-1">{t('docHistoryPhysical.illicitDrugsLabel')}</label>
-                          <select id="hp-drugs" className="w-full border rounded-lg px-3 py-2 text-sm"
-                            value={formData.socialHistory.drugs}
-                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, drugs: e.target.value } })}>
-                            <option value="none">{t('docHistoryPhysical.drugs_none')}</option>
-                            <option value="former">{t('docHistoryPhysical.drugs_former')}</option>
-                            <option value="current">{t('docHistoryPhysical.drugs_current')}</option>
-                          </select>
+                          <ChoiceChips
+                            id="hp-drugs"
+                            label={t('docHistoryPhysical.illicitDrugsLabel')}
+                            value={(formData.socialHistory.drugs) || undefined}
+                            onChange={(chosen) => { const next = chosen ?? ''; setFormData({ ...formData, socialHistory: { ...formData.socialHistory, drugs: next } }); }}
+                            options={[
+                              { value: 'none', label: t('docHistoryPhysical.drugs_none') },
+                              { value: 'former', label: t('docHistoryPhysical.drugs_former') },
+                              { value: 'current', label: t('docHistoryPhysical.drugs_current') },
+                            ]}
+                          />
                         </div>
                       </div>
                     </div>
@@ -890,7 +926,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Vital Signs */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('vitals')}
                   className="w-full flex items-center justify-between"
                 >
@@ -959,7 +995,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Review of Systems */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('ros')}
                   className="w-full flex items-center justify-between"
                 >
@@ -996,7 +1032,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Physical Examination */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('pe')}
                   className="w-full flex items-center justify-between"
                 >
@@ -1044,7 +1080,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Assessment & Plan */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <button
+                <button type="button"
                   onClick={() => toggleSection('assessment')}
                   className="w-full flex items-center justify-between"
                 >
@@ -1086,11 +1122,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => handleSaveHp('in-progress')}
-                  className="px-6 py-2 border border-border-strong rounded-lg font-medium"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docHistoryPhysical.saveAsDraft')}
                 </button>
@@ -1109,6 +1143,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
             </div>
           </div>
         </div>
+        </form>
       )}
 
       {/* Templates Tab */}
@@ -1131,7 +1166,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   </div>
                   {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
-                <button type="button" onClick={() => useHistoryTemplate(template.type as HistoryAndPhysical['examType'])} className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
+                <button type="button" onClick={() => applyHistoryTemplate(template.type as HistoryAndPhysical['examType'])} className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1 min-h-[24px] py-1">
                   {t('docHistoryPhysical.useTemplate')}
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -1143,23 +1178,54 @@ const HistoryAndPhysicalPage: React.FC = () => {
       </>)}
 
       {/* Detail Modal */}
-      {selectedRecord && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
+      {selectedRecord && createPortal(
+        // ModalPanel: focus held inside, Escape closes, focus returns to the row.
+        <ModalPanel
+          label={t('docHistoryPhysical.title')}
+          onClose={() => setSelectedRecord(null)}
+          overlayClassName="hp-record-document fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="w-full max-w-4xl"
+        >
+          <article className="hp-record-paper bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <header className="hp-record-header sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
+                <h1 className="font-semibold">MediChain — {t('docHistoryPhysical.title')}</h1>
                 <h2 className="text-xl font-semibold">{selectedRecord.patientName}</h2>
                 <p className="text-sm text-content-muted">{selectedRecord.id}</p>
+                <p className="text-sm"><PatientName id={selectedRecord.patientId} inherit /> · MRN: {selectedRecord.mrn || 'Not recorded'}</p>
+                <p className="text-sm">{t('docHistoryPhysical.dateOfExamLabel')}: {formatTimestamp(selectedRecord.dateOfExam)} · {selectedRecord.status}</p>
+                <p className="text-sm">Exam type: {selectedRecord.examType || 'Not recorded'} · Signed at: {selectedRecord.signedAt ? formatTimestamp(selectedRecord.signedAt) : 'Not recorded'}</p>
+                <p className="text-sm">{t('docHistoryPhysical.providerLabel')}: <StaffName id={selectedRecord.provider} fallback={selectedRecord.provider || 'Not recorded'} /></p>
               </div>
+              <div className="no-print flex items-center gap-3">
+                <button type="button" onClick={() => window.print()} className="px-3 py-2 border rounded-lg">Print document</button>
               <button
+                type="button"
+                aria-label={t('common.close')}
                 onClick={() => setSelectedRecord(null)}
                 className="text-content-muted hover:text-content-muted"
               >
                 ×
               </button>
-            </div>
+              </div>
+            </header>
             <div className="p-6 space-y-6">
-              {/* Content would go here */}
+              {[
+                [t('docHistoryPhysical.pmhLabel'), selectedRecord.pastMedicalHistory],
+                [t('docHistoryPhysical.pshLabel'), selectedRecord.pastSurgicalHistory],
+                [t('docHistoryPhysical.currentMedicationsLabel'), selectedRecord.medications],
+                [t('docHistoryPhysical.allergiesLabel'), selectedRecord.allergies],
+                [t('docHistoryPhysical.socialHistoryLabel'), selectedRecord.socialHistory],
+                [t('docHistoryPhysical.familyHistoryLabel'), selectedRecord.familyHistory],
+                [t('docHistoryPhysical.reviewOfSystemsHeading'), selectedRecord.reviewOfSystems],
+                [t('docHistoryPhysical.vitalSignsHeading'), selectedRecord.vitalSigns],
+                [t('docHistoryPhysical.physicalExaminationHeading'), selectedRecord.physicalExam],
+              ].map(([label, value]) => (
+                <section key={String(label)} className="border-b border-border-interactive pb-4">
+                  <h3 className="font-semibold mb-2">{String(label)}</h3>
+                  <StoredValue value={value} />
+                </section>
+              ))}
               <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.chiefComplaintLabel')}</h3>
                 <p>{selectedRecord.chiefComplaint}</p>
@@ -1177,7 +1243,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 <pre className="whitespace-pre-wrap font-sans">{selectedRecord.plan}</pre>
               </div>
               {selectedRecord.status === 'signed' && (
-                <div className="border rounded-lg p-4 space-y-3">
+                <div className="no-print border rounded-lg p-4 space-y-3">
                   <h3 className="font-semibold">{t('docHistoryPhysical.addendumHeading')}</h3>
                   <p className="text-sm text-content-muted">{t('docHistoryPhysical.addendumExplainer')}</p>
                   <label htmlFor="hp-addendum" className="sr-only">{t('docHistoryPhysical.addendumLabel')}</label>
@@ -1187,10 +1253,17 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   </button>
                 </div>
               )}
+              {(selectedRecord.addenda || []).map((addendum) => (
+                <section key={addendum.addendum_id} className="border rounded-lg p-4 space-y-2">
+                  <h3 className="font-semibold">{t('docHistoryPhysical.addendaHeading')}</h3>
+                  <p className="whitespace-pre-wrap">{addendum.content}</p>
+                  <p className="text-sm text-content-muted">{addendum.author_id} · {formatTimestamp(addendum.created_at)}</p>
+                </section>
+              ))}
             </div>
-          </div>
-        </div>
-      )}
+          </article>
+        </ModalPanel>
+      , document.body)}
     </div>
   );
 };

@@ -31,7 +31,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 REPO_ROOT = __file__.rsplit("scripts", 1)[0].rstrip("\\/")
-WALLET = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+USER_ID = "3f2b1c9e-6a4d-4b7e-9c1a-2d5e8f7a0b13"
 SECRET = "harness-self-test-secret-not-a-real-key"
 
 
@@ -71,12 +71,12 @@ def make_handler(mode):
                 # The pathological server that scores a perfect negative result.
                 self._send(401, "UNAUTHORIZED", "Authentication required.")
             elif mode == "user_not_found":
-                # A CORRECT server: it refuses an unregistered wallet with
+                # A CORRECT server: it refuses an unregistered user with
                 # USER_NOT_FOUND rather than UNAUTHORIZED. Both come from the
                 # auth layer. If the harness treated only one code as
                 # legitimate, it would flag this correct behaviour as
                 # suspicious — crying wolf, the mirror of the false pass.
-                if self.headers.get("X-User-Id"):
+                if self.headers.get("X-User-Id"):  # identity-header-negative-assertion
                     self._send(401, "USER_NOT_FOUND", "User not found")
                 elif has_bearer and len(auth) > 80 and "not-a-jwt" not in auth:
                     self._ok()
@@ -108,7 +108,7 @@ def run_harness(port, path="/api/patients"):
             sys.executable,
             f"{REPO_ROOT}/scripts/authn-negative-path.py",
             "--base", f"http://127.0.0.1:{port}",
-            "--wallet", WALLET,
+            "--user-id", USER_ID,
             "--path", path,
             "--secret", SECRET,
         ],

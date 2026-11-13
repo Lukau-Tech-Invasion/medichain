@@ -2,6 +2,50 @@ use super::*;
 
 use crate::pagination::{decode_cursor, encode_cursor_ms, CursorQuery, Cursorable, MAX_LIMIT};
 
+/// Apply name-only edits without changing previously recorded clinical findings.
+fn reconcile_allergy_names(names: &[String], existing: &[Allergy]) -> Vec<Allergy> {
+    names
+        .iter()
+        .map(|name| {
+            existing
+                .iter()
+                .find(|allergy| allergy.name.trim().eq_ignore_ascii_case(name.trim()))
+                .cloned()
+                .unwrap_or_else(|| Allergy {
+                    name: name.trim().to_string(),
+                    severity: AllergySeverity::Unknown,
+                    reaction: None,
+                    verified_at: None,
+                })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod allergy_name_edit_tests {
+    use super::*;
+
+    #[test]
+    fn name_only_edits_preserve_reaction_and_verification() {
+        let existing = Allergy {
+            name: "Penicillin".into(),
+            severity: AllergySeverity::Severe,
+            reaction: Some("Recorded reaction".into()),
+            verified_at: Some(Utc::now()),
+        };
+        let edited = reconcile_allergy_names(
+            &["penicillin".into(), "Latex".into()],
+            std::slice::from_ref(&existing),
+        );
+        assert_eq!(edited[0].severity, AllergySeverity::Severe);
+        assert_eq!(edited[0].reaction, existing.reaction);
+        assert_eq!(edited[0].verified_at, existing.verified_at);
+        assert_eq!(edited[1].severity, AllergySeverity::Unknown);
+        assert!(edited[1].reaction.is_none());
+        assert!(edited[1].verified_at.is_none());
+    }
+}
+
 impl Cursorable for PatientProfile {
     fn cursor_ts(&self) -> i64 {
         self.last_updated.timestamp_millis()
@@ -35,8 +79,8 @@ fn unreadable_reason(
 /// A patient whose PHI cannot be decrypted must still appear: the alternative
 /// — silently dropping it — makes a record that exists indistinguishable from
 /// one that was never created, which in a clinical roster is a safety problem,
-/// not a cosmetic one. Unreadable rows carry only the columns that are stored
-/// in clear (id, blood type, flags) plus `content_available: false`.
+/// not a cosmetic one. Unreadable rows expose only the id and an explicit
+/// availability marker; no clear-text clinical columns enter the directory.
 #[derive(Clone)]
 struct RosterRow {
     ts: i64,
@@ -53,24 +97,10 @@ impl Cursorable for RosterRow {
     }
 }
 
-/// A readable patient as served: the decrypted profile plus the columns the
-/// row stores beside it in clear.
-///
-/// `wallet_address` is a column on the patient row, not part of the encrypted
-/// profile, so serialising `PatientProfile` alone left it out: a patient whose
-/// wallet was bound at registration read back as having none. The row is the
-/// one source of truth for it, so it is added here rather than copied into
-/// the blob, where the two could drift.
-fn readable_patient_json(
-    profile: &PatientProfile,
-    entity: &crate::repositories::traits::PatientEntity,
-) -> serde_json::Value {
+/// A readable patient as served: the decrypted profile, marked as readable.
+fn readable_patient_json(profile: &PatientProfile) -> serde_json::Value {
     let mut value = serde_json::to_value(profile).unwrap_or(serde_json::Value::Null);
     if let Some(object) = value.as_object_mut() {
-        object.insert(
-            "wallet_address".to_string(),
-            serde_json::json!(entity.wallet_address),
-        );
         object.insert(
             "content_available".to_string(),
             serde_json::Value::Bool(true),
@@ -79,34 +109,78 @@ fn readable_patient_json(
     value
 }
 
-/// Everything about a patient that is stored unencrypted, for a row whose
-/// profile blob could not be read.
-fn unreadable_roster_row(
+/// Directory rows contain identifiers needed to select a chart, never clinical
+/// data. The Health ID is one of those identifiers: it is what the card and the
+/// open chart's banner show, so a clinician can match the person to the record.
+fn directory_patient_json(
+    data: &web::Data<AppState>,
     entity: &crate::repositories::traits::PatientEntity,
-    reason: &'static str,
-) -> RosterRow {
+    profile: &PatientProfile,
+) -> serde_json::Value {
+    let facility = entity
+        .registered_by
+        .as_deref()
+        .and_then(|registrar| data.identity_contexts.facility_for_user(registrar));
+    let health_id = Some(entity.health_id.trim()).filter(|id| !id.is_empty());
+    // Sex sits beside the date of birth: a receiving team matches a person to
+    // a record by both. Absent stays null, never a guess.
+    let gender = profile
+        .gender
+        .as_deref()
+        .map(str::trim)
+        .filter(|g| !g.is_empty());
+    serde_json::json!({
+        "patient_id": profile.patient_id,
+        "full_name": profile.full_name,
+        "date_of_birth": profile.date_of_birth,
+        "health_id": health_id,
+        "gender": gender,
+        "facility": facility,
+        "content_available": true,
+    })
+}
+
+/// A minimal directory placeholder for a row whose encrypted profile failed.
+fn unreadable_roster_row(entity: &crate::repositories::traits::PatientEntity) -> RosterRow {
     RosterRow {
         ts: entity.updated_at.timestamp_millis(),
         id: entity.id.clone(),
         value: serde_json::json!({
             "patient_id": entity.id,
-            "wallet_address": entity.wallet_address,
-            "health_id": entity.health_id,
-            "gender": entity.gender,
-            "national_id_type": entity.national_id_type,
-            "organ_donor": entity.organ_donor,
-            "dnr_status": entity.dnr_status,
-            "is_active": entity.is_active,
-            "created_at": entity.created_at,
-            "last_updated": entity.updated_at,
-            "emergency_info": { "blood_type": entity.blood_type },
-            // The contract for a degraded row. Clients must render these
-            // distinctly rather than showing blank fields as though the record
-            // were empty.
+            "full_name": "",
+            "date_of_birth": "",
+            "facility": null,
             "content_available": false,
-            "content_unavailable_reason": reason,
+            "content_unavailable_reason": "Profile unavailable",
         }),
     }
+}
+
+/// Persist one organisation-level event before releasing a directory page.
+async fn audit_directory_search(
+    data: &web::Data<AppState>,
+    actor: &User,
+    purpose: &str,
+    result_count: u64,
+) -> Result<(), String> {
+    let facility = data.identity_contexts.facility_for_user(&actor.id);
+    data.audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "patient_directory_search".to_string(),
+            "organisation".to_string(),
+            facility.clone().unwrap_or_else(|| "unassigned".to_string()),
+            serde_json::json!({
+                "actor_id": actor.id,
+                "actor_role": actor.role.to_string(),
+                "facility": facility,
+                "purpose": purpose,
+                "result_count": result_count,
+            }),
+            Utc::now(),
+        )
+        .await
+        .map(|_| ())
 }
 
 /// Get all registered patients (paginated)
@@ -116,40 +190,58 @@ fn unreadable_roster_row(
 /// `q` is evaluated server-side. Names use keyed whole-token blind indexes;
 /// identifiers retain their existing lookup behavior. No plaintext name is
 /// stored or returned solely to make search work.
+/// The caller of a directory read: a signed-in healthcare provider who has
+/// stated why. Shared by the paginated directory and the paediatric caseload so
+/// the two cannot drift apart on who may read names, or on the stated purpose.
+fn require_directory_caller(
+    data: &web::Data<AppState>,
+    http_req: &HttpRequest,
+) -> Result<(User, String), HttpResponse> {
+    let Some(current_user_id) = get_current_user_id(http_req) else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required to list patients".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        }));
+    };
+    let Some(current_user) = get_user(data, &current_user_id) else {
+        return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        }));
+    };
+    if !current_user.role.is_healthcare_provider() {
+        return Err(HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only healthcare providers can list patients".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    let purpose = http_req
+        .headers()
+        .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| crate::middleware::phi_access_audit::normalise_access_reason(Some(value)))
+        .filter(|value| value != crate::middleware::phi_access_audit::REASON_NOT_STATED);
+    let Some(purpose) = purpose else {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "A directory search purpose is required".to_string(),
+            code: "DIRECTORY_PURPOSE_REQUIRED".to_string(),
+        }));
+    };
+    Ok((current_user, purpose))
+}
+
 #[get("/api/patients")]
 pub async fn list_patients(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     query: web::Query<CursorQuery>,
 ) -> impl Responder {
-    // RBAC: Require authentication
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Authentication required to list patients".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
+    let (current_user, purpose) = match require_directory_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
     };
-
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    // Only healthcare providers can list all patients
-    if !current_user.role.is_healthcare_provider() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            error: "Only healthcare providers can list patients".to_string(),
-            code: "INSUFFICIENT_ROLE".to_string(),
-        });
-    }
 
     let requested_query = query.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
     let cursor = match query.cursor.as_deref() {
@@ -200,7 +292,7 @@ pub async fn list_patients(
                 rows.push(RosterRow {
                     ts: entity.updated_at.timestamp_millis(),
                     id: profile.patient_id.clone(),
-                    value: readable_patient_json(&profile, entity),
+                    value: directory_patient_json(&data, entity, &profile),
                 });
             }
             None => {
@@ -210,7 +302,7 @@ pub async fn list_patients(
                     entity.id
                 );
                 unreadable += 1;
-                rows.push(unreadable_roster_row(entity, reason));
+                rows.push(unreadable_roster_row(entity));
             }
         }
     }
@@ -222,6 +314,14 @@ pub async fn list_patients(
     };
     let page: Vec<serde_json::Value> = rows.into_iter().map(|row| row.value).collect();
 
+    if let Err(error) = audit_directory_search(&data, &current_user, &purpose, total).await {
+        log::error!("Patient directory audit failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Patient directory is temporarily unavailable".to_string(),
+            code: "DIRECTORY_AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "data": page,
@@ -230,6 +330,124 @@ pub async fn list_patients(
         // Loud on purpose: a non-zero count here means PHI this deployment
         // stores cannot be decrypted with the keys it currently holds.
         "unreadable_count": unreadable
+    }))
+}
+
+/// The longest directory scan one caseload read performs.
+const PAEDIATRIC_SCAN_CAP: usize = 20_000;
+/// Paediatrics covers birth to the eighteenth birthday.
+const PAEDIATRIC_AGE_LIMIT_MONTHS: u32 = 216;
+
+/// What one caseload scan found.
+struct PaediatricScan {
+    children: Vec<serde_json::Value>,
+    scanned: usize,
+    unreadable: usize,
+    truncated: bool,
+}
+
+/// One child's directory row with the age the server computed, or `None` for
+/// an adult or an unknown date of birth.
+fn paediatric_row(
+    data: &web::Data<AppState>,
+    entity: &crate::repositories::traits::PatientEntity,
+    profile: &PatientProfile,
+    today: chrono::NaiveDate,
+) -> Option<serde_json::Value> {
+    let months = crate::support::age_in_months(&profile.date_of_birth, today)?;
+    if months >= PAEDIATRIC_AGE_LIMIT_MONTHS {
+        return None;
+    }
+    let mut row = directory_patient_json(data, entity, profile);
+    row["age_months"] = serde_json::json!(months);
+    Some(row)
+}
+
+/// Walk the directory in keyset batches, decrypting each date of birth, and
+/// keep the under-18s. Bounded by `PAEDIATRIC_SCAN_CAP`; a scan that reaches it
+/// says so rather than presenting a partial caseload as the whole.
+async fn scan_paediatric_caseload(
+    data: &web::Data<AppState>,
+    today: chrono::NaiveDate,
+) -> Result<PaediatricScan, crate::repositories::traits::RepositoryError> {
+    let batch = MAX_LIMIT as u32;
+    let mut scan = PaediatricScan {
+        children: Vec::new(),
+        scanned: 0,
+        unreadable: 0,
+        truncated: false,
+    };
+    let mut cursor = None;
+    for _ in 0..=(PAEDIATRIC_SCAN_CAP / MAX_LIMIT) {
+        let page = data
+            .repositories
+            .patients
+            .list_keyset(cursor.clone(), batch)
+            .await?;
+        for entity in &page.items {
+            scan.scanned += 1;
+            match patient_entity_to_profile(entity, &data.encryption_keyring) {
+                Some(profile) => scan
+                    .children
+                    .extend(paediatric_row(data, entity, &profile, today)),
+                None => scan.unreadable += 1,
+            }
+        }
+        if page.items.len() < batch as usize {
+            return Ok(scan);
+        }
+        cursor = page
+            .items
+            .last()
+            .map(|entity| (entity.updated_at, entity.id.clone()));
+        if scan.scanned >= PAEDIATRIC_SCAN_CAP {
+            break;
+        }
+    }
+    scan.truncated = true;
+    Ok(scan)
+}
+
+/// Every child in the directory, with an age in months computed here.
+///
+/// The paediatrics page used to take the first page of `/api/patients` (50
+/// rows) and filter it by date of birth in the browser, so its caseload was the
+/// children among the first fifty patients registered. Dates of birth are
+/// encrypted, so the filter has to run where the keys are.
+#[get("/api/patients/paediatric-caseload")]
+pub async fn paediatric_caseload(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let (current_user, purpose) = match require_directory_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    let scan = match scan_paediatric_caseload(&data, Utc::now().date_naive()).await {
+        Ok(scan) => scan,
+        Err(error) => {
+            log::error!("Paediatric caseload scan failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The paediatric caseload could not be loaded".to_string(),
+                code: "CASELOAD_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let total = scan.children.len() as u64;
+    if let Err(error) = audit_directory_search(&data, &current_user, &purpose, total).await {
+        log::error!("Patient directory audit failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Patient directory is temporarily unavailable".to_string(),
+            code: "DIRECTORY_AUDIT_UNAVAILABLE".to_string(),
+        });
+    }
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "data": scan.children,
+        "total": total,
+        "scanned": scan.scanned,
+        "unreadable_count": scan.unreadable,
+        "truncated": scan.truncated,
     }))
 }
 
@@ -247,7 +465,7 @@ pub async fn get_patient_by_id(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -264,20 +482,25 @@ pub async fn get_patient_by_id(
     };
 
     // Patients can only view their own records
-    // Check by linked_patient_id for wallet-linked users, or by wallet_address for legacy patients
-    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id)
-        || current_user.wallet_address == patient_id;
+    // A patient's own record is the one their account is linked to.
+    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id);
     if current_user.role == Role::Patient && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Patients can only view their own records".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
+    if current_user.role != Role::Patient && !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "This role cannot open a patient chart".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
 
     // Via repository (was: in-memory data.patients HashMap); decrypt profile blob.
     match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
-            Some(profile) => HttpResponse::Ok().json(readable_patient_json(&profile, &entity)),
+            Some(profile) => HttpResponse::Ok().json(readable_patient_json(&profile)),
             // The row exists; its PHI just cannot be decrypted with the keys
             // this process holds. Reporting that as `PATIENT_NOT_FOUND` told
             // the caller the patient was never registered, which is false and
@@ -346,7 +569,7 @@ pub async fn update_patient(
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 error:
-                    "Missing X-User-Id header. Only doctors and nurses can update patient records."
+                    "Authentication required. Only doctors and nurses can update patient records."
                         .to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
@@ -396,16 +619,8 @@ pub async fn update_patient(
 
     // Update fields if provided
     if let Some(allergies) = &req.allergies {
-        // Convert string allergies to Allergy structs with Mild severity
-        patient.emergency_info.allergies = allergies
-            .iter()
-            .map(|name| Allergy {
-                name: name.clone(),
-                severity: AllergySeverity::Mild,
-                reaction: None,
-                verified_at: Some(Utc::now()),
-            })
-            .collect();
+        patient.emergency_info.allergies =
+            reconcile_allergy_names(allergies, &patient.emergency_info.allergies);
     }
     if let Some(meds) = &req.current_medications {
         patient.emergency_info.current_medications = meds.clone();
@@ -460,7 +675,6 @@ pub async fn update_patient(
     let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
     updated_entity.health_id = entity.health_id.clone();
     updated_entity.gender = entity.gender.clone();
-    updated_entity.wallet_address = entity.wallet_address.clone();
     updated_entity.is_verified = entity.is_verified;
     updated_entity.registered_by = entity.registered_by.clone();
     updated_entity.primary_provider_id = entity.primary_provider_id.clone();

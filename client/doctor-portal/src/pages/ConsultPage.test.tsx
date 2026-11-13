@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import ConsultPage from './ConsultPage';
+import ConsultPage, { toConsult } from './ConsultPage';
 import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
@@ -18,8 +18,22 @@ const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 describe('ConsultPage', () => {
+  it('shows the persisted specialist response after reloading the consult list', () => {
+    const consult = toConsult({
+      consult_id: 'CON-synthetic', status: 'completed',
+      examination_findings: 'Stable diabetes', recommendations: 'Routine review',
+      follow_up_plan: 'Three months', consulting_provider: 'doctor-synthetic',
+      completed_at: '2026-10-07T18:45:00Z',
+    });
+    expect(consult.response).toEqual({
+      responseId: 'CON-synthetic',
+      assessment: 'Stable diabetes', recommendations: 'Routine review',
+      followUp: 'Three months', respondedBy: 'doctor-synthetic',
+      respondedAt: '2026-10-07T18:45:00Z',
+    });
+  });
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Specialist',
   };
 

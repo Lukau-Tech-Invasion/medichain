@@ -29,11 +29,23 @@ COPY client/ .
 # buttons in. Production remains fail-closed unless its deployment opts in.
 ARG VITE_DEMO_CREDENTIALS_ENABLED=false
 ENV VITE_DEMO_CREDENTIALS_ENABLED=$VITE_DEMO_CREDENTIALS_ENABLED
+# Presentation build: shows the labelled "Demo accounts" sign-in shortcut.
+# Off unless docker-compose.demo.yml (or a deliberate override) sets it.
+ARG VITE_EMERGENCY_NUMBER=112
+ENV VITE_EMERGENCY_NUMBER=$VITE_EMERGENCY_NUMBER
+
+ARG VITE_DEMO_MODE=false
+ENV VITE_DEMO_MODE=$VITE_DEMO_MODE
 
 # VITE_BASE_PATH drives Vite's `base` AND (via import.meta.env.BASE_URL) the
 # react-router basename, so each app's sub-path is defined in exactly one place.
 RUN VITE_BASE_PATH=/doctor/  npm run build --workspace=doctor-portal \
  && VITE_BASE_PATH=/patient/ npm run build --workspace=patient-app
+
+# The Content-Security-Policy names each inline script by the hash of the BUILT
+# file (scripts/csp-header.mjs), so it always matches what is served.
+RUN node scripts/csp-header.mjs /build/csp.conf \
+      doctor-portal/dist/index.html patient-app/dist/index.html landing.html
 
 FROM nginx:1.27-alpine AS runtime
 
@@ -47,6 +59,9 @@ COPY client/landing.html                    /usr/share/nginx/html/index.html
 # Baked in rather than bind-mounted so the image is self-contained: `docker
 # compose up` needs no host files to serve correctly.
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /build/csp.conf /etc/nginx/snippets/csp.conf
+# Fills the telehealth origin into the policy from JITSI_DOMAIN at start-up.
+COPY --chmod=755 nginx/40-csp-telehealth.sh /docker-entrypoint.d/40-csp-telehealth.sh
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1/healthz > /dev/null 2>&1 || exit 1

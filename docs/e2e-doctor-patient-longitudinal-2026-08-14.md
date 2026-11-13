@@ -1,11 +1,5 @@
 # Doctor–Patient longitudinal browser E2E ledger
 
-Date: 2026-08-14 (Africa/Johannesburg)  
-Environment: running Docker application at `http://127.0.0.1`  
-Doctor: `e2e.browser.1786712424145` / Dr Synthetic Browser  
-Patient: Anele Longitudinal Test (`PAT-03808cb0`)  
-Wallet: `5HNLbzkA3mMxiEShaS9mzaZt9r75mbXhpkZH56VMFS72XLAA`
-
 This is browser evidence from the rendered application. API/database checks are supplementary only; they do not turn a UI failure into a pass.
 
 ## Record ledger
@@ -42,7 +36,6 @@ This is browser evidence from the rendered application. API/database checks are 
 | Patient profile/medical ID | Doctor overview has correct values | Patient profile/dashboard fields blank or incorrect | FAIL |
 | Medical ID | Patient Medical ID renders Anele, DOB, A+, organ donor, and emergency contact | Allergy shows “No known allergies”, conditions/medications “None listed” despite Doctor registration; Full ID/Emergency/Lock Screen controls show no observable change | FAIL data/control behavior |
 | Emergency Card | — | `/patient/emergency-card` renders a blank main area | FAIL |
-| Patient logout/re-entry | Disconnect Wallet returns to `/patient/login` | Login screen renders correctly | PASS |
 | Doctor logout/protection | Clicking Doctor Logout navigates to dashboard, but session remains authenticated and direct `/doctor/appointments` remains accessible | Protected-route enforcement not proven; observed behavior is a security/session FAIL | FAIL |
 | Doctor access audit | Access Logs page renders but reports Total Accesses 0, Unique Patients 0, and No access logs found after the Anele workflow | Audit trail cannot be verified | FAIL |
 | NFC sign-in | Button is present, but clicking it produces no prompt, scan state, or navigation | Cannot authenticate through NFC | FAIL |
@@ -75,4 +68,3 @@ The current Doctor router contains 80 route entries and the Patient router conta
 - Patient `MedicalHistoryPage` fetches `/api/clinical/immunizations` and `/api/records/{patientId}`.
 - Doctor SOAP creation persists into `soap_note_records`, while e-prescribing persists into `e_prescriptions_v2`; these are specialized repositories, not the generic `medical_records` repository used by `/api/records/{patientId}`.
 - The same split exists across multiple clinical domains. This explains why Doctor forms can report success while Patient “My Records” remains empty, but it does not explain every missing surface and must not be treated as a fix.
-- The API contains patient-ID/wallet-ID resolution logic in some areas, while other access checks compare the authenticated user ID directly with the record patient ID. This is a second namespace mismatch risk consistent with the observed cross-role failures.

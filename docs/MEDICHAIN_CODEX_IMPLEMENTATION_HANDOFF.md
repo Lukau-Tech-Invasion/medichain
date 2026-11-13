@@ -39,8 +39,6 @@ This is **not** a claim that every feature below already exists. Every item must
 8. Prefer additive, versioned migrations over destructive changes.
 9. Maintain backward compatibility while legacy encrypted records are being migrated.
 10. Do not delete an old encryption key until the system proves that no live record or key envelope depends on it.
-11. Never put plaintext medical information, plaintext data-encryption keys, hospital private keys, device private keys or complete clinical documents on the blockchain.
-12. Do not make blockchain finality a blocking dependency for the three-second emergency response.
 13. Do not allow a doctor’s professional role to expose that person’s private patient record.
 14. Do not save downloaded medical records into ordinary phone Downloads, Documents or Gallery storage.
 15. Do not retain every call recording and transcript forever merely because misuse is possible.
@@ -58,8 +56,6 @@ This is **not** a claim that every feature below already exists. Every item must
 
 # 2. Product vision
 
-MediChain is a blockchain-verified national or consortium healthcare platform intended to make critical patient information available during emergencies while preserving patient privacy, hospital independence and accountability.
-
 The primary real-world scenario is:
 
 1. A patient is unconscious or unable to communicate after an accident.
@@ -69,7 +65,6 @@ The primary real-world scenario is:
 5. Critical emergency information appears in under three seconds.
 6. The healthcare worker receives a temporary 15-minute emergency-access grant.
 7. Access is limited to medically necessary information.
-8. Every action is logged locally and anchored to the blockchain.
 9. The access automatically expires and cannot silently continue.
 10. The patient can later see who accessed the information and why.
 
@@ -82,7 +77,6 @@ The application also aims to support:
 - Secure telehealth.
 - Live transcription and language translation.
 - Offline and low-connectivity operation.
-- Immutable integrity and access evidence through a permissioned blockchain.
 
 ---
 
@@ -101,8 +95,6 @@ Reported foundations include:
 - PostgreSQL repository layer.
 - In-memory development mode.
 - Encrypted IPFS or encrypted document storage.
-- Substrate blockchain node.
-- Real `subxt` extrinsic submission.
 - NFC and QR-based patient identity flows.
 - FHIR support.
 - Large clinical workflow coverage.
@@ -115,7 +107,6 @@ Multi-step operations reportedly use PostgreSQL transactions in important flows,
 
 Reported implementation includes:
 
-- Wallet challenge-response authentication.
 - JWT access and refresh tokens.
 - Legacy/demo user header fallback.
 - Role-based access control.
@@ -162,10 +153,8 @@ Reported foundations include:
 - Provider emergency-access endpoint.
 - Patient self-verification endpoint for the mobile app.
 - Atomic patient-state check and access-log write.
-- Emergency access represented on the blockchain.
 - A documented three-second NFC performance goal.
 - Time-limited access foundations.
-- A blockchain default described as approximately 150 blocks or about 15 minutes.
 
 Codex must not assume that the complete 15-minute guarantee is already enforced across every endpoint, screen, cache, downloaded document and offline state.
 
@@ -216,31 +205,6 @@ Known blocker:
 - The application does not yet have a complete server-side audio or recording artifact pipeline available to the transcription provider.
 - The user now prefers self-hosted transcription rather than sending medical audio to Google.
 
-## 3.7 Blockchain foundation
-
-Reported functionality includes:
-
-- A real Substrate node.
-- Aura block production and GRANDPA finality components.
-- Chain specifications.
-- Real blockchain extrinsics for patient registration, medical-record hash updates and emergency access.
-- Docker Compose integration.
-- Wallet integration.
-
-Not yet proven operationally:
-
-- Sustained multi-validator operation.
-- Validator loss.
-- Finality under failure.
-- Runtime upgrade.
-- Backup and restore.
-- Consortium governance.
-- Validator key custody.
-- Hospital-operated node onboarding.
-- Production monitoring and on-call response.
-
----
-
 # 4. Architecture principle: federation, not one central hospital system
 
 MediChain must evolve from one secure deployment into a federated healthcare network.
@@ -254,7 +218,6 @@ Each hospital or clinic should remain an independent organisation with:
 - Its own approved devices.
 - Its own private encryption keys.
 - Its own audit trail and local availability.
-- Optional blockchain validator responsibility.
 
 The consortium provides shared:
 
@@ -266,8 +229,6 @@ The consortium provides shared:
 - Record integrity verification.
 - Access auditing.
 - Network governance.
-
-Separate hospital databases reduce breach blast radius and preserve local control. They do **not** themselves make the blockchain secure. Blockchain security comes from independent validators, governance, consensus, monitoring and key custody.
 
 ---
 
@@ -347,7 +308,6 @@ Flow:
 4. Wrap the DEK for the origin hospital.
 5. Add additional recipient envelopes when another hospital is authorised.
 6. Store envelope metadata off-chain.
-7. Store hashes, provenance and access events on-chain.
 
 Conceptual record:
 
@@ -537,10 +497,6 @@ A normal hospital or clinic needs a small set of long-term key purposes:
    - Issues credentials to approved hospital devices.
    - May be kept under an internal certificate authority.
 
-6. **Validator/session keys**
-   - Only when the hospital operates a blockchain validator.
-   - Must remain separate from medical encryption keys.
-
 The system will also generate:
 
 - One device identity key per approved tablet, workstation, scanner or managed endpoint.
@@ -573,12 +529,8 @@ Use a controlled cryptoperiod for:
 
 - Consortium root keys.
 - Offline recovery keys.
-- Blockchain governance keys.
 - Cold storage authority keys.
 - Record DEKs.
-- Long-lived validator stash/root keys.
-
-Validator session keys may rotate independently according to validator procedure.
 
 ## 7.3 Rotation workflow
 
@@ -900,7 +852,6 @@ To meet the three-second target:
 - The emergency summary must already exist.
 - The summary must be indexed and available near the point of care.
 - The flow must not assemble the full patient history.
-- Blockchain finality must not block display.
 
 ## 11.2 End-to-end flow
 
@@ -930,7 +881,6 @@ To meet the three-second target:
 8. System creates a 15-minute emergency grant.
 9. System returns only the emergency dataset.
 10. UI renders the critical information.
-11. Blockchain submission happens asynchronously.
 12. Detailed records can load afterward under additional authorisation.
 13. At expiry, the grant becomes unusable everywhere.
 
@@ -1003,23 +953,8 @@ Record at least:
 - `audit_committed_at`
 - `response_sent_at`
 - `screen_rendered_at`
-- `blockchain_submitted_at`
-- `blockchain_finalized_at`
 
 Use one correlation/request ID.
-
-## 11.6 Blockchain must not block emergency treatment
-
-Required pattern:
-
-1. Save a local durable audit event.
-2. Put a blockchain event in an outbox.
-3. Display emergency information.
-4. Submit to blockchain.
-5. Retry until anchored.
-6. Alert if anchoring remains unsuccessful.
-
-The emergency response must continue during temporary blockchain unavailability, but the local audit event must never be skipped.
 
 ## 11.7 Original hospital offline
 
@@ -1044,29 +979,6 @@ A visual timer is not enough.
 The grant must be a first-class server-side security object.
 
 Suggested structure:
-
-```sql
-emergency_access_grants
------------------------
-id
-patient_id
-requesting_person_id
-professional_identity_id
-organization_id
-facility_id
-device_id
-reason_code
-reason_text
-scope
-issued_at
-expires_at
-revoked_at
-revoked_reason
-status
-local_audit_id
-blockchain_tx_hash
-created_from_card_id
-```
 
 Required scopes:
 
@@ -1109,7 +1021,6 @@ Test expiry while:
 - Browser tab is suspended.
 - Mobile app is backgrounded.
 - User changes device time.
-- Blockchain is unavailable.
 - Clinician switches patient.
 - Clinician switches from work to personal context.
 
@@ -1281,129 +1192,6 @@ Do not allow unrestricted private rooms through the medical system.
 
 ---
 
-# 14. Blockchain responsibilities
-
-Use blockchain for:
-
-- Organisation registration.
-- Organisation public-key registration.
-- Key activation, retirement and revocation.
-- Patient identity references.
-- Record ciphertext hashes.
-- Provenance.
-- Consent grants.
-- Emergency-access events.
-- Envelope-manifest hashes.
-- Audit anchoring.
-- Governance events.
-
-Do not put on-chain:
-
-- Plaintext PHI.
-- Complete documents.
-- Private keys.
-- Plaintext DEKs.
-- Passwords.
-- Recovery secrets.
-- Raw transcripts.
-- Raw audio.
-- Direct national identity numbers without a privacy-preserving design.
-
-## 14.1 Suggested blockchain additions
-
-Potential pallets or storage maps:
-
-- `OrganizationRegistry`
-- `OrganizationKeyRegistry`
-- `FacilityRegistry`
-- `EmergencyGrantRegistry`
-- `RecordIntegrityRegistry`
-- `AuditAnchorRegistry`
-
-Events:
-
-- `OrganizationRegistered`
-- `OrganizationSuspended`
-- `FacilityRegistered`
-- `PublicKeyAdded`
-- `PublicKeyActivated`
-- `PublicKeyRetired`
-- `PublicKeyRevoked`
-- `EmergencyGrantIssued`
-- `EmergencyGrantExpired`
-- `EmergencyGrantRevoked`
-- `RecordHashAnchored`
-- `AuditBatchAnchored`
-
-Do not put every high-volume read event directly on-chain synchronously. Use local audit storage, batching and hash anchoring where appropriate.
-
----
-
-# 15. Blockchain network operationalisation
-
-Code existence is not network readiness.
-
-## 15.1 Initial network
-
-Recommended starting point:
-
-- Four independent validators as the minimum fault-tolerant consortium set.
-- Grow toward seven as additional organisations join.
-- Validators operated by different trusted organisations.
-- Separate governance authority from routine session keys.
-
-## 15.2 Required tests
-
-- Continuous block production.
-- Continuous finality.
-- Kill one of four validators.
-- Network partition.
-- Validator restart.
-- Database or RocksDB recovery.
-- Key rotation.
-- Validator onboarding.
-- Validator offboarding.
-- Runtime upgrade.
-- Failed runtime upgrade.
-- Monitoring outage.
-- API operating while chain is temporarily unavailable.
-- Audit outbox replay after chain recovery.
-
-## 15.3 Key separation
-
-Keep distinct:
-
-- Organisation medical wrapping keys.
-- Organisation signing keys.
-- Validator stash/root keys.
-- Validator session keys.
-- Node identity keys.
-- TLS certificates.
-- Recovery keys.
-
-A medical-key incident must not compromise consensus. A validator-key incident must not decrypt medical data.
-
-## 15.4 Operations
-
-Create procedures for:
-
-- Session-key generation.
-- No copying of session keys between validators.
-- Cold storage.
-- Backup.
-- Restore drills.
-- Runtime-upgrade rehearsal.
-- Rollback or emergency recovery.
-- Monitoring and alerts.
-- Finality lag.
-- Peer count.
-- Node liveness.
-- Disk usage.
-- On-call escalation.
-- Incident reporting.
-
----
-
 # 16. Cross-hospital patient journey
 
 Use this scenario for implementation testing.
@@ -1417,7 +1205,6 @@ Use this scenario for implementation testing.
 - Generate emergency summary.
 - Encrypt new records with per-record DEKs.
 - Wrap DEKs for Clinic A.
-- Anchor patient and record integrity data.
 
 ## Step 2: Patient visits Hospital B
 
@@ -1454,7 +1241,6 @@ Use this scenario for implementation testing.
 - Get emergency summary in under three seconds.
 - Issue 15-minute grant.
 - Hospital A or B being offline does not block minimum emergency information.
-- Access logged locally and anchored asynchronously.
 
 ## Step 6: Telehealth follow-up
 
@@ -1485,7 +1271,6 @@ Potential services:
 - `AuditOutboxService`
 - `TranscriptRetentionService`
 - `TranslationService`
-- `BlockchainAnchorService`
 
 Potential routes:
 
@@ -1533,8 +1318,6 @@ All new writes should support idempotency where retries can occur.
 
 # 18. Audit architecture
 
-Use an append-only local audit record plus blockchain anchoring.
-
 Audit record should include:
 
 - Event ID.
@@ -1558,25 +1341,8 @@ Audit record should include:
 - Source IP/network context.
 - Integrity hash.
 - Previous-event hash where useful.
-- Blockchain status.
 
 Use an outbox:
-
-```sql
-audit_outbox
-------------
-id
-event_id
-payload_hash
-payload
-status
-attempt_count
-next_attempt_at
-last_error
-created_at
-anchored_at
-blockchain_tx_hash
-```
 
 ---
 
@@ -1620,7 +1386,6 @@ blockchain_tx_hash
 
 ## Emergency access
 
-- Blockchain unavailable.
 - Local database unavailable.
 - Regional cache stale.
 - Card revoked.
@@ -1671,7 +1436,6 @@ blockchain_tx_hash
 - Mobile encrypted package.
 - Emergency grant on every protected endpoint.
 - Audit outbox replay.
-- Blockchain retry.
 - Jitsi audio to local STT.
 - Caption delivery.
 
@@ -1684,7 +1448,6 @@ blockchain_tx_hash
 - Lost patient phone.
 - Monthly rotation across mixed devices.
 - Original hospital offline.
-- Blockchain validator offline.
 - Telehealth with transcription and translation.
 
 ## 20.4 Performance tests
@@ -1698,7 +1461,6 @@ Test:
 - Old and new key versions.
 - Regional replica.
 - Cross-hospital resolution.
-- Blockchain unavailable.
 - Database failover.
 
 Report:
@@ -1747,7 +1509,6 @@ Required governance decisions:
 - Hospital onboarding.
 - Key revocation authority.
 - Consortium governance.
-- Validator ownership.
 - Data residency.
 - Incident reporting.
 - Record correction.
@@ -1825,7 +1586,6 @@ Implement:
 - Proof of possession.
 - Revocation.
 - Local cache.
-- Blockchain events.
 
 Acceptance:
 
@@ -1885,7 +1645,6 @@ Implement:
 Acceptance:
 
 - p99 under three seconds in defined conditions.
-- Blockchain outage does not block display.
 - Access stops after 15 minutes.
 - Origin hospital outage does not block minimum summary.
 
@@ -1928,24 +1687,6 @@ Acceptance:
 - Only authorised sessions can start transcription.
 - Retention policy is enforced.
 
-## Phase 8 — Blockchain testnet operationalisation
-
-Implement and run:
-
-- Four-validator testnet.
-- Validator loss test.
-- Monitoring.
-- Backup.
-- Restore.
-- Runtime upgrade rehearsal.
-- Audit outbox replay.
-
-Acceptance:
-
-- One of four validators can fail without losing expected finality.
-- Upgrade is rehearsed.
-- Node recovery is documented and tested.
-
 ## Phase 9 — Multi-hospital pilot
 
 Use synthetic data first.
@@ -1980,13 +1721,10 @@ MediChain is not ready for real patients until all of these are true:
 - Three-second p99 emergency target is proven.
 - Fifteen-minute expiry is enforced end to end.
 - Original hospital outage does not block minimum emergency data.
-- Blockchain outage does not block immediate emergency response.
-- Audit events are durable and eventually anchored.
 - Self-hosted transcription is privacy controlled.
 - Retention is policy driven.
 - Physical NFC is tested.
 - Mobile secure storage is tested on Android and iOS.
-- Multi-validator network is tested.
 - Backup and recovery are tested.
 - Independent security review is complete.
 - Clinical safety review is complete.
@@ -2002,23 +1740,6 @@ Start with **Phase 0 only**.
 Codex should:
 
 1. Inspect the entire local MediChain repository.
-2. Read all architecture, implementation-plan, security, encryption, emergency-access, mobile, telehealth, blockchain and deployment files.
-3. Enumerate every:
-   - API route;
-   - database table;
-   - repository;
-   - encryption call site;
-   - key source;
-   - key version field;
-   - mobile storage path;
-   - device concept;
-   - identity/role concept;
-   - emergency grant;
-   - NFC/QR flow;
-   - Jitsi/transcription component;
-   - blockchain pallet, call and event;
-   - audit event;
-   - test.
 4. Compare the implementation with this handoff.
 5. Do not implement future phases yet.
 6. Produce:
@@ -2040,8 +1761,6 @@ Suggested first prompt to Codex:
 
 # 25. Final architectural summary
 
-MediChain should not be rebuilt from zero. Its existing local implementation reportedly already includes substantial clinical persistence, encryption, authentication, telehealth, mobile, blockchain, monitoring and testing foundations.
-
 The required evolution is:
 
 - from one deployment-wide keyring to hospital-isolated envelope encryption;
@@ -2051,6 +1770,5 @@ The required evolution is:
 - from generic record retrieval to a precomputed high-availability emergency summary;
 - from normal mobile downloads to device-bound encrypted application storage;
 - from external transcription dependency to self-hosted medical transcription and translation;
-- from a runnable blockchain node to an operated consortium network.
 
 The desired outcome is a federated healthcare network in which independent hospitals and clinics can cooperate without sharing one master secret, patients can move between facilities without losing their medical history, authorised workers can retrieve critical information in under three seconds, access automatically closes after 15 minutes, and every action remains protected and accountable.

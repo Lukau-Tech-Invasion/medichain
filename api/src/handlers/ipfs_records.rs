@@ -1,21 +1,97 @@
 use super::*;
 
+/// Preserve the declared access purpose when converting a document audit to storage.
+/// Returns the same audit event with its normalised reason, document resource type
+/// and the authority the read was made under.
+fn document_audit(
+    entry: AccessLogEntry,
+    request: &HttpRequest,
+    authority: &DocumentAuthority,
+) -> crate::repositories::traits::AccessLogEntity {
+    let mut audit: crate::repositories::traits::AccessLogEntity = entry.into();
+    authority.stamp(&mut audit);
+    let reason = request
+        .headers()
+        .get(crate::middleware::phi_access_audit::ACCESS_REASON_HEADER)
+        .and_then(|value| value.to_str().ok());
+    audit.access_reason =
+        Some(crate::middleware::phi_access_audit::normalise_access_reason(reason));
+    audit.resource_type = "medical_document".to_string();
+    audit
+}
+
+#[cfg(test)]
+mod document_reason_tests {
+    use super::*;
+
+    #[test]
+    fn document_audit_keeps_the_declared_reason() {
+        let request = actix_web::test::TestRequest::default()
+            .insert_header(("x-access-reason", "treatment"))
+            .to_http_request();
+        let entry = AccessLogEntry {
+            access_id: "audit-test".into(),
+            patient_id: "PAT-TEST".into(),
+            accessor_id: "doctor-test".into(),
+            accessor_role: "Doctor".into(),
+            access_type: "download_record".into(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: false,
+        };
+        let audit = document_audit(entry, &request, &DocumentAuthority::Own);
+        assert_eq!(audit.access_reason.as_deref(), Some("Treatment"));
+        assert_eq!(audit.resource_type, "medical_document");
+        assert_eq!(audit.authority_type.as_deref(), Some("self"));
+        assert_eq!(audit.authority_id, None);
+    }
+
+    /// A read under a grant names the grant, which is what the patient's
+    /// per-grant disclosure count is derived from.
+    #[test]
+    fn document_audit_names_the_grant_it_was_read_under() {
+        let request = actix_web::test::TestRequest::default().to_http_request();
+        let entry = AccessLogEntry {
+            access_id: "audit-test".into(),
+            patient_id: "PAT-TEST".into(),
+            accessor_id: "doctor-test".into(),
+            accessor_role: "Doctor".into(),
+            access_type: "list_records".into(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: false,
+        };
+        let grant = DocumentAuthority::Grant("GRANT-1".into());
+        let audit = document_audit(entry, &request, &grant);
+        assert_eq!(audit.authority_type.as_deref(), Some("patient_grant"));
+        assert_eq!(audit.authority_id.as_deref(), Some("GRANT-1"));
+    }
+}
+
 // ============================================================================
 // IPFS Medical Record Endpoints
 // ============================================================================
 
-/// Check IPFS connection status
+/// Legacy health path retained for callers; report the active storage backend.
 #[get("/api/ipfs/health")]
 pub async fn ipfs_health_check(data: web::Data<AppState>) -> impl Responder {
     let connected = data.ipfs_client.health_check().await.unwrap_or(false);
 
-    // Report the *configured* endpoints, not hardcoded strings — this endpoint is
-    // used to diagnose IPFS connectivity, and echoing constants that may not match
-    // IPFS_API_URL/IPFS_GATEWAY_URL actively misleads that diagnosis.
+    let postgres = data.db_pool.is_some();
     HttpResponse::Ok().json(IpfsHealthResponse {
-        ipfs_connected: connected,
-        api_url: data.ipfs_client.api_url().to_string(),
-        gateway_url: data.ipfs_client.gateway_url().to_string(),
+        ipfs_connected: !postgres && connected,
+        api_url: if postgres {
+            String::new()
+        } else {
+            data.ipfs_client.api_url().to_string()
+        },
+        gateway_url: if postgres {
+            String::new()
+        } else {
+            data.ipfs_client.gateway_url().to_string()
+        },
+        storage_backend: if postgres { "postgres" } else { "ipfs" }.to_string(),
+        storage_connected: connected,
     })
 }
 
@@ -32,7 +108,7 @@ pub async fn upload_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -70,21 +146,17 @@ pub async fn upload_medical_record(
         });
     }
 
-    // Verify patient exists and resolve its on-chain account once.
-    let patient = match data.repositories.patients.get_by_id(&req.patient_id).await {
-        Ok(patient) => patient,
-        Err(_) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                error: format!("Patient '{}' not found", req.patient_id),
-                code: "PATIENT_NOT_FOUND".to_string(),
-            });
-        }
-    };
-    let patient_account = patient.wallet_address;
-    if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
-        return HttpResponse::Conflict().json(ErrorResponse {
-            error: "Patient has no wallet bound for blockchain recording".to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
+    // Verify the patient exists.
+    if data
+        .repositories
+        .patients
+        .get_by_id(&req.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            error: format!("Patient '{}' not found", req.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
         });
     }
 
@@ -101,8 +173,9 @@ pub async fn upload_medical_record(
     ) {
         Ok(c) => c,
         Err(e) => {
+            log::warn!("Medical document upload rejected invalid base64: {e}");
             return HttpResponse::BadRequest().json(ErrorResponse {
-                error: format!("Invalid base64 content: {}", e),
+                error: "Invalid document content encoding".to_string(),
                 code: "INVALID_CONTENT".to_string(),
             });
         }
@@ -130,20 +203,22 @@ pub async fn upload_medical_record(
     {
         Ok(r) => r,
         Err(e) => {
+            log::error!("Encrypted medical document upload failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("IPFS upload failed: {}", e),
+                error: "Document storage is temporarily unavailable".to_string(),
                 code: "IPFS_ERROR".to_string(),
             });
         }
     };
 
-    // Create record reference for on-chain storage
+    // The reference to the encrypted record: pointers and digests, never content.
     let record_ref = MedicalRecordReference {
         content_hash: upload_result.ipfs_hash.clone(),
         metadata_hash: upload_result.metadata_hash.clone(),
         record_type: req.record_type.clone(),
         uploaded_at: Utc::now().timestamp(),
         content_checksum,
+        seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
     };
 
     let mut record_entity: crate::repositories::traits::MedicalRecordEntity =
@@ -167,7 +242,7 @@ pub async fn upload_medical_record(
 
     let access_id = secure_tokens::generate_access_id();
     let access_log: crate::repositories::AccessLogEntity = AccessLogEntry {
-        access_id: access_id.clone(),
+        access_id,
         patient_id: req.patient_id.clone(),
         accessor_id: current_user_id.clone(),
         accessor_role: current_user.role.to_string(),
@@ -191,57 +266,26 @@ pub async fn upload_medical_record(
         });
     }
 
-    let patient_account = patient_account.as_deref().unwrap_or_default();
-    let record_chain = match crate::audit_outbox::anchor_medical_record_or_queue(
+    if let Err(error) = crate::audit_outbox::record_medical_record_stored(
         &data,
         &record_id,
-        patient_account,
         &upload_result.ipfs_hash,
-        &req.record_type,
-        &current_user_id,
     )
     .await
     {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Medical-record chain anchor could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "The record was saved, but its blockchain anchor could not be queued."
-                    .to_string(),
-                code: "CHAIN_ANCHOR_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-    let access_chain = match crate::audit_outbox::anchor_access_or_queue(
-        &data,
-        "medical_record_access",
-        &access_id,
-        patient_account,
-        &current_user_id,
-        "UPLOAD_RECORD",
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Upload access chain audit could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "The record was saved, but its blockchain access audit could not be queued."
-                    .to_string(),
-                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
-            });
-        }
-    };
+        log::error!("Medical-record audit event could not be recorded: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "The record was saved, but its audit event could not be recorded.".to_string(),
+            code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
+        });
+    }
 
     HttpResponse::Created().json(UploadMedicalRecordResponse {
         success: true,
         ipfs_hash: upload_result.ipfs_hash,
         metadata_hash: upload_result.metadata_hash,
         record_reference: record_ref,
-        record_chain_status: record_chain.status,
-        record_blockchain_tx_hash: record_chain.transaction_hash,
-        access_chain_status: access_chain.status,
-        access_blockchain_tx_hash: access_chain.transaction_hash,
+        seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
         message: "Medical record uploaded and encrypted successfully".to_string(),
     })
 }
@@ -259,7 +303,7 @@ pub async fn download_medical_record(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -290,11 +334,13 @@ pub async fn download_medical_record(
             return access_check_unavailable();
         }
     };
-    if let Some(response) =
-        patient_read_denial(&data, &current_user, &current_user_id, &record.patient_id).await
-    {
-        return response;
-    }
+    let authority =
+        match document_read_authority(&data, &current_user, &current_user_id, &record.patient_id)
+            .await
+        {
+            Ok(authority) => authority,
+            Err(response) => return response,
+        };
 
     // Download and decrypt from IPFS
     let download_result = match data
@@ -307,15 +353,16 @@ pub async fn download_medical_record(
         .await
     {
         Ok(r) => r,
-        Err(IpfsError::NotFound(hash)) => {
+        Err(IpfsError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                error: format!("Record not found: {}", hash),
+                error: "Record content not found".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             });
         }
         Err(e) => {
+            log::error!("Encrypted medical document download failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("IPFS download failed: {}", e),
+                error: "Document storage is temporarily unavailable".to_string(),
                 code: "IPFS_ERROR".to_string(),
             });
         }
@@ -331,7 +378,10 @@ pub async fn download_medical_record(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+    if let Err(response) =
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req, &authority))
+            .await
+    {
         return response;
     }
 
@@ -362,21 +412,51 @@ pub async fn download_medical_record(
 ///
 /// The IPFS path gets this from the `medical_records` row; these kinds have no
 /// such row, so they check the owning patient themselves.
-async fn may_read_patient(
+/// What lets the caller read a patient's documents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DocumentAuthority {
+    /// The caller's own record.
+    Own,
+    /// An effective grant the patient approved; holds the grant id.
+    Grant(String),
+}
+
+impl DocumentAuthority {
+    /// Record the authority on the audit row, so a read under a grant is
+    /// counted on that grant.
+    fn stamp(&self, audit: &mut crate::repositories::traits::AccessLogEntity) {
+        let (kind, id) = match self {
+            Self::Own => ("self", None),
+            Self::Grant(id) => ("patient_grant", Some(id.clone())),
+        };
+        audit.authority_type = Some(kind.to_string());
+        audit.authority_id = id;
+    }
+}
+
+/// The caller's authority over `patient_id`'s documents, or the response that
+/// refuses them (403 without one, 503 when the grant store cannot be read).
+async fn document_read_authority(
     data: &web::Data<AppState>,
     caller: &crate::types::User,
     caller_id: &str,
     patient_id: &str,
-) -> Result<bool, &'static str> {
+) -> Result<DocumentAuthority, HttpResponse> {
     if crate::support::caller_owns_patient_record(data, caller_id, patient_id) {
-        return Ok(true);
+        return Ok(DocumentAuthority::Own);
     }
     if !caller.role.is_healthcare_provider() {
-        return Ok(false);
+        return Err(access_denied());
     }
-    data.patient_access
-        .provider_has_active_grant(patient_id, caller_id, Utc::now())
+    match data
+        .patient_access
+        .active_grant_id(patient_id, caller_id, Utc::now())
         .await
+    {
+        Ok(Some(grant_id)) => Ok(DocumentAuthority::Grant(grant_id)),
+        Ok(None) => Err(access_denied()),
+        Err(_) => Err(access_check_unavailable()),
+    }
 }
 
 async fn patient_read_denial(
@@ -385,11 +465,9 @@ async fn patient_read_denial(
     caller_id: &str,
     patient_id: &str,
 ) -> Option<HttpResponse> {
-    match may_read_patient(data, caller, caller_id, patient_id).await {
-        Ok(true) => None,
-        Ok(false) => Some(access_denied()),
-        Err(_) => Some(access_check_unavailable()),
-    }
+    document_read_authority(data, caller, caller_id, patient_id)
+        .await
+        .err()
 }
 
 fn access_denied() -> HttpResponse {
@@ -616,7 +694,13 @@ async fn download_vitals(
     };
     let mut body = format!("Vital signs {vitals_id}\n\n");
     body.push_str(&format!("Patient:          {}\n", v.patient_id));
-    body.push_str(&format!("Recorded by:      {}\n", v.recorded_by));
+    // A name, not an account id: the patient reads this sheet. The id stands
+    // only when no account answers to it.
+    let recorded_by = crate::get_user(data, &v.recorded_by)
+        .map(|u| u.name)
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| v.recorded_by.clone());
+    body.push_str(&format!("Recorded by:      {recorded_by}\n"));
     body.push_str(&format!(
         "Recorded:         {}\n",
         v.recorded_at.format("%Y-%m-%d %H:%M UTC")
@@ -632,9 +716,16 @@ async fn download_vitals(
     body.push_str(&format!("  O2 saturation:  {}\n", num(v.oxygen_saturation)));
     body.push_str(&format!("  Pain scale:     {}\n", num(v.pain_scale)));
     body.push_str(&format!("  GCS score:      {}\n", num(v.gcs_score)));
-    body.push_str(&format!("  Blood glucose:  {}\n", num(v.blood_glucose)));
+    body.push_str(&format!(
+        "  Blood glucose:  {} mmol/L\n",
+        dec(v.blood_glucose)
+    ));
     body.push_str(&format!("  Weight:         {} kg\n", dec(v.weight_kg)));
     body.push_str(&format!("  Height:         {} cm\n", dec(v.height_cm)));
+    body.push_str(&format!(
+        "\nNotes:\n  {}\n",
+        v.notes.as_deref().unwrap_or("Not recorded")
+    ));
     text_document(vitals_id, body)
 }
 
@@ -646,7 +737,99 @@ fn text_document(filename: &str, body: String) -> HttpResponse {
             "Content-Disposition",
             format!("attachment; filename=\"{filename}.txt\""),
         ))
-        .body(body)
+        .body(collapse_unrecorded(&body))
+}
+
+/// Whether a rendered value says nothing was recorded (`-`, or "Not recorded",
+/// optionally followed by the unit the template printed after it).
+fn is_unrecorded(value: &str) -> bool {
+    let mut words = value.split_whitespace();
+    let first = words.next().unwrap_or("");
+    let rest: Vec<&str> = words.collect();
+    let unit_only = rest.len() <= 1 && rest.iter().all(|w| w.len() <= 8);
+    match first {
+        "-" => unit_only,
+        "Not" => rest.first() == Some(&"recorded") && rest.len() <= 2,
+        _ => false,
+    }
+}
+
+/// Move every empty field of a report into one closing line (UX plan Phase 8).
+///
+/// A vital-signs report with eight fields measured out of fourteen printed six
+/// lines of "-", and a patient scrolled past them looking for the readings.
+/// The fields still appear -- an unrecorded value is information (rule 12) --
+/// but once, together: "Not recorded: Pain scale, GCS score, ...".
+fn collapse_unrecorded(body: &str) -> String {
+    let lines: Vec<&str> = body.lines().collect();
+    let mut kept: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut missing: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        // "Label: value" on one line.
+        if let Some((label, value)) = trimmed.split_once(':') {
+            let label = label.trim();
+            let simple = !label.is_empty() && label.len() <= 40 && !label.starts_with('"');
+            if simple && !value.trim().is_empty() && is_unrecorded(value.trim()) {
+                missing.push(label.to_string());
+                i += 1;
+                continue;
+            }
+            // "Label:" with the value alone on the next line.
+            if simple
+                && value.trim().is_empty()
+                && lines
+                    .get(i + 1)
+                    .is_some_and(|next| is_unrecorded(next.trim()))
+            {
+                missing.push(label.to_string());
+                i += 2;
+                continue;
+            }
+        }
+        kept.push(line);
+        i += 1;
+    }
+    if missing.is_empty() {
+        return body.to_string();
+    }
+    let mut out = kept.join("\n");
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out.push_str(&format!("\n\nNot recorded: {}\n", missing.join(", ")));
+    out
+}
+
+#[cfg(test)]
+mod collapse_tests {
+    use super::collapse_unrecorded;
+
+    #[test]
+    fn empty_fields_become_one_line_and_measured_ones_stay() {
+        let body = "Vital signs\n  Heart rate:     118\n  Pain scale:     -\n  Temperature:    - C\n\nNotes:\n  Not recorded\n";
+        let out = collapse_unrecorded(body);
+        assert!(out.contains("Heart rate:     118"));
+        assert!(!out.contains("Pain scale:     -"));
+        assert!(
+            out.ends_with("Not recorded: Pain scale, Temperature, Notes\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn a_report_with_everything_recorded_is_unchanged() {
+        let body = "Heart rate: 80\nNotes:\n  Calm\n";
+        assert_eq!(collapse_unrecorded(body), body);
+    }
+
+    #[test]
+    fn json_and_ordinary_dashes_are_left_alone() {
+        let body = "{\n  \"notes\": \"-\"\n}\nRange: 2-4 mmol\n";
+        assert_eq!(collapse_unrecorded(body), body);
+    }
 }
 
 /// Render a structured, repository-backed clinical record without pretending it
@@ -944,7 +1127,10 @@ async fn download_triage(
     ));
     body.push_str(&format!("  Pain scale:       {}\n", num(a.pain_scale)));
     body.push_str(&format!("  GCS score:        {}\n", num(a.gcs_score)));
-    body.push_str(&format!("  Blood glucose:    {}\n", num(a.blood_glucose)));
+    body.push_str(&format!(
+        "  Blood glucose:    {} mmol/L\n",
+        dec(a.blood_glucose)
+    ));
     body.push_str(&format!("  Weight:           {} kg\n", dec(a.weight)));
 
     if a.disposition.is_some() || a.assigned_bed.is_some() {
@@ -1076,7 +1262,10 @@ async fn download_discharge_summary(
     ));
     body.push_str(&format!(
         "Admitted:     {}\nDischarged:  {}\n\n",
-        summary.admission_datetime.format("%Y-%m-%d %H:%M UTC"),
+        summary
+            .admission_datetime
+            .map(|admitted| admitted.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| "Not recorded".to_string()),
         summary.discharge_datetime.format("%Y-%m-%d %H:%M UTC")
     ));
     body.push_str(&format!(
@@ -1149,7 +1338,7 @@ async fn download_radiology_report(
     if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
         return response;
     }
-    json_document(id, "Radiology report", &record)
+    stored_procedure_document(data, id, "Radiology", &record)
 }
 
 async fn download_pathology_report(
@@ -1168,7 +1357,7 @@ async fn download_pathology_report(
     if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
         return response;
     }
-    json_document(id, "Pathology report", &record)
+    stored_procedure_document(data, id, "Pathology", &record)
 }
 
 async fn download_consultation(
@@ -1206,7 +1395,110 @@ async fn download_care_plan(
     if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
         return response;
     }
-    json_document(id, "Nursing care plan", &record)
+    let author = crate::support::get_user(data, &record.created_by)
+        .map(|user| user.name)
+        .unwrap_or_else(|| record.created_by.clone());
+    text_document(id, render_care_plan_report(&record, &author))
+}
+
+/// Format stored care-plan fields without inferring progress, dates or outcomes.
+fn render_care_plan_report(
+    record: &crate::repositories::traits::NursingCarePlanEntity,
+    author: &str,
+) -> String {
+    let date = |value: Option<chrono::NaiveDate>| {
+        value
+            .map(|date| date.to_string())
+            .unwrap_or_else(|| "Not recorded".into())
+    };
+    let mut body = format!("Nursing care plan\nRecord: {}\nPatient: {}\nPlan: {}\nCreated by: {author}\nCreated: {} UTC\nCare level: {}\nStatus: {}\nStart date: {}\nTarget end date: {}\nActual end date: {}\n",
+        record.id, record.patient_id, record.plan_name, record.created_at.format("%Y-%m-%d %H:%M"),
+        record.care_level.as_deref().unwrap_or("Not recorded"), record.status.as_deref().unwrap_or("Not recorded"),
+        record.start_date, date(record.target_end_date), date(record.actual_end_date));
+    for (label, items) in [
+        ("Nursing diagnoses", &record.nursing_diagnoses),
+        ("Goals", &record.goals),
+        ("Interventions", &record.interventions),
+    ] {
+        body.push_str(&format!("\n{label}:\n{}", render_care_plan_items(items)));
+    }
+    body.push_str(&format!(
+        "\nEvaluation notes:\n{}\n",
+        record.evaluation_notes.as_deref().unwrap_or("Not recorded")
+    ));
+    body
+}
+
+/// Render up to 200 stored entries and disclose truncation; retain unknown item shapes.
+fn render_care_plan_items(value: &serde_json::Value) -> String {
+    let Some(items) = value.as_array() else {
+        return if value.is_null() {
+            "Not recorded\n".into()
+        } else {
+            format!("{value}\n")
+        };
+    };
+    if items.is_empty() {
+        return "Not recorded\n".into();
+    }
+    let mut text = String::new();
+    for item in items.iter().take(200) {
+        if let Some(description) = item.as_str() {
+            text.push_str(&format!("- {description}\n"));
+        } else if let Some(description) =
+            item.get("description").and_then(serde_json::Value::as_str)
+        {
+            text.push_str(&format!("- {description}\n"));
+            if let Some(fields) = item.as_object() {
+                for (key, value) in fields
+                    .iter()
+                    .filter(|(key, _)| key.as_str() != "description")
+                    .take(32)
+                {
+                    text.push_str(&format!(
+                        "  {}: {}\n",
+                        key.replace('_', " "),
+                        value
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| value.to_string())
+                    ));
+                }
+                if fields.len() > 33 {
+                    text.push_str("  Additional entry fields omitted from this preview.\n");
+                }
+            }
+        } else {
+            text.push_str(&format!("- {item}\n"));
+        }
+    }
+    if items.len() > 200 {
+        text.push_str(&format!(
+            "{} further entries omitted from this preview.\n",
+            items.len() - 200
+        ));
+    }
+    text
+}
+
+/// Read a stored vaccination only after authorizing its actual owning patient.
+async fn download_immunization(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.immunization_records.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("immunization lookup failed: {error}");
+            return not_found("Vaccination");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    json_document(id, "Vaccination", &record)
 }
 
 async fn download_discharge_instructions(
@@ -1313,7 +1605,61 @@ async fn download_gcs_assessment(
     if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
         return response;
     }
-    json_document(id, "Glasgow Coma Scale assessment", &record)
+    let author = get_user(data, &record.assessed_by)
+        .map(|user| user.name)
+        .unwrap_or_else(|| record.assessed_by.clone());
+    text_document(id, render_gcs_report(&record, &author))
+}
+
+/// Render stored GCS observations and notes as a readable report without rescoring them.
+fn render_gcs_report(record: &GcsAssessmentEntity, author: &str) -> String {
+    let eye = u8::try_from(record.eye_response)
+        .ok()
+        .and_then(crate::clinical::EyeResponse::from_score)
+        .map(|value| value.description())
+        .unwrap_or("Not recorded");
+    let verbal = u8::try_from(record.verbal_response)
+        .ok()
+        .and_then(crate::clinical::VerbalResponse::from_score)
+        .map(|value| value.description())
+        .unwrap_or("Not recorded");
+    let motor = u8::try_from(record.motor_response)
+        .ok()
+        .and_then(crate::clinical::MotorResponse::from_score)
+        .map(|value| value.description())
+        .unwrap_or("Not recorded");
+    let mut body = format!("Glasgow Coma Scale assessment\nRecord: {}\nPatient: {}\nAssessed by: {author}\nAssessed: {} UTC\n\nEye response: {}/4 — {eye}\nVerbal response: {}/5 — {verbal}\nMotor response: {}/6 — {motor}\nTotal score: {}/15\nInterpretation: {}\n\nNotes:\n{}\n",
+        record.id, record.patient_id, record.assessed_at.format("%Y-%m-%d %H:%M"),
+        record.eye_response, record.verbal_response, record.motor_response, record.total_score,
+        record.interpretation, record.notes.as_deref().unwrap_or("Not recorded"));
+    body.push_str("\nPupil assessment:\n");
+    if let Some(pupils) = &record.pupil_assessment {
+        for (key, label, unit) in [
+            ("left_size_mm", "Left pupil size", " mm"),
+            ("right_size_mm", "Right pupil size", " mm"),
+            ("left_reactivity", "Left reactivity", ""),
+            ("right_reactivity", "Right reactivity", ""),
+            ("notes", "Pupil notes", ""),
+        ] {
+            let value = pupils
+                .get(key)
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string())
+                });
+            body.push_str(&format!(
+                "{label}: {}{}\n",
+                value.as_deref().unwrap_or("Not recorded"),
+                if value.is_some() { unit } else { "" }
+            ));
+        }
+    } else {
+        body.push_str("Not recorded\n");
+    }
+    body
 }
 
 async fn download_procedure(
@@ -1337,20 +1683,320 @@ async fn download_procedure(
             {
                 return response;
             }
-            json_document(id, $label, &record)
+            stored_procedure_document(data, id, $label, &record)
         }};
     }
     match kind {
-        "intubations" => render_procedure!(intubation_records, "Intubation"),
+        "intubations" => download_intubation_report(data, caller, caller_id, id).await,
         "laceration_repairs" => render_procedure!(laceration_repairs, "Laceration repair"),
         "splints_and_casts" => render_procedure!(splint_cast_records, "Splint or cast"),
         "burn_assessments" => render_procedure!(burn_assessments, "Burn assessment"),
         "anesthesia_records" => render_procedure!(anesthesia_records, "Anaesthesia record"),
+        "pre_op_assessments" => render_procedure!(pre_op_assessments, "Pre-operative assessment"),
+        "operative_notes" => render_procedure!(operative_notes, "Operative note"),
+        "post_op_notes" => render_procedure!(post_op_notes, "Post-operative note"),
         _ => HttpResponse::BadRequest().json(ErrorResponse {
             error: "Unsupported procedure document type".to_string(),
             code: "UNSUPPORTED_RECORD_TYPE".to_string(),
         }),
     }
+}
+
+/// Format all typed procedure fields and the captured form separately after ownership authorization.
+fn stored_procedure_document<T: serde::Serialize>(
+    data: &web::Data<AppState>,
+    id: &str,
+    label: &str,
+    record: &T,
+) -> HttpResponse {
+    let value = match serde_json::to_value(record) {
+        Ok(value) => value,
+        Err(error) => {
+            log::error!("Procedure report serialization failed: {error}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "The procedure report could not be prepared".into(),
+                code: "REPORT_ERROR".into(),
+            });
+        }
+    };
+    let is_report = ["Pathology", "Radiology"].contains(&label);
+    let section = if is_report {
+        "Stored report fields"
+    } else {
+        "Stored procedure fields"
+    };
+    let mut body = format!("{label} report\n\n{section}\n");
+    if is_report && value.get("status").and_then(serde_json::Value::as_str) != Some("final") {
+        body.push_str("This report is not finalized. Its stored report timestamp does not establish completion or finalization.\n");
+    }
+    if label == "Post-operative note" {
+        body.push_str("The recovery form does not collect a postoperative day. Its stored counter is not an assessed day. The stored checklist flag does not establish discharge clearance.\n");
+    }
+    if let Some(fields) = value.as_object() {
+        for (key, value) in fields
+            .iter()
+            .filter(|(key, _)| key.as_str() != "data")
+            .take(128)
+        {
+            let display = if [
+                "performed_by",
+                "applied_by",
+                "assessed_by",
+                "anesthesiologist_id",
+                "crna_id",
+                "surgeon_id",
+                "provider_id",
+                "pathologist_id",
+                "ordering_provider_id",
+                "radiologist_id",
+                "radiologist",
+            ]
+            .contains(&key.as_str())
+            {
+                value
+                    .as_str()
+                    .and_then(|id| get_user(data, id))
+                    .map(|user| user.name)
+            } else {
+                None
+            };
+            body.push_str(&format!(
+                "\n{}:\n{}",
+                procedure_field_label(key),
+                display
+                    .map(|name| format!("{name}\n"))
+                    .unwrap_or_else(|| render_procedure_observations(Some(value)))
+            ));
+        }
+        if fields.len() > 129 {
+            body.push_str("Additional stored fields omitted from this preview.\n");
+        }
+    }
+    body.push_str("\nCaptured form observations\nStored and captured fields are shown separately. Differences require review; no values have been reconciled or replaced.\n");
+    if let Some(fields) = value.get("data").and_then(serde_json::Value::as_object) {
+        for (key, value) in fields.iter().take(128) {
+            body.push_str(&format!(
+                "\n{}:\n{}",
+                procedure_field_label(key),
+                render_procedure_observations(Some(value))
+            ));
+        }
+        if fields.len() > 128 {
+            body.push_str("Additional captured fields omitted from this preview.\n");
+        }
+    } else {
+        body.push_str("Not recorded\n");
+    }
+    text_document(id, body)
+}
+
+/// Convert bounded field names into readable labels without changing their values or units.
+fn procedure_field_label(key: &str) -> String {
+    match key {
+        "post_op_day" => {
+            return "Stored postoperative day counter (not collected by the recovery form)".into()
+        }
+        "discharge_criteria_met" => {
+            return "Stored discharge checklist flag (not a clearance decision)".into()
+        }
+        "alderetScore" | "alderet_score" => return "Aldrete score".into(),
+        _ => {}
+    }
+    let mut label = String::new();
+    for (index, character) in key.chars().take(128).enumerate() {
+        if character == '_' {
+            label.push(' ');
+        } else {
+            if index > 0 && character.is_uppercase() {
+                label.push(' ');
+            }
+            label.push(character);
+        }
+    }
+    label
+}
+
+/// Authorize the owning patient before formatting stored intubation observations.
+async fn download_intubation_report(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.intubation_records.get_by_id(id).await {
+        Ok(record) => record,
+        Err(error) => {
+            log::error!("Intubation lookup failed: {error}");
+            return not_found("Intubation");
+        }
+    };
+    if let Some(response) = patient_read_denial(data, caller, caller_id, &record.patient_id).await {
+        return response;
+    }
+    let author = get_user(data, &record.intubator_id)
+        .map(|user| user.name)
+        .unwrap_or_else(|| {
+            if record.intubator_id.is_empty() {
+                "Not recorded".into()
+            } else {
+                record.intubator_id.clone()
+            }
+        });
+    text_document(id, render_intubation_report(&record, &author))
+}
+
+/// Show canonical fields and captured form observations separately; never repair history implicitly.
+fn render_intubation_report(
+    record: &crate::repositories::traits::IntubationRecordEntity,
+    author: &str,
+) -> String {
+    let optional = |value: Option<String>| value.unwrap_or_else(|| "Not recorded".into());
+    let mut body = format!("Intubation report\nRecord: {}\nPatient: {}\nRecorded operator: {author}\nPerformed: {} UTC\n\nStored procedure fields\nIndication: {}\nUrgency: {}\nPre-oxygenation: {}\nPre-oxygenation method: {}\nLaryngoscope: {}\nBlade size: {}\nETT size: {} mm\nDepth: {} cm\nCuff pressure: {} cmH2O\nAttempts: {}\nView grade: {}\nDifficult airway: {}\nParalytic agent: {}\nParalytic dose: {}\nAssistant: {}\n",
+        record.id, record.patient_id, record.performed_at.format("%Y-%m-%d %H:%M"),
+        record.indication, record.urgency, record.pre_oxygenation,
+        record.pre_oxygenation_method.as_deref().unwrap_or("Not recorded"),
+        record.laryngoscope_type.as_deref().unwrap_or("Not recorded"),
+        record.blade_size.as_deref().unwrap_or("Not recorded"), record.ett_size,
+        optional(record.ett_depth_cm.map(|value| value.to_string())),
+        optional(record.cuff_pressure_cmh2o.map(|value| value.to_string())), record.attempts,
+        record.view_grade.as_deref().unwrap_or("Not recorded"), record.difficult_airway,
+        record.paralytic_agent.as_deref().unwrap_or("Not recorded"),
+        record.paralytic_dose.as_deref().unwrap_or("Not recorded"),
+        record.assistant_id.as_deref().unwrap_or("Not recorded"));
+    for (label, value) in [
+        ("Induction medications", record.induction_agents.as_ref()),
+        ("Adjuncts", record.adjuncts_used.as_ref()),
+        (
+            "Difficult airway features",
+            record.difficult_airway_features.as_ref(),
+        ),
+        ("Complications", record.complications.as_ref()),
+        (
+            "Placement verification",
+            record.verification_methods.as_ref(),
+        ),
+        (
+            "Post-intubation observations",
+            record.post_intubation_vitals.as_ref(),
+        ),
+    ] {
+        body.push_str(&format!(
+            "\n{label}:\n{}",
+            render_procedure_observations(value)
+        ));
+    }
+    body.push_str(
+        "\nCaptured form observations (kept separately; not reconciled with stored fields)\n",
+    );
+    if intubation_capture_conflicts(record) {
+        body.push_str("Review required: captured form measurements or operator differ from stored procedure fields. Both sources are shown; no value has been replaced.\n");
+    }
+    for (key, label) in [
+        ("method", "Method"),
+        ("tubeSize", "ETT size (mm)"),
+        ("tubeDepth", "Depth (cm)"),
+        ("cuffPressure", "Cuff pressure (cmH2O)"),
+        ("bladeType", "Blade type"),
+        ("bladeSize", "Blade size"),
+        ("rsiUsed", "RSI used"),
+        ("successful", "Recorded successful"),
+        ("performedBy", "Captured operator ID"),
+        ("airwayAssessment", "Airway assessment"),
+        ("medications", "Medications"),
+        ("verification", "Placement verification"),
+        ("notes", "Notes"),
+    ] {
+        body.push_str(&format!(
+            "\n{label}:\n{}",
+            render_procedure_observations(record.data.get(key))
+        ));
+    }
+    body
+}
+
+/// Render bounded stored scalar, object or list observations; disclose omitted fields.
+fn render_procedure_observations(value: Option<&serde_json::Value>) -> String {
+    let Some(value) = value.filter(|value| !value.is_null()) else {
+        return "Not recorded\n".into();
+    };
+    if let Some(items) = value.as_array() {
+        let mut text = String::new();
+        for item in items.iter().take(200) {
+            text.push_str(&render_procedure_observations_scalar(item));
+        }
+        if items.len() > 200 {
+            text.push_str("Additional entries omitted from this preview.\n");
+        }
+        return if text.is_empty() {
+            "No entries recorded\n".into()
+        } else {
+            text
+        };
+    }
+    render_procedure_observations_scalar(value)
+}
+
+/// Identify recorded measurement/operator disagreements without choosing a clinical truth.
+fn intubation_capture_conflicts(
+    record: &crate::repositories::traits::IntubationRecordEntity,
+) -> bool {
+    for (key, stored) in [
+        ("tubeSize", Some(record.ett_size)),
+        ("tubeDepth", record.ett_depth_cm),
+        ("cuffPressure", record.cuff_pressure_cmh2o),
+    ] {
+        if let Some(captured) = record.data.get(key).filter(|value| !value.is_null()) {
+            let text = captured
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| captured.to_string());
+            if text.parse::<rust_decimal::Decimal>().ok() != stored {
+                return true;
+            }
+        }
+    }
+    record
+        .data
+        .get("performedBy")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|captured| captured != record.intubator_id)
+}
+
+/// Render one observation without recursively traversing untrusted stored JSON.
+fn render_procedure_observations_scalar(value: &serde_json::Value) -> String {
+    if value.is_null() || value.as_str().is_some_and(|text| text.trim().is_empty()) {
+        return "Not recorded\n".into();
+    }
+    if let Some(fields) = value.as_object() {
+        let mut text = String::new();
+        for (key, value) in fields.iter().take(32) {
+            let display =
+                if value.is_null() || value.as_str().is_some_and(|text| text.trim().is_empty()) {
+                    "Not recorded".to_owned()
+                } else {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string())
+                };
+            text.push_str(&format!("{}: {display}\n", procedure_field_label(key)));
+        }
+        if fields.len() > 32 {
+            text.push_str("Additional entry fields omitted from this preview.\n");
+        }
+        return if text.is_empty() {
+            "No entries recorded\n".into()
+        } else {
+            text
+        };
+    }
+    format!(
+        "{}\n",
+        value
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| value.to_string())
+    )
 }
 
 /// Serve a document kept in its own clinical store rather than in IPFS.
@@ -1365,6 +2011,9 @@ async fn download_structured_document(
     current_user_id: &str,
     content_hash: &str,
 ) -> Option<HttpResponse> {
+    if let Some(id) = content_hash.strip_prefix("immunization-") {
+        return Some(download_immunization(data, current_user, current_user_id, id).await);
+    }
     if let Some(note_id) = content_hash.strip_prefix("soap-") {
         return Some(download_soap_note(data, current_user, current_user_id, note_id).await);
     }
@@ -1465,7 +2114,7 @@ pub async fn download_medical_record_by_hash(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             })
         }
@@ -1510,11 +2159,13 @@ pub async fn download_medical_record_by_hash(
             });
         }
     };
-    if let Some(response) =
-        patient_read_denial(&data, &current_user, &current_user_id, &entity.patient_id).await
-    {
-        return response;
-    }
+    let authority =
+        match document_read_authority(&data, &current_user, &current_user_id, &entity.patient_id)
+            .await
+        {
+            Ok(authority) => authority,
+            Err(response) => return response,
+        };
     // A record reference is a pointer, and not every pointer is an IPFS CID.
     // Approving a lab result files it in the patient's records with a synthetic
     // `lab-<submission id>` hash (see `handlers/lab.rs`), because the result
@@ -1527,6 +2178,24 @@ pub async fn download_medical_record_by_hash(
     // Resolve it from its real home instead. Authorization above has already
     // run, so this is reached only by someone entitled to the record.
     if let Some(submission_id) = content_hash.strip_prefix("lab-") {
+        let audit = AccessLogEntry {
+            access_id: secure_tokens::generate_access_id(),
+            patient_id: entity.patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "download_record".to_string(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: false,
+        };
+        if let Err(response) = crate::support::require_durable_audit(
+            &data,
+            document_audit(audit, &http_req, &authority),
+        )
+        .await
+        {
+            return response;
+        }
         return download_lab_result(&data, submission_id).await;
     }
 
@@ -1546,17 +2215,18 @@ pub async fn download_medical_record_by_hash(
         .await
     {
         Ok(r) => r,
-        Err(IpfsError::NotFound(hash)) => {
+        Err(IpfsError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
-                error: format!("Record content not found: {}", hash),
+                error: "Record content not found".to_string(),
                 code: "RECORD_NOT_FOUND".to_string(),
             })
         }
         Err(e) => {
+            log::error!("Encrypted medical document download failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("IPFS download failed: {}", e),
+                error: "Document storage is temporarily unavailable".to_string(),
                 code: "IPFS_ERROR".to_string(),
-            })
+            });
         }
     };
 
@@ -1570,7 +2240,10 @@ pub async fn download_medical_record_by_hash(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+    if let Err(response) =
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req, &authority))
+            .await
+    {
         return response;
     }
 
@@ -1591,16 +2264,33 @@ pub async fn download_medical_record_by_hash(
 
 #[cfg(test)]
 mod structured_document_download_tests {
+    /// The field is in the report: either with its value, or -- when nothing
+    /// was recorded -- named in the report's closing "Not recorded:" line.
+    fn shows(text: &str, expected: &str) -> bool {
+        if text.contains(expected) {
+            return true;
+        }
+        let Some(label) = expected
+            .strip_suffix("Not recorded")
+            .map(|l| l.trim_end_matches(['\n', ' ']).trim_end_matches(':').trim())
+        else {
+            return false;
+        };
+        text.lines()
+            .filter_map(|l| l.strip_prefix("Not recorded: "))
+            .any(|names| names.split(", ").any(|n| n == label))
+    }
+
     use super::*;
     use crate::{repositories::traits::GcsAssessmentEntity, Role, User};
     use actix_web::{body::to_bytes, test, web, App};
 
-    fn state_with_linked_patient(wallet: &str, linked_patient_id: &str) -> web::Data<AppState> {
+    fn state_with_linked_patient(user_id: &str, linked_patient_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         state.users.write().unwrap().insert(
-            wallet.to_string(),
+            user_id.to_string(),
             User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
                 name: "Test patient".to_string(),
                 role: Role::Patient,
@@ -1632,7 +2322,7 @@ mod structured_document_download_tests {
                 motor_response: 6,
                 total_score: 0,
                 interpretation: "Normal neurological function".to_string(),
-                notes: None,
+                notes: Some("Synthetic GCS report note".to_string()),
                 pupil_assessment: None,
                 assessed_by: "5Clinician".to_string(),
                 assessed_at: Utc::now(),
@@ -1650,7 +2340,7 @@ mod structured_document_download_tests {
         .await;
         let request = test::TestRequest::get()
             .uri("/api/records/gcs-GCS-1/download")
-            .insert_header(("X-User-Id", "5Patient"))
+            .insert_header(crate::test_fixtures::as_user("5Patient"))
             .to_request();
         let response = test::call_service(&app, request).await;
 
@@ -1658,7 +2348,101 @@ mod structured_document_download_tests {
         let body = to_bytes(response.into_body()).await.unwrap();
         let text = std::str::from_utf8(&body).unwrap();
         assert!(text.contains("Normal neurological function"));
-        assert!(text.contains("\"total_score\": 15"));
+        assert!(text.contains("Total score: 15/15"));
+        assert!(text.contains("Eyes open spontaneously"));
+        assert!(text.contains("Synthetic GCS report note"));
+        assert!(shows(text, "Pupil assessment:\nNot recorded"));
+        assert!(!text.contains("\"total_score\""));
+    }
+
+    #[actix_rt::test]
+    async fn immunization_download_checks_record_ownership_and_preserves_stored_details() {
+        for (linked, expected) in [("PAT-1", 200), ("PAT-2", 403)] {
+            let data = state_with_linked_patient("5Patient", linked);
+            data.repositories
+                .immunization_records
+                .create(crate::repositories::traits::ImmunizationRecordEntity {
+                    id: "IMM-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    vaccine_name: "QA influenza".into(),
+                    lot_number: Some("QA-LOT".into()),
+                    administration_date: chrono::NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+                    notes: Some("Fictional training record".into()),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            let app = test::init_service(
+                App::new()
+                    .app_data(data)
+                    .service(download_medical_record_by_hash),
+            )
+            .await;
+            let request = test::TestRequest::get()
+                .uri("/api/records/immunization-IMM-READ/download")
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), expected);
+            let body = to_bytes(response.into_body()).await.unwrap();
+            let text = std::str::from_utf8(&body).unwrap();
+            if expected == 200 {
+                assert!(text.contains("QA influenza") && text.contains("QA-LOT"));
+                assert!(text.contains("Fictional training record"));
+            } else {
+                assert!(!text.contains("QA influenza"));
+            }
+        }
+    }
+
+    #[actix_rt::test]
+    async fn care_plan_report_preserves_stored_goals_and_checks_patient_ownership() {
+        for (linked, expected) in [("PAT-1", 200), ("PAT-2", 403)] {
+            let data = state_with_linked_patient("5Patient", linked);
+            data.repositories.nursing_care_plans.create(
+                crate::repositories::traits::NursingCarePlanEntity {
+                    id: "NCP-READ".into(), patient_id: "PAT-1".into(),
+                    plan_name: "Synthetic care-plan report".into(),
+                    nursing_diagnoses: serde_json::json!(["Stored diagnosis"]),
+                    goals: serde_json::json!([{ "description": "Stored goal", "status": "not-met" }]),
+                    interventions: serde_json::json!(["Stored intervention"]),
+                    evaluation_notes: Some("Stored evaluation note".into()),
+                    start_date: chrono::NaiveDate::from_ymd_opt(2026, 10, 10).unwrap(),
+                    created_by: "5Clinician".into(), ..Default::default()
+                }
+            ).await.unwrap();
+            let app = test::init_service(
+                App::new()
+                    .app_data(data)
+                    .service(download_medical_record_by_hash),
+            )
+            .await;
+            let request = test::TestRequest::get()
+                .uri("/api/records/care-plan-NCP-READ/download")
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), expected);
+            let body = to_bytes(response.into_body()).await.unwrap();
+            let text = std::str::from_utf8(&body).unwrap();
+            if expected == 200 {
+                for value in [
+                    "Synthetic care-plan report",
+                    "Stored diagnosis",
+                    "Stored goal",
+                    "status: not-met",
+                    "Stored intervention",
+                    "Stored evaluation note",
+                    "Target end date: Not recorded",
+                    "Actual end date: Not recorded",
+                ] {
+                    assert!(shows(text, value), "missing {value}");
+                }
+                assert!(!text.contains("\"created_by\"") && !text.contains("\"data\""));
+            } else {
+                assert!(!text.contains("Stored goal"));
+            }
+        }
     }
 
     #[actix_rt::test]
@@ -1692,13 +2476,296 @@ mod structured_document_download_tests {
         .await;
         let request = test::TestRequest::get()
             .uri("/api/records/gcs-GCS-2/download")
-            .insert_header(("X-User-Id", "5OtherPatient"))
+            .insert_header(crate::test_fixtures::as_user("5OtherPatient"))
             .to_request();
 
         assert_eq!(
             test::call_service(&app, request).await.status(),
             actix_web::http::StatusCode::FORBIDDEN
         );
+    }
+
+    #[actix_rt::test]
+    async fn intubation_report_keeps_history_conflicts_visible_and_checks_ownership() {
+        for (linked, expected) in [("PAT-1", 200), ("PAT-2", 403)] {
+            let data = state_with_linked_patient("5Patient", linked);
+            data.repositories.intubation_records.create(
+                crate::repositories::traits::IntubationRecordEntity {
+                    id: "INT-READ".into(), patient_id: "PAT-1".into(),
+                    indication: "Synthetic procedure".into(), ett_size: rust_decimal::Decimal::ZERO,
+                    data: serde_json::json!({"tubeSize":7.5,"tubeDepth":22,"performedBy":"5Clinician",
+                        "notes":"Stored fictional note", "successful":false, "rsiUsed":false,
+                        "medications":[], "verification":{"etco2":false}}),
+                    ..Default::default()
+                }
+            ).await.unwrap();
+            let app = test::init_service(
+                App::new()
+                    .app_data(data)
+                    .service(download_medical_record_by_hash),
+            )
+            .await;
+            let request = test::TestRequest::get()
+                .uri("/api/records/procedure-intubations-INT-READ/download")
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), expected);
+            let body = to_bytes(response.into_body()).await.unwrap();
+            let text = std::str::from_utf8(&body).unwrap();
+            if expected == 200 {
+                for value in [
+                    "Intubation report",
+                    "ETT size: 0 mm",
+                    "ETT size (mm):\n7.5",
+                    "Review required:",
+                    "Recorded operator: Not recorded",
+                    "Stored fictional note",
+                    "Recorded successful:\nfalse",
+                    "etco2: false",
+                    "No entries recorded",
+                ] {
+                    assert!(shows(text, value), "missing {value}: {text}");
+                }
+                assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
+            } else {
+                assert!(!text.contains("Stored fictional note"));
+            }
+        }
+    }
+
+    /// Stored radiology reports remain readable and private to the linked patient.
+    #[actix_rt::test]
+    async fn radiology_report_is_readable_and_checks_patient_ownership() {
+        for (linked, expected) in [("PAT-1", 200), ("PAT-2", 403)] {
+            let data = state_with_linked_patient("5Patient", linked);
+            data.repositories.radiology_reports.create(crate::repositories::traits::RadiologyReportEntity {
+                id: "RAD-READ".into(), patient_id: "PAT-1".into(), status: "preliminary".into(),
+                findings: "Fictional radiology observations".into(), impression: "Synthetic QA only".into(),
+                data: serde_json::json!({"contrast":null, "critical_finding":false, "impression":["Synthetic QA only"]}),
+                ..Default::default()
+            }).await.unwrap();
+            let app = test::init_service(
+                App::new()
+                    .app_data(data)
+                    .service(download_medical_record_by_hash),
+            )
+            .await;
+            let request = test::TestRequest::get()
+                .uri("/api/records/imaging-report-RAD-READ/download")
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), expected);
+            let body = to_bytes(response.into_body()).await.unwrap();
+            let text = std::str::from_utf8(&body).unwrap();
+            if expected == 200 {
+                for observation in [
+                    "Radiology report",
+                    "Stored report fields",
+                    "This report is not finalized",
+                    "Fictional radiology observations",
+                    "contrast:\nNot recorded",
+                    "critical finding:\nfalse",
+                ] {
+                    assert!(shows(text, observation), "missing {observation}: {text}");
+                }
+                assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
+            } else {
+                assert!(!text.contains("Fictional radiology observations"));
+            }
+        }
+    }
+
+    /// A patient receives readable stored pathology observations only for their own specimen.
+    #[actix_rt::test]
+    async fn pathology_report_is_readable_preserves_unknown_time_and_checks_ownership() {
+        for (linked, expected) in [("PAT-1", 200), ("PAT-2", 403)] {
+            let data = state_with_linked_patient("5Patient", linked);
+            data.repositories
+                .pathology_reports
+                .create(crate::repositories::traits::PathologyReportEntity {
+                    id: "PATH-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    status: "received".into(),
+                    clinical_history: Some("Fictional pathology history".into()),
+                    data: serde_json::json!({"collectionTime":"", "isCritical":false, "blocks":[]}),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            let app = test::init_service(
+                App::new()
+                    .app_data(data)
+                    .service(download_medical_record_by_hash),
+            )
+            .await;
+            let request = test::TestRequest::get()
+                .uri("/api/records/pathology-PATH-READ/download")
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
+                .to_request();
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), expected);
+            let body = to_bytes(response.into_body()).await.unwrap();
+            let text = std::str::from_utf8(&body).unwrap();
+            if expected == 200 {
+                for observation in [
+                    "Pathology report",
+                    "Stored report fields",
+                    "This report is not finalized",
+                    "Fictional pathology history",
+                    "collection Time:\nNot recorded",
+                    "is Critical:\nfalse",
+                ] {
+                    assert!(shows(text, observation), "missing {observation}: {text}");
+                }
+                assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
+            } else {
+                assert!(!text.contains("Fictional pathology history"));
+            }
+        }
+    }
+
+    #[actix_rt::test]
+    async fn procedure_reports_preserve_observations_and_refuse_other_patients() {
+        use crate::repositories::traits::{
+            AnesthesiaRecordEntity, BurnAssessmentEntity, LacerationRepairEntity,
+            OperativeNoteEntity, PostOpNoteEntity, PreOpAssessmentEntity, SplintCastRecordEntity,
+        };
+        for (linked, expected) in [("PAT-1", 200), ("PAT-2", 403)] {
+            let data = state_with_linked_patient("5Patient", linked);
+            let captured =
+                serde_json::json!({"notes":"Fictional stored procedure note", "confirmed":false});
+            data.repositories
+                .laceration_repairs
+                .create(LacerationRepairEntity {
+                    id: "LAC-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured.clone(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .splint_cast_records
+                .create(SplintCastRecordEntity {
+                    id: "SPL-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured.clone(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .burn_assessments
+                .create(BurnAssessmentEntity {
+                    id: "BRN-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured.clone(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .anesthesia_records
+                .create(AnesthesiaRecordEntity {
+                    id: "ANES-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured.clone(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .pre_op_assessments
+                .create(PreOpAssessmentEntity {
+                    id: "PRE-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured.clone(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .operative_notes
+                .create(OperativeNoteEntity {
+                    id: "OP-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured.clone(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            data.repositories
+                .post_op_notes
+                .create(PostOpNoteEntity {
+                    id: "POST-READ".into(),
+                    patient_id: "PAT-1".into(),
+                    data: captured,
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            let app = test::init_service(
+                App::new()
+                    .app_data(data)
+                    .service(download_medical_record_by_hash),
+            )
+            .await;
+            for (kind, id) in [
+                ("laceration_repairs", "LAC-READ"),
+                ("splints_and_casts", "SPL-READ"),
+                ("burn_assessments", "BRN-READ"),
+                ("anesthesia_records", "ANES-READ"),
+                ("pre_op_assessments", "PRE-READ"),
+                ("operative_notes", "OP-READ"),
+                ("post_op_notes", "POST-READ"),
+            ] {
+                let request = test::TestRequest::get()
+                    .uri(&format!("/api/records/procedure-{kind}-{id}/download"))
+                    .insert_header(crate::test_fixtures::as_user("5Patient"))
+                    .to_request();
+                let response = test::call_service(&app, request).await;
+                assert_eq!(response.status().as_u16(), expected, "{kind}");
+                let body = to_bytes(response.into_body()).await.unwrap();
+                let text = std::str::from_utf8(&body).unwrap();
+                if expected == 200 {
+                    for value in [
+                        "Stored procedure fields",
+                        "Captured form observations",
+                        "Differences require review",
+                        "Fictional stored procedure note",
+                        "confirmed:\nfalse",
+                        "Not recorded",
+                    ] {
+                        assert!(text.contains(value), "{kind} missing {value}");
+                    }
+                    assert!(!text.contains("\"patient_id\"") && !text.contains("\"data\""));
+                    if kind == "post_op_notes" {
+                        assert!(text.contains("stored counter is not an assessed day"));
+                        assert!(text.contains(
+                            "Stored discharge checklist flag (not a clearance decision)"
+                        ));
+                    }
+                } else {
+                    assert!(!text.contains("Fictional stored procedure note"));
+                }
+            }
+        }
+    }
+
+    #[actix_rt::test]
+    async fn procedure_report_labels_nested_unknowns_without_turning_zero_or_false_into_missing() {
+        let observations = serde_json::json!({ "activity": null, "lastSolid": "", "painScore": 0, "confirmed": false });
+        let text = render_procedure_observations(Some(&observations));
+        for expected in [
+            "activity: Not recorded",
+            "last Solid: Not recorded",
+            "pain Score: 0",
+            "confirmed: false",
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
     }
 
     /// Both used to read typed repositories nothing writes, so every recorded
@@ -1743,7 +2810,7 @@ mod structured_document_download_tests {
         ] {
             let request = test::TestRequest::get()
                 .uri(&format!("/api/records/{hash}/download"))
-                .insert_header(("X-User-Id", "5Patient"))
+                .insert_header(crate::test_fixtures::as_user("5Patient"))
                 .to_request();
             let response = test::call_service(&app, request).await;
             assert_eq!(response.status(), actix_web::http::StatusCode::OK, "{hash}");
@@ -1773,7 +2840,7 @@ pub async fn list_patient_records(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -1789,11 +2856,11 @@ pub async fn list_patient_records(
         }
     };
 
-    if let Some(response) =
-        patient_read_denial(&data, &current_user, &current_user_id, &patient_id).await
-    {
-        return response;
-    }
+    let authority =
+        match document_read_authority(&data, &current_user, &current_user_id, &patient_id).await {
+            Ok(authority) => authority,
+            Err(response) => return response,
+        };
 
     // Get patient records via repository (paginated)
     // `Pagination::new(page, per_page)` takes a 0-indexed PAGE, not an offset.
@@ -1823,8 +2890,24 @@ pub async fn list_patient_records(
     };
     let total_items = result.total as usize;
     let total_pages = result.total_pages as usize;
-    let paginated_records: Vec<crate::ipfs::MedicalRecordReference> =
+    let record_ids: Vec<String> = result
+        .items
+        .iter()
+        .map(|record| record.id.clone())
+        .collect();
+    let mut paginated_records: Vec<crate::ipfs::MedicalRecordReference> =
         result.items.into_iter().map(Into::into).collect();
+    let seal_statuses = crate::audit_batching::event_statuses_or_pending(
+        data.db_pool.as_ref(),
+        crate::audit_outbox::RECORD_STORED_EVENT,
+        &record_ids,
+    )
+    .await;
+    for (record, id) in paginated_records.iter_mut().zip(&record_ids) {
+        if let Some(status) = seal_statuses.get(id) {
+            record.seal_status = status.clone();
+        }
+    }
 
     let audit = AccessLogEntry {
         access_id: secure_tokens::generate_access_id(),
@@ -1836,7 +2919,10 @@ pub async fn list_patient_records(
         timestamp: Utc::now(),
         emergency: false,
     };
-    if let Err(response) = crate::support::require_durable_audit(&data, audit.into()).await {
+    if let Err(response) =
+        crate::support::require_durable_audit(&data, document_audit(audit, &http_req, &authority))
+            .await
+    {
         return response;
     }
 

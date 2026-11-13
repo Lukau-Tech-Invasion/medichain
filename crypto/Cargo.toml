@@ -16,12 +16,14 @@ argon2 = "0.5"
 zeroize = { version = "1.6", features = ["derive"] }
 rand = "0.8"
 sha2 = "0.10"
+# Server-side derivation of the browser's sign-in proof (src/auth_proof.rs).
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+hkdf = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 
-# Substrate cryptography for wallet signature verification (SEC-005)
-sp-core = { version = "38.0.0", default-features = false, features = ["std"] }
-bs58 = "0.5"
-blake2 = "0.10"
+# Ed25519 for the sealed audit stream (ADR-0010): batch hashes are signed with
+# one instance-held key.
+ed25519-dalek = "2"
 
 [dev-dependencies]
 # Benchmarking (Phase 12.1) — no OS sampling profiler needed (unlike

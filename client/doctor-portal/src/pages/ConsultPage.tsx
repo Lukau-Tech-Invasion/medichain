@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import {
-  getPatients,
   listConsults,
   createConsult,
   respondToConsult,
@@ -13,10 +13,9 @@ import {
   useValidatedForm,
   consultRequestSchema,
   consultResponseSchema,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   MessageSquare,
@@ -33,7 +32,9 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
-import PatientSelect from '../components/PatientSelect';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { PatientName } from '../components/PatientName';
 
 type ConsultSpecialty =
   | 'cardiology'
@@ -113,7 +114,7 @@ interface Consult {
  *
  * `as` is what made this possible. It is an assertion, not a conversion.
  */
-function toConsult(raw: unknown): Consult {
+export function toConsult(raw: unknown): Consult {
   const r = (raw ?? {}) as Record<string, unknown>;
   const str = (...keys: string[]): string => {
     for (const key of keys) {
@@ -142,6 +143,14 @@ function toConsult(raw: unknown): Consult {
     requestedAt: str('requested_at', 'requestedAt'),
     acknowledgedBy: str('consulting_provider', 'acknowledgedBy') || undefined,
     acknowledgedAt: str('completed_at', 'acknowledgedAt') || undefined,
+    response: str('examination_findings') ? {
+      responseId: str('consult_id', 'consultId'),
+      assessment: str('examination_findings'),
+      recommendations: str('recommendations'),
+      followUp: str('follow_up_plan') || undefined,
+      respondedBy: str('consulting_provider'),
+      respondedAt: str('completed_at'),
+    } : undefined,
     notes: str('notes') || undefined,
   };
 }
@@ -151,7 +160,8 @@ const ConsultPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [consults, setConsults] = useState<Consult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +170,8 @@ const ConsultPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<ConsultStatus | 'all'>('all');
   const [specialtyFilter, setSpecialtyFilter] = useState<ConsultSpecialty | 'all'>('all');
   const [selectedConsult, setSelectedConsult] = useState<string>('');
+  // A consult with its answer, previewed apart from the application and printed.
+  const [printConsult, setPrintConsult] = useState<unknown>(null);
   const [isRespondingBusy, setIsRespondingBusy] = useState(false);
 
   const [newConsult, setNewConsult] = useState({
@@ -199,20 +211,13 @@ const ConsultPage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
-    const loadData = async () => {
-      const patientData = await getPatients();
-      setPatients(patientData);
-    };
-    loadData();
-  }, []);
-
-  useEffect(() => {
     fetchConsults();
   }, [fetchConsults]);
 
 
   const { errors, validate, validateField, clearField } = useValidatedForm(consultRequestSchema);
-  const handleRequestConsult = async () => {
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newConsult.patientId);
+  const handleRequestConsult = guardSubmit(async () => {
     // The clinical question is the consultation. A referral saying only
     // "please review" makes the consultant guess what was asked, and the answer
     // comes back addressing something else -- so the message belongs on that
@@ -221,7 +226,10 @@ const ConsultPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find((p) => p.patient_id === newConsult.patientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) {
       // A bare `return` here meant that if the selected patient was not in the
       // loaded roster the form did nothing at all - no request, no error, no
@@ -276,7 +284,7 @@ const ConsultPage: React.FC = () => {
     showSuccess(t('docConsult.successRequested', { id: consultId }));
     // Read the list back: the row shown is then the stored one.
     void fetchConsults();
-  };
+  });
 
   const {
     errors: responseErrors,
@@ -375,8 +383,13 @@ const ConsultPage: React.FC = () => {
       'bg-surface-sunken text-content-secondary'
     );
 
+  // Keys are lower-case; a consult filed by another client may say
+  // "Cardiology". Either way a value with no label is shown as itself, never
+  // as the raw key.
   const formatSpecialty = (specialty: string) => {
-    return t(`docConsult.specialty_${specialty}`);
+    const key = `docConsult.specialty_${specialty.toLowerCase()}`;
+    const text = t(key);
+    return text === key ? specialty : text;
   };
 
 
@@ -393,6 +406,7 @@ const ConsultPage: React.FC = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
+      <RecordPrintPreview title="Consultation" record={printConsult} onClose={() => setPrintConsult(null)} />
       <div className="bg-gradient-to-r from-blue-700 to-cyan-800 text-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold mb-2">{t('docConsult.title')}</h1>
         <p className="text-white">{t('docConsult.subtitle')}</p>
@@ -549,7 +563,7 @@ const ConsultPage: React.FC = () => {
                             WCAG AA's 4.5:1. The token that pairs with this
                             background is the one the sibling labels already
                             use. */}
-                        <p className="text-sm text-notice-subtle-fg">{consult.patientId}</p>
+                        <p className="text-sm text-notice-subtle-fg"><PatientName id={consult.patientId} dobOnly inherit /></p>
                       </div>
                       <div>
                         <p className="text-sm text-notice-subtle-fg font-semibold mb-1">{t('docConsult.lblSpecialty')}</p>
@@ -645,6 +659,12 @@ const ConsultPage: React.FC = () => {
                           </div>
                         </div>
                       </div>
+                    )}
+
+                    {consult.response && (
+                      <button type="button" onClick={() => setPrintConsult(consult)} className="mt-3 px-3 py-1 text-sm rounded-lg border">
+                        {t('docConsult.printConsult')}
+                      </button>
                     )}
 
                     {consult.notes && (
@@ -768,6 +788,7 @@ const ConsultPage: React.FC = () => {
       )}
 
       {activeTab === 'new-request' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleRequestConsult(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
@@ -822,20 +843,18 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="consult-urgency" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docConsult.urgencyLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="consult-urgency"
+                  label={t('docConsult.urgencyLabel')}
                   value={newConsult.urgency}
-                  onChange={(e) => setNewConsult({ ...newConsult, urgency: e.target.value as ConsultUrgency })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="routine">{t('docConsult.urgency_routine')}</option>
-                  <option value="urgent">{t('docConsult.urgency_urgent')}</option>
-                  <option value="emergent">{t('docConsult.urgency_emergent')}</option>
-                  <option value="stat">{t('docConsult.urgency_stat')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewConsult({ ...newConsult, urgency: next as ConsultUrgency }); }}
+                  options={[
+                    { value: 'routine', label: t('docConsult.urgency_routine') },
+                    { value: 'urgent', label: t('docConsult.urgency_urgent') },
+                    { value: 'emergent', label: t('docConsult.urgency_emergent') },
+                    { value: 'stat', label: t('docConsult.urgency_stat') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -958,14 +977,14 @@ const ConsultPage: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={handleRequestConsult}
-            className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold mt-6 flex items-center justify-center gap-2"
+          <button type="submit" aria-disabled={submitPending || undefined}
+            className="aria-disabled:cursor-wait w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold mt-6 flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />
             {t('docConsult.submitRequestBtn')}
           </button>
         </div>
+        </form>
       )}
     </div>
   );

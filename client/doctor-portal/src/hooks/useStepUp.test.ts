@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useStepUp, stepUpDemandOf } from '@medichain/shared';
-import { mfaChallenge, getSessionAssurance } from '../../../shared/src/api/endpoints';
+import {
+  mfaChallenge,
+  getSessionAssurance,
+  requestTransactionChallenge,
+  verifyTransactionChallenge,
+} from '../../../shared/src/api/endpoints';
+import { deriveAuthProof } from '../../../shared/src/auth/proof';
+import { rememberLoginId, forgetLoginId } from '../../../shared/src/auth/loginId';
 import { getApiClient } from '../../../shared/src/api/client';
 
 // The hook lives in `@medichain/shared`; the test lives here because that is
@@ -17,7 +24,10 @@ import { getApiClient } from '../../../shared/src/api/client';
 vi.mock('../../../shared/src/api/endpoints', () => ({
   mfaChallenge: vi.fn(),
   getSessionAssurance: vi.fn(),
+  requestTransactionChallenge: vi.fn(),
+  verifyTransactionChallenge: vi.fn(),
 }));
+vi.mock('../../../shared/src/auth/proof', () => ({ deriveAuthProof: vi.fn() }));
 vi.mock('../../../shared/src/api/client', () => ({ getApiClient: vi.fn() }));
 
 /**
@@ -35,6 +45,8 @@ describe('stepUpDemandOf', () => {
   it('recognises both refusals, at the top level and nested under data.error', () => {
     expect(stepUpDemandOf(stepUpRefusal)).toBe('step_up');
     expect(stepUpDemandOf(enrolRefusal)).toBe('enrollment');
+    // A step-up is always a TOTP code now; there is no second kind of demand.
+    expect(stepUpDemandOf({ code: 'STEP_UP_REQUIRED' })).toBe('step_up');
     expect(stepUpDemandOf({ data: { error: { code: 'MFA_REQUIRED' } } })).toBe('step_up');
   });
 
@@ -49,7 +61,105 @@ describe('useStepUp', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getApiClient).mockReturnValue({ setTokens } as never);
+    vi.mocked(getApiClient).mockReturnValue({
+      setTokens, getAccessToken: () => 'session-token', getUserId: () => 'registered-user',
+    } as never);
+  });
+
+  it('completes a Class C authorization with a TOTP code', async () => {
+    vi.mocked(requestTransactionChallenge).mockResolvedValue({
+      challenge_id: 'c1', expires_in_secs: 120, required_factor: 'totp',
+    });
+    vi.mocked(verifyTransactionChallenge).mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useStepUp());
+
+    let authorized!: Promise<string | undefined>;
+    await act(async () => {
+      authorized = result.current.authorize({ action: 'roles.assign', method: 'POST', path: '/api/roles/assign' });
+    });
+    await waitFor(() => expect(result.current.demand).toBe('transaction'));
+    expect(result.current.requiredFactor).toBe('totp');
+
+    await act(async () => { await result.current.submitCode('123456'); });
+
+    expect(verifyTransactionChallenge).toHaveBeenCalledWith({ challenge_id: 'c1', code: '123456' });
+    await expect(authorized).resolves.toBe('c1');
+    expect(result.current.demand).toBeNull();
+  });
+
+  it('completes a Class C authorization with the password when no authenticator is enrolled', async () => {
+    rememberLoginId('EMP-7');
+    vi.mocked(requestTransactionChallenge).mockResolvedValue({
+      challenge_id: 'c2', expires_in_secs: 120, required_factor: 'password',
+    });
+    vi.mocked(deriveAuthProof).mockResolvedValue('proof-hex');
+    vi.mocked(verifyTransactionChallenge).mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useStepUp());
+
+    let authorized!: Promise<string | undefined>;
+    await act(async () => {
+      authorized = result.current.authorize({ action: 'roles.assign', method: 'POST', path: '/api/roles/assign' });
+    });
+    await waitFor(() => expect(result.current.requiredFactor).toBe('password'));
+    expect(result.current.needsLoginId).toBe(false);
+
+    await act(async () => { await result.current.submitPassword('correct horse battery'); });
+
+    // The proof, never the password, is what is sent.
+    expect(deriveAuthProof).toHaveBeenCalledWith('correct horse battery', 'EMP-7');
+    expect(verifyTransactionChallenge).toHaveBeenCalledWith({ challenge_id: 'c2', auth_proof: 'proof-hex' });
+    await expect(authorized).resolves.toBe('c2');
+    forgetLoginId();
+  });
+
+  it('does not accept a code for a challenge that requires the password', async () => {
+    vi.mocked(requestTransactionChallenge).mockResolvedValue({
+      challenge_id: 'c3', expires_in_secs: 120, required_factor: 'password',
+    });
+    const { result } = renderHook(() => useStepUp());
+    await act(async () => {
+      void result.current.authorize({ action: 'a', method: 'POST', path: '/p' });
+    });
+    await waitFor(() => expect(result.current.demand).toBe('transaction'));
+
+    await act(async () => { await result.current.submitCode('123456'); });
+
+    expect(verifyTransactionChallenge).not.toHaveBeenCalled();
+  });
+
+  it('keeps the transaction open with a message when the code is refused', async () => {
+    vi.mocked(requestTransactionChallenge).mockResolvedValue({
+      challenge_id: 'c4', expires_in_secs: 120, required_factor: 'totp',
+    });
+    vi.mocked(verifyTransactionChallenge).mockRejectedValue(new Error('Authorization rejected'));
+    const { result } = renderHook(() => useStepUp());
+    await act(async () => {
+      void result.current.authorize({ action: 'a', method: 'POST', path: '/p' });
+    });
+    await waitFor(() => expect(result.current.demand).toBe('transaction'));
+
+    await act(async () => { await result.current.submitCode('000000'); });
+
+    expect(result.current.error).toMatch(/rejected/i);
+    expect(result.current.demand).toBe('transaction');
+  });
+
+  it('resolves a cancelled authorization with undefined', async () => {
+    vi.mocked(requestTransactionChallenge).mockResolvedValue({
+      challenge_id: 'c5', expires_in_secs: 120, required_factor: 'totp',
+    });
+    const { result } = renderHook(() => useStepUp());
+    let authorized!: Promise<string | undefined>;
+    await act(async () => {
+      authorized = result.current.authorize({ action: 'a', method: 'POST', path: '/p' });
+    });
+    await waitFor(() => expect(result.current.demand).toBe('transaction'));
+
+    act(() => { result.current.cancel(); });
+
+    await expect(authorized).resolves.toBeUndefined();
+    expect(verifyTransactionChallenge).not.toHaveBeenCalled();
+    expect(result.current.demand).toBeNull();
   });
 
   it('passes a successful action straight through', async () => {

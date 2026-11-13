@@ -21,7 +21,7 @@
 //! const qrCodeBase64 = generate_qr_code("MCHI-2026-1234-5678");
 //! ```
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 mod hex;
 

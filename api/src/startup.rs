@@ -69,6 +69,37 @@ pub fn validate_runtime_posture(
     Ok(())
 }
 
+/// A production process must use the persistent repository and explicit HTTPS
+/// browser origins. A connected database alone does not select that backend.
+pub fn validate_production_storage_and_origins(
+    app_env: &str,
+    storage: &str,
+    database_url: &str,
+    allowed_origins: &str,
+) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if !production {
+        return Ok(());
+    }
+    if storage.trim() != "postgres" || database_url.trim().is_empty() {
+        return Err(
+            "APP_ENV=production requires MEDICHAIN_STORAGE=postgres and DATABASE_URL".into(),
+        );
+    }
+    let origins: Vec<&str> = allowed_origins.split(',').map(str::trim).collect();
+    if origins.is_empty()
+        || origins
+            .iter()
+            .any(|origin| !origin.starts_with("https://") || origin.len() <= "https://".len())
+    {
+        return Err("APP_ENV=production requires explicit HTTPS ALLOWED_ORIGINS".into());
+    }
+    Ok(())
+}
+
 /// Refuse to start in production with an SMTP transport that would send a
 /// breach notification in clear text.
 ///
@@ -127,6 +158,12 @@ pub fn validate_production_secrets() -> Result<(), String> {
     let app_env = std::env::var("APP_ENV")
         .unwrap_or_else(|_| if is_demo { "development" } else { "production" }.to_string());
     validate_runtime_posture(&app_env, is_demo, require_signatures)?;
+    validate_production_storage_and_origins(
+        &app_env,
+        &std::env::var("MEDICHAIN_STORAGE").unwrap_or_default(),
+        &std::env::var("DATABASE_URL").unwrap_or_default(),
+        &std::env::var("ALLOWED_ORIGINS").unwrap_or_default(),
+    )?;
     validate_telehealth_configuration(&app_env)?;
     validate_identity_verification_configuration(&app_env)?;
     validate_smtp_configuration(&app_env)?;
@@ -312,16 +349,19 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("║   ██║ ╚═╝ ██║███████╗██████╔╝██║╚██████╗██║  ██║██║  ██║██║██║ ╚█║");
     println!("║   ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝ ╚╝║");
     println!("║                                                                  ║");
-    println!("║             Blockchain Health ID • Emergency Access              ║");
+    println!("║             National Health ID • Emergency Access                ║");
     println!("║                                                                  ║");
     println!("╚══════════════════════════════════════════════════════════════════╝");
     println!();
     println!("  API Server starting on http://{}", bind_addr);
     println!("  Demo endpoint: http://{}/api/demo", bind_addr);
     println!("  Health check:  http://{}/health", bind_addr);
-    println!("  IPFS health:   http://{}/api/ipfs/health", bind_addr);
+    println!(
+        "  Document storage health (legacy path): http://{}/api/ipfs/health",
+        bind_addr
+    );
     println!();
-    println!("  IPFS Endpoints:");
+    println!("  Encrypted Document Endpoints:");
     println!("     POST /api/records/upload      - Upload encrypted medical record");
     println!("     POST /api/records/download    - Download decrypted record");
     println!("     GET  /api/records/{{patient}}  - List patient records");
@@ -387,90 +427,8 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     POST /api/medical-id/{{id}}/preferences - Update preferences");
     println!("     POST /api/medical-id/{{id}}/emergency-notify - Trigger family alert");
     println!();
-    println!("  © 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026");
+    println!("  © 2026 Lukau Invasion (Pty) Ltd");
     println!();
-}
-
-/// The Substrate well-known development accounts.
-///
-/// Their secrets are published in the Substrate source and in every tutorial, so
-/// anyone at all can sign as one.
-const DEV_ACCOUNT_SURIS: [&str; 6] = [
-    "//Alice",
-    "//Bob",
-    "//Charlie",
-    "//Dave",
-    "//Eve",
-    "//Ferdie",
-];
-
-/// SS58 addresses of the well-known development accounts, derived rather than
-/// hardcoded so the list cannot drift from the keys it is meant to describe.
-pub fn dev_account_addresses() -> Vec<String> {
-    use sp_core::{crypto::Ss58Codec, sr25519, Pair};
-    DEV_ACCOUNT_SURIS
-        .iter()
-        .filter_map(|suri| sr25519::Pair::from_string(suri, None).ok())
-        .map(|pair| pair.public().to_ss58check_with_version(42u8.into()))
-        .collect()
-}
-
-fn privileged_dev_account_error(offenders: &[(String, String)]) -> String {
-    let mut roles: Vec<&str> = offenders.iter().map(|(_, role)| role.as_str()).collect();
-    roles.sort_unstable();
-    roles.dedup();
-    format!(
-        "Refusing to start: {} well-known Substrate development account(s) hold privileged role(s) \
-         in this deployment ({}). Their private keys are published, so anyone could authenticate \
-         as them. Deactivate or delete these users, or set IS_DEMO=true if this is a demonstration \
-         instance. The affected wallet addresses are intentionally omitted from operational output.",
-        offenders.len(),
-        roles.join(", ")
-    )
-}
-
-/// Refuse to start a production instance where a well-known dev key holds a
-/// privileged role.
-///
-/// `blockchain.rs` already refuses to *sign chain extrinsics* as Alice without
-/// `SUBSTRATE_ALLOW_DEV_SIGNER`. This closes the other half, which is worse:
-/// `//Alice` seeded as an active `Admin` in the `users` table means anyone who
-/// has read the Substrate docs can authenticate as an administrator of this
-/// deployment — create users, assign roles, read every registry. The key is not
-/// secret and never was.
-///
-/// Demo mode is exempt, deliberately: the dev preset grants `//Alice` Admin
-/// because it is the API's default dev signer, and the browser-test fixtures
-/// depend on it.
-pub async fn validate_no_privileged_dev_accounts(
-    pool: &sqlx::PgPool,
-    is_demo: bool,
-) -> Result<(), String> {
-    if is_demo {
-        return Ok(());
-    }
-
-    let addresses = dev_account_addresses();
-    if addresses.is_empty() {
-        return Ok(());
-    }
-
-    let offenders: Vec<(String, String)> = sqlx::query_as(
-        "SELECT wallet_address, role FROM users \
-         WHERE wallet_address = ANY($1) \
-           AND status = 'active' \
-           AND role IN ('Admin', 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist')",
-    )
-    .bind(&addresses)
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
-    if offenders.is_empty() {
-        return Ok(());
-    }
-
-    Err(privileged_dev_account_error(&offenders))
 }
 
 /// Refuse to serve two organisations from one instance (ADR-0007).
@@ -665,7 +623,10 @@ mod clinic_offset_tests {
 
 #[cfg(test)]
 mod runtime_posture_tests {
-    use super::{validate_identity_verification_mode, validate_runtime_posture};
+    use super::{
+        validate_identity_verification_mode, validate_production_storage_and_origins,
+        validate_runtime_posture,
+    };
 
     #[test]
     fn production_rejects_demo_mode() {
@@ -682,6 +643,35 @@ mod runtime_posture_tests {
     #[test]
     fn production_accepts_secure_posture() {
         assert!(validate_runtime_posture("production", false, true).is_ok());
+    }
+
+    #[test]
+    fn production_requires_persistent_repositories_and_https_origins() {
+        let check = validate_production_storage_and_origins;
+        assert!(check(
+            "production",
+            "",
+            "postgres://host/db",
+            "https://clinic.example"
+        )
+        .is_err());
+        assert!(check("production", "postgres", "", "https://clinic.example").is_err());
+        assert!(check("production", "postgres", "postgres://host/db", "").is_err());
+        assert!(check(
+            "production",
+            "postgres",
+            "postgres://host/db",
+            "http://localhost"
+        )
+        .is_err());
+        assert!(check(
+            "production",
+            "postgres",
+            "postgres://host/db",
+            "https://clinic.example"
+        )
+        .is_ok());
+        assert!(check("development", "", "", "").is_ok());
     }
 
     #[test]
@@ -705,46 +695,6 @@ mod runtime_posture_tests {
     fn non_production_allows_identity_verification_test_modes() {
         assert!(validate_identity_verification_mode("development", None).is_ok());
         assert!(validate_identity_verification_mode("test", Some("stub")).is_ok());
-    }
-}
-
-#[cfg(test)]
-mod dev_account_tests {
-    use super::*;
-
-    /// Pins the canonical well-known development addresses.
-    ///
-    /// `validate_no_privileged_dev_accounts` compares database rows against
-    /// these, so a derivation that silently changed would turn the guard into a
-    /// no-op — it would look like it was working and match nothing. Alice's
-    /// address is the one every Substrate tutorial prints, so a regression is
-    /// obvious rather than merely self-consistent.
-    #[test]
-    fn well_known_dev_addresses_are_the_canonical_ones() {
-        let addresses = dev_account_addresses();
-        assert_eq!(addresses.len(), 6, "all six dev accounts must derive");
-        assert!(
-            addresses.contains(&"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string()),
-            "//Alice must derive to her published address, got: {addresses:?}"
-        );
-        assert!(
-            addresses.contains(&"5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string()),
-            "//Bob must derive to his published address, got: {addresses:?}"
-        );
-    }
-
-    #[test]
-    fn privileged_dev_account_error_omits_wallet_addresses() {
-        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-        let error = privileged_dev_account_error(&[
-            (wallet.to_string(), "Admin".to_string()),
-            ("another-wallet".to_string(), "Doctor".to_string()),
-        ]);
-
-        assert!(!error.contains(wallet));
-        assert!(!error.contains("another-wallet"));
-        assert!(error.contains("2 well-known"));
-        assert!(error.contains("Admin, Doctor"));
     }
 }
 

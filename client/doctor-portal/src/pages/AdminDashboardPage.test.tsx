@@ -28,7 +28,7 @@ global.fetch = mockFetch;
 
 describe('AdminDashboardPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Admin',
   };
 
@@ -88,6 +88,44 @@ describe('AdminDashboardPage', () => {
       expect(screen.getByText(/Manage Roles/i)).toBeInTheDocument();
     });
   });
+
+  it('shows the audit sealing state the health read reports, in plain words', async () => {
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes('/api/health/detailed')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({
+            overall_status: 'healthy',
+            version: '1.0.0',
+            uptime_seconds: 10,
+            timestamp: '2026-09-29T10:00:00Z',
+            services: [],
+            audit_seal: {
+              unsealed_events: 7,
+              last_sealed_at: '2026-09-29T09:00:00Z',
+              last_exported_at: null,
+              sink: 'none',
+              signing: 'unsigned',
+            },
+          }),
+        });
+      }
+      return base(url, init);
+    });
+    render(
+      <MemoryRouter>
+        <AdminDashboardPage />
+      </MemoryRouter>
+    );
+
+    const panel = await screen.findByTestId('audit-seal-status');
+    expect(panel).toHaveTextContent('7 entries waiting to be sealed');
+    expect(panel).toHaveTextContent('Nothing exported yet');
+    expect(panel).toHaveTextContent('without a signature (weaker)');
+  });
+
   /**
    * The audit table is the one screen whose entire job is showing who touched
    * which record and when. Its row type declared `access_id`, `access_type`,

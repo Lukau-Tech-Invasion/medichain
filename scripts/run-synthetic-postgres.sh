@@ -13,8 +13,8 @@ cd "$(dirname "$0")/.."
 
 export IS_DEMO=true
 export MEDICHAIN_DEV_MODE=true
-export REQUIRE_SIGNATURES=false
-export BLOCKCHAIN_ENABLED=false
+
+export AUDIT_CHECKPOINT_SINK=none
 export DISPENSING_POLICY_PATH="$(pwd)/api/data/dispensing_policy.example.json"
 
 export MEDICHAIN_STORAGE=postgres

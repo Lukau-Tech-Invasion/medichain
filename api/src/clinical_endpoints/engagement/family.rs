@@ -19,7 +19,7 @@ pub async fn create_family_group(
     req: web::Json<CreateFamilyGroupRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -85,6 +85,9 @@ pub async fn create_family_group(
 #[derive(Debug, Deserialize)]
 pub struct AddFamilyMemberRequest {
     pub patient_id: String,
+    /// Optional on the form. Anything unrecognised, blank included, is
+    /// stored as `Other`; requiring it made a blank field a 400.
+    #[serde(default)]
     pub relationship: String,
     pub access_level: String,
     pub can_book_appointments: Option<bool>,
@@ -104,7 +107,7 @@ pub async fn add_family_member(
     let group_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -218,7 +221,7 @@ pub async fn get_family_group(
     let group_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -276,7 +279,7 @@ pub async fn get_my_family_groups(
     query: web::Query<crate::pagination::CursorQuery>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -320,7 +323,7 @@ pub async fn remove_family_member(
     let (group_id, patient_id) = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

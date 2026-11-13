@@ -1,3 +1,4 @@
+import RecordPrintPreview from '../components/RecordPrintPreview';
 import React, { useState, useEffect } from 'react';
 import {
   AlertOctagon,
@@ -19,11 +20,12 @@ import {
 import {
   listIncidentReports,
   createIncidentReport,
+  type CreateIncidentReportRequest,
   useTranslation,
   Input,
   Textarea,
   useValidatedForm,
-  incidentReportSchema,
+  incidentReportSchema, ModalPanel, ChoiceChips
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -45,7 +47,7 @@ interface Incident {
   type: IncidentType;
   severity: IncidentSeverity;
   status: IncidentStatus;
-  dateTime: Date;
+  dateTime: Date | null;
   location: string;
   department: string;
   description: string;
@@ -56,7 +58,7 @@ interface Incident {
   witnesses: string[];
   immediateActions: string;
   reportedBy: string;
-  reportedAt: Date;
+  reportedAt: Date | null;
   assignedTo?: string;
   followUpActions: { action: string; dueDate: Date; completed: boolean }[];
   rootCause?: string;
@@ -92,7 +94,7 @@ interface IncidentRow {
 function toIncident(row: IncidentRow): Incident {
   const asDate = (value: string | null | undefined) => {
     const d = new Date(value || '');
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? null : d;
   };
   // The API's vocabulary is snake_case (`medication_error`); this page's is
   // hyphenated (`medication-error`). Normalise on the way in, or every badge
@@ -120,6 +122,7 @@ function toIncident(row: IncidentRow): Incident {
 }
 
 const IncidentReportPage: React.FC = () => {
+  const [printRecord, setPrintRecord] = useState<unknown>(null);
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'dashboard'>('list');
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -134,12 +137,16 @@ const IncidentReportPage: React.FC = () => {
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
 
+  // Type, severity and department start unchosen (rule 9). They opened on
+  // "Patient Fall", "minor" and the emergency department, so the schema's
+  // required check could never fire and an untouched report was filed as a
+  // minor fall in the ED.
   const [formData, setFormData] = useState({
-    type: 'fall' as IncidentType,
-    severity: 'minor' as IncidentSeverity,
+    type: '' as IncidentType | '',
+    severity: '' as IncidentSeverity | '',
     dateTime: '',
     location: '',
-    department: 'emergency',
+    department: '',
     description: '',
     patientInvolved: false,
     patientId: '',
@@ -178,25 +185,27 @@ const IncidentReportPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(incidentReportSchema);
 
   const handleSubmitReport = async () => {
+    if (isSubmitting) return;
     // Was a toast naming three fields at once, which is the least useful place
     // to put an error: it is not attached to any control, and this form is a
     // three-step wizard, so the offending field may not even be on screen.
-    if (!validate(formData)) {
+    const validationData = { ...formData, incidentType: formData.type };
+    if (!validate(validationData)) {
+      const result = incidentReportSchema.safeParse(validationData);
+      const firstField = result.success ? undefined : result.error.issues[0]?.path[0];
+      setFormStep(firstField === 'description' ? 2 : 1);
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const payload = {
-        id: `INC-${Date.now()}`,
+      // Only what the wizard collected. The id, reporter, report time and
+      // status are the server's to decide; it never read the ones sent here.
+      const payload: CreateIncidentReportRequest = {
         ...formData,
         dateTime: new Date(formData.dateTime).toISOString(),
-        reportedBy: user?.username || 'Healthcare Provider',
-        reportedAt: new Date().toISOString(),
-        status: 'open' as IncidentStatus,
         staffInvolved: formData.staffInvolved.split(',').map(s => s.trim()).filter(Boolean),
         witnesses: formData.witnesses.split(',').map(s => s.trim()).filter(Boolean),
-        followUpActions: [],
       };
 
       await createIncidentReport(payload);
@@ -220,8 +229,8 @@ const IncidentReportPage: React.FC = () => {
   const resetForm = () => {
     setFormStep(1);
     setFormData({
-      type: 'fall',
-      severity: 'minor',
+      type: '',
+      severity: '',
       dateTime: '',
       location: '',
       department: '',
@@ -296,15 +305,21 @@ const IncidentReportPage: React.FC = () => {
     return matchesSearch && matchesType && matchesStatus;
   });
 
+  const reportingEnd = Date.now();
+  const recentIncidents = incidents.filter(incident => {
+    const recordedAt = incident.dateTime?.getTime();
+    return recordedAt !== undefined && recordedAt >= reportingEnd - 30 * 24 * 60 * 60 * 1000 && recordedAt <= reportingEnd;
+  });
   const stats = {
     open: incidents.filter(i => i.status === 'open').length,
     investigating: incidents.filter(i => i.status === 'under-investigation').length,
-    thisWeek: incidents.filter(i => i.dateTime > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length,
+    thisWeek: recentIncidents.filter(i => i.dateTime!.getTime() >= reportingEnd - 7 * 24 * 60 * 60 * 1000).length,
     sentinel: incidents.filter(i => i.severity === 'sentinel').length
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <RecordPrintPreview title="Incident report" record={printRecord} onClose={() => setPrintRecord(null)} />
       {/* Header */}
       <div className="bg-gradient-to-r from-rose-700 to-red-800 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -381,7 +396,7 @@ const IncidentReportPage: React.FC = () => {
               <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-              <input
+              <input aria-label={t('docIncidentReport.searchPh')}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -389,7 +404,7 @@ const IncidentReportPage: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border rounded-lg"
               />
             </div>
-            <select
+            <select aria-label={t('common.filterByType')}
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
               className="px-4 py-2 border rounded-lg"
@@ -402,17 +417,18 @@ const IncidentReportPage: React.FC = () => {
               <option value="behavioral">{t('docIncidentReport.typeOption_behavioral')}</option>
               <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
             </select>
-            <select
+            <ChoiceChips
+              label={t('common.filterByStatus')}
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-              className="px-4 py-2 border rounded-lg"
-            >
-              <option value="all">{t('docIncidentReport.allStatuses')}</option>
-              <option value="open">{t('docIncidentReport.status_open')}</option>
-              <option value="under-investigation">{t('docIncidentReport.status_under-investigation')}</option>
-              <option value="pending-review">{t('docIncidentReport.status_pending-review')}</option>
-              <option value="closed">{t('docIncidentReport.status_closed')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setStatusFilter(next as typeof statusFilter); }}
+              options={[
+                { value: 'all', label: t('docIncidentReport.allStatuses') },
+                { value: 'open', label: t('docIncidentReport.status_open') },
+                { value: 'under-investigation', label: t('docIncidentReport.status_under-investigation') },
+                { value: 'pending-review', label: t('docIncidentReport.status_pending-review') },
+                { value: 'closed', label: t('docIncidentReport.status_closed') },
+              ]}
+            />
           </div>
 
           <div className="space-y-4">
@@ -428,7 +444,7 @@ const IncidentReportPage: React.FC = () => {
                     </div>
                     <p className="text-sm text-content-muted mt-1 flex items-center gap-2 min-h-[24px] py-1">
                       <Calendar className="w-4 h-4" />
-                      {incident.dateTime.toLocaleString()}
+                      {incident.dateTime?.toLocaleString() ?? 'Not recorded'}
                       <MapPin className="w-4 h-4 ml-2" />
                       {incident.location}
                     </p>
@@ -437,7 +453,7 @@ const IncidentReportPage: React.FC = () => {
                     <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="View incident details">
                       <Eye className="w-5 h-5 text-content-muted" />
                     </button>
-                    <button type="button" onClick={() => window.print()} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
+                    <button type="button" onClick={() => setPrintRecord(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
                       <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
@@ -479,6 +495,7 @@ const IncidentReportPage: React.FC = () => {
       {/* New Incident Tab */}
       {activeTab === 'new' && (
         <div className="p-6">
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmitReport(); }} noValidate>
           <div className="bg-surface rounded-lg shadow p-6 max-w-3xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">{t('docIncidentReport.reportNewIncidentHeading')}</h2>
@@ -505,9 +522,12 @@ const IncidentReportPage: React.FC = () => {
                     <select
                       id="inc-incident-type"
                       value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as IncidentType })}
+                      onChange={(e) => { clearField('incidentType'); setFormData({ ...formData, type: e.target.value as IncidentType | '' }); }}
+                      aria-invalid={errors.incidentType ? true : undefined}
+                      aria-describedby={errors.incidentType ? 'inc-incident-type-error' : undefined}
                       className="w-full border rounded-lg px-3 py-2"
                     >
+                      <option value="">{t('docIncidentReport.selectTypePh')}</option>
                       <option value="fall">{t('docIncidentReport.typeOption_fall')}</option>
                       <option value="medication-error">{t('docIncidentReport.typeOption_medication-error')}</option>
                       <option value="equipment-failure">{t('docIncidentReport.typeOption_equipment-failure')}</option>
@@ -516,21 +536,25 @@ const IncidentReportPage: React.FC = () => {
                       <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
                       <option value="other">{t('docIncidentReport.typeOption_other')}</option>
                     </select>
+                    {errors.incidentType && (
+                      <p id="inc-incident-type-error" className="mt-1 text-sm text-critical-subtle-fg">{errors.incidentType}</p>
+                    )}
                   </div>
                   <div>
-                    <label htmlFor="inc-severity" className="block text-sm font-medium mb-1">{t('docIncidentReport.severityRequired')} *</label>
-                    <select
+                    <ChoiceChips
                       id="inc-severity"
-                      value={formData.severity}
-                      onChange={(e) => setFormData({ ...formData, severity: e.target.value as IncidentSeverity })}
-                      className="w-full border rounded-lg px-3 py-2"
-                    >
-                      <option value="near-miss">{t('docIncidentReport.severityOption_near-miss')}</option>
-                      <option value="minor">{t('docIncidentReport.severityOption_minor')}</option>
-                      <option value="moderate">{t('docIncidentReport.severityOption_moderate')}</option>
-                      <option value="major">{t('docIncidentReport.severityOption_major')}</option>
-                      <option value="sentinel">{t('docIncidentReport.severityOption_sentinel')}</option>
-                    </select>
+                      label={t('docIncidentReport.severityRequired')}
+                      value={formData.severity || undefined}
+                      error={errors.severity}
+                      onChange={(next) => { clearField('severity'); setFormData({ ...formData, severity: (next ?? '') as IncidentSeverity | '' }); }}
+                      options={[
+                        { value: 'near-miss', label: t('docIncidentReport.severityOption_near-miss') },
+                        { value: 'minor', label: t('docIncidentReport.severityOption_minor') },
+                        { value: 'moderate', label: t('docIncidentReport.severityOption_moderate') },
+                        { value: 'major', label: t('docIncidentReport.severityOption_major') },
+                        { value: 'sentinel', label: t('docIncidentReport.severityOption_sentinel') },
+                      ]}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -545,16 +569,20 @@ const IncidentReportPage: React.FC = () => {
                     required
                   />
                   <div>
-                    <label htmlFor="inc-department" className="block text-sm font-medium mb-1">{t('docIncidentReport.departmentRequired')} *</label>
-                    <select id="inc-department" className="w-full border rounded-lg px-3 py-2"
-                      value={formData.department}
-                      onChange={(e) => setFormData(f => ({ ...f, department: e.target.value }))}>
-                      <option value="emergency">{t('docIncidentReport.dept_emergency')}</option>
-                      <option value="med-surg">{t('docIncidentReport.dept_medSurg')}</option>
-                      <option value="icu">{t('docIncidentReport.dept_icu')}</option>
-                      <option value="pharmacy">{t('docIncidentReport.dept_pharmacy')}</option>
-                      <option value="radiology">{t('docIncidentReport.dept_radiology')}</option>
-                    </select>
+                    <ChoiceChips
+                      id="inc-department"
+                      label={t('docIncidentReport.departmentRequired')}
+                      value={formData.department || undefined}
+                      error={errors.department}
+                      onChange={(next) => { clearField('department'); setFormData(f => ({ ...f, department: next ?? '' })); }}
+                      options={[
+                        { value: 'emergency', label: t('docIncidentReport.dept_emergency') },
+                        { value: 'med-surg', label: t('docIncidentReport.dept_medSurg') },
+                        { value: 'icu', label: t('docIncidentReport.dept_icu') },
+                        { value: 'pharmacy', label: t('docIncidentReport.dept_pharmacy') },
+                        { value: 'radiology', label: t('docIncidentReport.dept_radiology') },
+                      ]}
+                    />
                   </div>
                 </div>
                 <Input
@@ -641,21 +669,20 @@ const IncidentReportPage: React.FC = () => {
             )}
 
             <div className="flex justify-between mt-6 pt-6 border-t">
-              <button
+              <button type="button"
                 onClick={() => setFormStep(Math.max(1, formStep - 1))}
                 className={`px-4 py-2 border rounded-lg ${formStep === 1 ? 'invisible' : ''}`}
               >
                 {t('docIncidentReport.backButton')}
               </button>
               {formStep < 3 ? (
-                <button onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium">
+                <button type="button" onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium">
                   {t('docIncidentReport.continueButton')}
                 </button>
               ) : (
-                <button
-                  onClick={handleSubmitReport}
-                  disabled={isSubmitting}
-                  className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium flex items-center gap-2"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium flex items-center gap-2"
                 >
                   {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   {t('docIncidentReport.submitReportButton')}
@@ -663,6 +690,7 @@ const IncidentReportPage: React.FC = () => {
               )}
             </div>
           </div>
+          </form>
         </div>
       )}
 
@@ -670,31 +698,31 @@ const IncidentReportPage: React.FC = () => {
       {activeTab === 'dashboard' && (
         <div className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-surface rounded-lg shadow p-6">
+            <section aria-label="Incident type counts" className="bg-surface rounded-lg shadow p-6">
               <h3 className="font-semibold mb-4">{t('docIncidentReport.incidentsByTypeHeading')}</h3>
               <div className="space-y-3">
-                {['fall', 'medication-error', 'equipment-failure', 'security'].map(type => (
+                {['fall', 'medication-error', 'equipment-failure', 'security', 'behavioral', 'exposure', 'other'].map(type => (
                   <div key={type} className="flex items-center gap-3">
                     <div className="w-24 text-sm">{t(`docIncidentReport.type_${type}`)}</div>
                     <div className="flex-1 h-4 bg-surface-sunken rounded-full overflow-hidden">
-                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.random() * 80 + 20}%` }} />
+                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${recentIncidents.length ? recentIncidents.filter(i => i.type === type).length / recentIncidents.length * 100 : 0}%` }} />
                     </div>
-                    <div className="w-8 text-sm text-right">{Math.floor(Math.random() * 10 + 1)}</div>
+                    <div className="w-8 text-sm text-right">{recentIncidents.filter(i => i.type === type).length}</div>
                   </div>
                 ))}
               </div>
-            </div>
-            <div className="bg-surface rounded-lg shadow p-6">
+            </section>
+            <section aria-label="Incident severity counts" className="bg-surface rounded-lg shadow p-6">
               <h3 className="font-semibold mb-4">{t('docIncidentReport.severityDistributionHeading')}</h3>
               <div className="flex justify-around">
-                {['near-miss', 'minor', 'moderate', 'major'].map(sev => (
+                {['near-miss', 'minor', 'moderate', 'major', 'sentinel'].map(sev => (
                   <div key={sev} className="text-center">
-                    <div className="text-2xl font-bold text-content-secondary">{Math.floor(Math.random() * 10 + 1)}</div>
+                    <div className="text-2xl font-bold text-content-secondary">{recentIncidents.filter(i => i.severity === sev).length}</div>
                     <div className="text-xs text-content-muted">{t(`docIncidentReport.severity_${sev}`)}</div>
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         </div>
       )}
@@ -702,10 +730,9 @@ const IncidentReportPage: React.FC = () => {
 
       {/* Detail Modal */}
       {selectedIncident && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="incident-report-dialog-title" onClose={() => setSelectedIncident(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold">{selectedIncident.id}</h2>
+              <h2 id="incident-report-dialog-title" className="text-xl font-semibold">{selectedIncident.id}</h2>
               <button onClick={() => setSelectedIncident(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
             <div className="p-6 space-y-4">
@@ -729,8 +756,7 @@ const IncidentReportPage: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

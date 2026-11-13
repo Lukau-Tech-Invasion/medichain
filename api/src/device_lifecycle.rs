@@ -134,6 +134,17 @@ impl DeviceLifecycleStore {
         Ok(device.clone())
     }
 
+    /// Note that a device was just used to open a record.
+    pub fn mark_seen(&self, id: &str, now: DateTime<Utc>) -> Result<(), &'static str> {
+        let mut devices = self
+            .devices
+            .write()
+            .map_err(|_| "Device store is unavailable")?;
+        let device = devices.get_mut(id).ok_or("Device not found")?;
+        device.last_seen_at = Some(now);
+        Ok(())
+    }
+
     /// Revoke a lost, stolen, compromised, or retired device immediately.
     pub fn revoke(
         &self,

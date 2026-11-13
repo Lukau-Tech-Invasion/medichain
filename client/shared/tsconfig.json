@@ -6,7 +6,7 @@
     "moduleResolution": "bundler",
     "types": ["vite/client"],
     "allowImportingTsExtensions": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "jsx": "react-jsx",
     "esModuleInterop": true,

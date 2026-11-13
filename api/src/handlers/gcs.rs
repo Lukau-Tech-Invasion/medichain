@@ -39,7 +39,7 @@ pub async fn create_gcs_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -160,13 +160,13 @@ pub async fn create_gcs_assessment(
         motor_response: req.motor_response as i32,
         total_score: total_score as i32,
         interpretation: interpretation.clone(),
-        notes: None,
+        notes: req.notes.clone(),
         pupil_assessment: req
             .pupil_assessment
             .as_ref()
             .map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
         assessed_by: current_user_id.clone(),
-        assessed_at: Utc::now(),
+        assessed_at: crate::support::clinical_time(&http_req),
         created_at: Utc::now(),
         updated_at: Utc::now(),
         facility_id: None,
@@ -174,6 +174,10 @@ pub async fn create_gcs_assessment(
 
     if let Err(e) = data.repositories.gcs_assessments.create(entity).await {
         log::error!("Failed to store GCS assessment in repository: {}", e);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "The GCS assessment could not be saved. Please try again.".to_string(),
+            code: "DATABASE_ERROR".to_string(),
+        });
     }
 
     // Log access in repository
@@ -189,9 +193,10 @@ pub async fn create_gcs_assessment(
         is_emergency_access: is_comatose,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
 
     if let Err(response) = crate::support::require_durable_audit(&data, log_entity).await {
@@ -229,7 +234,7 @@ pub async fn get_gcs_assessment(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -301,7 +306,7 @@ pub async fn get_patient_gcs_assessments(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }

@@ -30,12 +30,12 @@ of whether it is exploitable today.
 
 | # | Invariant |
 |---|---|
-| 1 | **No personal health information on-chain.** Only hashes, commitments, pointers, public keys and audit entries. |
+| 1 | **No personal health information in audit events or checkpoints.** Only hashes, commitments, pointers, public keys and privacy-minimised audit entries. |
 | 2 | **Roles come from the server-side user record**, never from a client-supplied header. `X-User-Id` identifies; it does not authorise. |
 | 3 | **Parameterised SQL only.** Zero string concatenation in queries. |
 | 4 | **No hardcoded secrets.** All keys and tokens come from the environment; `validate_production_secrets()` fails the boot on demo defaults outside demo mode. |
 | 5 | **Every emergency access is logged** with who, why, when, under which grant, and which fields were revealed. |
-| 6 | **PHI never crosses an external boundary.** National-ID calls send a digest; SMS carries no clinical content; the chain receives hashes. |
+| 6 | **PHI never crosses an external boundary.** National-ID calls send a digest; SMS carries no clinical content; the checkpoint sink receives signed batch headers and digests. |
 | 7 | **Fail toward care, log loudly.** An integrity-check failure returns the clinical data and records the discrepancy rather than blanking the screen on a responder. |
 
 ## Cryptography
@@ -46,7 +46,7 @@ of whether it is exploitable today.
 | Key derivation | Argon2id | Memory-hard |
 | Integrity commitments | SHA3-256 | Domain-separated and length-prefixed, so no two distinct inputs share a digest |
 | National ID digests | SHA3-256, **keyed** | Keyed so digests are not brute-forceable from a small identifier space |
-| Signatures | Sr25519 (Schnorrkel) | Substrate-native |
+| Audit batch signatures | Ed25519 | Signs each sealed audit batch (`AUDIT_SEAL_SIGNING_KEY`); see `docs/AUDIT_LOG.md` |
 | Sessions | JWT HS256 | 1 h access, 7 d refresh |
 | Step-up auth | TOTP, RFC-6238 | For ePHI access |
 | Key material | `zeroize` on drop | |

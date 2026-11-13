@@ -475,7 +475,7 @@ pub fn evaluate_cds_rules(
                     "Severe Hyponatremia",
                     &format!("Na+: {:.0} mmol/L", sodium),
                     crate::clinical::CDSSeverity::Critical,
-                    "Neurology consult, 3% NaCl if symptomatic (seizures/altered MS), correct no faster than 8-12 mEq/L per 24h to avoid osmotic demyelination",
+                    "Neurology consult, 3% NaCl if symptomatic (seizures/altered MS), correct no faster than 8-12 mmol/L per 24h to avoid osmotic demyelination",
                 ));
             }
         }

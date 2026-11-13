@@ -1,7 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { applyTextSize } from '../hooks/useTextSize';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   debugLog,
+  confirmDialog,
   getApiErrorMessage,
   listMyMobileDevices,
   mfaDisable,
@@ -16,9 +18,13 @@ import {
   setThemePreference,
   readThemePreference,
   formatDateOnly,
+  ChangePasswordDialog,
+  getRememberedLoginId,
+  notifySuccess,
 } from '@medichain/shared';
 import type { PatientMobileDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { ResearchConsentControl } from '../components/ResearchConsentControl';
 import {
   Settings,
   User,
@@ -40,6 +46,7 @@ import {
   Save,
   CheckCircle,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface NotificationSettings {
   emailNotifications: boolean;
@@ -52,7 +59,6 @@ interface NotificationSettings {
 }
 
 interface PrivacySettings {
-  shareWithResearchers: boolean;
   anonymousAnalytics: boolean;
   showProfileToProviders: boolean;
   allowEmergencyAccess: boolean;
@@ -82,7 +88,6 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 };
 
 const DEFAULT_PRIVACY: PrivacySettings = {
-  shareWithResearchers: false,
   anonymousAnalytics: true,
   showProfileToProviders: true,
   allowEmergencyAccess: true,
@@ -100,7 +105,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
  * 
  * Account settings, notifications, privacy, and app preferences.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -109,11 +114,12 @@ export function SettingsPage() {
   const logout = usePatientAuthStore(state => state.logout);
   const loadErrorMessage = t('settings.loadError');
   const [isSaving, setIsSaving] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveSucceeded, setSaveSucceeded] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [supportNotice, setSupportNotice] = useState<string | null>(null);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const logoutPending = useRef(false);
   const [mfaEnrolled, setMfaEnrolled] = useState<boolean | null>(null);
   const [mfaSecret, setMfaSecret] = useState<string | null>(null);
   const [mfaQr, setMfaQr] = useState<string | null>(null);
@@ -163,6 +169,11 @@ export function SettingsPage() {
     if (!isLoading) setSaveSucceeded(false);
   }, [notifications, privacy, appSettings, isLoading]);
 
+  // Preview the preference immediately; Save persists it for the next sign-in.
+  useEffect(() => {
+    if (!isLoading) applyTextSize(appSettings.fontSize);
+  }, [appSettings.fontSize, isLoading]);
+
   const handleSave = async () => {
     setIsSaving(true);
     setSaveSucceeded(false);
@@ -176,6 +187,7 @@ export function SettingsPage() {
         });
       }
       setSaveSucceeded(true);
+      notifySuccess('Settings saved.');
     } catch (error) {
       debugLog('PatientSettingsPage', 'Could not save settings:', error);
       setSettingsError(t('settings.saveError'));
@@ -184,9 +196,23 @@ export function SettingsPage() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
+  /** Confirm once, then finish session revocation before leaving the page. */
+  const handleLogout = async () => {
+    if (logoutPending.current) return;
+    logoutPending.current = true;
+    try {
+      const confirmed = await confirmDialog({
+        title: t('settings.signOutConfirm'),
+        message: t('settings.signOutConfirmBody'),
+        confirmLabel: t('settings.signOut'),
+        destructive: true,
+      });
+      if (!confirmed) return;
+      await logout();
+      navigate('/login');
+    } finally {
+      logoutPending.current = false;
+    }
   };
 
   const beginMfaEnrollment = async () => {
@@ -205,6 +231,8 @@ export function SettingsPage() {
   };
 
   const confirmMfaEnrollment = async () => {
+    if (mfaBusy) return;
+    if (!mfaCode.trim()) { setMfaError(t('settings.errCodeRequired')); return; }
     setMfaError(null);
     setMfaNotice(null);
     setMfaBusy(true);
@@ -363,11 +391,11 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('settings.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('settings.title')}</PageTitle>
           <p className="text-content-muted">{t('settings.subtitle')}</p>
         </div>
         <button
@@ -396,14 +424,23 @@ export function SettingsPage() {
             icon={User}
             label={t('settings.personalInfo')}
             description={t('settings.personalInfoDesc')}
-            onClick={() => window.location.href = '/profile'}
+            onClick={() => navigate('/profile')}
           />
 
           <SettingRow
             icon={Lock}
             label={t('settings.changePassword')}
             description={t('settings.changePasswordDesc')}
+            onClick={() => setChangingPassword(true)}
           />
+          {changingPassword && (
+            <ChangePasswordDialog
+              loginId={getRememberedLoginId() ?? ''}
+              identifierLabel={t('auth.usernameLabel')}
+              forgottenHint={t('settings.passwordForgotten')}
+              onClose={() => setChangingPassword(false)}
+            />
+          )}
 
           <div className="py-4">
             <div className="flex items-start justify-between gap-3">
@@ -444,6 +481,7 @@ export function SettingsPage() {
             )}
 
             {mfaSecret && (
+              <form onSubmit={(event) => { event.preventDefault(); void confirmMfaEnrollment(); }} noValidate>
               <div className="mt-3 space-y-3">
                 <p className="text-sm text-content-secondary">{t('settings.mfaScanInstruction')}</p>
                 {mfaQr && <img src={`data:image/png;base64,${mfaQr}`} alt={t('settings.mfaQrAlt')} className="h-40 w-40 rounded-lg border border-border bg-surface" />}
@@ -452,10 +490,11 @@ export function SettingsPage() {
                   <label htmlFor="mfa-enrollment-code" className="mb-1 block text-sm font-medium text-content">{t('settings.mfaCodeLabel')}</label>
                   <input id="mfa-enrollment-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(event) => setMfaCode(event.target.value)} className="w-40 rounded-lg border border-border-interactive px-3 py-2" />
                 </div>
-                <button type="button" onClick={confirmMfaEnrollment} disabled={mfaBusy || !mfaCode.trim()} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+                <button type="submit" aria-disabled={mfaBusy || undefined} className="min-h-[36px] rounded-lg bg-brand px-4 py-2 text-brand-fg">
                   {mfaBusy ? t('settings.mfaWorking') : t('settings.mfaConfirm')}
                 </button>
               </div>
+              </form>
             )}
 
             {mfaEnrolled === true && (
@@ -629,11 +668,10 @@ export function SettingsPage() {
             label={t('settings.research')}
             description={t('settings.researchDesc')}
           >
-            <ToggleSwitch
-              label={t('settings.research')}
-              enabled={privacy.shareWithResearchers}
-              onChange={() => setPrivacy(p => ({ ...p, shareWithResearchers: !p.shareWithResearchers }))}
-            />
+            {/* A recorded, versioned, revocable consent, not a local preference. */}
+            {patient?.healthId ? (
+              <ResearchConsentControl patientId={patient.healthId} />
+            ) : null}
           </SettingRow>
         </div>
       </div>
@@ -739,11 +777,12 @@ export function SettingsPage() {
                 <Globe className="w-5 h-5 text-content-muted" />
               </div>
               <div>
-                <div className="font-medium text-content">{t('settings.language')}</div>
+                <label htmlFor="settings-language" className="font-medium text-content">{t('settings.language')}</label>
                 <div className="text-sm text-content-muted">{t('settings.languageDesc')}</div>
               </div>
             </div>
             <select
+              id="settings-language"
               value={appSettings.language}
               onChange={(e) => setAppSettings(s => ({ ...s, language: e.target.value }))}
               className="w-full px-4 py-3 border border-border-interactive rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -823,7 +862,7 @@ export function SettingsPage() {
 
       {/* Logout Button */}
       <button
-        onClick={() => setShowLogoutConfirm(true)}
+        onClick={() => void handleLogout()}
         className="w-full flex items-center justify-center gap-2 py-4 text-critical-subtle-fg hover:bg-critical-subtle rounded-xl transition-colors"
       >
         <LogOut className="w-5 h-5" />
@@ -833,42 +872,10 @@ export function SettingsPage() {
       {/* App Version */}
       <div className="text-center text-xs text-content-muted space-y-1">
         <p>MediChain Patient App v1.0.0</p>
-        <p>© 2025 Lukau Invasion (Pty) Ltd. All rights reserved.</p>
+        <p>{t('common.copyright')}</p>
       </div>
 
-      {/* Logout Confirmation Modal */}
-      {showLogoutConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-2xl w-full max-w-sm p-6">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-critical-subtle rounded-full flex items-center justify-center mx-auto mb-4">
-                <LogOut className="w-8 h-8 text-critical-subtle-fg" />
-              </div>
-              <h3 className="text-xl font-semibold text-content mb-2">
-                {t('settings.signOutConfirm')}
-              </h3>
-              <p className="text-content-muted">
-                {t('settings.signOutConfirmBody')}
-              </p>
-            </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowLogoutConfirm(false)}
-                className="flex-1 py-3 border border-border rounded-xl font-medium text-content-secondary hover:bg-surface-sunken transition-colors"
-              >
-                {t('common.cancel')}
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex-1 py-3 bg-critical text-critical-fg rounded-xl font-medium hover:bg-critical transition-colors"
-              >
-                {t('settings.signOut')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

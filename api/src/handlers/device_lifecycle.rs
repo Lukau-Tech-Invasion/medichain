@@ -231,6 +231,27 @@ async fn persist_rotation(
     Ok(())
 }
 
+/// Record that a device was used, for the "last seen" an administrator reviews.
+///
+/// The column existed and nothing wrote it, so every device in the fleet read
+/// as never seen, including ones opening emergency records daily. A failure is
+/// logged: the access it accompanies has already been granted and audited.
+pub(crate) async fn record_device_use(data: &web::Data<AppState>, device_id: &str) {
+    let now = Utc::now();
+    let _ = data.device_lifecycle.mark_seen(device_id, now);
+    let Some(pool) = data.db_pool.as_ref() else {
+        return;
+    };
+    if let Err(error) = sqlx::query("UPDATE managed_devices SET last_seen_at = $2 WHERE id = $1")
+        .bind(device_id)
+        .bind(now)
+        .execute(pool)
+        .await
+    {
+        log::warn!("device {device_id} use not recorded: {error}");
+    }
+}
+
 async fn persist_revocation(
     data: &web::Data<AppState>,
     device: &ManagedDevice,
@@ -300,7 +321,7 @@ pub async fn list_available_devices(data: web::Data<AppState>, req: HttpRequest)
         Ok(user) => user,
         Err(response) => return response,
     };
-    if !user.role.is_healthcare_provider() && user.role != Role::Admin {
+    if !user.role.is_healthcare_provider() && user.role != Role::Paramedic {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Only clinical staff may list usable devices".into(),
             code: "INSUFFICIENT_ROLE".into(),
@@ -367,9 +388,9 @@ mod device_listing_access_tests {
 
     fn state_with(users: &[(Role, &str)]) -> web::Data<AppState> {
         let state = AppState::new();
-        for (role, wallet) in users {
+        for (role, user_id) in users {
             let user = User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: None,
                 name: "Test".to_string(),
                 role: role.clone(),
@@ -388,12 +409,12 @@ mod device_listing_access_tests {
                 .users
                 .write()
                 .unwrap()
-                .insert(wallet.to_string(), user);
+                .insert(user_id.to_string(), user);
         }
         web::Data::new(state)
     }
 
-    async fn get(data: web::Data<AppState>, wallet: &str, path: &str) -> (u16, String) {
+    async fn get(data: web::Data<AppState>, user_id: &str, path: &str) -> (u16, String) {
         let app = test::init_service(
             App::new()
                 .app_data(data)
@@ -403,7 +424,7 @@ mod device_listing_access_tests {
         .await;
         let req = test::TestRequest::get()
             .uri(path)
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let response = test::call_service(&app, req).await;
         let status = response.status().as_u16();
@@ -421,12 +442,21 @@ mod device_listing_access_tests {
 
     #[actix_web::test]
     async fn a_clinician_may_list_the_devices_they_could_use() {
-        let data = state_with(&[(Role::Doctor, "doc-1"), (Role::Patient, "pat-1")]);
+        let data = state_with(&[
+            (Role::Doctor, "doc-1"),
+            (Role::Patient, "pat-1"),
+            (Role::Paramedic, "ems-1"),
+        ]);
         assert_eq!(
             get(data.clone(), "doc-1", "/api/devices/available").await.0,
             200
         );
         // A patient has no device to bind emergency access to.
+        assert_eq!(
+            get(data.clone(), "ems-1", "/api/devices/available").await.0,
+            200
+        );
+        assert_eq!(get(data.clone(), "ems-1", "/api/devices").await.0, 403);
         assert_eq!(get(data, "pat-1", "/api/devices/available").await.0, 403);
     }
 

@@ -2,7 +2,7 @@
 //!
 //! This module contains middleware for the MediChain API including:
 //! - Rate limiting to prevent DoS attacks
-//! - Signature authentication for wallet verification (SEC-005)
+//! - Signature authentication for user id verification (SEC-005)
 //! - Request validation
 //! - Error handling utilities
 //!
@@ -12,12 +12,12 @@ pub mod authorized_user;
 pub mod encryption_policy;
 pub mod error_handling;
 pub mod idempotency;
-pub mod jwt_identity;
 pub mod metrics;
+pub mod patient_surface;
+pub mod phi_access_audit;
 pub mod rate_limit;
 pub mod security_headers;
 pub mod session_state;
-pub mod signature_auth;
 pub mod versioning;
 
 // Re-exports the handlers use through `crate::middleware::...`. The two

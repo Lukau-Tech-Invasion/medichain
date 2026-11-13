@@ -23,10 +23,9 @@ vi.mock('../store', () => ({
 
 describe('SettingsPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: 'user-id-mock',
     username: 'Dr. Smith',
     role: 'Doctor',
-    userId: '5GrwvaEF...mock',
     createdAt: '2026-01-01T00:00:00Z',
   };
 
@@ -45,7 +44,7 @@ describe('SettingsPage', () => {
     vi.mocked(saveUserSettings).mockResolvedValue({
       success: true,
       message: 'saved',
-      user_id: mockUser.walletAddress,
+      user_id: mockUser.userId,
     });
 
     global.fetch = vi.fn().mockResolvedValue({
@@ -65,7 +64,8 @@ describe('SettingsPage', () => {
     expect(screen.getAllByText(/Settings/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Profile Information/i)).toBeInTheDocument();
     expect(screen.getByText(mockUser.username)).toBeInTheDocument();
-    expect(screen.getByDisplayValue(`${mockUser.username}@medichain.health`)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(`${mockUser.username}@medichain.health`)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('+234-800-000-0000')).not.toBeInTheDocument();
   });
 
   it('allows switching to notifications tab', () => {
@@ -93,7 +93,7 @@ describe('SettingsPage', () => {
     fireEvent.click(securityTab);
 
     expect(screen.getByText(/Two-Factor Authentication/i)).toBeInTheDocument();
-    expect(screen.getByText(/Session Timeout/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Session Timeout/i).length).toBeGreaterThan(0);
   });
 
   it('allows switching to display tab and changing theme', async () => {
@@ -123,6 +123,7 @@ describe('SettingsPage', () => {
       </MemoryRouter>
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
     const saveButton = screen.getByText(/Save Changes/i);
     fireEvent.click(saveButton);
 

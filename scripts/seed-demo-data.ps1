@@ -14,7 +14,13 @@ param(
 
 # 8090, not 8080 — 8080 is the IPFS gateway published by docker-compose.
 $API_BASE = if ($env:API_BASE) { $env:API_BASE } else { "http://localhost:8090" }
-$DOCTOR_ID = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"  # Demo doctor wallet
+# The demo doctor is the seeded doctor fixture (scripts/seed-browser-test-fixtures.ts);
+# there is no identity header, so every request carries that account's bearer token.
+. "$PSScriptRoot/lib/MediChainAuth.ps1"
+$doctorSession = $null
+# Database mode needs no API; only API mode signs in.
+if ($Mode -eq "api") { $doctorSession = Connect-FixtureRole -ApiBase $API_BASE -Role Doctor }
+$DOCTOR_ID = if ($doctorSession) { $doctorSession.UserId } else { $null }
 
 Write-Host "MediChain Demo Data Seeding Script" -ForegroundColor Cyan
 Write-Host "==================================" -ForegroundColor Cyan
@@ -84,7 +90,7 @@ try {
 # Common headers
 $headers = @{
     "Content-Type" = "application/json"
-    "X-User-Id" = $DOCTOR_ID
+    "Authorization" = "Bearer $($doctorSession.Token)"
 }
 
 # Track created patient IDs
@@ -287,11 +293,12 @@ Write-Host ""
 Write-Host "Step 4: Submitting Lab Results" -ForegroundColor Cyan
 Write-Host "------------------------------" -ForegroundColor Cyan
 
-# Use lab technician wallet for lab submissions
-$LAB_TECH_ID = "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL"
+# Use the lab technician fixture for lab submissions
+$labSession = Connect-FixtureRole -ApiBase $API_BASE -Role LabTechnician
+$LAB_TECH_ID = $labSession.UserId
 $labHeaders = @{
     "Content-Type" = "application/json"
-    "X-User-Id" = $LAB_TECH_ID
+    "Authorization" = "Bearer $($labSession.Token)"
 }
 
 if ($patientIds.Count -ge 1) {
@@ -491,6 +498,6 @@ foreach ($id in $patientIds) {
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. Open Doctor Portal: http://localhost:5173" -ForegroundColor White
-Write-Host "2. Login with wallet: $DOCTOR_ID" -ForegroundColor White
+Write-Host "2. Sign in as the doctor fixture: $($doctorSession.LoginId)" -ForegroundColor White
 Write-Host "3. View dashboard to see patients and data" -ForegroundColor White
 Write-Host ""

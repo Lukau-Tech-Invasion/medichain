@@ -1,3 +1,4 @@
+import { MotionLink } from '@medichain/shared';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
@@ -16,6 +17,7 @@ import {
   UserPlus
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { PatientName } from '../components/PatientName';
 
 // API Response types matching backend
 interface Patient {
@@ -213,13 +215,13 @@ function DashboardPage() {
     /**
      * Read the dashboard through the shared client, not a bare `fetch`.
      *
-     * Two things were wrong with the hand-rolled request. It sent only the
-     * legacy `X-User-Id` session headers, so it never carried the bearer token
+     * Two things were wrong with the hand-rolled request. It sent only a
+     * hand-built identity header, so it never carried the bearer token
      * the rest of the app uses and never took the client's refresh-once-on-401
      * path. And its 401 branch called `restoreSession()` and, when that failed,
-     * `logout()` -- but `restoreSession` fails closed **by design** (no access
-     * or refresh token is persisted, see the comment on it), so it can only
-     * ever fail, which made a single 401 on this one panel a forced sign-out.
+     * `logout()`. At that time restore could not recover tokens after reload,
+     * so a single 401 on this panel forced sign-out. Restore now uses the
+     * HttpOnly refresh cookie; requests still use the shared refresh path.
      *
      * This runs on mount and then every 30 seconds, so a clinician reading a
      * chart could be returned to the login screen by a request they never made,
@@ -316,7 +318,7 @@ function DashboardPage() {
       {dashboard?.alerts && (dashboard.alerts.critical_values_count > 0 || dashboard.alerts.code_blues_count > 0) && (
         <div className="mb-6 bg-critical text-critical-fg rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Siren className="animate-pulse" size={24} />
+            <Siren size={24} />
             <div>
               <p className="font-bold">{t('docDashboard.criticalAlertsTitle')}</p>
               <p className="text-critical-fg text-sm">
@@ -426,7 +428,7 @@ function DashboardPage() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
               <h2 className="font-semibold text-critical-subtle-fg">{t('docDashboard.criticalLabValuesTitle')}</h2>
-              <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full animate-pulse">
+              <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full">
                 {t('docDashboard.urgentBadge', { count: dashboard.critical_values.length })}
               </span>
             </div>
@@ -551,10 +553,10 @@ function DashboardPage() {
                 >
                   <div>
                     <p className="font-medium text-content">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
-                    <p className="text-sm text-content-muted">{t('docDashboard.locationLabel', { value: code.location })}</p>
+                    <p className="text-sm text-notice-subtle-fg">{t('docDashboard.locationLabel', { value: code.location })}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-content-muted">{teamLeader || t('docDashboard.noTeamLeader')}</p>
+                    <p className="text-sm text-notice-subtle-fg">{teamLeader || t('docDashboard.noTeamLeader')}</p>
                     <p className={`text-xs px-2 py-1 rounded ${outcomeClass}`}>
                       {outcomeDisplay}
                     </p>
@@ -631,7 +633,7 @@ function DashboardPage() {
         ) : dashboard?.patients?.list && dashboard.patients.list.length > 0 ? (
           <div className="divide-y divide-border">
             {dashboard.patients.list.slice(0, 8).map((patient) => (
-              <Link
+              <MotionLink opensPatient
                 key={patient.patient_id}
                 to={`/patients/${patient.patient_id}`}
                 className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
@@ -641,7 +643,7 @@ function DashboardPage() {
                     <Users className="text-brand" size={20} />
                   </div>
                   <div>
-                    <p className="font-medium text-content">{patient.full_name}</p>
+                    <p data-patient-identity className="font-medium text-content">{patient.full_name}</p>
                     <p className="text-sm text-content-muted">{patient.health_id}</p>
                   </div>
                 </div>
@@ -658,13 +660,13 @@ function DashboardPage() {
                   )}
                   <ArrowRight size={16} className="text-content-muted" />
                 </div>
-              </Link>
+              </MotionLink>
             ))}
           </div>
         ) : recentPatients.length > 0 ? (
           <div className="divide-y divide-border">
             {recentPatients.slice(0, 5).map((patient) => (
-              <Link
+              <MotionLink opensPatient
                 key={patient.patientId}
                 to={`/patients/${patient.patientId}`}
                 className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
@@ -674,15 +676,15 @@ function DashboardPage() {
                     <Users className="text-brand" size={20} />
                   </div>
                   <div>
-                    <p className="font-medium text-content">{patient.fullName}</p>
-                    <p className="text-sm text-content-muted">{patient.patientId}</p>
+                    <p data-patient-identity className="font-medium text-content">{patient.fullName}</p>
+                    <p className="text-sm"><PatientName id={patient.patientId} dobOnly /></p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-content-muted min-h-[24px] py-1">
                   <Clock size={14} />
                   <span>{patient.lastAccessed ? formatDateOnly(patient.lastAccessed) : t('docDashboard.naLabel')}</span>
                 </div>
-              </Link>
+              </MotionLink>
             ))}
           </div>
         ) : (

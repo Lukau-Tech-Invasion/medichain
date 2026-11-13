@@ -1,5 +1,57 @@
 use super::*;
 
+#[cfg(test)]
+mod fasting_presence_tests {
+    #[test]
+    fn saved_form_document_reads_back_without_legacy_schema_coercion() {
+        let entity = crate::repositories::traits::PreOpAssessmentEntity {
+            id: "PREOP-server".into(),
+            patient_id: "PAT-server".into(),
+            procedure_name: "Synthetic procedure".into(),
+            asa_classification: Some("II".into()),
+            assessed_by: "authenticated-clinician".into(),
+            data: serde_json::json!({"id":"forged", "patient_id":"forged", "assessed_by":"forged",
+                "airway_assessment":{"mallampati":"I"}, "npo_status":{},
+                "notes":"Fictional documentation only", "preop_checklist":{"npoVerified":false}}),
+            ..Default::default()
+        };
+        let document = super::pre_op_document(entity).expect("form payload remains readable");
+        assert_eq!(document["id"], "PREOP-server");
+        assert_eq!(document["patient_id"], "PAT-server");
+        assert_eq!(document["assessed_by"], "authenticated-clinician");
+        assert_eq!(document["scheduled_surgery"], "Synthetic procedure");
+        assert_eq!(document["asa_class"], "II");
+        assert_eq!(document["airway_assessment"]["mallampati"], "I");
+        assert!(document["npo_status"].get("compliant").is_none());
+        assert_eq!(document["preop_checklist"]["npoVerified"], false);
+        assert_eq!(document["notes"], "Fictional documentation only");
+    }
+
+    #[test]
+    fn malformed_stored_assessment_remains_a_read_failure() {
+        let entity = crate::repositories::traits::PreOpAssessmentEntity {
+            data: serde_json::json!([]),
+            ..Default::default()
+        };
+        assert!(super::pre_op_document(entity).is_err());
+    }
+
+    /// Missing compliance must remain distinct from explicit clinical yes or no.
+    #[test]
+    fn fasting_compliance_round_trip_preserves_absent_true_and_false() {
+        for input in [
+            serde_json::json!({}),
+            serde_json::json!({"compliant": true}),
+            serde_json::json!({"compliant": false}),
+        ] {
+            let fasting: super::PreOpNpoInput =
+                serde_json::from_value(input.clone()).expect("valid fasting input");
+            let stored = serde_json::to_value(fasting).expect("serializable fasting input");
+            assert_eq!(stored.get("compliant"), input.get("compliant"));
+        }
+    }
+}
+
 // ============================================================================
 // PERI-OPERATIVE CARE
 // ============================================================================
@@ -33,8 +85,8 @@ pub struct PreOpNpoInput {
     pub last_solid: Option<String>,
     #[serde(rename = "lastClear", default)]
     pub last_clear: Option<String>,
-    #[serde(default)]
-    pub compliant: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compliant: Option<bool>,
 }
 
 /// The three consents the theatre list checks for.
@@ -161,7 +213,7 @@ pub async fn create_pre_op(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let body = req.into_inner();
     if body.patient_id.trim().is_empty() {
@@ -297,7 +349,7 @@ pub async fn get_pre_op(
 
     let id = path.into_inner();
     match data.repositories.pre_op_assessments.get_by_id(&id).await {
-        Ok(entity) => match PreOperativeAssessment::try_from(entity) {
+        Ok(entity) => match pre_op_document(entity) {
             Ok(assessment) => HttpResponse::Ok().json(assessment),
             Err(e) => {
                 // The stored payload could not be read back. Half an assessment
@@ -345,7 +397,7 @@ pub async fn list_patient_pre_op(
             // reads as "this patient has none", which is the wrong answer.
             let mut items = Vec::with_capacity(page.items.len());
             for entity in page.items {
-                match PreOperativeAssessment::try_from(entity) {
+                match pre_op_document(entity) {
                     Ok(assessment) => items.push(assessment),
                     Err(e) => {
                         log::error!("pre-op assessment stored payload is unreadable: {e}");
@@ -363,6 +415,44 @@ pub async fn list_patient_pre_op(
             HttpResponse::InternalServerError().finish()
         }
     }
+}
+
+/// Return the stored clinical payload with authoritative identity and timeline fields.
+/// Missing or non-object documentation remains an error; no clinical findings are inferred.
+fn pre_op_document(
+    entity: crate::repositories::traits::PreOpAssessmentEntity,
+) -> Result<serde_json::Value, serde_json::Error> {
+    let mut document =
+        serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(entity.data)?;
+    document.insert("id".into(), serde_json::json!(entity.id));
+    document.insert("assessment_id".into(), serde_json::json!(entity.id));
+    document.insert("patient_id".into(), serde_json::json!(entity.patient_id));
+    document.insert(
+        "scheduled_surgery".into(),
+        serde_json::json!(entity.procedure_name),
+    );
+    document.insert(
+        "asa_class".into(),
+        serde_json::json!(entity.asa_classification),
+    );
+    document.insert("assessed_by".into(), serde_json::json!(entity.assessed_by));
+    document.insert(
+        "assessment_date".into(),
+        serde_json::json!(entity.assessed_at.format("%Y-%m-%d").to_string()),
+    );
+    document.insert(
+        "assessed_at".into(),
+        serde_json::json!(entity.assessed_at.timestamp()),
+    );
+    document.insert(
+        "created_at".into(),
+        serde_json::json!(entity.created_at.timestamp()),
+    );
+    document.insert(
+        "cleared_for_surgery".into(),
+        serde_json::json!(entity.cleared_for_surgery),
+    );
+    Ok(serde_json::Value::Object(document))
 }
 
 /// Create operative note
@@ -487,7 +577,7 @@ pub async fn create_operative_note(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut note = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a
@@ -775,7 +865,7 @@ pub async fn create_post_op(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut note = req.into_inner();
     // Server-generated. The page sent `PREFIX-${Date.now()}`; on PostgreSQL a

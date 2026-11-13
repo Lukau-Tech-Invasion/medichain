@@ -56,6 +56,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+ENDPOINT_MODULES = ROOT / "client" / "shared" / "src" / "api" / "endpoints"
 API = ROOT / "api" / "src"
 CLIENTS = [
     ROOT / "client" / "doctor-portal" / "src",
@@ -240,8 +241,9 @@ def _wrapper_paths() -> dict[str, str]:
     non-greedy `[\s\S]{0,900}?` spans function boundaries, so the first match
     swallowed sixty later functions and `createConsult` was never seen.
     """
-    src = (ROOT / "client" / "shared" / "src" / "api" / "endpoints.ts").read_text(
-        encoding="utf-8", errors="replace"
+    src = "\n".join(
+        f.read_text(encoding="utf-8", errors="replace")
+        for f in sorted(ENDPOINT_MODULES.glob("*.ts"))
     )
     out: dict[str, str] = {}
     starts = [
@@ -267,7 +269,7 @@ def frontend_payloads() -> dict[str, set[str]]:
 
     for root in CLIENTS:
         for f in list(root.rglob("*.tsx")) + list(root.rglob("*.ts")):
-            if ".test." in f.name or f.name.endswith(".d.ts") or f.name == "endpoints.ts":
+            if ".test." in f.name or f.name.endswith(".d.ts") or f.parent == ENDPOINT_MODULES:
                 continue
             src = f.read_text(encoding="utf-8", errors="replace")
 

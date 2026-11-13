@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle, selectPatient } from './support';
+import { signIn, settle, selectPatient, choose } from './support';
 
 /**
  * Filing a discharge files the patient's take-home instructions too.
@@ -31,7 +31,8 @@ test('filing a discharge also files the take-home instructions', async ({ browse
     }
   });
 
-  await signIn(page, 'Doctor');
+  // The primary fixture doctor has a patient-approved care grant.
+  await signIn(page, 'Doctor', 0);
   await settle(page, '/discharge');
 
   await page.getByRole('button', { name: /new discharge/i }).click();
@@ -42,6 +43,10 @@ test('filing a discharge also files the take-home instructions', async ({ browse
 
   const diagnosis = `Community-acquired pneumonia (e2e ${Date.now()})`;
   await page.locator('#dc-primary-diagnosis').fill(diagnosis);
+  // Nothing is pre-chosen any more: the clinician states where the patient goes
+  // and their condition, and the summary is refused without them.
+  await choose(page.locator('#dc-discharge-disposition'), 'home');
+  await page.getByRole('button', { name: /^improved$/i }).click();
 
   await page.getByRole('button', { name: /create discharge summary/i }).click();
 

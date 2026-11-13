@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8"><title>MediChain UX mockups</title><link rel="stylesheet" href="mock.css">
+<style>body{padding:32px;max-width:1500px;margin:0 auto}section{margin:36px 0}.pair{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+figure{display:flex;flex-direction:column;gap:8px}figcaption{font-size:14px;color:rgb(var(--muted))}figcaption b{color:rgb(var(--text))}
+img{border:1px solid rgb(var(--border));border-radius:14px;display:block}.ph{width:300px}.dk{width:640px}
+.tag{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}.before{color:rgb(var(--danger))}.after{color:rgb(var(--ok))}
+p.why{max-width:900px;color:rgb(var(--text-2));margin-top:6px}</style></head>
+<body>
+<h1 style="font-size:30px">MediChain — how the app will look</h1>
+<p class="why">Mockups in the app's own dark-theme colours. "Before" shots are the live app today (fixture patient). Nothing is removed — every current page is reachable from one of the five tabs. Plan: <code>docs/UX_SIMPLIFICATION_PLAN.md</code>.</p>
+
+<section><h2>1 · Patient home and navigation</h2>
+<p class="why">Bottom bar with five labelled tabs; Emergency card first; Messages badge counts unread items (the old bell dot only showed connection status).</p>
+<div class="pair">
+  <figure><span class="tag before">Before</span><img class="ph" src="screens/before-p1-home.png"><figcaption>Raw 32-character ID, no bottom navigation</figcaption></figure>
+  <figure><span class="tag before">Before</span><img class="ph" src="screens/before-p2-menu.png"><figcaption>26-link menu, 2.6 screens of scrolling</figcaption></figure>
+  <figure><span class="tag after">After</span><img class="ph" src="screens/p1-home.png"><figcaption><b>Home</b> — emergency card, today, privacy</figcaption></figure>
+</div></section>
+
+<section><h2>2 · Every page still has a home</h2>
+<div class="pair">
+  <figure><span class="tag after">After</span><img class="ph" src="screens/p2-my-health.png"><figcaption><b>My health</b> — records, labs, medicines, vitals + 6 more</figcaption></figure>
+  <figure><span class="tag after">After</span><img class="ph" src="screens/p3-me.png"><figcaption><b>Me</b> — privacy, cards, family, insurance, language, offline, settings, sign out</figcaption></figure>
+</div></section>
+
+<section><h2>3 · Reading a record without the scrolling</h2>
+<p class="why">Tap a record → the document opens directly (one sheet, never two). Findings first; the 9 empty fields become one line; Download stays pinned.</p>
+<div class="pair">
+  <figure><span class="tag before">Before</span><img class="dk" src="screens/before-p5-document-preview.png"><figcaption>4.8 screens of mostly "Not recorded", stacked on another pop-up</figcaption></figure>
+  <figure><span class="tag after">After</span><img class="ph" src="screens/p4-records.png"><figcaption><b>Records</b> grouped by month, download on the row</figcaption></figure>
+  <figure><span class="tag after">After</span><img class="ph" src="screens/p5-record-sheet.png"><figcaption><b>Document sheet</b> — fits one screen</figcaption></figure>
+</div></section>
+
+<section><h2>4 · Patient on a laptop</h2>
+<div class="pair">
+  <figure><span class="tag before">Before</span><img class="dk" src="screens/before-p6-records-top-bar.png"><figcaption>Current page never highlighted (colour class not generated)</figcaption></figure>
+  <figure><span class="tag after">After</span><img class="dk" src="screens/p6-desktop-records.png"><figcaption>Same five tabs; document opens beside the list — no pop-up</figcaption></figure>
+</div></section>
+
+<section><h2>5 · Break-glass: one tap</h2>
+<p class="why">Was: choose a reason, get refused, then type at least 10 characters. Now: tap a reason and the chart opens. Same 60-minute limit, same patient notice, same audit row.</p>
+<div class="pair"><figure><span class="tag after">After</span><img class="ph" src="screens/c1-break-glass.png"><figcaption>Paramedic phone</figcaption></figure></div></section>
+
+<section><h2>6 · Shift handoff written by the shift</h2>
+<p class="why">Patients you cared for are listed from your own records — Select all. Each SBAR is drafted from what you recorded, each line tagged with its source; you review and add to-dos.</p>
+<div class="pair"><figure><span class="tag after">After</span><img class="dk" style="width:960px" src="screens/c2-shift-handoff.png"><figcaption>Nurse, laptop/tablet</figcaption></figure></div></section>
+
+<section><h2>7 · Forms: patient first, tap instead of type</h2>
+<p class="why">Open the patient once; every task carries them. "Now" button for time, one-tap choices with nothing pre-selected, rarer fields folded away, score from the server with how much was measured.</p>
+<div class="pair"><figure><span class="tag after">After</span><img class="dk" style="width:960px" src="screens/c3-patient-first-form.png"><figcaption>Vital signs from the chart</figcaption></figure></div></section>
+
+<section><h2>8 · Patient first — the workspace</h2>
+<p class="why">Choose the patient once; every form already knows them; "This visit" lists everything saved; Close patient checks drafts and offers the next patient.</p>
+<div class="pair"><figure><img class="dk" style="width:960px" src="screens/c4-patient-workspace.png"><figcaption><b>Workspace</b> — doctor writing a SOAP note</figcaption></figure>
+<figure><img class="dk" style="width:960px" src="screens/c5-close-patient.png"><figcaption><b>Close patient</b> — summary, unsaved draft caught, next patient</figcaption></figure></div></section>
+<section><h2>9 · Ambulance to hospital — one button</h2>
+<p class="why">The crew's taps build a time-stamped record; choosing the hospital sends the pre-alert; arrival is one button; the hospital sees it in ATMIST order and receives with one tap.</p>
+<div class="pair"><figure><img class="ph" src="screens/c7-choose-hospital.png"><figcaption><b>Leaving scene</b> — choose hospital, pre-alert sent</figcaption></figure>
+<figure><img class="ph" src="screens/c6-ambulance-run.png"><figcaption><b>Run record</b> — timeline + Hand over</figcaption></figure></div>
+<div class="pair"><figure><img class="dk" style="width:960px" src="screens/c8-ed-incoming.png"><figcaption><b>ED incoming board</b></figcaption></figure>
+<figure><img class="dk" style="width:960px" src="screens/c9-received-triage.png"><figcaption><b>Received</b> — ambulance story pinned, triage pre-filled</figcaption></figure></div></section>
+<section><h2>10 · Motion</h2><p class="why">Open <code>motion-demo.html</code> in a browser to try it live, including the reduced-motion version.</p>
+<div class="pair"><figure><img class="dk" style="width:960px" src="screens/c10-motion-storyboard.png"><figcaption><b>Storyboard</b> with timings</figcaption></figure></div></section>
+</body></html>

@@ -8,10 +8,10 @@ Beyond the diagnostic tester, `expo-starter/src/` now contains a **functional pa
 
 ```
 src/
-  api/client.ts          MobileApiClient — JWT Bearer (+ X-User-Id fallback), auto-refresh
-  auth/AuthContext.tsx   Wallet login, secure-store session, biometric unlock gate
+  api/client.ts          MobileApiClient — JWT Bearer only, auto-refresh
+  auth/AuthContext.tsx   Username + password login, secure-store session, biometric unlock gate
   screens/
-    LoginScreen.tsx      Wallet sign-in
+    LoginScreen.tsx      Username and password sign-in (+ authenticator code)
     EmergencyCardScreen.tsx  Blood type / allergies / conditions / contact (headline feature)
     MyRecordsScreen.tsx  Patient record list + sign-out + re-verify
     FamilyScreen.tsx     My QR code + scan-to-add family members (see below)
@@ -69,14 +69,13 @@ npm run start
 
 ## 📱 What This Tests
 
-The diagnostic app tests four critical connection points:
+The diagnostic app tests three critical connection points:
 
 | Test | Target | Port | Description |
 |------|--------|------|-------------|
 | **API Health** | REST API | 8080 | Actix-web server health check |
-| **Authentication** | REST API | 8080 | Wallet-based auth with X-User-Id header |
+| **Authentication** | REST API | 8080 | Username and password sign-in, then Bearer token |
 | **Data Endpoint** | REST API | 8080 | RBAC-protected patient data access |
-| **WebSocket** | Substrate Node | 9944 | Blockchain node connectivity |
 
 ## ⚙️ Configuration
 
@@ -85,7 +84,6 @@ Before running, update `App.tsx` with your machine's LAN IP address:
 ```typescript
 // Replace with your machine's IP (find with: ipconfig / ip addr)
 const [apiUrl, setApiUrl] = useState('http://192.168.1.100:8080');
-const [wsUrl, setWsUrl] = useState('ws://192.168.1.100:9944');
 ```
 
 > ⚠️ **Important:** Do NOT use `localhost` — it won't work on physical devices!
@@ -99,12 +97,7 @@ const [wsUrl, setWsUrl] = useState('ws://192.168.1.100:9944');
    # OR on Windows: .\run-api.bat
    ```
 
-2. **For Substrate WebSocket tests**, the node should also be running:
-   ```bash
-   cargo run -p medichain-node -- --dev
-   ```
-
-3. **For Android HTTP connections**, enable cleartext traffic:
+2. **For Android HTTP connections**, enable cleartext traffic:
    ```json
    // app.json
    {
@@ -122,20 +115,18 @@ const [wsUrl, setWsUrl] = useState('ws://192.168.1.100:9944');
 |---------|--------------|-----|
 | "Network request failed" | Using localhost | Use machine's LAN IP |
 | Works on iOS, fails on Android | Cleartext blocked | Enable `usesCleartextTraffic` |
-| 401 Unauthorized | Invalid wallet address | Use 48-char SS58 starting with "5" |
-| WebSocket error | Wrong protocol | Use `ws://` not `http://` |
-| Connection timeout | Firewall blocking | Allow port 8080/9944 |
+| 401 Unauthorized | Wrong username or password, or the account is not activated yet | Activate it first (patient app or clinic), then sign in |
+| Connection timeout | Firewall blocking | Allow port 8080 |
 
 ## 📚 Related Documentation
 
 - [COMPREHENSIVE_CONNECTION_ANALYSIS.md](../docs/COMPREHENSIVE_CONNECTION_ANALYSIS.md) - Full technical analysis
 - [CONNECTION_TROUBLESHOOTING_RUNBOOK.md](../docs/CONNECTION_TROUBLESHOOTING_RUNBOOK.md) - Quick fixes
-- [BLOCKCHAIN_MOBILE_AMD.md](../docs/BLOCKCHAIN_MOBILE_AMD.md) - Blockchain-specific issues
 - [MOBILE_AUTH_FLOW.md](../docs/MOBILE_AUTH_FLOW.md) - Authentication patterns
 
-## ⚡ Polyfills for Blockchain Libraries
+## ⚡ Polyfills for crypto libraries
 
-If you're extending this app to use `@polkadot/api` or similar libraries, you'll need polyfills:
+If you're extending this app with libraries that need Node built-ins (for example a crypto or streaming library), you'll need polyfills:
 
 ```javascript
 // index.js (MUST BE FIRST)

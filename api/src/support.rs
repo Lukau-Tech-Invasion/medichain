@@ -12,6 +12,80 @@ use sha3::{Digest, Sha3_256};
 // Helper Functions
 // ============================================================================
 
+/// Header a device sends when replaying a record written without signal: the
+/// moment it was written, as RFC 3339.
+pub const OFFLINE_RECORDED_AT_HEADER: &str = "x-offline-recorded-at";
+
+/// Longest a record may wait on a device and still keep its written time.
+const OFFLINE_RECORDED_AT_MAX_HOURS: i64 = 72;
+
+/// Clock skew tolerated between a device and the server.
+const OFFLINE_RECORDED_AT_SKEW_MINUTES: i64 = 5;
+
+/// When the clinical event a request records happened.
+///
+/// A blood pressure taken at 09:10 without signal and sent at 12:40 happened at
+/// 09:10; stamping it 12:40 puts it after the medicine given at 11:00 and the
+/// flowsheet then tells the wrong story. A replayed request therefore names its
+/// written time in [`OFFLINE_RECORDED_AT_HEADER`].
+///
+/// The header is honoured only inside a window — not in the future beyond clock
+/// skew, not older than 72 hours — so it cannot be used to backdate a record
+/// freely. Anything else is ignored and the server's own time is used. The
+/// audit trail is untouched: access-log rows always carry the server's time, so
+/// when the record reached the server stays provable.
+pub fn clinical_time(req: &HttpRequest) -> chrono::DateTime<Utc> {
+    let now = Utc::now();
+    let claimed = req
+        .headers()
+        .get(OFFLINE_RECORDED_AT_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
+        .map(|time| time.with_timezone(&Utc));
+    match claimed {
+        Some(time)
+            if time <= now + chrono::Duration::minutes(OFFLINE_RECORDED_AT_SKEW_MINUTES)
+                && time >= now - chrono::Duration::hours(OFFLINE_RECORDED_AT_MAX_HOURS) =>
+        {
+            time.min(now)
+        }
+        Some(_) => {
+            log::warn!("offline recorded-at outside the accepted window; server time used");
+            now
+        }
+        None => now,
+    }
+}
+
+/// When a clinician says a measurement was taken, if they said.
+///
+/// The same window as an offline replay ([`clinical_time`]): no later than now
+/// plus clock skew, no earlier than 72 hours ago. Unlike the header, a time the
+/// person typed that falls outside it is refused rather than replaced -- they
+/// would otherwise believe the record carries the time they entered. The audit
+/// trail keeps the server's own time either way, so a backdated entry is
+/// visible as one.
+pub fn stated_clinical_time(
+    req: &HttpRequest,
+    stated: Option<chrono::DateTime<Utc>>,
+) -> Result<chrono::DateTime<Utc>, HttpResponse> {
+    let Some(time) = stated else {
+        return Ok(clinical_time(req));
+    };
+    let now = Utc::now();
+    let too_late = time > now + chrono::Duration::minutes(OFFLINE_RECORDED_AT_SKEW_MINUTES);
+    let too_early = time < now - chrono::Duration::hours(OFFLINE_RECORDED_AT_MAX_HOURS);
+    if too_late || too_early {
+        return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
+            error: format!(
+                "The time taken must be within the last {OFFLINE_RECORDED_AT_MAX_HOURS} hours and not in the future"
+            ),
+            code: "TAKEN_AT_OUT_OF_RANGE".to_string(),
+        }));
+    }
+    Ok(time.min(now))
+}
+
 /// Persist an audit record required before a handler may report success or
 /// release protected health information.
 ///
@@ -22,7 +96,11 @@ pub async fn require_durable_audit(
     data: &web::Data<AppState>,
     entry: crate::repositories::traits::AccessLogEntity,
 ) -> Result<(), HttpResponse> {
-    let alert = access_alert_for(&entry);
+    let accessor_is_subject = entry
+        .patient_id
+        .as_deref()
+        .is_some_and(|patient_id| caller_owns_patient_record(data, &entry.accessor_id, patient_id));
+    let alert = access_alert_for(&entry, accessor_is_subject);
     if let Err(error) = data.repositories.access_logs.create(entry).await {
         log::error!("required audit persistence failed: {error}");
         return Err(HttpResponse::ServiceUnavailable().json(serde_json::json!({
@@ -72,6 +150,7 @@ pub async fn require_durable_audit(
 /// flag is set independently of what the action is called.
 fn access_alert_for(
     entry: &crate::repositories::traits::AccessLogEntity,
+    accessor_is_subject: bool,
 ) -> Option<(String, String, bool)> {
     let patient_id = entry.patient_id.clone()?;
     let action = entry.action.as_str();
@@ -91,11 +170,10 @@ fn access_alert_for(
     if !is_read {
         return None;
     }
-    // Reading your own record is not an access alert. The accessor is a wallet
-    // address and the subject is a `PAT-` id, so this is the same namespace
-    // bridge `notify_patient` documents -- compared here rather than there
-    // because only this caller knows who the accessor was.
-    if entry.accessor_id == patient_id {
+    // Reading your own record is not an access alert. The accessor is a user id
+    // and the subject a `PAT-` id, so the caller works out whether they are the
+    // same person (`caller_owns_patient_record`) and says so.
+    if accessor_is_subject {
         return None;
     }
     Some((
@@ -213,6 +291,7 @@ pub fn parse_blood_type(s: &str) -> Result<BloodType, String> {
         "AB-" | "AB_NEGATIVE" | "ABNEGATIVE" => Ok(BloodType::ABNegative),
         "O+" | "O_POSITIVE" | "OPOSITIVE" => Ok(BloodType::OPositive),
         "O-" | "O_NEGATIVE" | "ONEGATIVE" => Ok(BloodType::ONegative),
+        "UNKNOWN" => Ok(BloodType::Unknown),
         _ => Err(format!("Invalid blood type: {}", s)),
     }
 }
@@ -224,33 +303,22 @@ pub fn parse_role(s: &str) -> Result<Role, String> {
         "nurse" => Ok(Role::Nurse),
         "labtechnician" | "lab_technician" | "lab-technician" | "lab" => Ok(Role::LabTechnician),
         "pharmacist" => Ok(Role::Pharmacist),
+        "paramedic" => Ok(Role::Paramedic),
         "patient" => Ok(Role::Patient),
-        _ => Err(format!("Invalid role: {}. Valid roles: Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient", s)),
+        _ => Err(format!("Invalid role: {}. Valid roles: Admin, Doctor, Nurse, LabTechnician, Pharmacist, Paramedic, Patient", s)),
     }
 }
 
-/// Extract the authenticated wallet address from a request.
-///
-/// Resolution order (Phase 9.4, additive):
-/// 1. A valid `Authorization: Bearer <jwt>` access token — the wallet is taken
-///    from the verified `sub` claim (signature + expiry checked).
-/// 2. The legacy `X-User-Id` header carrying the raw SS58 wallet address.
-///
-/// Keeping the `X-User-Id` fallback means every existing handler gains JWT
-/// support without modification, and demo mode (no JWT) keeps working.
+/// The authenticated caller's `users.id`, from the verified access token's
+/// `sub` claim (signature, issuer, audience and expiry checked). There is no
+/// header fallback: a caller-supplied identity is never an identity.
 pub fn get_current_user_id(req: &HttpRequest) -> Option<String> {
-    if let Some(claims) = get_current_claims(req) {
-        return Some(claims.sub);
-    }
-    req.headers()
-        .get("X-User-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+    get_current_claims(req).map(|claims| claims.sub)
 }
 
 /// Extract and verify the JWT access-token claims from the `Authorization`
 /// header, if present and valid. Returns `None` for missing/invalid/expired
-/// tokens (callers then fall back to `X-User-Id`).
+/// tokens.
 pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Claims> {
     let header = req.headers().get("Authorization")?.to_str().ok()?;
     crate::security::jwt::bearer_access_subject(header)
@@ -258,45 +326,38 @@ pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Cla
 
 /// Whether the current request was made with an MFA-satisfied JWT (Phase 11.3).
 ///
-/// Get user by wallet address from app state.
+/// Get user by id from app state.
 ///
 /// RBAC invariant: a caller's ROLE is authoritative ONLY when read from this
-/// server-side user store, keyed by the wallet address that `get_current_user_id`
-/// resolved (a JWT `sub` claim or the signature-verified `X-User-Id`). Handlers
+/// server-side user store, keyed by the user id that `get_current_user_id`
+/// resolved (the verified JWT `sub` claim). Handlers
 /// MUST derive authorization from `get_user(...).role` and MUST NEVER trust a
 /// client-supplied role header (e.g. `X-User-Role`/`X-Provider-Role`), which is
 /// spoofable. No handler in this codebase derives authorization from such a header.
-pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User> {
+pub fn get_user(data: &web::Data<AppState>, user_id: &str) -> Option<User> {
     data.users
         .read()
         .ok()?
-        .get(wallet_address)
+        .get(user_id)
         .filter(|user| user.status == "active")
         .cloned()
 }
 
-/// Whether `caller_wallet` is the data subject of `patient_id` — the patient
+/// Whether `caller_id` is the data subject of `patient_id` — the patient
 /// looking at their own record.
 ///
 /// # Why this function exists
 ///
 /// Twenty-six handlers open-coded this as `current_user_id != patient_id`,
 /// which compares two **different identifier namespaces**: `current_user_id`
-/// is an SS58 wallet address (`5FLSigC9…60Z`) and `patient_id` is a patient
-/// record ID (`PAT-001-DEMO`). For a real patient account those are never
-/// equal, so the guard was structurally incapable of granting self-access and
-/// every one of those endpoints returned 403 to the patient whose data it was.
-/// The doc comments above them described the intended behaviour, which was the
-/// opposite of what the code did.
+/// is a user id (a UUID) and `patient_id` is a patient record ID
+/// (`PAT-001-DEMO`). For a real patient account those are never equal, so the
+/// guard was structurally incapable of granting self-access and every one of
+/// those endpoints returned 403 to the patient whose data it was.
 ///
-/// The link between the two namespaces is `User::linked_patient_id`, which is
-/// exactly what `/api/auth/wallet/{address}` returns to the client.
-///
-/// The `caller_wallet == patient_id` arm is deliberate and load-bearing: some
-/// fixtures (and the synthetic e2e harness) register a patient whose record ID
-/// *is* the wallet address, and those callers must keep working. Collapsing
-/// that case is also why the original bug went unnoticed for so long — with
-/// such a fixture the broken comparison accidentally succeeds.
+/// The link between the two namespaces is `User::linked_patient_id`. There is
+/// deliberately no `caller_id == patient_id` shortcut: a fixture in which the two
+/// coincide is exactly what hid the original bug.
 ///
 /// Fails closed: an unknown caller is not the data subject.
 ///
@@ -305,14 +366,10 @@ pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User
 /// guardian relationships; handlers needing that should call it instead.
 pub fn caller_owns_patient_record(
     data: &web::Data<AppState>,
-    caller_wallet: &str,
+    caller_id: &str,
     patient_id: &str,
 ) -> bool {
-    if caller_wallet == patient_id {
-        return true;
-    }
-    get_user(data, caller_wallet)
-        .is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
+    get_user(data, caller_id).is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
 }
 
 /// How a caller's access to a patient was granted.
@@ -375,7 +432,7 @@ pub async fn resolve_patient_access(
         .await
         .unwrap_or_default()
         .into_iter()
-        .find(|r| r.guardian_wallet == caller.wallet_address && r.grants(permission, now));
+        .find(|r| r.guardian_user_id == caller.id && r.grants(permission, now));
 
     match relationship {
         Some(r) => PatientAccessGrant::Guardian(Box::new(r)),
@@ -420,6 +477,39 @@ pub async fn patient_age_years(data: &web::Data<AppState>, patient_id: &str) -> 
     age_in_years(&profile.date_of_birth, Utc::now().date_naive())
 }
 
+/// Resolve patient ids to display names, decrypting through the keyring.
+///
+/// Lists do this rather than the client for one reason: the name is
+/// encrypted at rest and only the API holds the keyring, so a panel that reads
+/// `patient_name` off a raw entity gets `undefined` and announces a result
+/// without saying whose it is.
+///
+/// Ids are de-duplicated, so a patient with six unacknowledged criticals costs
+/// one read rather than six. Shared by the dashboards and the triage queue,
+/// whose client used to look names up in the first 50 patients and showed a
+/// bare id for everyone else. Ids that cannot be resolved are simply absent from
+/// the map, and the caller leaves the field off — an unnamed alert is better
+/// than one attributed to the wrong person.
+pub async fn resolve_patient_names(
+    data: &web::Data<AppState>,
+    patient_ids: &[String],
+) -> std::collections::HashMap<String, String> {
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for patient_id in patient_ids {
+        if patient_id.is_empty() || names.contains_key(patient_id) {
+            continue;
+        }
+        if let Ok(entity) = data.repositories.patients.get_by_id(patient_id).await {
+            if let Some(profile) =
+                crate::patient_entity_to_profile(&entity, &data.encryption_keyring)
+            {
+                names.insert(patient_id.clone(), profile.full_name);
+            }
+        }
+    }
+    names
+}
+
 /// Whole years between a `YYYY-MM-DD` date of birth and `today`.
 ///
 /// Split out from `patient_age_years` so the boundary arithmetic is testable
@@ -438,6 +528,23 @@ pub fn age_in_years(date_of_birth: &str, today: chrono::NaiveDate) -> Option<u32
     let had_birthday_this_year = (today.month(), today.day()) >= (dob.month(), dob.day());
     let years = today.year() - dob.year() - i32::from(!had_birthday_this_year);
     u32::try_from(years).ok()
+}
+
+/// Whole months between a `YYYY-MM-DD` date of birth and `today`; `None` for a
+/// date that does not parse or lies in the future. A month counts only once the
+/// day of birth has come round in it, matching `age_in_years` at every birthday.
+pub fn age_in_months(date_of_birth: &str, today: chrono::NaiveDate) -> Option<u32> {
+    use chrono::Datelike;
+
+    let dob = chrono::NaiveDate::parse_from_str(date_of_birth, "%Y-%m-%d").ok()?;
+    if dob > today {
+        return None;
+    }
+    let mut months = (today.year() - dob.year()) * 12 + today.month() as i32 - dob.month() as i32;
+    if today.day() < dob.day() {
+        months -= 1;
+    }
+    u32::try_from(months).ok()
 }
 
 /// POPIA §34–35 treat a "child" as under 18.
@@ -483,9 +590,8 @@ pub fn require_demo_mode() -> Result<(), HttpResponse> {
 /// Resolve the caller against the user store and return them.
 ///
 /// The minimum correct replacement for a bare `get_current_user_id(&req)` on a
-/// **patient-facing** endpoint. `X-User-Id` is caller-supplied and unverified,
-/// so presence alone lets an unregistered caller act as anyone; resolving it
-/// proves the account exists.
+/// **patient-facing** endpoint. A token proves who signed in, but the account
+/// may since have been suspended or removed; resolving it proves it still exists.
 ///
 /// Use this — not [`require_clinical_staff`] — where patients legitimately act
 /// for themselves (family groups, symptom checker, wearables, reminders, sync,
@@ -516,14 +622,14 @@ pub fn require_registered_caller(
 /// Resolve the caller and require that they are registered clinical staff.
 ///
 /// The pervasive weak pattern in this codebase is
-/// `get_current_user_id(&req)` (or a bare `X-User-Id` header check) followed by
-/// the clinical work. `X-User-Id` is **caller-supplied and unverified at that
-/// point**, so those handlers accept any string: an unregistered, unauthenticated
-/// caller satisfies them. An external review counted this as the principal route
-/// to a multi-hospital breach, and it is the same defect as HZ-024.
+/// `get_current_user_id(&req)` followed by the clinical work. An id alone says
+/// nothing about whether the account is still registered or what it may do, so
+/// those handlers accept any signed-in caller, a patient included. An external
+/// review counted this as the principal route to a multi-hospital breach, and it
+/// is the same defect as HZ-024.
 ///
 /// This helper is the minimum correct replacement — it *resolves* the identity
-/// against the user store and checks a clinical role, so a forged header is
+/// against the user store and checks a clinical role, so a removed account is
 /// rejected and a patient account cannot reach staff-only endpoints.
 ///
 /// It is deliberately **not** a full authorization decision: it says nothing
@@ -538,6 +644,21 @@ pub fn require_clinical_staff(
     if !user.role.can_view_medical_records() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
             error: "This endpoint is restricted to clinical staff".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    Ok(user)
+}
+
+/// Resolve a caller for EMS handovers and MCI without granting chart access.
+pub fn require_ems_staff(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user = require_registered_caller(data, req)?;
+    if !user.role.may_manage_ems() {
+        return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+            error: "This endpoint is restricted to emergency staff".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
     }
@@ -586,17 +707,15 @@ pub struct AttributedProvider {
 }
 
 impl AttributedProvider {
-    /// The wallet address the record should carry as its provider.
+    /// The user id the record should carry as its provider.
     pub fn provider_id(&self) -> &str {
-        &self.provider.wallet_address
+        &self.provider.id
     }
 
-    /// The wallet address that actually made the request. Always a real,
+    /// The user id that actually made the request. Always a real,
     /// authenticated identity — this is what belongs in an audit entry.
     pub fn actor_id(&self) -> &str {
-        self.filed_by
-            .as_ref()
-            .map_or(&self.provider.wallet_address, |u| &u.wallet_address)
+        self.filed_by.as_ref().map_or(&self.provider.id, |u| &u.id)
     }
 }
 
@@ -640,19 +759,24 @@ pub fn resolve_attributed_provider(
     let caller = require_registered_caller(data, req)?;
 
     let requested = requested.map(str::trim).filter(|s| !s.is_empty());
-    let Some(requested) = requested else {
-        return Ok(AttributedProvider {
-            provider: caller,
-            filed_by: None,
-        });
+    // Filing under your own name: only a provider can be the provider. A
+    // patient who named nobody was booked as their own clinician, and their
+    // home screen then listed the appointment under their own name.
+    let requested = match requested {
+        Some(r) if r != caller.id => r,
+        _ => {
+            if !caller.role.is_healthcare_provider() {
+                return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
+                    error: "Choose the clinician this is with".to_string(),
+                    code: "PROVIDER_REQUIRED".to_string(),
+                }));
+            }
+            return Ok(AttributedProvider {
+                provider: caller,
+                filed_by: None,
+            });
+        }
     };
-
-    if requested == caller.wallet_address {
-        return Ok(AttributedProvider {
-            provider: caller,
-            filed_by: None,
-        });
-    }
 
     // Naming someone else. Resolve them, and require that they really are a
     // provider — otherwise a record could be attributed to a patient account
@@ -698,7 +822,7 @@ pub fn require_actor_is_caller(
     let caller = require_clinical_staff(data, req)?;
     let claimed = claimed.map(str::trim).filter(|s| !s.is_empty());
     if let Some(claimed) = claimed {
-        if claimed != caller.wallet_address {
+        if claimed != caller.id {
             return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
                 error: "This record must be filed under your own name".to_string(),
                 code: "ACTOR_MISMATCH".to_string(),
@@ -799,12 +923,6 @@ pub async fn ensure_not_restricted(
     }
 }
 
-/// Validate SS58 wallet address format (basic validation)
-pub fn is_valid_wallet_address(address: &str) -> bool {
-    // SS58 addresses start with 5 and are typically 48 characters for Substrate
-    address.len() >= 45 && address.len() <= 50 && address.starts_with('5')
-}
-
 pub fn generate_qr_code_base64(data: &str) -> Option<String> {
     use image::Luma;
     use qrcode::QrCode;
@@ -830,11 +948,11 @@ mod attributed_provider_tests {
     use super::*;
     use crate::{AppState, Role, User};
 
-    fn user(wallet: &str, role: Role) -> User {
+    fn user(user_id: &str, role: Role) -> User {
         User {
-            wallet_address: wallet.to_string(),
-            username: Some(wallet.to_string()),
-            name: format!("Test {wallet}"),
+            id: user_id.to_string(),
+            username: Some(user_id.to_string()),
+            name: format!("Test {user_id}"),
             role,
             created_at: chrono::Utc::now(),
             created_by: None,
@@ -866,9 +984,9 @@ mod attributed_provider_tests {
         web::Data::new(state)
     }
 
-    fn req_as(wallet: &str) -> HttpRequest {
+    fn req_as(user_id: &str) -> HttpRequest {
         actix_web::test::TestRequest::post()
-            .insert_header(("X-User-Id", wallet))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_http_request()
     }
 
@@ -915,6 +1033,38 @@ mod attributed_provider_tests {
         );
     }
 
+    #[test]
+    fn a_stated_time_inside_the_window_is_kept_and_outside_it_is_refused() {
+        let req = actix_web::test::TestRequest::default().to_http_request();
+        let hour_ago = Utc::now() - chrono::Duration::hours(1);
+        assert_eq!(
+            stated_clinical_time(&req, Some(hour_ago)).unwrap(),
+            hour_ago
+        );
+        for out in [
+            Utc::now() + chrono::Duration::hours(1),
+            Utc::now() - chrono::Duration::hours(OFFLINE_RECORDED_AT_MAX_HOURS + 1),
+        ] {
+            let err = stated_clinical_time(&req, Some(out)).unwrap_err();
+            assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        }
+        let none = stated_clinical_time(&req, None).unwrap();
+        assert!(
+            (Utc::now() - none).num_seconds().abs() < 5,
+            "no stated time means now"
+        );
+    }
+
+    /// A patient who names nobody, or themselves, is not the clinician.
+    #[test]
+    fn a_patient_must_name_a_provider() {
+        let s = state();
+        for named in [None, Some("patient")] {
+            let err = resolve_attributed_provider(&s, &req_as("patient"), named).unwrap_err();
+            assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        }
+    }
+
     /// A patient choosing whom to see is legitimate — `provider_id` is a target
     /// here, not a claim about who acted.
     #[test]
@@ -959,7 +1109,7 @@ mod attributed_provider_tests {
     fn an_actor_claim_matching_the_caller_is_accepted() {
         let s = state();
         let u = require_actor_is_caller(&s, &req_as("doc-a"), Some("doc-a")).unwrap();
-        assert_eq!(u.wallet_address, "doc-a");
+        assert_eq!(u.id, "doc-a");
     }
 
     #[test]
@@ -1033,6 +1183,20 @@ mod tests {
     /// The day before an 18th birthday the data subject is still a child, and
     /// child-information protections still apply. An off-by-one here silently
     /// drops a POPIA s35 ground.
+    /// Months agree with years at every birthday, and a month is not complete
+    /// until its day of birth: the paediatric caseload's eighteenth-birthday
+    /// cut-off must fall on the same day as `age_in_years`.
+    #[test]
+    fn age_in_months_counts_whole_months_and_matches_years_at_birthdays() {
+        assert_eq!(age_in_months("2008-06-15", d(2026, 6, 14)), Some(215));
+        assert_eq!(age_in_months("2008-06-15", d(2026, 6, 15)), Some(216));
+        assert_eq!(age_in_months("2008-02-29", d(2026, 2, 28)), Some(215));
+        assert_eq!(age_in_months("2008-02-29", d(2026, 3, 1)), Some(216));
+        assert_eq!(age_in_months("2026-10-01", d(2026, 10, 18)), Some(0));
+        assert_eq!(age_in_months("2030-01-01", d(2026, 1, 1)), None);
+        assert_eq!(age_in_months("not-a-date", d(2026, 1, 1)), None);
+    }
+
     #[test]
     fn age_is_still_seventeen_the_day_before_the_eighteenth_birthday() {
         assert_eq!(age_in_years("2008-06-15", d(2026, 6, 14)), Some(17));
@@ -1146,9 +1310,10 @@ mod access_alert_rule_tests {
             is_emergency_access: emergency,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: Utc::now(),
             facility_id: None,
+            authority_type: None,
+            authority_id: None,
         }
     }
 
@@ -1162,7 +1327,7 @@ mod access_alert_rule_tests {
             "qr_verification",
             "emergency",
         ] {
-            let alert = access_alert_for(&entry(action, false, "5Doctor"));
+            let alert = access_alert_for(&entry(action, false, "5Doctor"), false);
             assert!(alert.is_some(), "{action} should alert the patient");
         }
     }
@@ -1178,7 +1343,7 @@ mod access_alert_rule_tests {
             "lab_submission",
         ] {
             assert!(
-                access_alert_for(&entry(action, false, "5Doctor")).is_none(),
+                access_alert_for(&entry(action, false, "5Doctor"), false).is_none(),
                 "{action} is a write; alerting on it would drown the real ones"
             );
         }
@@ -1195,7 +1360,7 @@ mod access_alert_rule_tests {
             "create_trauma_assessment",
         ] {
             assert!(
-                access_alert_for(&entry(action, true, "5Doctor")).is_none(),
+                access_alert_for(&entry(action, true, "5Doctor"), false).is_none(),
                 "{action} documents care; it is not somebody viewing the record"
             );
         }
@@ -1203,8 +1368,9 @@ mod access_alert_rule_tests {
 
     #[test]
     fn break_glass_read_still_alerts_and_says_so() {
-        let (patient, role, emergency) = access_alert_for(&entry("nfc_tap", true, "5Paramedic"))
-            .expect("break-glass must alert");
+        let (patient, role, emergency) =
+            access_alert_for(&entry("nfc_tap", true, "5Paramedic"), false)
+                .expect("break-glass must alert");
         assert_eq!(patient, "PAT-1");
         assert_eq!(role, "Doctor");
         assert!(
@@ -1215,13 +1381,55 @@ mod access_alert_rule_tests {
 
     #[test]
     fn reading_your_own_record_is_not_an_access_alert() {
-        assert!(access_alert_for(&entry("view_medical_id", false, "PAT-1")).is_none());
+        assert!(access_alert_for(&entry("view_medical_id", false, "user-1"), true).is_none());
     }
 
     #[test]
     fn an_entry_with_no_patient_alerts_nobody() {
         let mut e = entry("download_record", false, "5Doctor");
         e.patient_id = None;
-        assert!(access_alert_for(&e).is_none());
+        assert!(access_alert_for(&e, false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod clinical_time_tests {
+    //! A record replayed from a device keeps its written time, inside a window.
+    use super::{clinical_time, OFFLINE_RECORDED_AT_HEADER};
+    use actix_web::test::TestRequest;
+    use chrono::{Duration, Utc};
+
+    fn at(claimed: &str) -> chrono::DateTime<Utc> {
+        clinical_time(
+            &TestRequest::default()
+                .insert_header((OFFLINE_RECORDED_AT_HEADER, claimed))
+                .to_http_request(),
+        )
+    }
+
+    #[test]
+    fn a_reading_written_hours_ago_keeps_that_time() {
+        let written = Utc::now() - Duration::hours(3);
+        assert_eq!(at(&written.to_rfc3339()).timestamp(), written.timestamp());
+    }
+
+    #[test]
+    fn the_header_cannot_backdate_past_the_window_or_postdate() {
+        let now = Utc::now();
+        let too_old = at(&(now - Duration::hours(73)).to_rfc3339());
+        let future = at(&(now + Duration::hours(2)).to_rfc3339());
+        let garbage = at("yesterday afternoon");
+        for time in [too_old, future, garbage] {
+            assert!(
+                (time - now).num_seconds().abs() < 5,
+                "server time used, got {time}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_the_header_it_is_now() {
+        let time = clinical_time(&TestRequest::default().to_http_request());
+        assert!((time - Utc::now()).num_seconds().abs() < 5);
     }
 }

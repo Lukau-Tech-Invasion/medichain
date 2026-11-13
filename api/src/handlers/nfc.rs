@@ -70,7 +70,7 @@ pub async fn generate_nfc_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -213,7 +213,7 @@ pub async fn verify_my_nfc_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -251,7 +251,9 @@ pub async fn verify_my_nfc_card(
 
     // The card_hash is a valid registered card, but does it belong to the
     // patient holding the phone? Reject silently-wrong or cloned cards.
-    if card.patient_id != current_user_id {
+    // The card names the patient RECORD; the caller is a user id. Compared
+    // directly, every patient was told their own card belonged to someone else.
+    if !crate::support::caller_owns_patient_record(&data, &current_user_id, &card.patient_id) {
         return HttpResponse::Ok().json(VerifyMyCardResponse {
             success: false,
             status: None,
@@ -296,7 +298,7 @@ pub async fn get_card_info(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -325,11 +327,10 @@ pub async fn get_card_info(
     // Get card
     let card = match data.card_registry.get_card_by_patient(&patient_id) {
         Some(c) => c,
-        // The patient exists but has not yet been issued a card. That is an
-        // expected issuance state, not a missing endpoint or a failed lookup.
-        // A 404 made the Health ID screen log an error before it could decide
-        // whether to offer issuance.
-        None => return HttpResponse::Ok().json(serde_json::Value::Null),
+        // Registration issues the emergency tag straight into `nfc_tags`, with
+        // a tag_type the card registry does not load, so a registered patient
+        // whose tag opens emergency access read here as having no card at all.
+        None => return registered_tag_or_none(&data, &patient_id).await,
     };
 
     HttpResponse::Ok().json(CardInfoResponse {
@@ -341,6 +342,34 @@ pub async fn get_card_info(
         created_at: card.created_at,
         last_used_at: card.last_used_at,
     })
+}
+
+/// The patient's active tag from `nfc_tags`, shaped as a card; `null` when the
+/// patient has none, which is an issuance state rather than an error. A
+/// failed read is a 503, not "no card".
+async fn registered_tag_or_none(data: &web::Data<AppState>, patient_id: &str) -> HttpResponse {
+    let tags = match data.repositories.nfc_tags.get_by_patient(patient_id).await {
+        Ok(tags) => tags,
+        Err(error) => {
+            log::error!("NFC tag lookup for {patient_id} failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "The card could not be looked up. Please try again.".to_string(),
+                code: "CARD_LOOKUP_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    match tags.into_iter().find(|tag| tag.is_active) {
+        Some(tag) => HttpResponse::Ok().json(CardInfoResponse {
+            card_id: tag.id,
+            patient_id: tag.patient_id,
+            card_hash: tag.tag_uid,
+            national_id_type: tag.tag_type,
+            status: "Active".to_string(),
+            created_at: tag.issued_at.timestamp().max(0) as u64,
+            last_used_at: tag.last_used_at.map(|at| at.timestamp().max(0) as u64),
+        }),
+        None => HttpResponse::Ok().json(serde_json::Value::Null),
+    }
 }
 
 /// Suspend a card (e.g., if reported stolen)
@@ -355,7 +384,7 @@ pub async fn suspend_card(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -441,7 +470,7 @@ pub async fn list_nfc_cards(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -485,4 +514,55 @@ pub async fn list_nfc_cards(
         "total": pagination.total_items,
         "pagination": pagination
     }))
+}
+
+#[cfg(test)]
+mod registered_tag_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    /// Registration writes the emergency tag to `nfc_tags` only. The card
+    /// lookup must return it, or the patient is told they have no card while
+    /// their tag opens emergency access.
+    #[actix_web::test]
+    async fn a_registered_tag_is_the_patients_card() {
+        let state = AppState::new();
+        crate::test_fixtures::register(&state, "doctor_a", crate::Role::Doctor);
+        state
+            .repositories
+            .nfc_tags
+            .create(crate::repositories::traits::NfcTagEntity {
+                id: "NFC-REG-1".to_string(),
+                tag_uid: "hash".to_string(),
+                patient_id: "PAT-1".to_string(),
+                tag_type: "registration".to_string(),
+                is_active: true,
+                pin_hash: None,
+                issued_at: chrono::Utc::now(),
+                expires_at: None,
+                last_used_at: None,
+                use_count: 0,
+                issued_by: None,
+                status: "Active".to_string(),
+            })
+            .await
+            .unwrap();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(get_card_info),
+        )
+        .await;
+        let read = |patient: &str| {
+            test::TestRequest::get()
+                .uri(&format!("/api/nfc/card/{patient}"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
+                .to_request()
+        };
+        let card: serde_json::Value = test::call_and_read_body_json(&app, read("PAT-1")).await;
+        assert_eq!(card["card_id"], "NFC-REG-1", "{card}");
+        assert_eq!(card["status"], "Active");
+        let none: serde_json::Value = test::call_and_read_body_json(&app, read("PAT-2")).await;
+        assert!(none.is_null(), "{none}");
+    }
 }

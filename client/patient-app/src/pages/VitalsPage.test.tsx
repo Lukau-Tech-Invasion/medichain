@@ -19,7 +19,7 @@ describe('VitalsPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -31,6 +31,13 @@ describe('VitalsPage (Patient)', () => {
     });
 
     mockFetch.mockImplementation((url) => {
+      if (url.includes('/intake-output')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ intake_output: [{ id: 'io-demo', total_intake: 240, total_output: 0, record_date: '2026-09-27' }] }),
+        });
+      }
       if (url.includes('/vitals/latest')) {
         return Promise.resolve({
           ok: true,
@@ -79,6 +86,7 @@ describe('VitalsPage (Patient)', () => {
     await waitFor(() => {
       expect(screen.getByText(/Vital Signs/i)).toBeInTheDocument();
       expect(screen.getByText('72')).toBeInTheDocument(); // Heart rate
+      expect(screen.getByText('In 240 ml, out 0 ml')).toBeInTheDocument();
       expect(screen.getByText('120/80')).toBeInTheDocument(); // BP
       expect(screen.getAllByText('36.6°C').length).toBeGreaterThan(0); // Temp
     });

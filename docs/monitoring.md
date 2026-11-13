@@ -60,3 +60,24 @@ no extra instrumentation is required to start.
 When self-hosting (`docs/jitsi-deployment.md`), also watch the JVB host: CPU,
 memory, and UDP 10000 throughput — the videobridge is the first thing to
 saturate under participant load.
+
+## Audit seal signal
+
+`GET /api/health` also reports the sealed audit stream (see
+[`AUDIT_LOG.md`](AUDIT_LOG.md)):
+
+```json
+"audit_seal": { "unsealed_events": 0, "last_sealed_at": "...", "last_exported_at": "...",
+                "sink": "filesystem", "signing": "ed25519" }
+```
+
+Sealing and export are asynchronous and never gate a request, so lag is only
+visible here. Suggested alerts:
+
+- **Sealing stalled:** `unsealed_events` growing and `last_sealed_at` older than
+  a few job intervals → the single-instance sealing job is not running.
+- **Export stalled:** `last_exported_at` far behind `last_sealed_at` → the
+  checkpoint sink is failing (the volume is full or unwritable).
+- **Unsigned in production:** `signing = "unsigned"` or `sink = "none"` outside
+  demo mode → critical; the API refuses to start that way, so seeing it means
+  the configuration was bypassed.

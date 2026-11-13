@@ -1,21 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
+  getApiClient,
   listBloodBank,
   createBloodTypeScreen,
   createTransfusion,
+  type CreateTransfusionRequest,
   useTranslation,
   Alert,
   LoadingSpinner,
   Input,
   useValidatedForm,
-  transfusionStartSchema,
+  transfusionStartSchema, ChoiceChips
 } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
+import { BloodInventoryPanel } from '../components/BloodInventoryPanel';
 import { useToastActions } from '../components/Toast';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
+import { PatientName } from '../components/PatientName';
 
 /**
  * BloodBankPage
@@ -101,10 +105,7 @@ function readString(record: BloodBankRecord, field: string): string | undefined 
 }
 
 /** Convert persisted snake-case blood-bank records into this screen's view model. */
-function toBloodOrder(
-  value: unknown,
-  patientNames: Map<string, string>,
-): BloodOrder | null {
+function toBloodOrder(value: unknown): BloodOrder | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as BloodBankRecord;
   const patientId = readString(record, 'patient_id') ?? readString(record, 'patientId');
@@ -138,7 +139,8 @@ function toBloodOrder(
     // A transfusion event does not duplicate the patient name. Resolve it from
     // the already-authorized roster; falling back to the identifier is honest
     // and searchable, unlike manufacturing a name.
-    patientName: readString(record, 'patient_name') ?? patientNames.get(patientId) ?? patientId,
+    // The name saved with the record; a bare id is resolved from the directory when shown.
+    patientName: readString(record, 'patient_name') ?? patientId,
     bloodType: readString(record, 'blood_type') ?? 'Unknown',
     orderDate: readString(record, 'order_date') ?? '',
     orderTime: readString(record, 'order_time') ?? '',
@@ -151,25 +153,44 @@ function toBloodOrder(
   };
 }
 
+/** `YYYY-MM-DD` on this device's clock, not UTC's. */
+function localDate(now: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 const BloodBankPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [orders, setOrders] = useState<BloodOrder[]>([]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
+  const [loadedOrders, setOrders] = useState<BloodOrder[]>([]);
+  // Records saved without a name are labelled from the server's directory; the
+  // first page of `getPatients()` labelled anyone past the fiftieth with an id.
+  const orderNames = useDirectoryNames(
+    loadedOrders.filter((o) => o.patientName === o.patientId).map((o) => o.patientId),
+  );
+  const orders = loadedOrders.map((o) =>
+    o.patientName === o.patientId ? { ...o, patientName: orderNames.get(o.patientId) ?? o.patientId } : o,
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'orders' | 'newOrder' | 'transfusion'>('orders');
+  const latestOrderRequest = useRef(0);
+  const [activeTab, setActiveTab] = useState<'orders' | 'newOrder' | 'transfusion' | 'inventory'>('orders');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<BloodOrder | null>(null);
 
   // New order form state
   const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [product, setProduct] = useState<'RBC' | 'Platelets' | 'FFP' | 'Cryoprecipitate' | 'Whole Blood'>('RBC');
-  const [units, setUnits] = useState(1);
+  // The product, the number of units and the urgency are the prescriber's
+  // decision, so none is pre-selected (rule 9). The form opened on one routine
+  // unit of red cells and filed that for anyone who did not change it.
+  const [product, setProduct] = useState<BloodOrder['product'] | ''>('');
+  const [units, setUnits] = useState('');
   const [indication, setIndication] = useState('');
-  const [priority, setPriority] = useState<'routine' | 'urgent' | 'emergency'>('routine');
+  const [priority, setPriority] = useState<BloodOrder['priority'] | ''>('');
 
   // Transfusion form state
   const [startTime, setStartTime] = useState('');
@@ -188,12 +209,13 @@ const BloodBankPage: React.FC = () => {
   const [transfusionNotes, setTransfusionNotes] = useState('');
 
   const fetchBloodBankOrders = useCallback(async () => {
+    const requestId = ++latestOrderRequest.current;
     try {
       setIsLoading(true);
-      setError(null);
       const response = await listBloodBank();
-      if (response.success) {
-        const patientNames = new Map(patients.map((patient) => [patient.patient_id, patient.full_name]));
+      if (requestId !== latestOrderRequest.current) return;
+      if (response.success && response.type_screens && response.transfusions) {
+        setError(null);
         // The register uses persisted snake-case data while this screen uses
         // camel-case view fields. Mapping at the boundary keeps a recorded
         // transfusion visible instead of silently producing undefined table
@@ -201,38 +223,54 @@ const BloodBankPage: React.FC = () => {
         const typeScreenItems = response.type_screens?.items || [];
         const transfusionItems = response.transfusions?.items || [];
         const allOrders = [...typeScreenItems, ...transfusionItems]
-          .map((item) => toBloodOrder(item, patientNames))
+          .map((item) => toBloodOrder(item))
           .filter((item): item is BloodOrder => item !== null);
         setOrders(allOrders);
+      } else {
+        setOrders([]);
+        setError(t('docBloodBank.errorLoadFailed'));
       }
     } catch (err) {
+      if (requestId !== latestOrderRequest.current) return;
       console.error('Error fetching blood bank orders:', err);
       setError(t('docBloodBank.errorLoadFailed'));
     } finally {
-      setIsLoading(false);
+      if (requestId === latestOrderRequest.current) setIsLoading(false);
     }
-  }, [patients, t]);
+  }, [t]);
 
   useEffect(() => {
-    const loadPatients = async () => {
-      const loadedPatients = await getPatients();
-      setPatients(loadedPatients);
-    };
-    loadPatients();
     fetchBloodBankOrders();
-  }, [user, fetchBloodBankOrders]);
+  }, [fetchBloodBankOrders]);
 
-  const handleSubmitOrder = async (e: React.FormEvent) => {
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
+  const handleSubmitOrder = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatientId || !indication) {
+    const unitCount = Number(units);
+    if (!selectedPatientId || !indication || !product || !priority
+      || !Number.isInteger(unitCount) || unitCount < 1 || unitCount > 10) {
       showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
 
-    const patient = patients.find(p => p.patient_id === selectedPatientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
-    const newOrder: BloodOrder = {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const purpose = getApiClient().getDirectoryPurpose();
+      if (!purpose) throw new Error('Directory purpose was not declared');
+      // The directory is intentionally untyped; only this patient-specific
+      // audited read may supply a blood group for a crossmatch order.
+      const profile = await getApiClient().get<PatientProfile>(
+        `/api/patients/${encodeURIComponent(selectedPatientId)}`,
+        { headers: { 'X-Access-Reason': purpose } },
+      );
+      const newOrder: BloodOrder = {
       // Assigned by the server, which ignores any id sent.
       orderId: '',
       patientId: selectedPatientId,
@@ -244,20 +282,18 @@ const BloodBankPage: React.FC = () => {
       //
       // Still 'Unknown' when the profile genuinely has none, which is a real
       // state and the reason the order needs a type-and-screen first.
-      bloodType: patient.emergency_info?.blood_type || 'Unknown',
-      orderDate: new Date().toISOString().split('T')[0],
+      bloodType: profile.emergency_info?.blood_type || 'Unknown',
+      // Both from the local clock. The date was the UTC one, so an order
+      // placed after midnight here was listed under the previous day.
+      orderDate: localDate(new Date()),
       orderTime: new Date().toTimeString().slice(0, 5),
       orderedBy: user?.userId || 'Unknown',
       product,
-      units,
+      units: unitCount,
       indication,
       priority,
       status: 'ordered'
-    };
-
-    try {
-      setIsLoading(true);
-      setError(null);
+      };
       const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string; id?: string };
       if (response.success !== false) {
         // The server assigns the order ID and signed orderer.  Reload those
@@ -265,10 +301,10 @@ const BloodBankPage: React.FC = () => {
         await fetchBloodBankOrders();
         showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: response.id ?? '' }));
         setSelectedPatientId('');
-        setProduct('RBC');
-        setUnits(1);
+        setProduct('');
+        setUnits('');
         setIndication('');
-        setPriority('routine');
+        setPriority('');
         setActiveTab('orders');
       } else {
         setError(response.error || t('docBloodBank.errorSubmitFailed'));
@@ -279,7 +315,7 @@ const BloodBankPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const handleOpenTransfusion = (order: BloodOrder) => {
     setSelectedOrder(order);
@@ -317,7 +353,7 @@ const BloodBankPage: React.FC = () => {
     witnessedBy,
   });
 
-  const handleSubmitTransfusion = async (e: React.FormEvent) => {
+  const handleSubmitTransfusion = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
     // Transfusion is a two-person check: the administering nurse and the
     // witness verify the unit against the patient independently. A record with
@@ -327,10 +363,6 @@ const BloodBankPage: React.FC = () => {
       showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
-    if (!validate(preTransfusionVitals())) {
-      return;
-    }
-
     // Was one toast for four fields. A transfusion reaction is recognised by
     // comparing observations taken during the transfusion against this
     // baseline, so which of the four is missing is precisely what the nurse
@@ -339,8 +371,13 @@ const BloodBankPage: React.FC = () => {
       return;
     }
 
-    const updatedOrder: BloodOrder = {
-      ...selectedOrder,
+    // The fields the handler reads, not the whole worklist row.
+    const transfusion: CreateTransfusionRequest = {
+      orderId: selectedOrder.orderId,
+      patientId: selectedOrder.patientId,
+      bloodType: selectedOrder.bloodType,
+      product: selectedOrder.product,
+      units: selectedOrder.units,
       status: endTime ? 'completed' : 'transfusing',
       transfusionInfo: {
         startTime,
@@ -367,7 +404,7 @@ const BloodBankPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createTransfusion(updatedOrder) as { success?: boolean; error?: string };
+      const response = await createTransfusion(transfusion) as { success?: boolean; error?: string };
       if (response.success !== false) {
         // A transfusion is a separate durable event. Re-read the register so
         // the worklist reflects its server-generated event ID and audit data.
@@ -384,7 +421,7 @@ const BloodBankPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const toggleReaction = (reaction: string) => {
     if (reactions.includes(reaction)) {
@@ -496,6 +533,17 @@ const BloodBankPage: React.FC = () => {
           <Plus className="inline h-4 w-4 mr-2" />
           {t('docBloodBank.tabNewOrder')}
         </button>
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeTab === 'inventory'
+              ? 'text-critical-subtle-fg border-b-2 border-red-600'
+              : 'text-content-muted hover:text-content-secondary'
+          }`}
+        >
+          <Droplets className="inline h-4 w-4 mr-2" />
+          {t('docBloodInventory.tab')}
+        </button>
         {selectedOrder && (
           <button
             onClick={() => setActiveTab('transfusion')}
@@ -510,6 +558,12 @@ const BloodBankPage: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Inventory Tab (WP7.5): stock, alerts and unit actions. Changing
+          stock is for blood-bank staff; everyone here can read it. */}
+      {activeTab === 'inventory' && (
+        <BloodInventoryPanel canManage={user?.role === 'LabTechnician' || user?.role === 'Admin'} />
+      )}
 
       {/* Orders Tab */}
       {activeTab === 'orders' && (
@@ -585,7 +639,7 @@ const BloodBankPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-content">{order.patientName}</div>
-                        <div className="text-xs text-content-muted">{order.patientId}</div>
+                        <div className="text-xs"><PatientName id={order.patientId} dobOnly /></div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-bold text-critical-subtle-fg">{order.bloodType}</div>
@@ -651,22 +705,19 @@ const BloodBankPage: React.FC = () => {
 
               {/* Product */}
               <div>
-                <label htmlFor="bloodbank-product" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.bloodProductLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="bloodbank-product"
-                  value={product}
-                  onChange={(e) => setProduct(e.target.value as typeof product)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="RBC">{t('docBloodBank.product_RBC')}</option>
-                  <option value="Platelets">{t('docBloodBank.product_Platelets')}</option>
-                  <option value="FFP">{t('docBloodBank.product_FFP')}</option>
-                  <option value="Cryoprecipitate">{t('docBloodBank.product_Cryoprecipitate')}</option>
-                  <option value="Whole Blood">{t('docBloodBank.product_Whole Blood')}</option>
-                </select>
+                  label={t('docBloodBank.bloodProductLabel')}
+                  value={product || undefined}
+                  onChange={(next) => setProduct((next ?? '') as typeof product)}
+                  options={[
+                    { value: 'RBC', label: t('docBloodBank.product_RBC') },
+                    { value: 'Platelets', label: t('docBloodBank.product_Platelets') },
+                    { value: 'FFP', label: t('docBloodBank.product_FFP') },
+                    { value: 'Cryoprecipitate', label: t('docBloodBank.product_Cryoprecipitate') },
+                    { value: 'Whole Blood', label: t('docBloodBank.product_Whole Blood') },
+                  ]}
+                />
               </div>
 
               {/* Units */}
@@ -680,7 +731,7 @@ const BloodBankPage: React.FC = () => {
                   min="1"
                   max="10"
                   value={units}
-                  onChange={(e) => setUnits(parseInt(e.target.value))}
+                  onChange={(e) => setUnits(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -688,20 +739,17 @@ const BloodBankPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label htmlFor="bloodbank-priority" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docBloodBank.priorityLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="bloodbank-priority"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as typeof priority)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="routine">{t('docBloodBank.priority_routine')}</option>
-                  <option value="urgent">{t('docBloodBank.priority_urgent')}</option>
-                  <option value="emergency">{t('docBloodBank.priority_emergency')}</option>
-                </select>
+                  label={t('docBloodBank.priorityLabel')}
+                  value={priority || undefined}
+                  onChange={(next) => setPriority((next ?? '') as typeof priority)}
+                  options={[
+                    { value: 'routine', label: t('docBloodBank.priority_routine') },
+                    { value: 'urgent', label: t('docBloodBank.priority_urgent') },
+                    { value: 'emergency', label: t('docBloodBank.priority_emergency') },
+                  ]}
+                />
               </div>
 
               {/* Indication */}
@@ -744,6 +792,7 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
+                aria-disabled={submitPending || undefined}
                 className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -1052,6 +1101,7 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
+                aria-disabled={submitPending || undefined}
                 className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />

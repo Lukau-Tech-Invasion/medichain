@@ -17,7 +17,7 @@ volatile-one pattern, arriving through a different door.
 What it checks
 --------------
 For every `async fn` declared in a repository trait in
-`api/src/repositories/traits.rs`, count callers of `.<name>(` outside
+`api/src/repositories/traits/` (one module per domain), count callers of `.<name>(` outside
 `api/src/repositories/`. Methods with none are reported.
 
 A read method with no caller is either an unfinished feature or dead weight,
@@ -32,7 +32,7 @@ import os
 import re
 import sys
 
-TRAITS = os.path.join('api', 'src', 'repositories', 'traits.rs')
+TRAITS = os.path.join('api', 'src', 'repositories', 'traits')
 SRC = os.path.join('api', 'src')
 REPO_DIR = os.path.join('api', 'src', 'repositories')
 
@@ -88,12 +88,15 @@ def external_sources():
 
 
 def main():
-    if not os.path.isfile(TRAITS):
+    if not os.path.isdir(TRAITS):
         print('check-unread-repositories: %s not found; run from the repo root' % TRAITS)
         return 2
 
-    with open(TRAITS, encoding='utf-8') as handle:
-        declared = trait_methods(handle.read())
+    declared = {}
+    for name in sorted(os.listdir(TRAITS)):
+        if name.endswith('.rs'):
+            with open(os.path.join(TRAITS, name), encoding='utf-8') as handle:
+                declared.update(trait_methods(handle.read()))
 
     corpus = []
     for path in external_sources():

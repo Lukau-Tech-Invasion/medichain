@@ -59,8 +59,9 @@ import { getApiClient, ApiClientError } from '../api/client';
 
 // Re-exported so callers import the queue's vocabulary from one place.
 export { OfflineQueuedError } from '../api/client';
+import { openBody } from './offlineSeal';
 import {
-  getPendingSyncItems,
+  getAllSyncItems,
   updateSyncStatus,
   type SyncQueueItem,
 } from './indexedDB';
@@ -79,6 +80,8 @@ export interface ReplayOutcome {
   rejected: number;
   /** Items still queued because the device could not reach the server. */
   deferred: number;
+  /** Items past their send-by time, kept out of the record and marked failed. */
+  expired: number;
 }
 
 function isMutation(
@@ -98,25 +101,42 @@ function isMutation(
  * marking everything failed — those items are still good, the network is not.
  */
 export async function replayQueue(): Promise<ReplayOutcome> {
-  const outcome: ReplayOutcome = { sent: 0, alreadyApplied: 0, rejected: 0, deferred: 0 };
+  const outcome: ReplayOutcome = { sent: 0, alreadyApplied: 0, rejected: 0, deferred: 0, expired: 0 };
+  const client = getApiClient();
+  const ownerUserId = client.getUserId();
+  if (!ownerUserId) throw new Error('Sign in before replaying offline changes.');
 
   // Mutations only. `SyncQueueItem.method` also admits `GET`, for the
   // `action: 'download'` prefetch case — a queued *read* is not unsent work,
   // and the pages refetch on load anyway.
-  const pending = (await getPendingSyncItems())
+  // `in-progress` too: an item is marked so just before it is sent, and if the
+  // app was closed or lost signal mid-send it stayed that way and was never
+  // sent again. Sending it again is safe — it travels under its own id as the
+  // idempotency key, so the server applies it at most once.
+  const pending = (await getAllSyncItems())
+    .filter((item) => item.status === 'pending' || item.status === 'in-progress')
     .filter(isMutation)
+    .filter(item => item.ownerUserId === ownerUserId)
     .sort((a, b) => a.timestamp - b.timestamp);
 
   if (pending.length === 0) {
     return outcome;
   }
 
-  const client = getApiClient();
-
   for (const [index, item] of pending.entries()) {
+    if (client.getUserId() !== ownerUserId) {
+      outcome.deferred = pending.length - index;
+      break;
+    }
+    if (item.expiresAt !== undefined && Date.now() > item.expiresAt) {
+      await updateSyncStatus(item.id, 'failed', 'expired');
+      outcome.expired++;
+      continue;
+    }
     try {
       await updateSyncStatus(item.id, 'in-progress');
-      await client.replayQueuedMutation(item.method, item.endpoint, item.body, item.id);
+      const body = await openBody(item.body, ownerUserId);
+      await client.replayQueuedMutation(item.method, item.endpoint, body, item.id, item.timestamp);
       await updateSyncStatus(item.id, 'completed');
       outcome.sent++;
     } catch (error) {

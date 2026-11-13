@@ -1,47 +1,44 @@
-//! Class B step-up and Class C exact transaction authorization (ADR-0008).
+//! Session step-up and exact, single-use transaction authorization.
 //!
-//! Three security properties are kept apart here, because conflating them is
-//! what made the original design wrong:
-//!
-//! * a Bearer token answers *which authenticated session is calling*;
-//! * a wallet proof answers *does that subject still control the registered key*;
-//! * a transaction signature answers *did they authorize this exact mutation*.
-//!
-//! Nothing in this module takes identity from the request. The subject comes
-//! from the verified JWT and the wallet is resolved from that subject, so a
-//! caller cannot select the key whose signature is trusted.
+//! The caller's identity always comes from a verified JWT. A factor verifies a
+//! server-issued challenge; the eventual mutation must consume that challenge
+//! with its original intent. No client-held signing key is involved.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use serde::Serialize;
-use sha3::{Digest, Sha3_256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-/// Class B elevation lifetime. Long enough to complete a privileged workflow,
-/// short enough that walking away from a terminal does not leave it elevated.
 pub const STEP_UP_TTL_SECS: i64 = 600;
-
-/// Class C challenge lifetime. This is a human confirming one action, not a
-/// session: it should outlive a wallet prompt and nothing more.
 pub const TRANSACTION_CHALLENGE_TTL_SECS: i64 = 120;
-
-/// At most this many unconsumed challenges may exist for one session. Without a
-/// cap an authenticated client can cheaply create unbounded authorization
-/// objects.
 pub const MAX_LIVE_CHALLENGES_PER_SESSION: i64 = 3;
-
-/// Issuance budget per session. A human cannot meaningfully approve dozens of
-/// high-risk transactions a minute; past that the signature is theatre. Separate
-/// from the anonymous login-challenge budget, which defends a different resource
-/// and has entirely different user behaviour.
 pub const MAX_CHALLENGES_PER_SESSION: i64 = 10;
 pub const CHALLENGE_BUDGET_WINDOW_MINUTES: i64 = 5;
 
-/// Rejected authorization proofs. Recorded separately from the business audit
-/// trail: a rejected proof is often the only trace an attack leaves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Factor {
+    Totp,
+    Password,
+}
+impl Factor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Totp => "totp",
+            Self::Password => "password",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "totp" => Some(Self::Totp),
+            "password" => Some(Self::Password),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecurityEvent {
-    SignatureSubjectMismatch,
+    FactorRejected,
     ChallengeReplay,
     ChallengeExpired,
     SessionRevoked,
@@ -49,11 +46,10 @@ pub enum SecurityEvent {
     ResourceStateChanged,
     ChallengeRateLimited,
 }
-
 impl SecurityEvent {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::SignatureSubjectMismatch => "SIGNATURE_SUBJECT_MISMATCH",
+            Self::FactorRejected => "FACTOR_REJECTED",
             Self::ChallengeReplay => "CHALLENGE_REPLAY",
             Self::ChallengeExpired => "CHALLENGE_EXPIRED",
             Self::SessionRevoked => "SESSION_REVOKED",
@@ -64,73 +60,29 @@ impl SecurityEvent {
     }
 }
 
-/// How the signature was produced. A valid sr25519 signature proves a key signed
-/// some bytes; it does not prove a human approved them. The extension prompts,
-/// a password-unlocked keystore may not, so the distinction is recorded rather
-/// than assumed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthenticatorType {
-    /// Prompts the user for each signature: evidence of authentication intent.
-    PolkadotExtension,
-    /// Can sign without further interaction once unlocked: key possession only.
-    EncryptedKeystore,
+/// What the idempotency middleware buffered for a mutation: the SHA-256 of the
+/// exact request bytes and the request's idempotency key. A Class C gate reads
+/// this instead of re-serialising the parsed body.
+#[derive(Debug, Clone)]
+pub struct TransmittedRequest {
+    pub body_digest: String,
+    pub idempotency_key: String,
 }
 
-impl AuthenticatorType {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::PolkadotExtension => "polkadot_extension",
-            Self::EncryptedKeystore => "encrypted_keystore",
-        }
-    }
+/// The header carrying a verified Class C authorization id.
+pub const AUTHORIZATION_HEADER: &str = "x-transaction-authorization";
 
-    /// Whether this authenticator demonstrates a deliberate human act. Class C
-    /// actions whose purpose is explicit confirmation require `true`; a silently
-    /// unlocked keystore satisfies possession but not intent.
-    ///
-    /// This is evidence of the mechanism used, not cryptographic proof that a
-    /// prompt was displayed and read. It is still materially better than
-    /// treating every signature as equivalent.
-    pub fn is_interactive(self) -> bool {
-        matches!(self, Self::PolkadotExtension)
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "polkadot_extension" => Some(Self::PolkadotExtension),
-            "encrypted_keystore" => Some(Self::EncryptedKeystore),
-            _ => None,
-        }
-    }
-}
-
-fn nonce_digest(value: &str) -> String {
-    format!("{:x}", Sha3_256::digest(value.as_bytes()))
-}
-
-/// SHA-256 over the exact bytes the client transmits.
-///
-/// Never hash a re-serialisation of a parsed value: `JSON.stringify` output
-/// depends on property insertion order, so reordering a struct literal silently
-/// changes the digest and the failure is intermittent. A request with no body
-/// hashes the empty byte string, defined here rather than left implicit.
 pub fn body_digest(body: &[u8]) -> String {
     use sha2::Digest as _;
     format!("{:x}", sha2::Sha256::digest(body))
 }
 
-/// A challenge as handed to the client. The nonce is returned once; only its
-/// digest is stored, so a leaked table cannot replay it.
 #[derive(Debug, Clone, Serialize)]
 pub struct IssuedTransactionChallenge {
     pub challenge_id: String,
-    pub nonce: String,
-    /// The canonical string the wallet signs.
-    pub message: String,
     pub expires_in_secs: i64,
+    pub required_factor: &'static str,
 }
-
-/// What the mutation is bound to. Every field is covered by the signed message.
 #[derive(Debug, Clone)]
 pub struct TransactionIntent {
     pub action: String,
@@ -138,51 +90,9 @@ pub struct TransactionIntent {
     pub path: String,
     pub body_digest: String,
     pub resource_id: Option<String>,
-    /// Terminal status for a state-machine row, or `xmin` for an ordinary row.
     pub expected_state: Option<String>,
     pub idempotency_key: Option<String>,
 }
-
-/// The canonical representation the wallet signs.
-///
-/// Every field the server will re-check appears here, so a signature obtained
-/// for one request cannot be replayed against another: a different path, body,
-/// resource state or session all produce a different message.
-pub fn challenge_message(
-    challenge_id: &str,
-    subject: &str,
-    session_id: &str,
-    intent: &TransactionIntent,
-    nonce: &str,
-    expires_at: DateTime<Utc>,
-) -> String {
-    let mut message = String::with_capacity(320);
-    message.push_str("medichain-txn-v1\n");
-    message.push_str("aud:medichain-api\n");
-    message.push_str(&format!("sub:{subject}\n"));
-    message.push_str(&format!("sid:{session_id}\n"));
-    message.push_str(&format!("cid:{challenge_id}\n"));
-    message.push_str(&format!("action:{}\n", intent.action));
-    message.push_str(&format!("method:{}\n", intent.method));
-    message.push_str(&format!("path:{}\n", intent.path));
-    message.push_str(&format!("body:{}\n", intent.body_digest));
-    message.push_str(&format!(
-        "resource:{}\n",
-        intent.resource_id.as_deref().unwrap_or("-")
-    ));
-    message.push_str(&format!(
-        "state:{}\n",
-        intent.expected_state.as_deref().unwrap_or("-")
-    ));
-    message.push_str(&format!(
-        "idem:{}\n",
-        intent.idempotency_key.as_deref().unwrap_or("-")
-    ));
-    message.push_str(&format!("nonce:{nonce}\n"));
-    message.push_str(&format!("expires:{}", expires_at.timestamp()));
-    message
-}
-
 #[derive(Debug)]
 pub enum ChallengeError {
     Database(sqlx::Error),
@@ -191,55 +101,60 @@ pub enum ChallengeError {
     TooManyLive,
 }
 
-/// Issue a Class C challenge for one exact mutation.
-///
-/// The server generates it, never the browser: a challenge the client composes
-/// is a challenge the client can choose.
+pub async fn required_factor(pool: &PgPool, user_id: Uuid) -> Result<Factor, sqlx::Error> {
+    let enrolled: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM user_mfa WHERE user_id = $1 AND enabled = TRUE)",
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(if enrolled {
+        Factor::Totp
+    } else {
+        Factor::Password
+    })
+}
+
 pub async fn issue_transaction_challenge(
     pool: &PgPool,
-    wallet_address: &str,
+    user_id: &str,
     login_session_id: Uuid,
     intent: &TransactionIntent,
 ) -> Result<IssuedTransactionChallenge, ChallengeError> {
-    let challenge_id = Uuid::new_v4();
-    let nonce = Uuid::new_v4().to_string();
-    let expires_at = Utc::now() + Duration::seconds(TRANSACTION_CHALLENGE_TTL_SECS);
-
-    let mut transaction = pool.begin().await.map_err(ChallengeError::Database)?;
-
-    // Serialise issuance for this session across replicas. The generic IP
-    // limiter is process-local and cannot enforce a per-session budget when the
-    // API runs more than once.
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-        .bind(login_session_id.to_string())
-        .execute(&mut *transaction)
+    let user_uuid = crate::actor_directory::parse_user_id(user_id).ok_or_else(|| {
+        ChallengeError::Database(sqlx::Error::Protocol("user id is not a UUID".into()))
+    })?;
+    let factor = required_factor(pool, user_uuid)
         .await
         .map_err(ChallengeError::Database)?;
-
-    // The session must still be live. Elevation and authorization both hang off
-    // it, so a revoked login must not be able to mint new authority.
-    let active: Option<bool> =
-        sqlx::query_scalar("SELECT revoked_at IS NULL FROM auth_login_sessions WHERE id = $1")
-            .bind(login_session_id)
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(ChallengeError::Database)?;
+    let mut tx = pool.begin().await.map_err(ChallengeError::Database)?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(login_session_id.to_string())
+        .execute(&mut *tx)
+        .await
+        .map_err(ChallengeError::Database)?;
+    let active: Option<bool> = sqlx::query_scalar(
+        "SELECT revoked_at IS NULL AND user_id = $2 FROM auth_login_sessions WHERE id = $1",
+    )
+    .bind(login_session_id)
+    .bind(user_uuid)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ChallengeError::Database)?;
     if active != Some(true) {
         return Err(ChallengeError::SessionNotActive);
     }
-
     let live: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_transaction_challenges
          WHERE login_session_id = $1 AND consumed_at IS NULL AND expires_at > NOW()",
     )
     .bind(login_session_id)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&mut *tx)
     .await
     .map_err(ChallengeError::Database)?;
     if live >= MAX_LIVE_CHALLENGES_PER_SESSION {
         return Err(ChallengeError::TooManyLive);
     }
-
     let recent: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_transaction_challenges
          WHERE login_session_id = $1
@@ -247,22 +162,22 @@ pub async fn issue_transaction_challenge(
     )
     .bind(login_session_id)
     .bind(CHALLENGE_BUDGET_WINDOW_MINUTES as i32)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&mut *tx)
     .await
     .map_err(ChallengeError::Database)?;
     if recent >= MAX_CHALLENGES_PER_SESSION {
         return Err(ChallengeError::RateLimited);
     }
-
+    let challenge_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO auth_transaction_challenges
-             (id, login_session_id, wallet_address, action, method, path, body_digest,
-              resource_id, expected_state, idempotency_key, nonce_hash, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+             (id, login_session_id, user_id, action, method, path, body_digest,
+              resource_id, expected_state, idempotency_key, required_factor, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
     )
     .bind(challenge_id)
     .bind(login_session_id)
-    .bind(wallet_address)
+    .bind(user_uuid)
     .bind(&intent.action)
     .bind(&intent.method)
     .bind(&intent.path)
@@ -270,34 +185,19 @@ pub async fn issue_transaction_challenge(
     .bind(&intent.resource_id)
     .bind(&intent.expected_state)
     .bind(&intent.idempotency_key)
-    .bind(nonce_digest(&nonce))
-    .bind(expires_at)
-    .execute(&mut *transaction)
+    .bind(factor.as_str())
+    .bind(Utc::now() + Duration::seconds(TRANSACTION_CHALLENGE_TTL_SECS))
+    .execute(&mut *tx)
     .await
     .map_err(ChallengeError::Database)?;
-
-    transaction
-        .commit()
-        .await
-        .map_err(ChallengeError::Database)?;
-
+    tx.commit().await.map_err(ChallengeError::Database)?;
     Ok(IssuedTransactionChallenge {
-        message: challenge_message(
-            &challenge_id.to_string(),
-            wallet_address,
-            &login_session_id.to_string(),
-            intent,
-            &nonce,
-            expires_at,
-        ),
         challenge_id: challenge_id.to_string(),
-        nonce,
         expires_in_secs: TRANSACTION_CHALLENGE_TTL_SECS,
+        required_factor: factor.as_str(),
     })
 }
 
-/// Why an authorization was refused. Each maps to a security event, because the
-/// refusals are the interesting half of this protocol.
 #[derive(Debug, PartialEq, Eq)]
 pub enum AuthorizationFailure {
     UnknownChallenge,
@@ -307,78 +207,60 @@ pub enum AuthorizationFailure {
     WrongSubject,
     IntentMismatch,
     StateChanged,
-    BadSignature,
-    /// The action demands a deliberate human act and the authenticator cannot
-    /// evidence one.
-    NonInteractiveAuthenticator,
+    FactorRejected,
+    NotVerified,
 }
-
 impl AuthorizationFailure {
     pub fn security_event(&self) -> SecurityEvent {
         match self {
-            Self::UnknownChallenge | Self::AlreadyConsumed => SecurityEvent::ChallengeReplay,
+            Self::UnknownChallenge | Self::AlreadyConsumed | Self::NotVerified => {
+                SecurityEvent::ChallengeReplay
+            }
             Self::Expired => SecurityEvent::ChallengeExpired,
             Self::WrongSession => SecurityEvent::SessionRevoked,
-            Self::WrongSubject | Self::BadSignature | Self::NonInteractiveAuthenticator => {
-                SecurityEvent::SignatureSubjectMismatch
-            }
+            Self::WrongSubject | Self::FactorRejected => SecurityEvent::FactorRejected,
             Self::IntentMismatch => SecurityEvent::RequestDigestMismatch,
             Self::StateChanged => SecurityEvent::ResourceStateChanged,
         }
     }
-
-    /// Deliberately uniform and uninformative. A caller probing the protocol
-    /// learns that the authorization failed, not which check caught it.
     pub fn client_message(&self) -> &'static str {
         "This authorization is no longer valid. Please confirm the action again."
     }
 }
 
-/// Record a rejected authorization proof.
-///
-/// Carries no raw token, signature, request body or patient detail -- only the
-/// event kind and safe references. Failures here are logged and swallowed: a
-/// security-event write must never be the reason a request that was already
-/// being refused turns into a 500.
 pub async fn record_security_event(
     pool: &PgPool,
     event: SecurityEvent,
-    wallet_address: Option<&str>,
+    user_id: Option<&str>,
     login_session_id: Option<Uuid>,
     challenge_id: Option<Uuid>,
     action: Option<&str>,
 ) {
-    // Deduplicate within a short window so an attacker cannot turn invalid
-    // signatures into unbounded log volume. Logging must not itself become the
-    // resource-exhaustion vector.
     let recent: Result<i64, _> = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_security_events
          WHERE event_type = $1
-           AND wallet_address IS NOT DISTINCT FROM $2
-           AND occurred_at >= NOW() - make_interval(secs => 10)",
+           AND user_id IS NOT DISTINCT FROM $2::text::uuid
+           AND occurred_at >= NOW() - INTERVAL '10 seconds'",
     )
     .bind(event.as_str())
-    .bind(wallet_address)
+    .bind(user_id)
     .fetch_one(pool)
     .await;
-
     if matches!(recent, Ok(count) if count >= 5) {
         return;
     }
-
     let write = sqlx::query(
         "INSERT INTO auth_security_events
-             (event_type, wallet_address, login_session_id, challenge_id, action)
-         VALUES ($1, $2, $3, $4, $5)",
+             (event_type, user_id, login_session_id, challenge_id, action)
+         VALUES ($1, $2::text::uuid, $3, $4, $5)",
     )
     .bind(event.as_str())
-    .bind(wallet_address)
+    .bind(user_id)
     .bind(login_session_id)
     .bind(challenge_id)
     .bind(action)
     .execute(pool)
     .await;
-
     if let Err(error) = write {
         log::error!(
             "Security event {} could not be recorded: {error}",
@@ -387,231 +269,179 @@ pub async fn record_security_event(
     }
 }
 
-/// Verify a Class C authorization and consume the challenge.
-///
-/// Verification order matters, and consumption is last: a challenge is only
-/// spent once every check has passed, so a failed attempt cannot burn a
-/// legitimate user's authorization.
-///
-/// `require_interactive` is set by the action, not the caller: operations whose
-/// purpose is explicit human confirmation refuse an authenticator that can sign
-/// silently.
-/// The signed answer to one challenge: which challenge, whose session, and the
-/// signature over it.
-///
-/// Grouped because these six travel together from the request to the check,
-/// and three of them are strings -- a nonce and a signature swapped at a call
-/// site would have compiled and failed only at verification.
 pub struct TransactionProof<'a> {
     pub challenge_id: Uuid,
     pub subject: &'a str,
     pub login_session_id: Uuid,
-    pub nonce: &'a str,
-    pub signature_hex: &'a str,
-    pub authenticator: AuthenticatorType,
+}
+#[derive(sqlx::FromRow)]
+struct ChallengeRow {
+    login_session_id: Uuid,
+    user_id: Uuid,
+    action: String,
+    method: String,
+    path: String,
+    body_digest: String,
+    resource_id: Option<String>,
+    expected_state: Option<String>,
+    idempotency_key: Option<String>,
+    required_factor: String,
+    verified_at: Option<chrono::DateTime<Utc>>,
+    expires_at: chrono::DateTime<Utc>,
+    consumed_at: Option<chrono::DateTime<Utc>>,
+}
+async fn locked_challenge(
+    tx: &mut Transaction<'_, Postgres>,
+    challenge_id: Uuid,
+) -> Result<ChallengeRow, AuthorizationFailure> {
+    sqlx::query_as::<_, ChallengeRow>(
+        "SELECT login_session_id, user_id, action, method, path, body_digest,
+                resource_id, expected_state, idempotency_key, required_factor,
+                verified_at, expires_at, consumed_at
+         FROM auth_transaction_challenges WHERE id = $1 FOR UPDATE",
+    )
+    .bind(challenge_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorizationFailure::UnknownChallenge)?
+    .ok_or(AuthorizationFailure::UnknownChallenge)
+}
+async fn check_challenge(
+    tx: &mut Transaction<'_, Postgres>,
+    row: &ChallengeRow,
+    proof: &TransactionProof<'_>,
+) -> Result<(), AuthorizationFailure> {
+    if row.consumed_at.is_some() {
+        return Err(AuthorizationFailure::AlreadyConsumed);
+    }
+    if row.expires_at <= Utc::now() {
+        return Err(AuthorizationFailure::Expired);
+    }
+    if row.login_session_id != proof.login_session_id {
+        return Err(AuthorizationFailure::WrongSession);
+    }
+    if row.user_id.to_string() != proof.subject {
+        return Err(AuthorizationFailure::WrongSubject);
+    }
+    let active: Option<bool> = sqlx::query_scalar(
+        "SELECT revoked_at IS NULL AND user_id = $2
+         FROM auth_login_sessions WHERE id = $1",
+    )
+    .bind(proof.login_session_id)
+    .bind(row.user_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|_| AuthorizationFailure::WrongSession)?;
+    if active != Some(true) {
+        return Err(AuthorizationFailure::WrongSession);
+    }
+    Ok(())
 }
 
+/// Mark a factor as verified. The mutation must still spend the bound challenge.
+pub async fn mark_verified(
+    pool: &PgPool,
+    proof: TransactionProof<'_>,
+    factor: Factor,
+) -> Result<(), AuthorizationFailure> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|_| AuthorizationFailure::UnknownChallenge)?;
+    let row = locked_challenge(&mut tx, proof.challenge_id).await?;
+    check_challenge(&mut tx, &row, &proof).await?;
+    if row.verified_at.is_some() || row.required_factor != factor.as_str() {
+        return Err(AuthorizationFailure::FactorRejected);
+    }
+    let updated = sqlx::query(
+        "UPDATE auth_transaction_challenges
+         SET verified_at = NOW(), authenticator_type = $2
+         WHERE id = $1 AND verified_at IS NULL AND consumed_at IS NULL",
+    )
+    .bind(proof.challenge_id)
+    .bind(factor.as_str())
+    .execute(&mut *tx)
+    .await
+    .map_err(|_| AuthorizationFailure::UnknownChallenge)?;
+    if updated.rows_affected() != 1 {
+        return Err(AuthorizationFailure::AlreadyConsumed);
+    }
+    tx.commit()
+        .await
+        .map_err(|_| AuthorizationFailure::UnknownChallenge)
+}
+
+/// Consume a previously verified challenge for exactly the bound mutation.
 pub async fn authorize_transaction(
     pool: &PgPool,
     proof: TransactionProof<'_>,
     intent: &TransactionIntent,
-    require_interactive: bool,
 ) -> Result<(), AuthorizationFailure> {
-    let TransactionProof {
-        challenge_id,
-        subject,
-        login_session_id,
-        nonce,
-        signature_hex,
-        authenticator,
-    } = proof;
-    let mut transaction = pool
+    let mut tx = pool
         .begin()
         .await
         .map_err(|_| AuthorizationFailure::UnknownChallenge)?;
-
-    // Lock the challenge row so two concurrent submissions of the same
-    // authorization cannot both pass their checks before either consumes it.
-    #[allow(clippy::type_complexity)]
-    let row: Option<(
-        Uuid,
-        String,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-        DateTime<Utc>,
-        Option<DateTime<Utc>>,
-    )> = sqlx::query_as(
-        "SELECT login_session_id, wallet_address, action, method, path, body_digest,
-                resource_id, expected_state, idempotency_key, nonce_hash,
-                expires_at, consumed_at
-         FROM auth_transaction_challenges
-         WHERE id = $1
-         FOR UPDATE",
-    )
-    .bind(challenge_id)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(|_| AuthorizationFailure::UnknownChallenge)?;
-
-    let Some((
-        stored_session,
-        stored_wallet,
-        stored_action,
-        stored_method,
-        stored_path,
-        stored_body,
-        stored_resource,
-        stored_state,
-        stored_idem,
-        stored_nonce_hash,
-        expires_at,
-        consumed_at,
-    )) = row
-    else {
-        return Err(AuthorizationFailure::UnknownChallenge);
-    };
-
-    if consumed_at.is_some() {
-        return Err(AuthorizationFailure::AlreadyConsumed);
+    let row = locked_challenge(&mut tx, proof.challenge_id).await?;
+    check_challenge(&mut tx, &row, &proof).await?;
+    if row.verified_at.is_none() {
+        return Err(AuthorizationFailure::NotVerified);
     }
-    if expires_at <= Utc::now() {
-        return Err(AuthorizationFailure::Expired);
-    }
-    // The challenge belongs to one login and one subject. A token naming a
-    // different session must not be able to complete someone else's
-    // authorization.
-    if stored_session != login_session_id {
-        return Err(AuthorizationFailure::WrongSession);
-    }
-    if stored_wallet != subject {
-        return Err(AuthorizationFailure::WrongSubject);
-    }
-
-    // The session must still be live at the moment of use, not merely when the
-    // challenge was issued.
-    let session_active: Option<bool> =
-        sqlx::query_scalar("SELECT revoked_at IS NULL FROM auth_login_sessions WHERE id = $1")
-            .bind(login_session_id)
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(|_| AuthorizationFailure::WrongSession)?;
-    if session_active != Some(true) {
-        return Err(AuthorizationFailure::WrongSession);
-    }
-
-    // The request presented now must be the request that was authorized.
-    if stored_action != intent.action
-        || stored_method != intent.method
-        || stored_path != intent.path
-        || stored_body != intent.body_digest
-        || stored_resource != intent.resource_id
-        || stored_idem != intent.idempotency_key
+    if row.action != intent.action
+        || row.method != intent.method
+        || row.path != intent.path
+        || row.body_digest != intent.body_digest
+        || row.resource_id != intent.resource_id
+        || row.idempotency_key != intent.idempotency_key
     {
         return Err(AuthorizationFailure::IntentMismatch);
     }
-    // Approval of state N does not authorize state N+1.
-    if stored_state != intent.expected_state {
+    if row.expected_state != intent.expected_state {
         return Err(AuthorizationFailure::StateChanged);
     }
-
-    if stored_nonce_hash != nonce_digest(nonce) {
-        return Err(AuthorizationFailure::BadSignature);
-    }
-
-    if require_interactive && !authenticator.is_interactive() {
-        return Err(AuthorizationFailure::NonInteractiveAuthenticator);
-    }
-
-    // The signature is verified against the wallet resolved from the stored
-    // subject, never against an address supplied with the request.
-    let message = challenge_message(
-        &challenge_id.to_string(),
-        &stored_wallet,
-        &login_session_id.to_string(),
-        intent,
-        nonce,
-        expires_at,
-    );
-    if medichain_crypto::signature::verify_wallet_message_signature(
-        signature_hex,
-        &message,
-        &stored_wallet,
-    )
-    .is_err()
-    {
-        return Err(AuthorizationFailure::BadSignature);
-    }
-
-    // Consume last, and only on the row that is still unconsumed, so a race
-    // between two valid submissions still yields exactly one authorization.
-    let consumed = sqlx::query(
-        "UPDATE auth_transaction_challenges
-         SET consumed_at = NOW(), authenticator_type = $2
+    let updated = sqlx::query(
+        "UPDATE auth_transaction_challenges SET consumed_at = NOW()
          WHERE id = $1 AND consumed_at IS NULL",
     )
-    .bind(challenge_id)
-    .bind(authenticator.as_str())
-    .execute(&mut *transaction)
+    .bind(proof.challenge_id)
+    .execute(&mut *tx)
     .await
     .map_err(|_| AuthorizationFailure::AlreadyConsumed)?;
-    if consumed.rows_affected() != 1 {
+    if updated.rows_affected() != 1 {
         return Err(AuthorizationFailure::AlreadyConsumed);
     }
-
-    transaction
-        .commit()
+    tx.commit()
         .await
-        .map_err(|_| AuthorizationFailure::AlreadyConsumed)?;
-    Ok(())
+        .map_err(|_| AuthorizationFailure::AlreadyConsumed)
 }
-
-// ---------------------------------------------------------------------------
-// Class B - session step-up
-// ---------------------------------------------------------------------------
-
-/// Record a successful wallet step-up against the login session.
-///
-/// Elevation lives on the parent session precisely so a refresh-token rotation
-/// underneath it neither extends nor drops it.
+/// Persist a verified second factor on this active login session.
 pub async fn record_step_up(
     pool: &PgPool,
     login_session_id: Uuid,
-    authenticator: AuthenticatorType,
-) -> Result<bool, sqlx::Error> {
-    let updated = sqlx::query(
+    user_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let result = sqlx::query(
         "UPDATE auth_login_sessions
-         SET step_up_until = NOW() + make_interval(secs => $2),
-             step_up_method = $3,
-             last_authenticated_at = NOW()
-         WHERE id = $1 AND revoked_at IS NULL",
+         SET step_up_until = NOW() + make_interval(secs => $3)
+         WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
     )
     .bind(login_session_id)
-    .bind(STEP_UP_TTL_SECS as i32)
-    .bind(authenticator.as_str())
+    .bind(user_id)
+    .bind(STEP_UP_TTL_SECS as f64)
     .execute(pool)
     .await?;
-    Ok(updated.rows_affected() == 1)
+    if result.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    Ok(())
 }
 
-/// Whether this session currently holds a valid Class B elevation.
-///
-/// Revocation is checked in the same statement: step-up state must not survive
-/// logout, logout-all, or session revocation, so it is never read independently
-/// of the session's own liveness.
 pub async fn has_active_step_up(
     pool: &PgPool,
     login_session_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
     let elevated: Option<bool> = sqlx::query_scalar(
         "SELECT revoked_at IS NULL AND step_up_until IS NOT NULL AND step_up_until > NOW()
-         FROM auth_login_sessions
-         WHERE id = $1",
+         FROM auth_login_sessions WHERE id = $1",
     )
     .bind(login_session_id)
     .fetch_optional(pool)
@@ -622,185 +452,108 @@ pub async fn has_active_step_up(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn body_digest_binds_the_exact_bytes() {
+        assert_eq!(
+            body_digest(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_ne!(
+            body_digest(br#"{"a":1,"b":2}"#),
+            body_digest(br#"{"b":2,"a":1}"#)
+        );
+    }
+    #[test]
+    fn only_supported_factors_parse() {
+        assert_eq!(Factor::parse("totp"), Some(Factor::Totp));
+        assert_eq!(Factor::parse("password"), Some(Factor::Password));
+    }
 
     fn intent() -> TransactionIntent {
         TransactionIntent {
             action: "patient_access.approve".to_string(),
             method: "POST".to_string(),
-            path: "/api/access/requests/123/approve".to_string(),
-            body_digest: body_digest(b"{\"expiry\":\"2026-09-01\"}"),
-            resource_id: Some("request-123".to_string()),
+            path: "/api/access/requests/req-1/approve".to_string(),
+            body_digest: body_digest(b"{}"),
+            resource_id: Some("req-1".to_string()),
             expected_state: Some("pending".to_string()),
             idempotency_key: Some("idem-1".to_string()),
         }
     }
 
-    fn message_for(intent: &TransactionIntent) -> String {
-        challenge_message(
-            "cid-1",
-            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-            "sid-1",
-            intent,
-            "nonce-1",
-            DateTime::from_timestamp(1_800_000_000, 0).unwrap(),
+    #[tokio::test]
+    async fn verified_challenge_is_bound_and_single_use() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let user_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let sid = crate::auth_sessions::create(
+            &pool,
+            &user_id,
+            "transaction-test-generation",
+            &Uuid::new_v4().to_string(),
+            Utc::now() + Duration::hours(1),
         )
-    }
-
-    /// The empty body has a stated digest rather than an implicit one, so a
-    /// bodyless request is authorized as deliberately as any other.
-    #[test]
-    fn empty_body_digest_is_defined_and_stable() {
+        .await
+        .unwrap();
+        let original = intent();
+        let issued = issue_transaction_challenge(&pool, &user_id, sid, &original)
+            .await
+            .unwrap();
+        assert_eq!(issued.required_factor, "password");
+        let challenge_id = Uuid::parse_str(&issued.challenge_id).unwrap();
+        let proof = || TransactionProof {
+            challenge_id,
+            subject: &user_id,
+            login_session_id: sid,
+        };
         assert_eq!(
-            body_digest(b""),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            authorize_transaction(&pool, proof(), &original).await,
+            Err(AuthorizationFailure::NotVerified),
         );
-    }
-
-    /// The digest covers bytes, so any change to the transmitted payload changes
-    /// it -- including a reordering that a re-serialisation would have hidden.
-    #[test]
-    fn body_digest_distinguishes_reordered_payloads() {
-        let a = body_digest(br#"{"a":1,"b":2}"#);
-        let b = body_digest(br#"{"b":2,"a":1}"#);
-        assert_ne!(
-            a, b,
-            "hashing transmitted bytes must not silently treat two encodings as one"
-        );
-    }
-
-    /// Everything the server re-checks is inside the signed message. Each of
-    /// these mutations must produce a different message, or a signature obtained
-    /// for one request could be replayed against another.
-    #[test]
-    fn every_bound_field_changes_the_signed_message() {
-        let base = message_for(&intent());
-
-        let mut different_action = intent();
-        different_action.action = "patient_access.deny".to_string();
-        assert_ne!(base, message_for(&different_action), "action must be bound");
-
-        let mut different_method = intent();
-        different_method.method = "DELETE".to_string();
-        assert_ne!(base, message_for(&different_method), "method must be bound");
-
-        let mut different_path = intent();
-        different_path.path = "/api/access/requests/456/approve".to_string();
-        assert_ne!(base, message_for(&different_path), "path must be bound");
-
-        let mut different_body = intent();
-        different_body.body_digest = body_digest(b"{}");
-        assert_ne!(base, message_for(&different_body), "body must be bound");
-
-        let mut different_resource = intent();
-        different_resource.resource_id = Some("request-456".to_string());
-        assert_ne!(
-            base,
-            message_for(&different_resource),
-            "resource must be bound"
-        );
-
-        // Approval of state N must not authorize state N+1.
-        let mut different_state = intent();
-        different_state.expected_state = Some("approved".to_string());
-        assert_ne!(
-            base,
-            message_for(&different_state),
-            "resource state must be bound"
-        );
-
-        let mut different_idem = intent();
-        different_idem.idempotency_key = Some("idem-2".to_string());
-        assert_ne!(
-            base,
-            message_for(&different_idem),
-            "idempotency key must be bound"
-        );
-    }
-
-    /// Subject, session and challenge identity are bound too, so one person's
-    /// signature cannot complete another's authorization or another session's.
-    #[test]
-    fn subject_session_and_challenge_are_bound() {
-        let intent = intent();
-        let expires = DateTime::from_timestamp(1_800_000_000, 0).unwrap();
-        let base = challenge_message("cid-1", "alice", "sid-1", &intent, "nonce-1", expires);
-
-        assert_ne!(
-            base,
-            challenge_message("cid-1", "bob", "sid-1", &intent, "nonce-1", expires),
-            "subject must be bound"
-        );
-        assert_ne!(
-            base,
-            challenge_message("cid-1", "alice", "sid-2", &intent, "nonce-1", expires),
-            "session must be bound"
-        );
-        assert_ne!(
-            base,
-            challenge_message("cid-2", "alice", "sid-1", &intent, "nonce-1", expires),
-            "challenge id must be bound"
-        );
-        assert_ne!(
-            base,
-            challenge_message("cid-1", "alice", "sid-1", &intent, "nonce-2", expires),
-            "nonce must be bound"
-        );
-    }
-
-    /// A version prefix means a future message format cannot be mistaken for
-    /// this one by a verifier that has not been updated.
-    #[test]
-    fn signed_message_carries_a_version_and_audience() {
-        let message = message_for(&intent());
-        assert!(message.starts_with("medichain-txn-v1\n"));
-        assert!(message.contains("aud:medichain-api"));
-    }
-
-    /// Only an authenticator that prompts a human evidences intent. A
-    /// password-unlocked keystore proves key possession and nothing more.
-    #[test]
-    fn only_the_prompting_authenticator_evidences_intent() {
-        assert!(AuthenticatorType::PolkadotExtension.is_interactive());
-        assert!(!AuthenticatorType::EncryptedKeystore.is_interactive());
+        mark_verified(&pool, proof(), Factor::Password)
+            .await
+            .unwrap();
+        let mut altered = original.clone();
+        altered.body_digest = body_digest(b"{\"changed\":true}");
         assert_eq!(
-            AuthenticatorType::parse("polkadot_extension"),
-            Some(AuthenticatorType::PolkadotExtension)
+            authorize_transaction(&pool, proof(), &altered).await,
+            Err(AuthorizationFailure::IntentMismatch),
         );
-        assert_eq!(AuthenticatorType::parse("something_else"), None);
+        authorize_transaction(&pool, proof(), &original)
+            .await
+            .unwrap();
+        assert_eq!(
+            authorize_transaction(&pool, proof(), &original).await,
+            Err(AuthorizationFailure::AlreadyConsumed),
+        );
     }
 
-    /// Every refusal maps to a recordable security event: the rejected proofs
-    /// are the half of this protocol that leaves no other trace.
-    #[test]
-    fn every_failure_maps_to_a_security_event() {
-        for failure in [
-            AuthorizationFailure::UnknownChallenge,
-            AuthorizationFailure::Expired,
-            AuthorizationFailure::AlreadyConsumed,
-            AuthorizationFailure::WrongSession,
-            AuthorizationFailure::WrongSubject,
-            AuthorizationFailure::IntentMismatch,
-            AuthorizationFailure::StateChanged,
-            AuthorizationFailure::BadSignature,
-            AuthorizationFailure::NonInteractiveAuthenticator,
-        ] {
-            assert!(!failure.security_event().as_str().is_empty());
-        }
-    }
-
-    /// The client message is uniform, so probing the protocol reveals that the
-    /// authorization failed but not which check caught it.
-    #[test]
-    fn refusals_do_not_leak_which_check_failed() {
-        let messages: std::collections::HashSet<&str> = [
-            AuthorizationFailure::UnknownChallenge.client_message(),
-            AuthorizationFailure::Expired.client_message(),
-            AuthorizationFailure::WrongSubject.client_message(),
-            AuthorizationFailure::BadSignature.client_message(),
-            AuthorizationFailure::StateChanged.client_message(),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(messages.len(), 1, "refusals must be indistinguishable");
+    #[tokio::test]
+    async fn revoked_session_cannot_complete_a_challenge() {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let user_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let sid = crate::auth_sessions::create(
+            &pool,
+            &user_id,
+            "revocation-test-generation",
+            &Uuid::new_v4().to_string(),
+            Utc::now() + Duration::hours(1),
+        )
+        .await
+        .unwrap();
+        let issued = issue_transaction_challenge(&pool, &user_id, sid, &intent())
+            .await
+            .unwrap();
+        crate::auth_sessions::revoke_session(&pool, sid, "logout")
+            .await
+            .unwrap();
+        let proof = TransactionProof {
+            challenge_id: Uuid::parse_str(&issued.challenge_id).unwrap(),
+            subject: &user_id,
+            login_session_id: sid,
+        };
+        assert_eq!(
+            mark_verified(&pool, proof, Factor::Password).await,
+            Err(AuthorizationFailure::WrongSession),
+        );
     }
 }

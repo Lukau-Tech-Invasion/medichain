@@ -27,11 +27,6 @@ app is not until §2.0c is resolved.
 | Synthetic e2e — **PostgreSQL** backend | **160/160 passed** | same, `BASE=…:8091` |
 | Route sweep, 100 routes logged in | **86 clean / 14 broken** | Playwright, live stack |
 
-Both login pages were loaded in a real headless browser: no ErrorBoundary, **zero
-console errors and zero uncaught exceptions** on either, demo-user buttons and the
-wallet-address input both present, and the patient app's six-language switcher
-(English / Français / Kiswahili / አማርኛ / isiZulu / Hausa) renders correctly.
-
 The route-drift problem recorded in project history is genuinely fixed: every one
 of the 296 distinct paths the frontend calls maps to one of the 397 routes the API
 registers. That check compares **paths only** — not HTTP verbs, not payload shapes —
@@ -46,9 +41,6 @@ any static check, typecheck, or build — and none is caught by the existing tes
 suites, which is the point worth sitting with.
 
 ### 2.0a A slow database silently turns the API into an empty in-memory server — **fixed**
-
-**Symptom:** every login fails with `WALLET_NOT_REGISTERED` on a stack where every
-container reports healthy and `/health` returns `{"status":"healthy"}`.
 
 **What happens.** On startup the API tries PostgreSQL with `create_pool_with_retry`.
 The old default was 5 attempts — about 30 seconds of budget (1+2+4+8 s backoff plus
@@ -70,11 +62,6 @@ unless-stopped`. So a clean `compose up` works, and a **machine reboot or Docker
 restart** loses the race. That is precisely the "set it up the night before, reboot,
 arrive at the venue" scenario.
 
-**Reproduced and confirmed both ways:** with postgres mid-recovery the API logged
-`Falling back to in-memory storage (demo mode)` and loaded 0 users; restarting it
-once postgres was healthy loaded **46 demo users and 47 demo patients**, and the same
-login went from `WALLET_NOT_REGISTERED` to `{"success":true,...,"role":"Doctor"}`.
-
 **Fix:** default retry budget raised from 5 to 12 attempts (~2 minutes, covering the
 observed recovery with margin; still overridable via `DB_MAX_RETRIES`), and the
 fallback now prints an unmissable `[DEGRADED]` banner stating explicitly that every
@@ -91,8 +78,6 @@ unilateral change.
 **Symptom:** the patient app requests `/api/patients/undefined`, `/api/lab/patient/undefined`,
 `/api/symptoms/undefined` and so on — all 403 — so the patient's dashboard, records,
 medications, appointments, notifications and medical ID all render without their data.
-
-**Root cause.** `GET /api/auth/wallet/{address}` returns:
 
 ```json
 {"address":"5FLSig…60Z","linked_patient_id":"PAT-001-DEMO",
@@ -136,12 +121,6 @@ if !current_user.role.is_healthcare_provider() && current_user_id != patient_id 
     return HttpResponse::Forbidden() // "Patients can only view their own medical records"
 }
 ```
-
-`current_user_id` is the **wallet address** (`5FLSigC9…60Z`). `patient_id` is the
-**patient record ID** (`PAT-001-DEMO`). They are never equal, so for a patient that
-condition is always true and the endpoint is **structurally incapable of granting
-access**. The comment above the check states the intended behaviour, which is the
-opposite of what the code does.
 
 **Scale: 26 occurrences across 17 files** — `ipfs_records`, `fhir/*`, `medical_id/*`,
 `engagement/{appointments,symptoms}`, `workflow/{messaging,tasks,compliance}`,
@@ -316,20 +295,6 @@ connections out.
 
 **The one-click demo logins exist only in `vite dev`.**
 
-`client/shared/src/config.ts:106` sets `DEMO_WALLET_GENERATION: IS_DEVELOPMENT`, and
-`IS_DEVELOPMENT` is `import.meta.env.DEV` — true under the dev server, **false in any
-production build**. `LoginPage.tsx:168` gates the whole demo-user panel on that flag.
-
-So a production build has no "Dr. Thandi Mbeki" button. Login still works — the wallet
-address field and Connect Wallet are always present — but whoever is demoing needs a
-wallet address to hand rather than a click.
-
-This is a defensible safety choice (don't ship demo shortcuts to production), but note
-the inconsistency: there is a *separate* `IS_DEMO` flag driven by `VITE_DEMO_MODE`
-(`config.ts:26`), and setting it does **not** re-enable the demo logins, because those
-key off `IS_DEVELOPMENT` instead. If the intent is "a build you can demo from",
-`DEMO_WALLET_GENERATION` should key off `IS_DEMO`, not `IS_DEVELOPMENT`.
-
 **Consequence for the test suites:** every Playwright spec here — the three pre-existing
 ones and the route sweep added this run — logs in via the demo button, so they all
 require the **dev server**, not a production preview. That is a real limit on what
@@ -370,11 +335,6 @@ the briefing currently tells a reader it does not work.
   functional. A completeness gap, not breakage.
 - **Pathology whole-slide viewer is a labelled placeholder**, and says so on screen.
   Honest, but worth knowing before someone clicks it during a demo.
-- Static audit of 1,816 "mock/placeholder/TODO" keyword hits categorises to 15
-  "behavioural"; on inspection these are documented blockchain placeholder-hash
-  fallbacks, the NFC simulator, and misclassified React `placeholder=` props. One
-  genuine shortcut: `api/src/handlers/general.rs:473` uses `patient_id` as
-  `wallet_address` until a wallet is linked.
 
 ---
 

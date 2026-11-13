@@ -26,8 +26,7 @@ if command -v tasklist >/dev/null 2>&1; then
 fi
 
 export IS_DEMO=true
-export REQUIRE_SIGNATURES=false
-export BLOCKCHAIN_ENABLED=false
+export AUDIT_CHECKPOINT_SINK=none
 
 export MEDICHAIN_STORAGE=postgres
 export DATABASE_URL="${DATABASE_URL:-postgres://medichain:medichain_dev_2024@localhost:5432/medichain}"

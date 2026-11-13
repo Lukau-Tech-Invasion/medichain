@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
-import { mapPrescription, MedicationsPage } from './MedicationsPage';
+import { mapPrescription, MedicationsPage, profileOnlyMedicines } from './MedicationsPage';
 import { usePatientAuthStore } from '../store/authStore';
 
 // Mock the auth store
@@ -19,7 +19,7 @@ describe('MedicationsPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -37,17 +37,21 @@ describe('MedicationsPage (Patient)', () => {
           headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             prescriptions: [
+              // The shape the API returns: the medicine nested under
+              // `medication`. The flat shape this used to mock is one the
+              // server never sent, which is how an always-empty list passed.
               {
                 prescription_id: 'med1',
-                medication_name: 'Aspirin',
-                dosage: '100mg',
-                frequency: 'Once daily',
-                prescriber_id: 'Dr. House',
-                prescribed_at: '2025-01-01',
-                status: 'active',
-                instructions: 'Take with food',
-                side_effects: ['Stomach upset'],
-                interactions: ['Ibuprofen'],
+                medication: {
+                  name: 'Aspirin',
+                  strength: '100 mg',
+                  form: 'tablet',
+                  directions: 'Take with food',
+                },
+                prescriber_name: 'Dr. House',
+                signed_at: 1735689600,
+                status: 'Transmitted',
+                refills_remaining: 0,
               }
             ],
           }),
@@ -86,6 +90,27 @@ describe('MedicationsPage (Patient)', () => {
     });
   });
 
+  it('reads the nested e-prescription shape the API returns', () => {
+    expect(mapPrescription({
+      prescription_id: 'RX-1',
+      medication: { name: 'Amlodipine', strength: '5 mg', form: 'tablet', directions: 'Once daily' },
+      patient_instructions: 'Take in the morning',
+      prescriber_name: 'Dr Browser Test',
+      signed_at: 1790335111,
+      status: 'Transmitted',
+    })).toMatchObject({
+      id: 'RX-1',
+      name: 'Amlodipine',
+      dosage: '5 mg tablet',
+      instructions: 'Once daily — Take in the morning',
+      prescribedBy: 'Dr Browser Test',
+      startDate: '2026-09-25',
+      status: 'active',
+    });
+    expect(mapPrescription({ prescription_id: 'RX-2', medication: { name: 'X' }, status: 'Draft' })?.status)
+      .toBeUndefined();
+  });
+
   it('renders medications page with current medications', async () => {
     render(
       <MemoryRouter>
@@ -95,16 +120,108 @@ describe('MedicationsPage (Patient)', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText(/Medications/i).length).toBeGreaterThan(0);
-      expect(screen.getByText(/Aspirin/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Aspirin' })).toBeInTheDocument();
       expect(screen.getByText(/Take with food/i)).toBeInTheDocument();
     });
   });
 
-  it('does not present an unsupported refill request as a working action', async () => {
+  /** Answer the reminders read with `reminders`; everything else as set up. */
+  function remindersAnswer(reminders: unknown[]) {
+    const fallback = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/api/reminders/medication/')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ reminders }),
+        });
+      }
+      return fallback?.(url, init);
+    });
+  }
+
+  const reminder = (id: string, name: string, times: string[]) => ({
+    reminder_id: id, patient_id: 'HEALTH123', medication_name: name, dosage: '100 mg',
+    frequency: 'daily', reminder_times: times, start_date: '2026-11-01', active: true,
+  });
+
+  it('shows the reminders of a medicine on that medicine, and the rest on their own', async () => {
+    remindersAnswer([reminder('R-ASP', 'aspirin', ['08:00', '20:00']), reminder('R-VIT', 'Vitamin D', ['09:00'])]);
     render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
 
-    expect(await screen.findByText(/Online refill requests are not available/i)).toBeInTheDocument();
+    const aspirin = await screen.findByRole('region', { name: 'Reminders for Aspirin' });
+    expect(aspirin).toHaveTextContent('08:00');
+    expect(aspirin).toHaveTextContent('20:00');
+    expect(aspirin).not.toHaveTextContent('09:00');
+    // Not hidden for having no medicine on the list.
+    expect(screen.getByTestId('other-reminders')).toHaveTextContent('Vitamin D');
+    expect(screen.getByRole('button', { name: 'Add a reminder for Aspirin' })).toBeInTheDocument();
+  });
+
+  it('records a dose against the id of the reminder, not the per-time key', async () => {
+    remindersAnswer([reminder('R-ASP', 'Aspirin', ['08:00'])]);
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark Aspirin taken, 08:00 dose' }));
+    await waitFor(() => {
+      const logged = mockFetch.mock.calls.find(([url, init]) =>
+        String(url).includes('/api/reminders/adherence') && (init as RequestInit | undefined)?.method === 'POST');
+      expect(logged, 'no dose was logged').toBeTruthy();
+      expect(JSON.parse(String((logged![1] as RequestInit).body))).toMatchObject({ reminder_id: 'R-ASP', action: 'taken' });
+    });
+  });
+
+  it('opens the reminder form filled in with the medicine and its dose', async () => {
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a reminder for Aspirin' }));
+    expect(document.getElementById('reminder-aspirin-medication')).toHaveValue('Aspirin');
+    expect(document.getElementById('reminder-aspirin-dosage')).toHaveValue('100 mg tablet');
+  });
+
+  /** Answer the refill-requests read with `status` and `body`; everything else as set up. */
+  function refillRequestsAnswer(status: number, body: unknown) {
+    const fallback = mockFetch.getMockImplementation();
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/refill-requests')) {
+        return Promise.resolve({
+          ok: status < 400,
+          status,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve(body),
+        });
+      }
+      return fallback?.(url, init);
+    });
+  }
+
+  it('says when no refills are left instead of offering a request', async () => {
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/No refills left/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /request refill/i })).not.toBeInTheDocument();
+  });
+
+  it('shows an open refill request on its prescription', async () => {
+    refillRequestsAnswer(200, {
+      success: true,
+      requests: [{
+        id: 'RFR-1', prescription_id: 'med1', patient_id: 'HEALTH123', medication_name: 'Aspirin',
+        status: 'requested', patient_note: null, denial_reason: null, decided_at: null,
+        new_prescription_id: null, created_at: '2026-09-25T09:00:00Z',
+      }],
+    });
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    expect(await screen.findByText(/Waiting for your doctor/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Withdraw request/i })).toBeInTheDocument();
+  });
+
+  it('keeps the medicines list when refill requests cannot be loaded', async () => {
+    refillRequestsAnswer(403, { error: { code: 'FORBIDDEN', message: 'Access denied' } });
+    render(<MemoryRouter><MedicationsPage /></MemoryRouter>);
+
+    expect(await screen.findByText('Aspirin')).toBeInTheDocument();
+    expect(await screen.findByText(/Refill requests could not be loaded/i)).toBeInTheDocument();
   });
 
   it('allows switching to reminders tab', async () => {
@@ -162,6 +279,38 @@ describe('MedicationsPage (Patient)', () => {
     fireEvent.click(screen.getByText(/Today's Schedule/i));
     expect(await screen.findByText(/07:30/)).toBeInTheDocument();
     expect(screen.queryByText('08:00')).not.toBeInTheDocument();
+  });
+
+  it('keeps profile medicines a prescription does not already name', () => {
+    const prescribed = [mapPrescription({ prescription_id: 'p1', medication: { name: 'Metformin' } })!];
+    expect(profileOnlyMedicines(['metformin 850mg twice daily', ' amlodipine 10mg daily ', ''], prescribed))
+      .toEqual(['amlodipine 10mg daily']);
+  });
+
+  it('lists medicines recorded on the profile when nothing was prescribed', async () => {
+    mockFetch.mockImplementation((url) => {
+      const body = url.includes('/api/e-prescriptions/patient/')
+        ? { prescriptions: [] }
+        : url.endsWith('/api/patients/HEALTH123')
+          ? { patient_id: 'HEALTH123', emergency_info: { current_medications: ['metformin 850mg twice daily', 'amlodipine 10mg daily'] } }
+          : {};
+      return Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve(body),
+      });
+    });
+
+    render(
+      <MemoryRouter>
+        <MedicationsPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('metformin 850mg twice daily')).toBeInTheDocument();
+    expect(screen.getByText('amlodipine 10mg daily')).toBeInTheDocument();
+    expect(screen.getByText('On your health record')).toBeInTheDocument();
+    expect(screen.queryByText(/No active medications/i)).not.toBeInTheDocument();
   });
 
   it('shows no medications message when list is empty', async () => {

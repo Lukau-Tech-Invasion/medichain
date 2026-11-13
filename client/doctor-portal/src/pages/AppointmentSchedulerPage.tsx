@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createAppointment, getApiClient, setAppointmentStatus, useTranslation, promptDialog } from '@medichain/shared';
+import { createAppointment, getApiClient, setAppointmentStatus, useTranslation, promptDialog, confirmDialog } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useCurrentProvider } from '../hooks/useCurrentProvider';
@@ -209,7 +209,7 @@ export default function AppointmentSchedulerPage() {
     } finally {
       setLoading(false);
     }
-    // `provider.walletAddress` went with the hand-rolled session headers; the
+    // `provider.userId` went with the hand-rolled session headers; the
     // typed client reads the session itself.
   }, [provider.isAuthenticated, provider.providerId, t]);
 
@@ -233,6 +233,7 @@ export default function AppointmentSchedulerPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     try {
       // No provider_id: the server derives it from the session. Sending one
@@ -257,10 +258,20 @@ export default function AppointmentSchedulerPage() {
     try {
       let reason: string | undefined;
       if (to === 'cancelled') {
-        reason = (await promptDialog({ message: t('docAppointments.cancelReasonPrompt'), required: true })) ?? '';
+        reason = (await promptDialog({
+          message: t('docAppointments.cancelReasonPrompt'),
+          required: true,
+          choices: [t('docAppointments.cancelReasonPatient'), t('docAppointments.cancelReasonClinician'),
+            t('docAppointments.cancelReasonAdmitted'), t('docAppointments.cancelReasonInError')],
+        })) ?? '';
         if (!reason.trim()) {
           return; // Dismissed the prompt; leave the appointment alone.
         }
+      }
+      // Recorded against the patient and closes the booking: one stray click
+      // beside "Check in" must not do it.
+      if (to === 'no_show' && !(await confirmDialog({ message: t('docAppointments.confirmNoShow'), destructive: true }))) {
+        return;
       }
       await setAppointmentStatus(id, to, reason);
       showSuccess(t(`docAppointments.moved_${to}`));
@@ -309,6 +320,7 @@ export default function AppointmentSchedulerPage() {
           <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
             <PatientSelect
               id="patient_id"
+              requireChartAccess={false}
               label={t('docAppointments.patient')}
               value={formData.patient_id}
               onChange={(patientId) => setFormData({ ...formData, patient_id: patientId })}
@@ -382,8 +394,8 @@ export default function AppointmentSchedulerPage() {
             <div className="flex gap-3">
               <button
                 type="submit"
-                disabled={submitting}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+                aria-disabled={submitting || undefined}
+                className="aria-disabled:cursor-wait bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center gap-2"
               >
                 {submitting && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
                 {t('docAppointments.book')}
@@ -540,7 +552,7 @@ export default function AppointmentSchedulerPage() {
                             className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 ${
                               destructive
                                 ? 'bg-critical-subtle text-critical-subtle-fg hover:bg-critical-subtle dark:bg-red-900/40 dark:text-red-200'
-                                : 'bg-blue-600 text-critical-fg hover:bg-blue-700'
+                                : 'bg-brand text-brand-fg hover:opacity-90'
                             }`}
                           >
                             {busy === `${a.appointment_id}-${to}` ? (

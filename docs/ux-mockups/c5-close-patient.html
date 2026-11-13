@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Close patient</title><link rel="stylesheet" href="mock.css">
+<style>.vis{display:grid;grid-template-columns:52px 1fr auto;gap:10px;padding:10px 0;border-top:1px solid rgb(var(--border));align-items:center}.vis:first-child{border-top:0}</style></head>
+<body><div class="desk" style="display:flex;flex-direction:column">
+  <header style="background:rgb(var(--surface));border-bottom:1px solid rgb(var(--border));padding:10px 20px;display:flex;align-items:center;gap:16px;opacity:.55">
+    <span class="avatar">TN</span><div><p class="bb" style="font-size:18px">Thandiwe Ndlovu</p><p class="small t2">F · 34 · born 12 Mar 1992</p></div>
+  </header>
+  <div style="flex:1;opacity:.35;padding:20px"><div class="card" style="height:420px"></div></div>
+  <div class="scrim"></div>
+  <!-- One dialog, three outcomes: everything saved, nothing lost, next patient one tap away. -->
+  <section role="dialog" aria-labelledby="t" class="card" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:560px;background:rgb(var(--raised));padding:22px 24px">
+    <div class="row between"><h2 id="t">Close Thandiwe Ndlovu?</h2><span class="iconbtn"><i data-i="x"></i></span></div>
+    <p class="small muted" style="margin-top:2px">F · 34 · born 12 Mar 1992 · opened 08:58 · 22 minutes</p>
+    <p class="b small" style="margin-top:16px">Saved this visit</p>
+    <div>
+      <div class="vis"><span class="tl-time">09:14</span><div><p class="small b">Prescription</p><p class="xs muted">Metformin 500 mg twice daily</p></div><i data-i="check" class="sm" style="color:rgb(var(--ok))"></i></div>
+      <div class="vis"><span class="tl-time">09:10</span><div><p class="small b">Lab order</p><p class="xs muted">HbA1c, lipid panel</p></div><i data-i="check" class="sm" style="color:rgb(var(--ok))"></i></div>
+      <div class="vis"><span class="tl-time">09:02</span><div><p class="small b">Vital signs</p><p class="xs muted">BP 148/92 · Pulse 104</p></div><i data-i="check" class="sm" style="color:rgb(var(--ok))"></i></div>
+    </div>
+    <div class="card pad-sm row" style="margin-top:14px;border-color:rgb(var(--warn));gap:12px">
+      <i data-i="alert" style="color:rgb(var(--warn))"></i>
+      <div class="grow"><p class="small b">SOAP note is not saved</p><p class="xs muted">Started 09:16 · Subjective and Objective filled</p></div>
+      <span class="btn sm primary">Save</span><span class="btn sm">Discard</span>
+    </div>
+    <div class="row between" style="margin-top:20px">
+      <span class="btn">Back to patient</span>
+      <div class="row"><span class="btn">Close patient</span><span class="btn primary">Close · next: Sipho Mabaso 09:30<i data-i="chev" class="sm"></i></span></div>
+    </div>
+  </section>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

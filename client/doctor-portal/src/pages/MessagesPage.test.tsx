@@ -18,8 +18,8 @@ vi.mock('@medichain/shared', async importOriginal => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-const doctorId = 'doctor-wallet';
-const patientId = 'patient-wallet';
+const doctorId = 'doctor-user-id';
+const patientId = 'patient-user-id';
 const inbound = {
   message_id: 'msg-1',
   sender_id: patientId,
@@ -79,7 +79,7 @@ describe('MessagesPage', () => {
     replySent = false;
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: doctorId, role: 'Doctor', fullName: 'Dr Smith' },
+      user: { userId: doctorId, role: 'Doctor', fullName: 'Dr Smith' },
       isAuthenticated: true,
     });
     vi.mocked(shared.markMessageRead).mockResolvedValue({ success: true, message_id: 'msg-1', read: true });
@@ -95,7 +95,9 @@ describe('MessagesPage', () => {
     mockFetch.mockImplementation((url, init) => {
       if (String(url).includes('/api/messages/send') && init?.method === 'POST') {
         replySent = true;
-        return json({ success: true });
+        // The API's real answer carries the stored message (its id is what
+        // attachments are added to), not a bare success flag.
+        return json({ success: true, message: { message_id: 'msg-reply', sender_id: doctorId } });
       }
       if (String(url).includes('/api/messages')) {
         return json(responseMessages(replySent));

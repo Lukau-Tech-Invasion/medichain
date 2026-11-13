@@ -14,7 +14,7 @@ import {
   calibrationSchema,
   formatDateOnly,
   formatTimestamp,
-  getApiErrorMessage,
+  getApiErrorMessage, ChoiceChips
 } from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
@@ -84,7 +84,7 @@ interface Calibration {
 
 const LabQCPage: React.FC = () => {
   const { t } = useTranslation();
-  // Who did it, by name: records store the actor's wallet address.
+  // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showWarning } = useToastActions();
@@ -457,18 +457,18 @@ const LabQCPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label htmlFor="labqc-result-filter" className="block text-sm font-medium text-content-secondary mb-1">{t('docLabQC.resultLabel')}</label>
-                <select
+                <ChoiceChips
                   id="labqc-result-filter"
+                  label={t('docLabQC.resultLabel')}
                   value={resultFilter}
-                  onChange={(e) => setResultFilter(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="all">{t('docLabQC.allResults')}</option>
-                  <option value="pass">{t('docLabQC.result_pass')}</option>
-                  <option value="warning">{t('docLabQC.result_warning')}</option>
-                  <option value="fail">{t('docLabQC.result_fail')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setResultFilter(next); }}
+                  options={[
+                    { value: 'all', label: t('docLabQC.allResults') },
+                    { value: 'pass', label: t('docLabQC.result_pass') },
+                    { value: 'warning', label: t('docLabQC.result_warning') },
+                    { value: 'fail', label: t('docLabQC.result_fail') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -573,23 +573,19 @@ const LabQCPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Instrument */}
               <div>
-                <label htmlFor="labqc-instrument" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.instrumentRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="labqc-instrument"
-                  value={instrument}
-                  onChange={(e) => setInstrument(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="">{t('docLabQC.selectInstrumentPh')}</option>
-                  <option value="Chemistry Analyzer - Cobas c502">Chemistry Analyzer - Cobas c502</option>
-                  <option value="Hematology Analyzer - Sysmex XN-1000">Hematology Analyzer - Sysmex XN-1000</option>
-                  <option value="Coagulation Analyzer - ACL Top 750">Coagulation Analyzer - ACL Top 750</option>
-                  <option value="Blood Gas Analyzer - ABL90 FLEX">Blood Gas Analyzer - ABL90 FLEX</option>
-                  <option value="Immunoassay Analyzer - Architect i2000SR">Immunoassay Analyzer - Architect i2000SR</option>
-                </select>
+                  label={t('docLabQC.instrumentRequired')}
+                  value={(instrument) || undefined}
+                  onChange={(chosen) => { const next = chosen ?? ''; setInstrument(next); }}
+                  options={[
+                    { value: 'Chemistry Analyzer - Cobas c502', label: 'Chemistry Analyzer - Cobas c502' },
+                    { value: 'Hematology Analyzer - Sysmex XN-1000', label: 'Hematology Analyzer - Sysmex XN-1000' },
+                    { value: 'Coagulation Analyzer - ACL Top 750', label: 'Coagulation Analyzer - ACL Top 750' },
+                    { value: 'Blood Gas Analyzer - ABL90 FLEX', label: 'Blood Gas Analyzer - ABL90 FLEX' },
+                    { value: 'Immunoassay Analyzer - Architect i2000SR', label: 'Immunoassay Analyzer - Architect i2000SR' },
+                  ]}
+                />
               </div>
 
               {/* Analyte */}
@@ -610,20 +606,17 @@ const LabQCPage: React.FC = () => {
 
               {/* QC Level */}
               <div>
-                <label htmlFor="labqc-level" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.qcLevelRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="labqc-level"
+                  label={t('docLabQC.qcLevelRequired')}
                   value={level}
-                  onChange={(e) => setLevel(e.target.value as typeof level)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="Level 1">{t('docLabQC.level1')}</option>
-                  <option value="Level 2">{t('docLabQC.level2')}</option>
-                  <option value="Level 3">{t('docLabQC.level3')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setLevel(next as typeof level); }}
+                  options={[
+                    { value: 'Level 1', label: t('docLabQC.level1') },
+                    { value: 'Level 2', label: t('docLabQC.level2') },
+                    { value: 'Level 3', label: t('docLabQC.level3') },
+                  ]}
+                />
               </div>
 
               {/* Lot Number */}
@@ -868,41 +861,34 @@ const LabQCPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Instrument */}
               <div>
-                <label htmlFor="labqc-cal-instrument" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.instrumentRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="labqc-cal-instrument"
-                  value={calInstrument}
-                  onChange={(e) => setCalInstrument(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="">{t('docLabQC.selectInstrumentPh')}</option>
-                  <option value="Chemistry Analyzer - Cobas c502">Chemistry Analyzer - Cobas c502</option>
-                  <option value="Hematology Analyzer - Sysmex XN-1000">Hematology Analyzer - Sysmex XN-1000</option>
-                  <option value="Coagulation Analyzer - ACL Top 750">Coagulation Analyzer - ACL Top 750</option>
-                  <option value="Blood Gas Analyzer - ABL90 FLEX">Blood Gas Analyzer - ABL90 FLEX</option>
-                  <option value="Immunoassay Analyzer - Architect i2000SR">Immunoassay Analyzer - Architect i2000SR</option>
-                </select>
+                  label={t('docLabQC.instrumentRequired')}
+                  value={(calInstrument) || undefined}
+                  onChange={(chosen) => { const next = chosen ?? ''; setCalInstrument(next); }}
+                  options={[
+                    { value: 'Chemistry Analyzer - Cobas c502', label: 'Chemistry Analyzer - Cobas c502' },
+                    { value: 'Hematology Analyzer - Sysmex XN-1000', label: 'Hematology Analyzer - Sysmex XN-1000' },
+                    { value: 'Coagulation Analyzer - ACL Top 750', label: 'Coagulation Analyzer - ACL Top 750' },
+                    { value: 'Blood Gas Analyzer - ABL90 FLEX', label: 'Blood Gas Analyzer - ABL90 FLEX' },
+                    { value: 'Immunoassay Analyzer - Architect i2000SR', label: 'Immunoassay Analyzer - Architect i2000SR' },
+                  ]}
+                />
               </div>
 
               {/* Calibration Type */}
               <div>
-                <label htmlFor="labqc-cal-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.calibrationTypeRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="labqc-cal-type"
+                  label={t('docLabQC.calibrationTypeRequired')}
                   value={calibrationType}
-                  onChange={(e) => setCalibrationType(e.target.value as typeof calibrationType)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="full">{t('docLabQC.calType_full')}</option>
-                  <option value="verification">{t('docLabQC.calType_verification')}</option>
-                  <option value="linearity">{t('docLabQC.calType_linearity')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setCalibrationType(next as typeof calibrationType); }}
+                  options={[
+                    { value: 'full', label: t('docLabQC.calType_full') },
+                    { value: 'verification', label: t('docLabQC.calType_verification') },
+                    { value: 'linearity', label: t('docLabQC.calType_linearity') },
+                  ]}
+                />
               </div>
 
               {/* Calibrator Lot */}
@@ -939,19 +925,16 @@ const LabQCPage: React.FC = () => {
 
               {/* Result */}
               <div>
-                <label htmlFor="labqc-cal-result" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docLabQC.resultRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="labqc-cal-result"
+                  label={t('docLabQC.resultRequired')}
                   value={calResult}
-                  onChange={(e) => setCalResult(e.target.value as typeof calResult)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="pass">{t('docLabQC.result_pass')}</option>
-                  <option value="fail">{t('docLabQC.result_fail')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setCalResult(next as typeof calResult); }}
+                  options={[
+                    { value: 'pass', label: t('docLabQC.result_pass') },
+                    { value: 'fail', label: t('docLabQC.result_fail') },
+                  ]}
+                />
               </div>
 
               {/* Comments */}

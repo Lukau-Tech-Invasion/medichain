@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { signIn, settle } from './support';
+import { readFixtures } from './identity';
+import { openChartWithReason, signIn } from './support';
 
 /**
  * Who may act for a patient.
@@ -22,28 +20,19 @@ import { signIn, settle } from './support';
  */
 
 function fixturePatientId(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = join(here, '..', '..', '..');
-  const fx = JSON.parse(
-    readFileSync(join(root, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as { patient: { linked_patient_id: string }; patient_b: { wallet: string } };
-  return fx.patient.linked_patient_id;
+  return readFixtures().patient.linked_patient_id;
 }
 
-function guardianWallet(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const root = join(here, '..', '..', '..');
-  const fx = JSON.parse(
-    readFileSync(join(root, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as { patient_b: { wallet: string } };
-  return fx.patient_b.wallet;
+/** The guardian is the second fixture patient's account, named by user id. */
+function guardianUserId(): string {
+  return readFixtures().patient_b.user_id;
 }
 
 test('a guardian is recorded, listed, and ended', async ({ browser }) => {
   test.setTimeout(240000);
   const page = await browser.newPage();
   await signIn(page, 'Admin');
-  await settle(page, `/patients/${fixturePatientId()}`);
+  await openChartWithReason(page, fixturePatientId());
 
   await page.getByRole('button', { name: /access/i }).first().click();
 
@@ -53,7 +42,7 @@ test('a guardian is recorded, listed, and ended', async ({ browser }) => {
   const before = await page.locator('[data-testid="guardian-list"] li').count();
 
   // Authority with no permissions is not authority — the form refuses it.
-  await page.locator('#guardian-wallet').fill(guardianWallet());
+  await page.locator('#guardian-user-id').fill(guardianUserId());
   await page.getByRole('button', { name: /record guardian/i }).click();
   await expect(page.getByRole('alert')).toContainText(/at least one permission/i);
 
@@ -70,13 +59,13 @@ test('a guardian is recorded, listed, and ended', async ({ browser }) => {
   //
   // `.last()` is not cosmetic. This spec records a guardian every run and
   // nothing removes it, so from the second run onwards the fixture patient has
-  // several rows for the same wallet and an unscoped `getByText(/ended/i)`
+  // several rows for the same guardian and an unscoped `getByText(/ended/i)`
   // matched all of them -- a strict-mode violation that made this spec fail
   // permanently after its first successful run. The row created by THIS run is
   // the one appended last.
   const row = page
     .locator('[data-testid="guardian-list"] li')
-    .filter({ hasText: guardianWallet() })
+    .filter({ hasText: guardianUserId() })
     .last();
   await row.getByRole('button', { name: /^end$/i }).click();
   await expect(row.getByText(/ended/i)).toBeVisible({ timeout: 20000 });

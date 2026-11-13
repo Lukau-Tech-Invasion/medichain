@@ -43,18 +43,9 @@ const am_ET: TranslationRecord = {
   },
   auth: {
     welcomeTitle: 'እንኳን ወደ MediChain በደህና መጡ',
-    welcomeSubtitle: 'የሕክምና መዝገቦችዎን ለማግኘት ዋሌትዎን ያገናኙ',
-    walletAddressLabel: 'የዋሌት አድራሻ',
-    walletHint: 'የእርስዎ የSubstrate ዋሌት አድራሻ (SS58 ቅርጸት)',
-    connectWallet: 'ዋሌት አገናኝ',
     connecting: 'በመገናኘት ላይ...',
-    quickLoginDemo: 'ፈጣን መግቢያ - የናሙና ታካሚዎች',
-    quickLoginHint: 'ወዲያውኑ ለመግባት ማንኛውንም ታካሚ ይጫኑ',
     signInNfc: 'በNFC ካርድ ይግቡ',
     scanQr: 'QR ኮድ ይቃኙ',
-    securityNotice: 'በብሎክቼይን የተጠበቀ ማረጋገጫ',
-    errEnterWallet: 'እባክዎ የዋሌት አድራሻዎን ያስገቡ',
-    errInvalidWallet: 'ልክ ያልሆነ የአድራሻ ቅርጸት። በ"5" የሚጀምር 48 ቁምፊዎች።',
   },
   emergency: {
     title: 'የአደጋ ጊዜ የሕክምና ካርድ',
@@ -82,7 +73,6 @@ const am_ET: TranslationRecord = {
     call: 'ደውል',
     cardHash: 'የካርድ ሃሽ',
     lastUpdated: 'መጨረሻ የተዘመነ',
-    securedBy: 'በMediChain ብሎክቼይን የተጠበቀ',
   },
 };
 

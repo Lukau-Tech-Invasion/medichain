@@ -67,7 +67,7 @@ would ask for.
 
 **Cost.** The obligation is **not** fully discharged. Absent: irreversible
 deletion, cascade across caches/indexes/queues/object storage, backup expiry,
-cryptographic erasure, and tests proving no on-chain personal values remain. Item
+cryptographic erasure, and tests proving no personal values remain in derived stores. Item
 4 of the production gate stays open, correctly.
 
 **A defect this surfaced.** During testing, with the database unreachable, the

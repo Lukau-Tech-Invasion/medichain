@@ -18,7 +18,10 @@ import { signIn, settle, ROLES, type RoleName } from './support';
  */
 
 /** Refusals that are the correct answer, not a defect. `role route METHOD path-prefix`. */
-const ACCEPTED: Record<string, string> = {};
+const ACCEPTED: Record<string, string> = {
+  'Pharmacist /e-prescribe GET /api/clinical/patient/{patient}/pharmacy-decisions -> 403':
+    'The dashboard can list allergy alerts from the prescription queue, but decision history requires a patient care grant. The alert is blocked in the UI when this read is denied.',
+};
 
 async function reachableRoutes(page: Page): Promise<string[]> {
   const sections = page.locator('nav button[aria-expanded="false"]');
@@ -35,8 +38,7 @@ async function reachableRoutes(page: Page): Promise<string[]> {
 function normalise(path: string): string {
   return path
     .replace(/PAT-[0-9a-z-]+/gi, '{patient}')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '{uuid}')
-    .replace(/5[1-9A-HJ-NP-Za-km-z]{46,47}/g, '{wallet}');
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '{uuid}');
 }
 
 for (const role of ROLES) {
@@ -61,7 +63,8 @@ for (const role of ROLES) {
     for (const route of routes) {
       current = route;
       await settle(page, route).catch(() => undefined);
-      await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => undefined);
+      // `settle` waits for the page. SSE keeps a request open indefinitely, so
+      // networkidle always times out and adds 15 seconds to every route.
     }
     page.off('response', onResponse);
     await page.close();

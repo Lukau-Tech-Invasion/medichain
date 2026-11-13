@@ -17,7 +17,7 @@ const items: Array<Record<string, unknown>> = [];
 const statuses: Array<[string, string, string | undefined]> = [];
 
 vi.mock('@medichain/shared/src/utils/indexedDB', () => ({
-  getPendingSyncItems: async () => items,
+  getAllSyncItems: async () => items,
   updateSyncStatus: async (id: string, status: string, error?: string) => {
     statuses.push([id, status, error]);
   },
@@ -29,13 +29,14 @@ vi.mock('@medichain/shared/src/api/client', async () => {
   const actual = await vi.importActual<typeof import('@medichain/shared/src/api/client')>('@medichain/shared/src/api/client');
   return {
     ...actual,
-    getApiClient: () => ({ replayQueuedMutation: replay }),
+    getApiClient: () => ({ replayQueuedMutation: replay, getUserId: () => 'qa-owner' }),
   };
 });
 
 function item(id: string, timestamp: number, method = 'POST') {
   return {
     id,
+    ownerUserId: 'qa-owner',
     action: 'update',
     endpoint: `/api/reminders/adherence`,
     method,
@@ -56,6 +57,23 @@ beforeEach(() => {
 });
 
 describe('replayQueue', () => {
+  it('never replays another account or a legacy item without an owner', async () => {
+    items.push({ ...item('other', 1), ownerUserId: 'different-owner' });
+    items.push({ ...item('legacy', 2), ownerUserId: undefined });
+    const outcome = await replayQueue();
+    expect(replay).not.toHaveBeenCalled();
+    expect(statuses).toEqual([]);
+    expect(outcome.sent).toBe(0);
+  });
+  it('sends again an item left in progress when the app closed mid-send', async () => {
+    items.push({ ...item('stuck', 1), status: 'in-progress' }, { ...item('done', 2), status: 'completed' });
+    replay.mockResolvedValue({});
+    const outcome = await replayQueue();
+    // Safe: it travels under its own id, so the server applies it at most once.
+    expect(replay).toHaveBeenCalledTimes(1);
+    expect(replay).toHaveBeenCalledWith('POST', expect.any(String), expect.anything(), 'stuck', 1);
+    expect(outcome.sent).toBe(1);
+  });
   it('sends each item under its own id as the idempotency key', async () => {
     items.push(item('sync_a', 2), item('sync_b', 1));
     replay.mockResolvedValue({});
@@ -65,8 +83,8 @@ describe('replayQueue', () => {
     expect(outcome.sent).toBe(2);
     // The key is the item id, not a fresh one. This is the whole safety
     // property: a second delivery of sync_b must collide with the first.
-    expect(replay).toHaveBeenNthCalledWith(1, 'POST', expect.any(String), expect.anything(), 'sync_b');
-    expect(replay).toHaveBeenNthCalledWith(2, 'POST', expect.any(String), expect.anything(), 'sync_a');
+    expect(replay).toHaveBeenNthCalledWith(1, 'POST', expect.any(String), expect.anything(), 'sync_b', 1);
+    expect(replay).toHaveBeenNthCalledWith(2, 'POST', expect.any(String), expect.anything(), 'sync_a', 2);
   });
 
   it('sends oldest first, whatever order the store returns them in', async () => {
@@ -123,6 +141,6 @@ describe('replayQueue', () => {
     const outcome = await replayQueue();
 
     expect(replay).not.toHaveBeenCalled();
-    expect(outcome).toEqual({ sent: 0, alreadyApplied: 0, rejected: 0, deferred: 0 });
+    expect(outcome).toEqual({ sent: 0, alreadyApplied: 0, rejected: 0, deferred: 0, expired: 0 });
   });
 });

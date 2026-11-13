@@ -8,7 +8,6 @@ import {
   bloodPressureSchema,
   dateOfBirthSchema,
   pastDateSchema,
-  walletAddressSchema,
   patientIdSchema,
   phoneSchema,
 } from '@medichain/shared';
@@ -113,22 +112,13 @@ describe('dates', () => {
 });
 
 describe('identifiers', () => {
-  it('accepts a real SS58 address', () => {
-    expect(
-      walletAddressSchema.safeParse('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY').success
-    ).toBe(true);
-  });
-
-  it('rejects an address containing base58-excluded characters', () => {
-    expect(walletAddressSchema.safeParse('0OIl'.repeat(12)).success).toBe(false);
-  });
-
-  it('accepts a patient id and rejects a wallet in its place', () => {
+  it('accepts a patient id and rejects an account id in its place', () => {
     expect(patientIdSchema.safeParse('PAT-3b765e2d').success).toBe(true);
-    // The wallet-vs-PAT- namespace confusion is a recurring, fail-closed bug
+    expect(patientIdSchema.safeParse('PAT-8e3312b0e9ee4c9fae3ee4c1b96794df').success).toBe(true);
+    // The user-id-vs-PAT- namespace confusion is a recurring, fail-closed bug
     // class in this codebase; catching it at the form is cheap.
     expect(
-      patientIdSchema.safeParse('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY').success
+      patientIdSchema.safeParse('3f9b1c1e-6f0e-4c53-9b7e-0d7f6f5a1a11').success
     ).toBe(false);
   });
 

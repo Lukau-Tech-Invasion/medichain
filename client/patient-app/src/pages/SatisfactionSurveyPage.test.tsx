@@ -27,7 +27,9 @@ const completeSurvey = async () => {
   fireEvent.click(screen.getByRole('button', { name: 's4: Yes' }));
   fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
+  expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: 'f1: 5 of 5' }));
+  expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: /continue/i }));
   fireEvent.click(screen.getByRole('button', { name: 'overall: 5 of 5' }));
   fireEvent.click(screen.getByRole('button', { name: 'recommend: Yes' }));

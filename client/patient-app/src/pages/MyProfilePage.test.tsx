@@ -13,6 +13,7 @@ vi.mock('../store/authStore', () => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatient: vi.fn(),
+  updateDemographics: vi.fn(),
 }));
 
 const mockPatientId = 'HEALTH123';
@@ -20,7 +21,7 @@ const mockPatientId = 'HEALTH123';
 const storeState = {
   patient: {
     healthId: mockPatientId,
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
   },
 };
 
@@ -28,6 +29,7 @@ describe('MyProfilePage (Patient)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.updateDemographics).mockResolvedValue({ success: true, patient_id: mockPatientId, message: 'saved' });
 
     // One object, created once. Rebuilding it per call hands the component a
     // new `patient` reference on every render, which the real store never does
@@ -125,4 +127,44 @@ describe('MyProfilePage (Patient)', () => {
     );
     expect(screen.getByPlaceholderText(/801-234-5678/i)).toBeInTheDocument();
   });
+  it('rejects reversed insurance dates without posting the profile', async () => {
+    render(<MemoryRouter><MyProfilePage /></MemoryRouter>);
+    await screen.findByText('Test Patient');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[2]);
+    fireEvent.change(screen.getByLabelText('Provider *'), { target: { value: 'QA Cover' } });
+    fireEvent.change(screen.getByLabelText('Policy Number *'), { target: { value: 'QA-1' } });
+    fireEvent.change(screen.getByLabelText('Valid From'), { target: { value: '2026-12-31' } });
+    fireEvent.change(screen.getByLabelText('Valid To'), { target: { value: '2026-01-01' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByText('Enter valid coverage dates. The end date must be on or after the start date.')).toBeVisible();
+    expect(shared.updateDemographics).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Valid From')).toHaveValue('2026-12-31');
+  });
+
+  it('shows required address validation in the address form without saving', async () => {
+    render(<MemoryRouter><MyProfilePage /></MemoryRouter>);
+    await screen.findByText('Test Patient');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/city.*country/i);
+    expect(shared.updateDemographics).not.toHaveBeenCalled();
+  });
+
+  it('keeps an address draft after a failed save and retries successfully', async () => {
+    vi.mocked(shared.updateDemographics).mockRejectedValueOnce(new Error('QA storage outage'));
+    render(<MemoryRouter><MyProfilePage /></MemoryRouter>);
+    await screen.findByText('Test Patient');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[1]);
+    fireEvent.change(screen.getByLabelText('City *'), { target: { value: 'Johannesburg' } });
+    fireEvent.change(screen.getByLabelText('Country *'), { target: { value: 'ZA' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Address details could not be saved. Please try again.');
+    expect(screen.getByLabelText('City *')).toHaveValue('Johannesburg');
+    expect(screen.queryByText(/Failed to save emergency contact/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(screen.queryByLabelText('City *')).not.toBeInTheDocument());
+    expect(shared.updateDemographics).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Johannesburg')).toBeVisible();
+  });
+
 });

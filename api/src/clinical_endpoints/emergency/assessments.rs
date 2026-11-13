@@ -48,7 +48,7 @@ pub async fn create_trauma(
     req: web::Json<CreateTraumaRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -196,7 +196,7 @@ pub async fn create_stroke(
     req: web::Json<CreateStrokeRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -353,7 +353,7 @@ pub async fn create_sepsis(
     req: web::Json<CreateSepsisRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -516,7 +516,7 @@ pub async fn create_ems_handoff(
     http_req: HttpRequest,
     req: web::Json<CreateEmsHandoffRequest>,
 ) -> impl Responder {
-    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+    let caller = match crate::support::require_ems_staff(&data, &http_req) {
         Ok(u) => u,
         Err(resp) => return resp,
     };
@@ -556,7 +556,7 @@ pub async fn create_ems_handoff(
     if let Err(response) = crate::support::require_durable_audit(
         &data,
         access_log_entity(
-            caller.wallet_address.clone(),
+            caller.id.clone(),
             &caller.role.to_string(),
             "create_ems_handoff",
             patient_id.clone(),
@@ -570,7 +570,7 @@ pub async fn create_ems_handoff(
     // Server-generated: the id used to come from the body, so a second
     // handover naming the same id replaced the first.
     let id = format!("EMS-{}", uuid::Uuid::new_v4().simple());
-    let entity = ems_handoff_entity(&id, &request, &caller.wallet_address, Utc::now());
+    let entity = ems_handoff_entity(&id, &request, &caller.id, Utc::now());
     match data.repositories.ems_handoffs.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => {
@@ -592,7 +592,7 @@ pub async fn list_recent_ems_handoffs(
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_ems_staff(&data, &http_req) {
         return resp;
     }
     let hours = query
@@ -631,7 +631,7 @@ pub async fn get_ems_handoff(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    if let Err(resp) = crate::support::require_ems_staff(&data, &http_req) {
         return resp;
     }
     let id = path.into_inner();
@@ -650,15 +650,15 @@ pub async fn get_patient_emergency_records(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    // HZ-019 IDOR follow-up: this previously checked only that SOME X-User-Id
-    // header was present, so any authenticated account — including an unrelated
+    // HZ-019 IDOR follow-up: this previously checked only that SOME caller-supplied
+    // identity was present, so any authenticated account — including an unrelated
     // patient — could read any patient's emergency records. Apply the same
     // provider-or-self rule the clinical endpoints use (e.g. get_patient_vitals):
     // a healthcare provider, or the patient reading their own record. The
     // token-based break-glass path is separate (POST /api/emergency/nfc-token
     // then the medical-id endpoints).
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let current_user = match get_user(&data, &current_user_id) {
@@ -684,21 +684,21 @@ pub async fn get_patient_emergency_records(
     let code_blues = data
         .repositories
         .code_blue
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await
         .map(|r| r.items)
         .unwrap_or_default();
     let trauma = data
         .repositories
         .trauma_assessments_repo
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await
         .map(|r| r.items)
         .unwrap_or_default();
     let stroke = data
         .repositories
         .stroke_assessments_repo
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await
         .map(|r| r.items)
         .unwrap_or_default();
@@ -729,7 +729,7 @@ mod attribution_tests {
         state.users.write().unwrap().insert(
             "5Nurse".to_string(),
             crate::User {
-                wallet_address: "5Nurse".to_string(),
+                id: "5Nurse".to_string(),
                 username: None,
                 name: "Test Nurse".to_string(),
                 role: crate::Role::Nurse,
@@ -759,7 +759,7 @@ mod attribution_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/emergency/trauma")
-                .insert_header(("X-User-Id", "5Nurse"))
+                .insert_header(crate::test_fixtures::as_user("5Nurse"))
                 .set_json(serde_json::json!({
                     "assessment_id": "TR-CLIENT-CHOSEN",
                     "patient_id": "PAT-TR-1",
@@ -800,7 +800,8 @@ mod ems_handoff_tests {
                 App::new()
                     .app_data(web::Data::new($state))
                     .service(super::create_ems_handoff)
-                    .service(super::list_recent_ems_handoffs),
+                    .service(super::list_recent_ems_handoffs)
+                    .service(super::get_ems_handoff),
             )
             .await
         };
@@ -809,7 +810,7 @@ mod ems_handoff_tests {
         ($body:expr) => {
             test::TestRequest::post()
                 .uri("/api/emergency/ems-handoff")
-                .insert_header(("X-User-Id", "5Nurse"))
+                .insert_header(crate::test_fixtures::as_user("5Nurse"))
                 .set_json($body)
                 .to_request()
         };
@@ -845,7 +846,7 @@ mod ems_handoff_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/emergency/ems-handoffs")
-                .insert_header(("X-User-Id", "5Nurse"))
+                .insert_header(crate::test_fixtures::as_user("5Nurse"))
                 .to_request(),
         )
         .await;
@@ -889,5 +890,50 @@ mod ems_handoff_tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[actix_rt::test]
+    async fn paramedic_may_create_and_read_handover_but_patient_may_not() {
+        let state = AppState::new();
+        register(&state, "5Medic", Role::Paramedic);
+        register(&state, "5Patient", Role::Patient);
+        let app = app!(state);
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/emergency/ems-handoff")
+                .insert_header(crate::test_fixtures::as_user("5Medic"))
+                .set_json(serde_json::json!({
+                    "ems_agency": "Metro EMS", "chief_complaint": "Fall"
+                }))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let created: serde_json::Value = test::read_body_json(response).await;
+        let id = created["id"].as_str().unwrap();
+        for path in [
+            "/api/emergency/ems-handoffs".to_string(),
+            format!("/api/emergency/ems-handoff/{id}"),
+        ] {
+            let allowed = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&path)
+                    .insert_header(crate::test_fixtures::as_user("5Medic"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(allowed.status(), StatusCode::OK, "{path}");
+            let denied = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&path)
+                    .insert_header(crate::test_fixtures::as_user("5Patient"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN, "{path}");
+        }
     }
 }

@@ -39,7 +39,7 @@ async fn primary_guardian_contact_json(
     let Some(primary) = relationships.into_iter().next() else {
         return serde_json::Value::Null;
     };
-    let contact = get_user(data, &primary.guardian_wallet);
+    let contact = get_user(data, &primary.guardian_user_id);
     serde_json::json!({
         "name": contact.as_ref().map(|u| u.name.clone()),
         "phone": contact.as_ref().and_then(|u| u.phone.clone()),
@@ -130,6 +130,15 @@ pub async fn get_emergency_medical_id(
             });
         }
     };
+    let responder = match get_user(&data, &emergency_claims.sub) {
+        Some(user) if user.role.may_break_glass() => user,
+        _ => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                error: "Responder is no longer authorized for emergency access".to_string(),
+                code: "RESPONDER_ROLE_REQUIRED".to_string(),
+            });
+        }
+    };
 
     // Get patient from repository
     let patient = match data.repositories.patients.get_by_id(&patient_id).await {
@@ -141,7 +150,6 @@ pub async fn get_emergency_medical_id(
             })
         }
     };
-    let patient_chain_account = patient.wallet_address.clone();
 
     // `connection_info()` borrows the request's internal `RefCell`. Bind the
     // owned address directly so the `Ref` is released at the end of this
@@ -159,7 +167,7 @@ pub async fn get_emergency_medical_id(
     let log_entry = crate::repositories::AccessLogEntity {
         id: uuid::Uuid::new_v4().to_string(),
         accessor_id: emergency_claims.sub.clone(),
-        accessor_role: "FirstResponder".to_string(),
+        accessor_role: responder.role.to_string(),
         patient_id: Some(patient_id.clone()),
         resource_type: "emergency_medical_id".to_string(),
         resource_id: Some(patient_id.clone()),
@@ -168,14 +176,14 @@ pub async fn get_emergency_medical_id(
         is_emergency_access: true,
         ip_address,
         user_agent,
-        blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: data
             .device_lifecycle
             .get(&emergency_claims.device_id)
             .and_then(|device| device.facility_id),
+        authority_type: None,
+        authority_id: None,
     };
-    let access_id = log_entry.id.clone();
     if let Err(error) = data
         .repositories
         .record_access_atomic(&patient_id, log_entry)
@@ -188,34 +196,6 @@ pub async fn get_emergency_medical_id(
             code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
         });
     }
-    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            error: "Emergency access was recorded, but the patient has no blockchain wallet for the required chain audit."
-                .to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
-    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
-        &data,
-        "emergency_access",
-        &access_id,
-        patient_chain_account.as_deref().unwrap_or_default(),
-        &emergency_claims.sub,
-        "EMERGENCY_ACCESS",
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Emergency chain audit could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Emergency access was recorded, but its required chain audit could not be queued."
-                    .to_string(),
-                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-
     // DNR STATUS - LEGAL REQUIREMENT
     // Only emit the authoritative "DO NOT RESUSCITATE" flag when the advance
     // directive is verified (status + verified_by + verified_at). An unverified
@@ -367,8 +347,6 @@ pub async fn get_emergency_medical_id(
         // ACCESS LOG WARNING
         "access_logged": true,
         "access_timestamp": chrono::Utc::now().to_rfc3339(),
-        "chain_audit_status": chain_anchor.status,
-        "blockchain_tx_hash": chain_anchor.transaction_hash
     });
 
     HttpResponse::Ok().json(emergency_data)
@@ -445,7 +423,6 @@ pub async fn get_lockscreen_medical_id(
             code: "LOCKSCREEN_ACCESS_DISABLED".to_string(),
         });
     }
-    let patient_chain_account = patient.wallet_address.clone();
 
     // See `get_emergency_medical_id`: the `connection_info()` borrow must not
     // outlive this statement, or it spans the audit `await` below.
@@ -469,11 +446,11 @@ pub async fn get_lockscreen_medical_id(
             .get(actix_web::http::header::USER_AGENT)
             .and_then(|value| value.to_str().ok())
             .map(str::to_string),
-        blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
-    let access_id = log_entry.id.clone();
     if let Err(error) = data
         .repositories
         .record_access_atomic(&patient_id, log_entry)
@@ -486,35 +463,6 @@ pub async fn get_lockscreen_medical_id(
             code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
         });
     }
-    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            error: "Lockscreen access was recorded, but the patient has no blockchain wallet for the required chain audit."
-                .to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
-    let accessor_id = format!("device:{device_id}");
-    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
-        &data,
-        "lockscreen_access",
-        &access_id,
-        patient_chain_account.as_deref().unwrap_or_default(),
-        &accessor_id,
-        "READ",
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Lockscreen chain audit could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Lockscreen access was recorded, but its required chain audit could not be queued."
-                    .to_string(),
-                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
-            });
-        }
-    };
-
     // LINE 3: DNR Warning (if applicable). Computed before the json! macro
     // because a block expression cannot be a json! value.
     // Authoritative "DO NOT RESUSCITATE" line is shown ONLY when the advance
@@ -631,8 +579,6 @@ pub async fn get_lockscreen_medical_id(
 
         // QR Code (small, bottom corner)
         "qr_url": format!("/api/medical-id/{}/qr", patient_id),
-        "chain_audit_status": chain_anchor.status,
-        "blockchain_tx_hash": chain_anchor.transaction_hash
     });
 
     HttpResponse::Ok().json(lockscreen_data)
@@ -754,12 +700,86 @@ mod hz_001_regression_tests {
         assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
     }
 
+    /// The checkpoint sink is background work: with it down, an emergency read
+    /// is still released, and the response names no chain or sealing state.
+    #[actix_web::test]
+    async fn an_emergency_read_succeeds_while_the_checkpoint_sink_is_failing() {
+        let mut state = crate::AppState::new();
+        state.audit_seal = crate::audit_seal::SealRuntime::new(
+            None,
+            std::sync::Arc::new(crate::audit_seal::FailingSink),
+        );
+        state.users.write().unwrap().insert(
+            "responder-sink".to_string(),
+            crate::test_fixtures::staff("responder-sink", crate::Role::Paramedic),
+        );
+        let patient_id = "PAT-SINK-1";
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &test_patient(patient_id),
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        let device_id = active_device(&state, "fingerprint-sink-1");
+        let token = super::super::emergency_access::issue_emergency_token(
+            patient_id,
+            "responder-sink",
+            &device_id,
+            "trauma",
+            120,
+        )
+        .unwrap();
+
+        // The sink really is failing.
+        assert!(
+            crate::audit_seal::CheckpointSink::put(state.audit_seal.sink.as_ref(), 1, b"{}")
+                .await
+                .is_err()
+        );
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(app_state.clone())
+                .service(get_emergency_medical_id),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/emergency"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert!(response.status().is_success());
+    }
+
     /// A token obtained via the exchange endpoint is accepted, and expired
     /// tokens are rejected — proving the replacement path actually works, not
     /// just that the old one was removed.
     #[actix_web::test]
     async fn exchanged_token_grants_access_and_expires() {
         let state = crate::AppState::new();
+        state.users.write().unwrap().insert(
+            "responder-user".to_string(),
+            crate::User {
+                id: "responder-user".to_string(),
+                username: None,
+                name: "EMS responder".to_string(),
+                role: crate::Role::Paramedic,
+                created_at: Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
         let patient_id = "PAT-HZ001-2";
         state
             .repositories
@@ -775,7 +795,7 @@ mod hz_001_regression_tests {
 
         let valid_token = super::super::emergency_access::issue_emergency_token(
             patient_id,
-            "responder-wallet",
+            "responder-user",
             &device_id,
             "trauma",
             120,
@@ -783,7 +803,7 @@ mod hz_001_regression_tests {
         .unwrap();
         let expired_token = super::super::emergency_access::issue_emergency_token(
             patient_id,
-            "responder-wallet",
+            "responder-user",
             &device_id,
             "trauma",
             -10,
@@ -802,6 +822,43 @@ mod hz_001_regression_tests {
             .to_request();
         let ok_resp = test::call_service(&app, ok_req).await;
         assert!(ok_resp.status().is_success());
+        let history = app_state
+            .repositories
+            .access_logs
+            .get_by_patient(
+                patient_id,
+                crate::repositories::traits::Pagination::first_page(10),
+            )
+            .await
+            .unwrap();
+        assert_eq!(history.items.len(), 1);
+        assert_eq!(history.items[0].accessor_role, "Paramedic");
+
+        // Removing emergency authority invalidates a previously issued grant.
+        let revoked_token = super::super::emergency_access::issue_emergency_token(
+            patient_id,
+            "responder-user",
+            &device_id,
+            "trauma",
+            120,
+        )
+        .unwrap();
+        app_state
+            .users
+            .write()
+            .unwrap()
+            .get_mut("responder-user")
+            .unwrap()
+            .role = crate::Role::Patient;
+        let revoked_request = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/emergency"))
+            .insert_header(("Authorization", format!("Bearer {revoked_token}")))
+            .to_request();
+        let revoked_response = test::call_service(&app, revoked_request).await;
+        assert_eq!(
+            revoked_response.status(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
 
         let expired_req = test::TestRequest::get()
             .uri(&format!("/api/medical-id/{patient_id}/emergency"))

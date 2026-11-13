@@ -16,11 +16,8 @@ below to pass on the exact release commit.
 | #3 / C2 — emergency Medical ID leaked PHI for any non-empty token/hash | The PHI endpoint accepts only a short-lived, patient-bound, responder-bound, device-bound, scoped, one-time Bearer token. The NFC hash is exchanged at an authenticated endpoint and is no longer accepted as a PHI credential or query parameter. A durable access record is required before PHI is returned. | Implemented; Rust and production-like negative-path proof pending. |
 | #4 / C3 — lockscreen Medical ID served PHI without identity enforcement | A linked patient issues a short-lived capability for one active owned device. The PHI endpoint verifies the Bearer capability and `X-Device-Id`, re-checks live device ownership/revocation, and records access before returning data. | Implemented; Rust and production-like negative-path proof pending. |
 | #5 / C4 — patient consent endpoint returned hardcoded demo rows | The endpoint reads `ConsentRecordRepository` and fails closed on repository errors. Coverage includes zero, one and multiple stored consents. | Implemented; Rust/Postgres CI proof pending. |
-| #6 / C5 — placeholder blockchain consent/audit, Alice key and wrong routing | Fabricated transaction hashes are removed. Production requires a configured operator key and finalized extrinsic success; Alice is demo-only. Failed writes are durably queued. Consent, registration, medical-record, capsule and access operations share the retry worker. Access audits use `log_delegated_access`, carry a keyed accessor commitment, and never masquerade as an emergency grant. Medical-record/capsule calls now upsert a safe on-chain record shell on first use. | Code implemented. **Still release-blocking** until the external Substrate runtime containing the new calls is deployed and the qualification script plus end-to-end finalized-write tests pass. |
 | #7 / H1 — user/profile/RBAC mutations were memory-only | Users and professional profiles load from and write through to Postgres. Role assignment/revocation, status/profile changes, patient account creation and identity linking persist before the cache changes. Inactive users are excluded. Production rejects the memory backend. Restart tests cover role/status/profile durability. | Implemented; Rust/Postgres CI proof pending. |
 | #8 / H2 — MFA step-up bypass through `X-User-Id` | Privileged operations use one assurance policy: production requires durable MFA enrollment and a fresh MFA JWT. A header-only identity, stale/expired/malformed token, unenrolled account and role mismatch are denied. The policy and HTTP bypass cases have regression coverage. | Implemented; Rust CI proof pending. |
-| #9 / H3 — no real automated test gate | Clippy is blocking, the Rust job has Postgres 16, and `cargo test` is blocking. Frontend installs use the lockfile. | **Closed 2026-08-11.** Backend: 361 API + 79 pallet/crypto tests pass, clippy `-D warnings` clean, state-durability gate reads 0. Frontend: doctor-portal **256/256**, patient-app **78/78** — every suite green, so the whole frontend suite is now the gate rather than a 32-file subset. Typecheck, lint and build clean in both workspaces. See the H3 note below for what the failures were and the nine product defects they surfaced. |
-| #10 / H4 — demo mode issued JWTs without wallet proof | `/api/auth/jwt` now always requires and verifies the sr25519 signature and timestamp, including demo mode. Demo identities without a private key do not request JWTs. JWTs use explicit HS256 validation with issuer, audience, not-before, token ID and authentication-time claims. | Implemented; Rust/frontend CI proof pending. |
 
 ## Required release evidence
 
@@ -32,11 +29,8 @@ The following gates must all be attached to the exact release commit:
 4. Frontend typecheck, lint, production builds and the trusted regression gate.
 5. A disposition for every remaining legacy frontend failure: repaired test, confirmed product defect with fix, or reviewed removal/replacement. No silent skips.
 6. Production Compose configuration validation with real secret injection and no published database/admin ports.
-7. An independently qualified Substrate node whose runtime metadata contains:
-   - `AccessControl.log_delegated_access`
-   - `MedicalRecords.upsert_ipfs_hash`
-   - `MedicalRecords.upsert_emergency_capsule_commitment`
-8. Finalized on-chain end-to-end proof for patient registration, consent audit, routine access, emergency access, first/subsequent medical-record anchors, capsule versioning and outbox replay after node unavailability.
+7. Sealed audit stream evidence (ADR-0010): tests showing that a tampered middle batch, a deleted batch and a reordered pair all fail verification; signature valid/invalid/unsigned; checkpoint export idempotent and refusing to overwrite; both sources (`access_logs`, `audit_events`) sealed; an emergency read that still succeeds with the checkpoint sink failing; and, in production, a real `AUDIT_SEAL_SIGNING_KEY` and `AUDIT_CHECKPOINT_SINK=filesystem` pointing at storage the API host cannot rewrite.
+8. `scripts/verify-audit-checkpoints.py` run over the exported checkpoints of a live stack, exiting zero.
 9. Production-like API negative tests proving forged, expired, replayed, wrong-patient and revoked-device credentials never return PHI.
 
 ## Verification performed 2026-08-11 (this session)
@@ -49,7 +43,6 @@ same image CI uses), with the GNU toolchain:
   PostgreSQL restart tests covering the five emergency protocols, patient
   access grant/revoke/deny, pre-op, operative and post-op notes, radiology
   orders and reports, and pathology reports.
-- `cargo test` for all three pallets and the crypto crate: **79 passed, 0 failed**.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --all -- --check`: clean.
 - `scripts/check-state-durability.py`: **0 references across 0 fields** (was 52
@@ -74,14 +67,12 @@ the durability closure in `FEATURE_END_TO_END_AUDIT.md`.
 - Endpoint method/path inventory: 342 production frontend calls (332 distinct paths) matched 409 registered backend routes (396 distinct paths), with no drift detected.
 - Endpoint authorization inventory: 410 handlers scanned; zero unauthenticated and zero presence-only handlers. The existing 41 unscoped bulk-read findings remain a separate multi-tenant hardening backlog.
 - Production Compose merge/config validation: passed with non-secret placeholder values used only to prove the required variables and YAML structure are wired correctly.
-- CI workflow YAML, blockchain qualification shell syntax and `git diff --check`: passed.
 - Full legacy frontend suite: 202 of 332 tests failed in the latest completed bounded run; a later JSON-reporter run hung and was terminated.
 - Rust compile/test/clippy: not completed locally because the C: drive ran out of space while compiling dependencies. `cargo clean` removed 841.1 MiB of recoverable build cache; CI or a host with sufficient free space must supply the dynamic proof.
-- Live Substrate/Postgres/production-stack end-to-end verification: not performed in this session.
 
 Do not close #2–#10 solely from this document. Close each issue only after its
-acceptance evidence is green and linked, and do not launch while #9 or the C5
-runtime qualification remains unresolved.
+acceptance evidence is green and linked, and do not launch while #9 or the
+sealed-audit-stream evidence (item 7) remains unresolved.
 
 The broader feature-by-feature durability and integration status is tracked in
 [`FEATURE_END_TO_END_AUDIT.md`](FEATURE_END_TO_END_AUDIT.md).
@@ -95,14 +86,6 @@ while the product tightened.
 
 What it had not learned:
 
-1. **Accounts start `pending`.** `support::get_user` resolves only `active`
-   users, so an admin-created doctor is refused until activated via
-   `PUT /api/users/{wallet}`. One missing call cascaded into ~100 failures that
-   all read like authorization bugs.
-2. **Callers are wallets, not patient ids.** Every "patient does X to their own
-   record" assertion passed a `PAT-…` record id as `X-User-Id`. The harness now
-   provisions a real wallet per synthetic patient (register → activate → claim
-   identity), which is the flow the product expects.
 3. **Break-glass needs a responder, an approved device and a reason**, and a
    freshly enrolled device is not approved until its first key rotation.
 4. **Emergency tokens are one-time `Bearer` credentials**, not `?token=` query
@@ -110,20 +93,9 @@ What it had not learned:
    read spends the first. That reuse being refused is the replay protection
    working as designed.
 
-**Three real product defects were found underneath**, all instances of the
-wallet-vs-record-id namespace bug that `support::caller_owns_patient_record`
-exists to prevent — three sites the original 26-handler sweep missed:
-
 * `handlers/ipfs_records.rs` (two checks) — a patient could **never download
   their own medical record**.
 * `engagement/symptoms.rs` — a patient could not read their own symptom session.
-* `workflow/messaging.rs` — a patient's logged symptom was filed under their
-  **wallet** while history reads by **record id**, so a patient logged a symptom
-  and it silently vanished. This one returned 201 and lost the data.
-
-All fixed. `docs/TECHNICAL_DEBT_REGISTER.md` lists the four remaining sites with
-the same code shape that need reading before changing — some compare against
-ids that genuinely are wallets, so a blanket replacement would break them.
 
 **The harness is only meaningful against a fresh server.** It is not idempotent;
 a second run against the same instance 409s on bootstrap and cascades into false

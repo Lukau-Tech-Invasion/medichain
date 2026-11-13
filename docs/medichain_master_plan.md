@@ -31,7 +31,6 @@
 Disease outbreaks in Africa have risen by over 41% between 2022 and 2024, yet emergency responders lack instant access to patient medical history during critical moments. Paper records are lost, cloud systems require internet, and existing solutions don't integrate with national identity systems.
 
 ### The Solution
-**MediChain** - A blockchain-based emergency medical records system where a simple NFC card tap provides instant access to life-saving patient data, integrated with African national ID systems (Fayda ID, Ghana Card, NIN).
 
 ### Why It Wins
 
@@ -40,9 +39,7 @@ Disease outbreaks in Africa have risen by over 41% between 2022 and 2024, yet em
 | **Market Alignment** | Africa CDC committed to digitalizing 90% of Primary Health Care systems by 2035 |
 | **Market Size** | $40 billion annual market for Electronic Medical Records in Africa |
 | **Government Support** | National IDs (Fayda, Ghana Card) already being integrated into healthcare |
-| **Technical Edge** | Rust + Substrate = unbeatable performance (< 500ms access time) |
 | **Social Impact** | Directly saves lives in emergency situations |
-| **Differentiator** | First blockchain-based system integrated with African national IDs |
 
 ### Hackathon Details
 - **Event:** Rust Africa Hackathon 2026
@@ -104,7 +101,6 @@ Disease outbreaks in Africa have risen by over 41% between 2022 and 2024, yet em
 - Proven in-country deployment
 
 **Weaknesses:**
-- Not blockchain-based (centralized)
 - Limited to Ghana only
 - No emergency NFC access
 - Requires internet connection
@@ -120,7 +116,6 @@ Disease outbreaks in Africa have risen by over 41% between 2022 and 2024, yet em
 
 #### 3. NFC Medical ID Cards (Knock ID, Tap2Tag)
 **Weaknesses:**
-- Cloud-based, not blockchain
 - No national ID integration
 - Limited to basic emergency info
 - Not pan-African
@@ -130,12 +125,10 @@ Disease outbreaks in Africa have risen by over 41% between 2022 and 2024, yet em
 | Feature | Competitors | MediChain |
 |---------|-------------|-----------|
 | **National ID Integration** | ❌ None or country-specific | ✅ Multi-country (Fayda, Ghana Card, NIN) |
-| **Blockchain Security** | ❌ Centralized cloud | ✅ Substrate + IPFS |
 | **Emergency Access** | ⚠️ Some NFC | ✅ NFC + QR + PIN fallback |
 | **Offline Capability** | ❌ Requires internet | ✅ Critical data cached locally |
 | **Pan-African Design** | ❌ Country-locked | ✅ Interoperable across borders |
 | **Open Source** | ⚠️ Proprietary | ✅ Community-owned |
-| **Access Speed** | ⚠️ 3-10 seconds | ✅ < 500ms (blockchain optimized) |
 | **Data Sovereignty** | ❌ Foreign servers | ✅ African-hosted nodes |
 
 ---
@@ -144,163 +137,17 @@ Disease outbreaks in Africa have risen by over 41% between 2022 and 2024, yet em
 
 ### High-Level System Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      MEDICHAIN ECOSYSTEM                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  FRONTEND LAYER                                                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Healthcare Provider Dashboard  │  Patient Portal       │   │
-│  │  Emergency Responder View       │  Admin Panel          │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                          ↓                                       │
-│  API LAYER (Rust + Actix-Web)                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  REST API  │  WebSocket  │  Authentication  │  IPFS      │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                          ↓                                       │
-│  BLOCKCHAIN LAYER (Substrate)                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Identity    │  Health      │  Emergency   │  Consent   │   │
-│  │  Pallet      │  Records     │  Access      │  Mgmt      │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                          ↓                                       │
-│  STORAGE LAYER                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  IPFS (Encrypted Medical Records)  │  Substrate DB      │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                          ↓                                       │
-│  INTEGRATION LAYER                                               │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Fayda ID  │  Ghana Card  │  NIN  │  Smart ID           │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                   │
-│  ACCESS METHODS                                                  │
-│  [NFC Card] ──── [QR Code] ──── [PIN Access] ──── [Biometric]  │
-│                                                                   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
 ### Technology Stack
 
 #### Backend (Rust)
-```toml
-[dependencies]
-# Substrate Framework
-substrate-node-template = "4.0.0"
-parity-scale-codec = "3.0"
-frame-support = "4.0"
-frame-system = "4.0"
-sp-runtime = "7.0"
-sp-core = "7.0"
-sp-io = "7.0"
-
-# Web Framework
-actix-web = "4.0"
-actix-rt = "2.0"
-tokio = { version = "1.0", features = ["full"] }
-
-# Cryptography
-aes-gcm = "0.10"
-sha3 = "0.10"
-blake2 = "0.10"
-ed25519-dalek = "2.0"
-
-# Storage & Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-reqwest = { version = "0.11", features = ["json"] }  # IPFS client
-
-# NFC Simulation
-qrcode = "0.13"
-uuid = { version = "1.0", features = ["v4"] }
-
-# Utilities
-log = "0.4"
-env_logger = "0.10"
-chrono = "0.4"
-```
 
 #### Frontend
-```json
-{
-  "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "tailwindcss": "^3.3.0",
-    "@polkadot/api": "^10.0.0",
-    "lucide-react": "^0.263.1",
-    "recharts": "^2.5.0",
-    "react-qr-code": "^2.0.0"
-  }
-}
-```
 
 ### Data Models
-
-#### Patient Record (On-Chain)
-```rust
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub struct PatientRecord<AccountId, Hash> {
-    pub patient_id: AccountId,
-    pub national_id: NationalId,
-    pub emergency_data_hash: Hash,  // IPFS hash
-    pub full_record_hash: Hash,     // IPFS hash
-    pub blood_type: BloodType,
-    pub critical_alerts: Vec<Alert>,
-    pub emergency_contacts: Vec<EmergencyContact>,
-    pub access_level: AccessLevel,
-    pub created_at: Timestamp,
-    pub updated_at: Timestamp,
-}
-
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub enum NationalId {
-    FaydaID(Vec<u8>),     // Ethiopia
-    GhanaCard(Vec<u8>),   // Ghana
-    NIN(Vec<u8>),         // Nigeria
-    SmartID(Vec<u8>),     // South Africa
-}
-
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub struct Alert {
-    pub alert_type: AlertType,
-    pub description: Vec<u8>,
-    pub severity: Severity,
-}
-
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub enum AlertType {
-    Allergy,
-    ChronicCondition,
-    Medication,
-    Implant,
-}
-```
-
-#### Emergency Access Log (On-Chain)
-```rust
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-pub struct AccessLog<AccountId, Hash> {
-    pub patient_id: AccountId,
-    pub accessor_id: AccountId,
-    pub access_type: AccessType,
-    pub access_reason: Vec<u8>,
-    pub timestamp: Timestamp,
-    pub location: Option<Location>,
-    pub duration: u64,  // seconds
-}
-```
 
 ### Security Model
 
 #### Encryption Flow
-```
-Patient Data → ChaCha20-Poly1305 Encryption → IPFS Storage → Hash on Substrate
-                      ↑
-                Encryption Key
-```
 
 #### Access Control Layers
 1. **Role-Based Access Control (RBAC)** - 6 roles with granular permissions ✅ IMPLEMENTED
@@ -310,7 +157,6 @@ Patient Data → ChaCha20-Poly1305 Encryption → IPFS Storage → Hash on Subst
    - LabTechnician: Patient registration, read-only records
    - Pharmacist: Patient registration, read-only records
    - Patient: Read-only access to own records
-2. **Blockchain Consensus** - Validator verification
 3. **Identity Verification** - National ID + Biometric
 4. **Consent Management** - Patient-approved access list
 5. **Time-Based Permissions** - Auto-expiring emergency access (15 min)
@@ -320,22 +166,7 @@ Patient Data → ChaCha20-Poly1305 Encryption → IPFS Storage → Hash on Subst
 
 ## 🗺️ SYSTEM ARCHITECTURE DIAGRAMS
 
-> **Updated 2026-07-29 to match the implementation.** The diagrams previously in
-> this section described the original January 2026 design and were materially
-> wrong in three ways: they put the chain in the emergency read path, they read
-> the emergency record from IPFS, and they classified "critical emergency info"
-> as on-chain storage. All three were changed — the last one because a POPIA
-> legal review found that publishing health data to an immutable ledger cannot
-> satisfy correction, deletion or retention obligations. See
-> [`adr/0004-commitment-not-plaintext-on-chain.md`](adr/0004-commitment-not-plaintext-on-chain.md).
->
-> The authoritative, fuller set of diagrams lives in
-> [`architecture.md`](architecture.md).
-
 ### 1. Emergency Access Flow (as implemented)
-
-The chain is deliberately **not** in this path — that is what makes the read work
-offline and inside the latency budget.
 
 ```mermaid
 sequenceDiagram
@@ -368,107 +199,13 @@ sequenceDiagram
 
 ### 2. Patient Registration Flow (as implemented)
 
-```mermaid
-graph TD
-    A[Provider registers patient] --> B{Verify national ID}
-    B -->|"API key present"| C[Verified against registry]
-    B -->|"no key configured"| C2["Stub verifier —<br/>reports verification_method: Stub,<br/>never implies a real check"]
-    C --> D[Store keyed digest of national ID<br/>never the raw value]
-    C2 --> D
-    D --> E[Encrypt profile under keyring<br/>ChaCha20-Poly1305]
-    E --> F[Persist patient + NFC tag<br/>one transaction]
-    F --> G[Build emergency capsule v1<br/>encrypt under server keyring]
-    G --> H[Compute SHA3-256 commitment<br/>domain-separated, length-prefixed]
-    H --> I["Anchor commitment on-chain<br/>(spawned, non-fatal)"]
-    I --> J{"Chain available?"}
-    J -->|yes| K["chain_finalized = true"]
-    J -->|no| L["Placeholder recorded,<br/>chain_finalized = false"]
-    F --> M[Patient receives NFC card]
-
-    style M fill:#34C759
-    style B fill:#FF9500
-    style L fill:#FFD60A
-```
-
-Note the honesty mechanism: a hash alone never proves anchoring, so
-`chain_finalized` distinguishes a real submission from a placeholder.
-
 ### 3. Data Storage Architecture (as implemented)
-
-**No personal health information goes on-chain.** This is the diagram that
-changed most.
-
-```mermaid
-graph LR
-    A[Patient medical data] --> B{Classification}
-
-    B -->|"Emergency subset<br/>(blood type, organ donor, DNR)"| C["PostgreSQL —<br/>encrypted capsule,<br/>versioned + revocable"]
-    B -->|"Documents and images"| D["IPFS —<br/>ChaCha20-Poly1305"]
-    B -->|"Queryable clinical data"| E["PostgreSQL —<br/>179 tables"]
-
-    C -->|"SHA3-256 commitment only"| F["Substrate chain"]
-    D -->|"content hash only"| F
-    E -.->|"access events"| F
-
-    F --> G["Validator nodes<br/>proof-of-authority"]
-    G --> H["Immutable audit trail"]
-
-    C --> I["Correctable · deletable ·<br/>retention-limited"]
-    D --> I
-    E --> I
-
-    style C fill:#34C759
-    style F fill:#FF9500
-    style I fill:#34C759
-```
 
 Everything in green can be corrected and deleted, which is what POPIA requires.
 Everything reaching the orange box is a digest, so the ledger carries integrity
 guarantees without carrying obligations it cannot discharge.
 
 ### 4. Multi-Country Interoperability
-
-```mermaid
-graph TB
-    subgraph "Ethiopia"
-        A1[Hospital A] --> B1[Fayda ID Integration]
-        B1 --> C1[Local Substrate Node]
-    end
-    
-    subgraph "Ghana"
-        A2[Hospital B] --> B2[Ghana Card Integration]
-        B2 --> C2[Local Substrate Node]
-    end
-    
-    subgraph "Nigeria"
-        A3[Hospital C] --> B3[NIN Integration]
-        B3 --> C3[Local Substrate Node]
-    end
-    
-    subgraph "South Africa"
-        A4[Hospital D] --> B4[Smart ID Integration]
-        B4 --> C4[Local Substrate Node]
-    end
-    
-    C1 --> D
-    C2 --> D
-    C3 --> D
-    C4 --> D
-
-    D["<b>Shared chain</b><br/>identity · consent · audit ONLY<br/>proof-of-authority"]
-
-    D --> F["Cross-facility record location<br/>and release via encrypted envelopes"]
-
-    style D fill:#FF9500
-    style F fill:#34C759
-```
-
-**Correction (2026-07-29):** this diagram previously showed a *shared IPFS
-network* behind the chain. That is wrong, and wrong on the point the whole model
-turns on. Each hospital runs **its own** IPFS node holding **its own** encrypted
-documents — nothing is pooled. The only shared layer is the chain, and it carries
-identity, consent and audit entries: enough to *locate and release* a record
-across facilities, never enough to *take* one.
 
 A hospital that has to place its documents in a shared store has surrendered
 custody, which is precisely the objection that stalled previous South African
@@ -538,698 +275,7 @@ separate state machines, which is also how the code works.
 
 ## 💻 CODE TEMPLATES
 
-### 1. Substrate Identity Pallet
-
-```rust
-// pallets/identity/src/lib.rs
-#![cfg_attr(not(feature = "std"), no_std)]
-
-pub use pallet::*;
-
-#[frame_support::pallet]
-pub mod pallet {
-    use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
-
-    #[pallet::pallet]
-    pub struct Pallet<T>(_);
-
-    #[pallet::config]
-    pub trait Config: frame_system::Config {
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-    }
-
-    // National ID types
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    pub enum NationalIdType {
-        FaydaID,    // Ethiopia
-        GhanaCard,  // Ghana
-        NIN,        // Nigeria
-        SmartID,    // South Africa
-    }
-
-    // Identity record
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    #[scale_info(skip_type_params(T))]
-    pub struct Identity<T: Config> {
-        pub account_id: T::AccountId,
-        pub national_id_type: NationalIdType,
-        pub national_id_hash: Vec<u8>,  // Hashed for privacy
-        pub verified: bool,
-        pub created_at: u64,
-    }
-
-    // Storage
-    #[pallet::storage]
-    #[pallet::getter(fn identities)]
-    pub type Identities<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Identity<T>,
-        OptionQuery,
-    >;
-
-    #[pallet::storage]
-    #[pallet::getter(fn national_id_to_account)]
-    pub type NationalIdToAccount<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        Vec<u8>,  // national_id_hash
-        T::AccountId,
-        OptionQuery,
-    >;
-
-    // Events
-    #[pallet::event]
-    #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {
-        IdentityCreated { who: T::AccountId, id_type: NationalIdType },
-        IdentityVerified { who: T::AccountId },
-        IdentityRevoked { who: T::AccountId },
-    }
-
-    // Errors
-    #[pallet::error]
-    pub enum Error<T> {
-        IdentityAlreadyExists,
-        IdentityNotFound,
-        UnauthorizedVerification,
-        InvalidNationalId,
-    }
-
-    // Extrinsics (functions)
-    #[pallet::call]
-    impl<T: Config> Pallet<T> {
-        /// Register a new identity
-        #[pallet::weight(10_000)]
-        pub fn register_identity(
-            origin: OriginFor<T>,
-            id_type: NationalIdType,
-            national_id: Vec<u8>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            // Ensure identity doesn't exist
-            ensure!(!Identities::<T>::contains_key(&who), Error::<T>::IdentityAlreadyExists);
-
-            // Hash the national ID for privacy
-            let id_hash = sp_io::hashing::blake2_256(&national_id).to_vec();
-
-            // Create identity
-            let identity = Identity {
-                account_id: who.clone(),
-                national_id_type: id_type.clone(),
-                national_id_hash: id_hash.clone(),
-                verified: false,
-                created_at: Self::current_timestamp(),
-            };
-
-            // Store identity
-            Identities::<T>::insert(&who, identity);
-            NationalIdToAccount::<T>::insert(&id_hash, &who);
-
-            // Emit event
-            Self::deposit_event(Event::IdentityCreated { who, id_type });
-
-            Ok(())
-        }
-
-        /// Verify an identity (admin only)
-        #[pallet::weight(10_000)]
-        pub fn verify_identity(
-            origin: OriginFor<T>,
-            account: T::AccountId,
-        ) -> DispatchResult {
-            // TODO: Add admin verification logic
-            let _admin = ensure_signed(origin)?;
-
-            // Get identity
-            let mut identity = Identities::<T>::get(&account)
-                .ok_or(Error::<T>::IdentityNotFound)?;
-
-            // Mark as verified
-            identity.verified = true;
-            Identities::<T>::insert(&account, identity);
-
-            // Emit event
-            Self::deposit_event(Event::IdentityVerified { who: account });
-
-            Ok(())
-        }
-    }
-
-    // Helper functions
-    impl<T: Config> Pallet<T> {
-        pub fn current_timestamp() -> u64 {
-            use frame_support::traits::UnixTime;
-            <pallet_timestamp::Pallet<T> as UnixTime>::now().as_secs()
-        }
-
-        pub fn is_verified(who: &T::AccountId) -> bool {
-            if let Some(identity) = Identities::<T>::get(who) {
-                identity.verified
-            } else {
-                false
-            }
-        }
-    }
-}
-```
-
-### 2. Health Records Pallet
-
-```rust
-// pallets/health-records/src/lib.rs
-#![cfg_attr(not(feature = "std"), no_std)]
-
-pub use pallet::*;
-
-#[frame_support::pallet]
-pub mod pallet {
-    use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
-
-    #[pallet::pallet]
-    pub struct Pallet<T>(_);
-
-    #[pallet::config]
-    pub trait Config: frame_system::Config {
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-    }
-
-    // Blood types
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    pub enum BloodType {
-        APositive,
-        ANegative,
-        BPositive,
-        BNegative,
-        ABPositive,
-        ABNegative,
-        OPositive,
-        ONegative,
-    }
-
-    // Alert severity
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    pub enum Severity {
-        Critical,
-        High,
-        Medium,
-        Low,
-    }
-
-    // Medical alert
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    pub struct MedicalAlert {
-        pub description: Vec<u8>,
-        pub severity: Severity,
-        pub created_at: u64,
-    }
-
-    // Patient health record
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    #[scale_info(skip_type_params(T))]
-    pub struct HealthRecord<T: Config> {
-        pub patient_id: T::AccountId,
-        pub blood_type: BloodType,
-        pub allergies: Vec<MedicalAlert>,
-        pub chronic_conditions: Vec<MedicalAlert>,
-        pub current_medications: Vec<Vec<u8>>,
-        pub emergency_contact_1: Vec<u8>,
-        pub emergency_contact_2: Vec<u8>,
-        pub ipfs_hash_emergency: Vec<u8>,  // Critical data
-        pub ipfs_hash_full: Vec<u8>,       // Full medical history
-        pub created_at: u64,
-        pub updated_at: u64,
-    }
-
-    // Storage
-    #[pallet::storage]
-    #[pallet::getter(fn health_records)]
-    pub type HealthRecords<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        HealthRecord<T>,
-        OptionQuery,
-    >;
-
-    // Events
-    #[pallet::event]
-    #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {
-        HealthRecordCreated { patient: T::AccountId },
-        HealthRecordUpdated { patient: T::AccountId },
-        EmergencyAlertAdded { patient: T::AccountId, severity: Severity },
-    }
-
-    // Errors
-    #[pallet::error]
-    pub enum Error<T> {
-        HealthRecordAlreadyExists,
-        HealthRecordNotFound,
-        Unauthorized,
-        InvalidData,
-    }
-
-    // Extrinsics
-    #[pallet::call]
-    impl<T: Config> Pallet<T> {
-        /// Create a new health record
-        #[pallet::weight(10_000)]
-        pub fn create_health_record(
-            origin: OriginFor<T>,
-            blood_type: BloodType,
-            emergency_contact_1: Vec<u8>,
-            ipfs_hash: Vec<u8>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            // Ensure record doesn't exist
-            ensure!(
-                !HealthRecords::<T>::contains_key(&who),
-                Error::<T>::HealthRecordAlreadyExists
-            );
-
-            // Create record
-            let record = HealthRecord {
-                patient_id: who.clone(),
-                blood_type,
-                allergies: Vec::new(),
-                chronic_conditions: Vec::new(),
-                current_medications: Vec::new(),
-                emergency_contact_1,
-                emergency_contact_2: Vec::new(),
-                ipfs_hash_emergency: ipfs_hash.clone(),
-                ipfs_hash_full: ipfs_hash,
-                created_at: Self::current_timestamp(),
-                updated_at: Self::current_timestamp(),
-            };
-
-            // Store record
-            HealthRecords::<T>::insert(&who, record);
-
-            // Emit event
-            Self::deposit_event(Event::HealthRecordCreated { patient: who });
-
-            Ok(())
-        }
-
-        /// Add a medical alert
-        #[pallet::weight(10_000)]
-        pub fn add_allergy(
-            origin: OriginFor<T>,
-            description: Vec<u8>,
-            severity: Severity,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            // Get existing record
-            let mut record = HealthRecords::<T>::get(&who)
-                .ok_or(Error::<T>::HealthRecordNotFound)?;
-
-            // Add allergy
-            let alert = MedicalAlert {
-                description,
-                severity: severity.clone(),
-                created_at: Self::current_timestamp(),
-            };
-            record.allergies.push(alert);
-            record.updated_at = Self::current_timestamp();
-
-            // Update storage
-            HealthRecords::<T>::insert(&who, record);
-
-            // Emit event
-            Self::deposit_event(Event::EmergencyAlertAdded { patient: who, severity });
-
-            Ok(())
-        }
-
-        /// Update IPFS hash
-        #[pallet::weight(10_000)]
-        pub fn update_ipfs_hash(
-            origin: OriginFor<T>,
-            ipfs_hash_emergency: Vec<u8>,
-            ipfs_hash_full: Vec<u8>,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            // Get existing record
-            let mut record = HealthRecords::<T>::get(&who)
-                .ok_or(Error::<T>::HealthRecordNotFound)?;
-
-            // Update hashes
-            record.ipfs_hash_emergency = ipfs_hash_emergency;
-            record.ipfs_hash_full = ipfs_hash_full;
-            record.updated_at = Self::current_timestamp();
-
-            // Update storage
-            HealthRecords::<T>::insert(&who, record);
-
-            // Emit event
-            Self::deposit_event(Event::HealthRecordUpdated { patient: who });
-
-            Ok(())
-        }
-    }
-
-    // Helper functions
-    impl<T: Config> Pallet<T> {
-        pub fn current_timestamp() -> u64 {
-            use frame_support::traits::UnixTime;
-            <pallet_timestamp::Pallet<T> as UnixTime>::now().as_secs()
-        }
-
-        pub fn get_emergency_data(patient: &T::AccountId) -> Option<Vec<u8>> {
-            HealthRecords::<T>::get(patient)
-                .map(|record| record.ipfs_hash_emergency)
-        }
-    }
-}
-```
-
-### 3. Emergency Access Pallet
-
-```rust
-// pallets/emergency-access/src/lib.rs
-#![cfg_attr(not(feature = "std"), no_std)]
-
-pub use pallet::*;
-
-#[frame_support::pallet]
-pub mod pallet {
-    use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
-
-    #[pallet::pallet]
-    pub struct Pallet<T>(_);
-
-    #[pallet::config]
-    pub trait Config: frame_system::Config {
-        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-    }
-
-    // Access types
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    pub enum AccessType {
-        Emergency,      // 15-minute time-limited
-        Authorized,     // Patient-approved
-        Administrative, // Hospital admin
-    }
-
-    // Access log entry
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
-    #[scale_info(skip_type_params(T))]
-    pub struct AccessLog<T: Config> {
-        pub patient_id: T::AccountId,
-        pub accessor_id: T::AccountId,
-        pub access_type: AccessType,
-        pub reason: Vec<u8>,
-        pub timestamp: u64,
-        pub expires_at: u64,
-    }
-
-    // Storage
-    #[pallet::storage]
-    #[pallet::getter(fn access_logs)]
-    pub type AccessLogs<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        (T::AccountId, u64),  // (patient_id, log_id)
-        AccessLog<T>,
-        OptionQuery,
-    >;
-
-    #[pallet::storage]
-    #[pallet::getter(fn active_access)]
-    pub type ActiveAccess<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,  // patient_id
-        Blake2_128Concat,
-        T::AccountId,  // accessor_id
-        AccessLog<T>,
-        OptionQuery,
-    >;
-
-    #[pallet::storage]
-    #[pallet::getter(fn log_counter)]
-    pub type LogCounter<T: Config> = StorageValue<_, u64, ValueQuery>;
-
-    // Events
-    #[pallet::event]
-    #[pallet::generate_deposit(pub(super) fn deposit_event)]
-    pub enum Event<T: Config> {
-        EmergencyAccessGranted {
-            patient: T::AccountId,
-            accessor: T::AccountId,
-            expires_at: u64,
-        },
-        AccessRevoked {
-            patient: T::AccountId,
-            accessor: T::AccountId,
-        },
-        AccessExpired {
-            patient: T::AccountId,
-            accessor: T::AccountId,
-        },
-    }
-
-    // Errors
-    #[pallet::error]
-    pub enum Error<T> {
-        AccessAlreadyActive,
-        AccessNotFound,
-        AccessExpired,
-        Unauthorized,
-    }
-
-    // Extrinsics
-    #[pallet::call]
-    impl<T: Config> Pallet<T> {
-        /// Grant emergency access (15-minute window)
-        #[pallet::weight(10_000)]
-        pub fn grant_emergency_access(
-            origin: OriginFor<T>,
-            patient_id: T::AccountId,
-            reason: Vec<u8>,
-        ) -> DispatchResult {
-            let accessor = ensure_signed(origin)?;
-
-            // Ensure no active access
-            ensure!(
-                !ActiveAccess::<T>::contains_key(&patient_id, &accessor),
-                Error::<T>::AccessAlreadyActive
-            );
-
-            let now = Self::current_timestamp();
-            let expires_at = now + (15 * 60); // 15 minutes
-
-            // Create access log
-            let log = AccessLog {
-                patient_id: patient_id.clone(),
-                accessor_id: accessor.clone(),
-                access_type: AccessType::Emergency,
-                reason,
-                timestamp: now,
-                expires_at,
-            };
-
-            // Store access log
-            let log_id = LogCounter::<T>::get();
-            AccessLogs::<T>::insert((patient_id.clone(), log_id), log.clone());
-            ActiveAccess::<T>::insert(&patient_id, &accessor, log);
-            LogCounter::<T>::put(log_id + 1);
-
-            // Emit event
-            Self::deposit_event(Event::EmergencyAccessGranted {
-                patient: patient_id,
-                accessor,
-                expires_at,
-            });
-
-            Ok(())
-        }
-
-        /// Revoke access
-        #[pallet::weight(10_000)]
-        pub fn revoke_access(
-            origin: OriginFor<T>,
-            accessor: T::AccountId,
-        ) -> DispatchResult {
-            let patient = ensure_signed(origin)?;
-
-            // Ensure access exists
-            ensure!(
-                ActiveAccess::<T>::contains_key(&patient, &accessor),
-                Error::<T>::AccessNotFound
-            );
-
-            // Remove active access
-            ActiveAccess::<T>::remove(&patient, &accessor);
-
-            // Emit event
-            Self::deposit_event(Event::AccessRevoked {
-                patient,
-                accessor,
-            });
-
-            Ok(())
-        }
-
-        /// Check and cleanup expired access
-        #[pallet::weight(10_000)]
-        pub fn cleanup_expired_access(
-            origin: OriginFor<T>,
-            patient_id: T::AccountId,
-            accessor_id: T::AccountId,
-        ) -> DispatchResult {
-            let _caller = ensure_signed(origin)?;
-
-            // Get active access
-            let access = ActiveAccess::<T>::get(&patient_id, &accessor_id)
-                .ok_or(Error::<T>::AccessNotFound)?;
-
-            let now = Self::current_timestamp();
-
-            // Check if expired
-            if now > access.expires_at {
-                ActiveAccess::<T>::remove(&patient_id, &accessor_id);
-
-                Self::deposit_event(Event::AccessExpired {
-                    patient: patient_id,
-                    accessor: accessor_id,
-                });
-            }
-
-            Ok(())
-        }
-    }
-
-    // Helper functions
-    impl<T: Config> Pallet<T> {
-        pub fn current_timestamp() -> u64 {
-            use frame_support::traits::UnixTime;
-            <pallet_timestamp::Pallet<T> as UnixTime>::now().as_secs()
-        }
-
-        pub fn has_active_access(patient: &T::AccountId, accessor: &T::AccountId) -> bool {
-            if let Some(access) = ActiveAccess::<T>::get(patient, accessor) {
-                let now = Self::current_timestamp();
-                now <= access.expires_at
-            } else {
-                false
-            }
-        }
-    }
-}
-```
-
 ### 4. API Server (Actix-Web)
-
-```rust
-// src/main.rs
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
-struct EmergencyAccessRequest {
-    patient_id: String,
-    nfc_card_hash: String,
-    accessor_id: String,
-    reason: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct EmergencyData {
-    patient_name: String,
-    blood_type: String,
-    photo_url: String,
-    allergies: Vec<String>,
-    chronic_conditions: Vec<String>,
-    medications: Vec<String>,
-    emergency_contacts: Vec<EmergencyContact>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct EmergencyContact {
-    name: String,
-    phone: String,
-    relationship: String,
-}
-
-// Simulate NFC card tap
-async fn handle_nfc_tap(req: web::Json<EmergencyAccessRequest>) -> impl Responder {
-    println!("NFC Tap received: {:?}", req);
-    
-    // TODO: Verify NFC card hash with blockchain
-    // TODO: Grant emergency access on-chain
-    // TODO: Fetch IPFS data
-    
-    // Mock response (replace with real data)
-    let emergency_data = EmergencyData {
-        patient_name: "Abebe Kebede".to_string(),
-        blood_type: "A+".to_string(),
-        photo_url: "https://example.com/photo.jpg".to_string(),
-        allergies: vec![
-            "Penicillin".to_string(),
-            "Peanuts".to_string(),
-        ],
-        chronic_conditions: vec![
-            "Type 2 Diabetes".to_string(),
-            "Hypertension".to_string(),
-        ],
-        medications: vec![
-            "Metformin 500mg (2x daily)".to_string(),
-            "Aspirin 81mg (1x daily)".to_string(),
-        ],
-        emergency_contacts: vec![
-            EmergencyContact {
-                name: "Almaz Kebede".to_string(),
-                phone: "+251912345678".to_string(),
-                relationship: "Wife".to_string(),
-            },
-            EmergencyContact {
-                name: "Dr. Alemayehu".to_string(),
-                phone: "+251911234567".to_string(),
-                relationship: "Primary Care Physician".to_string(),
-            },
-        ],
-    };
-    
-    HttpResponse::Ok().json(emergency_data)
-}
-
-// Health check endpoint
-async fn health_check() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "healthy",
-        "timestamp": chrono::Utc::now().timestamp(),
-    }))
-}
-
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    env_logger::init();
-    
-    println!("Starting MediChain API Server on http://localhost:8080");
-    
-    HttpServer::new(|| {
-        App::new()
-            .route("/health", web::get().to(health_check))
-            .route("/api/emergency-access", web::post().to(handle_nfc_tap))
-    })
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
-}
-```
 
 ### 5. Frontend - Emergency Dashboard (React)
 
@@ -1780,21 +826,14 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 #### Feature 1: User Registration & National ID Integration
 **Description:** Allow patients to register and link their national ID to MediChain
 
-**User Story:**
-> As a patient, I want to register on MediChain using my national ID (Fayda/Ghana Card/NIN) so that I can securely store my medical records on the blockchain.
-
 **Acceptance Criteria:**
 - [ ] Patient can create an account with email and password
 - [ ] Patient can upload/link their national ID number
 - [ ] System verifies national ID format (country-specific validation)
-- [ ] System generates a blockchain address for the patient
-- [ ] System stores ID hash (not actual ID) on-chain
 - [ ] Patient receives confirmation email
 
 **Technical Implementation:**
 - Frontend: Registration form with national ID dropdown
-- Backend: Identity pallet integration
-- Blockchain: Store national ID hash using Blake2_256
 
 **Time Estimate:** 8 hours
 
@@ -1812,12 +851,10 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 - [ ] Provider can list current medications
 - [ ] Provider can add 2 emergency contacts
 - [ ] Data is encrypted before uploading to IPFS
-- [ ] IPFS hash is stored on-chain
 
 **Technical Implementation:**
 - Frontend: Multi-step form with validation
 - Encryption: ChaCha20-Poly1305 with per-patient encryption keys
-- Storage: IPFS + Substrate health records pallet
 
 **Time Estimate:** 12 hours
 
@@ -1832,15 +869,11 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 **Acceptance Criteria:**
 - [ ] Healthcare provider clicks "Tap NFC" button (simulated)
 - [ ] System retrieves patient ID from simulated card
-- [ ] System grants 15-minute emergency access on-chain
 - [ ] System fetches emergency data from IPFS
 - [ ] System displays critical info in < 1 second
-- [ ] Access is logged immutably on blockchain
 
 **Technical Implementation:**
 - Frontend: NFC tap button triggers API call
-- Backend: Emergency access pallet + IPFS fetch
-- Blockchain: Log access with timestamp
 
 **Time Estimate:** 10 hours
 
@@ -1854,13 +887,11 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **Acceptance Criteria:**
 - [ ] Each patient has a unique QR code
-- [ ] QR code encodes patient blockchain address
 - [ ] Scanning QR triggers same emergency access flow as NFC
 - [ ] Patient can download/print their QR code
 
 **Technical Implementation:**
 - Library: `qrcode` crate (Rust) or `react-qr-code` (frontend)
-- Encoding: Patient's blockchain address + card hash
 - Storage: QR code generated on-demand
 
 **Time Estimate:** 4 hours
@@ -1881,7 +912,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **Technical Implementation:**
 - Frontend: Access log table with filtering
-- Blockchain: Query emergency access pallet
 - Notifications: Email/SMS via Twilio API (optional)
 
 **Time Estimate:** 6 hours
@@ -1891,7 +921,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 ### Nice-to-Have Features (If Time Permits)
 
 #### Feature 6: Multi-Hospital Network
-- Allow multiple hospitals to run validator nodes
 - Cross-hospital data sharing with patient consent
 **Time Estimate:** 8 hours
 
@@ -1915,12 +944,7 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| **Project Structure** | ✅ Complete | Full Substrate workspace with pallets, runtime, node, API |
 | **Rust Toolchain** | ✅ Complete | rust-toolchain.toml, clippy.toml configured |
-| **pallet-access-control** | ✅ Complete | RBAC with 6 roles, emergency access, 19 tests |
-| **pallet-patient-identity** | ✅ Complete | National ID integration, 10 tests passing |
-| **pallet-medical-records** | ✅ Complete | Capsule commitment + RBAC, 17 tests passing |
-| **medichain-runtime** | ✅ Complete | All pallets integrated, 3 tests passing |
 | **REST API Server** | ✅ Complete | Actix-web with RBAC + IPFS endpoints |
 | **RBAC Implementation** | ✅ Complete | Healthcare-grade access control |
 | **medichain-crypto** | ✅ Complete | ChaCha20-Poly1305, Argon2, SHA-256, 12 tests |
@@ -1943,7 +967,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 | **IPFS Client** | ✅ Complete | `api/src/ipfs.rs` module |
 | **Encrypted Upload** | ✅ Complete | ChaCha20-Poly1305 before upload |
 | **Encrypted Download** | ✅ Complete | Automatic decryption on retrieval |
-| **Record References** | ✅ Complete | On-chain metadata storage |
 | **RBAC Enforcement** | ✅ Complete | Doctor/Nurse/Admin for uploads |
 
 **IPFS Endpoints:**
@@ -2006,7 +1029,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 #### Day 1: Environment Setup (Jan 4) ✅ COMPLETED
 **Tasks:**
-- [x] Initialize Substrate node template
 - [x] Set up IPFS node (local)
 - [x] Configure Rust toolchain
 - [x] Create GitHub repository
@@ -2014,30 +1036,11 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 - [x] **BONUS: Full RBAC implementation**
 
 **Deliverables:**
-- ✅ Running Substrate node
 - ✅ IPFS daemon active
 - ✅ Git repo with initial commit
-- ✅ 3 pallets with RBAC (52 tests passing)
 - ✅ REST API with role-based endpoints
 
 **Time:** 6 hours (exceeded expectations)
-
----
-
-#### Day 2-3: Substrate Pallets (Jan 5-6)
-**Tasks:**
-- [ ] Implement `pallet-identity` (national ID)
-- [ ] Implement `pallet-health-records`
-- [ ] Implement `pallet-emergency-access`
-- [ ] Write unit tests for each pallet
-- [ ] Test local blockchain
-
-**Deliverables:**
-- 3 custom pallets functional
-- Unit tests passing
-- Local chain running
-
-**Time:** 16 hours
 
 ---
 
@@ -2095,7 +1098,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 #### Day 10-11: Integration & National ID (Jan 13-14)
 **Tasks:**
-- [x] Connect frontend to Substrate API
 - [x] Simulate Fayda ID verification
 - [x] Simulate Ghana Card verification
 - [x] Add national ID display on UI
@@ -2182,24 +1184,7 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **[Slide 3: MediChain Logo + Tagline]**
 
-> "That's why we built **MediChain** - Emergency medical records in 0.5 seconds, powered by blockchain."
-
 **[Slide 4: How It Works - Simple 3-step diagram]**
-
-> "Here's how it works:
-> 
-> Step 1: A patient registers on MediChain using their national ID - whether it's Ethiopia's Fayda ID, Ghana's Card, or Nigeria's NIN.
-> 
-> Step 2: Their critical medical data is encrypted and stored on a Substrate blockchain with IPFS.
-> 
-> Step 3: In an emergency, a healthcare provider simply taps the patient's NFC card, and within half a second, they see:
-> - Critical allergies
-> - Chronic conditions  
-> - Current medications
-> - Emergency contacts
-> - Blood type
-> 
-> All secured by blockchain. All accessible instantly."
 
 ---
 
@@ -2231,12 +1216,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **[Click "View Full Medical History" button]**
 
-> "If I need more detail, I can access his full medical history - past surgeries, imaging scans, lab results - all encrypted, all on IPFS, all referenced on the blockchain."
-
-**[Navigate to blockchain explorer tab]**
-
-> "And here's the magic: every access is logged immutably on the Substrate blockchain. The patient can see exactly who accessed their data, when, and why. This is transparency and security that traditional systems simply can't offer."
-
 ---
 
 ### Impact & Alignment (1 minute)
@@ -2255,23 +1234,11 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **[Slide 7: Pan-African Map]**
 
-> "Our vision is simple: One patient, one medical history, accessible across all 54 African countries.
-> 
-> Whether you're in Lagos, Nairobi, Johannesburg, or Cairo - your medical data follows you, secured by blockchain, accessible in emergencies."
-
 ---
 
 ### Technical Excellence (30 seconds)
 
 **[Slide 8: Tech Stack Diagram]**
-
-> "Quick technical highlight for the judges:
-> 
-> We built this entirely in Rust using Substrate - the same framework powering Polkadot. Three custom pallets: identity, health records, and emergency access.
-> 
-> We use ChaCha20-Poly1305 encryption for patient data, IPFS for distributed storage, and our NFC simulation demonstrates real-world applicability.
-> 
-> Access time? Under 500 milliseconds. Security? Immutable blockchain audit trail. Interoperability? FHIR-compliant data structure ready for integration with HealthConnekt Africa's 100,000 facility network."
 
 ---
 
@@ -2303,20 +1270,8 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **Anticipated Questions:**
 
-**Q: "How do you handle patients without smartphones or internet?"**
-> A: "Great question. Our NFC cards work completely offline for critical emergency data. The card itself stores the patient's blockchain address and a hash. Healthcare providers with our app can access cached emergency data even without internet. Full records sync when connectivity is restored."
-
-**Q: "What about data privacy concerns with blockchain?"**
-> A: "Patient data never goes directly on-chain - only hashes do. The actual medical records are encrypted using AES-256 and stored on IPFS. Even if someone accessed the blockchain, they'd only see encrypted hashes. Decryption keys are controlled by the patient."
-
 **Q: "How does this integrate with existing hospital systems?"**
 > A: "We're FHIR-compliant, which is the global standard for healthcare data exchange. Hospitals can export data in FHIR format and we ingest it automatically. We're also building plugins for popular African EMR systems like MedTrack."
-
-**Q: "What happens if a patient loses their NFC card?"**
-> A: "They can immediately deactivate it through our patient portal, similar to canceling a credit card. We'll issue a new card with a new hash while their medical records remain intact on-chain. They can also use QR code access or PIN-based emergency access as backups."
-
-**Q: "Why Rust/Substrate instead of Ethereum?"**
-> A: "Three reasons: First, Substrate is built in Rust, giving us memory safety and performance - critical for healthcare. Second, Substrate allows us to customize our blockchain for healthcare-specific needs without gas fees eating into our budget. Third, we can eventually connect to Polkadot's ecosystem for cross-chain interoperability with other healthcare blockchains globally."
 
 ---
 
@@ -2324,26 +1279,9 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 ### Slide 1: Title Slide
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-               🏥 MEDICHAIN
-     
-     Emergency Medical Records in 0.5 Seconds
-          Powered by Blockchain
-     
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-     Rust Africa Hackathon 2026
-     Track: Fintech & Inclusive Finance
-     
-     [Your Name] | [Your Email] | [GitHub]
-```
-
 **Design Notes:**
 - Minimalist, Apple-keynote style
 - Large, bold typography
-- Medical cross icon as visual anchor
 - Blue accent color (#007AFF)
 
 ---
@@ -2411,27 +1349,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 ### Slide 4: The Solution
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-          THE SOLUTION: MEDICHAIN
-     
-     One tap. Instant access. Life saved.
-     
-     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-     │   STEP 1    │  →  │   STEP 2    │  →  │   STEP 3    │
-     │             │     │             │     │             │
-     │  Register   │     │   Store     │     │   Access    │
-     │  with       │     │   Data on   │     │   in        │
-     │  National   │     │   Blockchain│     │   < 0.5s    │
-     │  ID         │     │             │     │             │
-     └─────────────┘     └─────────────┘     └─────────────┘
-     
-     🆔 Fayda • Ghana Card • NIN • Smart ID
-     
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
 **Design Notes:**
 - 3-step visual flow
 - Arrow progression
@@ -2489,33 +1406,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 ---
 
-### Slide 7: Blockchain Explorer
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-          IMMUTABLE AUDIT TRAIL
-     
-     [Screenshot of Blockchain Explorer]
-     
-     Every access logged:
-     • Who accessed
-     • When
-     • Why
-     • How long
-     
-     Transparency + Security = Trust
-     
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
-**Design Notes:**
-- Explorer screenshot with annotations
-- Emphasize transparency
-- Trust as key message
-
----
-
 ### Slide 8: Africa CDC Alignment
 
 ```
@@ -2569,27 +1459,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 ### Slide 10: Technical Stack
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-          TECHNICAL EXCELLENCE
-     
-     🦀 Built with Rust + Substrate
-     
-     ┌─────────────────────────────────────┐
-     │ Custom Pallets:                     │
-     │ • Identity (National ID)            │
-     │ • Health Records (IPFS)             │
-     │ • Emergency Access (Time-Limited)   │
-     └─────────────────────────────────────┘
-     
-     🔒 AES-256 Encryption
-     📦 IPFS Distributed Storage
-     ⚡ < 500ms Access Time
-     
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
 **Design Notes:**
 - Rust logo prominent
 - Technical specs in clean list
@@ -2598,21 +1467,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 ---
 
 ### Slide 11: Competitive Advantage
-
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-          WHY MEDICHAIN WINS
-     
-     ✅ Blockchain Security (vs. Cloud)
-     ✅ National ID Integration (vs. Standalone)
-     ✅ Offline Emergency Access (vs. Internet-Only)
-     ✅ Pan-African (vs. Country-Locked)
-     ✅ Open Source (vs. Proprietary)
-     ✅ Sub-Second Access (vs. Slow EMRs)
-     
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
 
 **Design Notes:**
 - Side-by-side comparison format
@@ -2684,28 +1538,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 ### Slide 14: Thank You + Contact
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-          🏥 MEDICHAIN
-     
-     Emergency Medical Records in 0.5 Seconds
-     Powered by Blockchain
-     
-     ─────────────────────────────────────────
-     
-     📧 Email: [your-email]
-     💻 GitHub: github.com/[your-repo]
-     🌐 Website: medichain.africa (coming soon)
-     🐦 Twitter: @medichain_africa
-     
-     ─────────────────────────────────────────
-     
-     THANK YOU
-     
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
 **Design Notes:**
 - Repeat branding
 - Multiple contact methods
@@ -2733,12 +1565,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
    cargo test --all
    cargo doc --no-deps --open
    ```
-
-2. **Testing (10 points)**
-   - Unit tests for all pallets
-   - Integration tests for API endpoints
-   - End-to-end test for emergency access flow
-   - Target: > 80% code coverage
 
    **Template Test:**
    ```rust
@@ -2783,32 +1609,7 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 **How to Maximize Score:**
 
-1. **Novel Approach (10 points)**
-   - Emphasize "first blockchain + national ID integration"
-   - Highlight NFC + blockchain combination
-   - Showcase offline emergency access capability
-
-   **In Presentation:**
-   > "MediChain is the first healthcare blockchain in Africa to integrate directly with national identity systems. While other solutions exist globally, none combine NFC emergency access with Substrate blockchain specifically for the African context."
-
-2. **Technical Innovation (10 points)**
-   - Custom Substrate pallets (not just smart contracts)
-   - Time-based access control (auto-expiring permissions)
-   - Hybrid storage (critical data on-chain, full records on IPFS)
-
    **In Documentation:**
-   ```markdown
-   ## Technical Innovations
-   
-   1. **Time-Limited Access Pallet**: Automatically revokes emergency 
-      access after 15 minutes using Substrate's timestamp pallet.
-   
-   2. **National ID Verification Layer**: Abstraction layer supporting 
-      multiple African ID systems (Fayda, Ghana Card, NIN).
-   
-   3. **Hybrid Storage Architecture**: On-chain hashes + IPFS content 
-      addressing for optimal performance and cost.
-   ```
 
 ---
 
@@ -2905,21 +1706,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 
 ### Technical Risks
 
-#### Risk 1: Substrate Complexity
-**Probability:** High  
-**Impact:** High  
-**Mitigation:**
-- Use `substrate-node-template` (pre-configured starter)
-- Follow official Substrate tutorials step-by-step
-- Join Substrate Technical Discord for quick help
-- Keep pallets simple - avoid advanced features like off-chain workers
-
-**Backup Plan:**
-- If Substrate is too complex by Day 3, pivot to simpler blockchain (Solana/Ethereum with smart contracts)
-- Focus on demo quality over blockchain sophistication
-
----
-
 #### Risk 2: NFC Simulation Issues
 **Probability:** Medium  
 **Impact:** Low  
@@ -2940,12 +1726,10 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 **Mitigation:**
 - Run local IPFS node for faster development
 - Cache frequently accessed records
-- Store only hashes on-chain, fetch IPFS only when needed
 - Mock IPFS responses in demo if latency is high
 
 **Backup Plan:**
 - If IPFS too slow, simulate with local file system for demo
-- Show IPFS hash on-chain as proof of concept
 
 ---
 
@@ -2959,9 +1743,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 - Write integration tests from Day 5
 
 **Backup Plan:**
-- If integration fails, prepare separate demos:
-  - Backend demo (curl commands showing blockchain operations)
-  - Frontend demo (mocked data showing UI/UX)
 
 ---
 
@@ -3014,7 +1795,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 - Have mobile hotspot as backup internet
 
 **Backup Plan:**
-- If extended outage, work offline on local Substrate node
 - Resume syncing/submission when connectivity restored
 
 ---
@@ -3034,32 +1814,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 ---
 
 ## 📚 LEARNING RESOURCES
-
-### Substrate Development
-
-#### Official Documentation
-1. **Substrate Docs**  
-   URL: https://docs.substrate.io/  
-   **Priority:** Critical  
-   **Time:** 4 hours (Day 1)  
-   **Focus:** Tutorials > Reference > Concepts
-
-2. **Polkadot Blockchain Academy (YouTube)**  
-   URL: https://www.youtube.com/c/PolkadotNetwork  
-   **Priority:** High  
-   **Time:** 2 hours (Day 1-2)  
-   **Recommended Videos:**
-   - "Substrate in 60 Minutes"
-   - "Building Your First Pallet"
-   - "FRAME Development Best Practices"
-
-3. **Substrate Playground**  
-   URL: https://playground.substrate.dev/  
-   **Priority:** Medium  
-   **Time:** 1 hour (Day 1)  
-   **Use Case:** Test pallets in browser before local setup
-
----
 
 ### Rust Programming
 
@@ -3082,27 +1836,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
    **Priority:** Medium  
    **Time:** 2 hours (As needed)  
    **Use Case:** Quick reference for specific patterns
-
----
-
-### Blockchain & Healthcare
-
-1. **"Mastering Blockchain" by Imran Bashir**  
-   **Priority:** Low  
-   **Time:** 1 hour (skim relevant chapters)  
-   **Chapters:** 2 (Blockchain Basics), 11 (Healthcare Applications)
-
-2. **FHIR Standard Documentation**  
-   URL: http://hl7.org/fhir/  
-   **Priority:** Low  
-   **Time:** 30 minutes (overview only)  
-   **Focus:** Resource types (Patient, Observation, Condition)
-
-3. **Africa on FHIR Initiative**  
-   URL: https://www.i-tech-uw.org/africa-on-fhir/  
-   **Priority:** Medium  
-   **Time:** 15 minutes  
-   **Use Case:** Understand interoperability context
 
 ---
 
@@ -3198,11 +1931,6 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 ---
 
 ### YouTube Tutorials (Quick Wins)
-
-1. **"Build a Substrate Blockchain in 20 Minutes"**  
-   Search: Substrate quick start  
-   **Priority:** Critical  
-   **Time:** 20 minutes (Day 1)
 
 2. **"Rust Web APIs with Actix-Web"**  
    Search: Actix-Web tutorial  
@@ -3371,7 +2099,6 @@ MediChain as the de facto healthcare data infrastructure for all 54 African coun
 
 #### Development Environment
 - [ ] Install Rust (stable toolchain): `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-- [ ] Install Substrate dependencies: https://docs.substrate.io/install/
 - [ ] Install Node.js (v18+) and npm
 - [ ] Install Docker (for IPFS node)
 - [ ] Install Git and configure SSH keys for GitHub
@@ -3389,8 +2116,6 @@ git --version
 ---
 
 #### Project Setup
-- [ ] Clone substrate-node-template: `git clone https://github.com/substrate-developer-hub/substrate-node-template`
-- [ ] Test build: `cd substrate-node-template && cargo build --release` (takes 30+ min)
 - [ ] Create MediChain GitHub repo: `gh repo create medichain --public`
 - [ ] Set up `.gitignore` for Rust/Node projects
 - [ ] Initialize README.md with project description
@@ -3406,16 +2131,6 @@ git --version
 ---
 
 ### Learning & Research (Complete by Jan 3)
-
-#### Substrate Basics
-- [ ] Watch "Substrate in 60 Minutes" (YouTube)
-- [ ] Read Substrate Docs "Build a Blockchain" tutorial
-- [ ] Complete "Add a Pallet to Your Runtime" tutorial
-- [ ] Understand FRAME architecture (Pallets, Runtime, Node)
-
-**Time:** 4-6 hours
-
----
 
 #### Rust Refresher (if needed)
 - [ ] Review Rust Book chapters 1-10
@@ -3454,10 +2169,7 @@ git --version
 
 #### System Architecture
 - [ ] Draw high-level architecture diagram
-- [ ] Map data flow (NFC tap → blockchain → IPFS → display)
-- [ ] Define pallet structure (Identity, HealthRecords, EmergencyAccess)
 - [ ] Plan API endpoints
-- [ ] Design database schema (on-chain vs. off-chain)
 
 **Tool:** Mermaid (text-based), Excalidraw, or draw.io
 
@@ -3540,8 +2252,6 @@ git --version
 ---
 
 #### Find Mentors
-- [ ] Post in Discord asking for Substrate mentors
-- [ ] Join Substrate Technical Discord
 - [ ] Follow Joel Marcey and David Wood on LinkedIn
 - [ ] Engage with Rust Africa community
 
@@ -3569,7 +2279,6 @@ git --version
 
 #### Buffer Day (Jan 3 - Final Prep)
 - [ ] Review all checklist items
-- [ ] Run through Substrate setup one more time
 - [ ] Test IPFS daemon
 - [ ] Verify GitHub repo is ready
 - [ ] Get good sleep (8 hours minimum!)
@@ -3581,8 +2290,6 @@ git --version
 ### By Submission Deadline (Jan 18, 2026)
 
 #### Functional Prototype
-- [ ] Substrate blockchain running locally
-- [ ] 3 custom pallets deployed (Identity, HealthRecords, EmergencyAccess)
 - [ ] REST API functional (Actix-web)
 - [ ] Frontend dashboard operational
 - [ ] NFC simulation working
@@ -3632,17 +2339,6 @@ git --version
    - Direct response to 90% PHC digitalization target
    - Integrates with existing national ID infrastructure
    - Addresses $40B market opportunity
-
-2. **Technical Excellence** (30% of score)
-   - Built entirely in Rust (hackathon theme)
-   - Custom Substrate pallets (not just smart contracts)
-   - < 500ms access time (performance-optimized)
-   - Comprehensive testing and documentation
-
-3. **Innovation** (20% of score)
-   - First blockchain + national ID integration for healthcare
-   - Novel NFC + blockchain combination
-   - Time-limited emergency access (unique feature)
 
 4. **Real-World Impact** (20% of score)
    - Solves life-or-death problem (emergency medical access)
@@ -3697,14 +2393,6 @@ When you present to Joel Marcey and David Wood (Rust Foundation leaders), they w
 ## 🔥 MOTIVATIONAL CLOSE
 
 You have everything you need to win this:
-
-✅ **Perfect timing** - Africa CDC just announced their 2035 digitalization goal  
-✅ **Market validation** - $40B EMR market proves demand  
-✅ **Technical edge** - Rust + Substrate = unbeatable performance  
-✅ **Social impact** - Lives will be saved because of your code  
-✅ **Demo wow factor** - "Tap card → instant history" is magical  
-
-The judges (Joel Marcey & David Wood) are Rust Foundation leaders. They'll LOVE a well-executed Substrate project that solves a real African problem.
 
 **Two weeks from now, you'll have built something legendary.**
 
@@ -3792,21 +2480,6 @@ Fixes #24
 
 ### C. Useful Commands Cheatsheet
 
-#### Substrate
-```bash
-# Build node
-cargo build --release
-
-# Run node
-./target/release/node-template --dev
-
-# Purge chain
-./target/release/node-template purge-chain --dev
-
-# Check pallets
-cargo tree | grep pallet
-```
-
 #### IPFS
 ```bash
 # Start daemon
@@ -3833,8 +2506,6 @@ docker run -d --name ipfs_host -p 5001:5001 ipfs/go-ipfs:latest
 ### D. Emergency Contacts During Hackathon
 
 **Technical Issues:**
-- Substrate Technical Discord: https://discord.gg/substrate-technical
-- Stack Overflow: Tag `substrate`, `rust`, `blockchain`
 
 **Hackathon Support:**
 - Rust Africa Discord: #help channel

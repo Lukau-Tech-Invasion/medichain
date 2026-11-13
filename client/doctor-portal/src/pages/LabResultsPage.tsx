@@ -1,13 +1,15 @@
+import { MotionLink, useLatestRequest } from '@medichain/shared';
 import { useState, useEffect, useCallback } from 'react';
 import {
   exportDocumentToPdf,
   getApiErrorMessage,
   getAllLabSubmissions,
+  getPatientLabSubmissions,
   getLabPanels,
   reviewLabResult,
   submitLabResults,
   useTranslation,
-  clickable,
+  clickable, ModalPanel, submitForReply, useSubmission, ChoiceChips
 } from '@medichain/shared';
 import type { LabPanelTemplate } from '@medichain/shared';
 import {
@@ -27,6 +29,9 @@ import {
   Plus,
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { workspacePath } from '../workspace/forms';
+import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
+import { PatientName } from '../components/PatientName';
 
 interface LabTestResult {
   parameter: string;
@@ -55,6 +60,7 @@ interface LabSubmission {
 function LabResultsPage() {
   const { t } = useTranslation();
   const [submissions, setSubmissions] = useState<LabSubmission[]>([]);
+  const resultSubmission = useSubmission('lab-result');
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -63,6 +69,7 @@ function LabResultsPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [workflowError, setWorkflowError] = useState<string | null>(null);
 
   // --- Entering a result -----------------------------------------------------
   //
@@ -79,6 +86,7 @@ function LabResultsPage() {
   const [entryPatientId, setEntryPatientId] = useState('');
   const [entryPanelCode, setEntryPanelCode] = useState('');
   const [entryValues, setEntryValues] = useState<Record<string, string>>({});
+  const [referenceGroup, setReferenceGroup] = useState('');
   const [entryNotes, setEntryNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [entryError, setEntryError] = useState<string | null>(null);
@@ -101,14 +109,20 @@ function LabResultsPage() {
     setEntryPatientId('');
     setEntryPanelCode('');
     setEntryValues({});
+    setReferenceGroup('');
     setEntryNotes('');
   };
 
   const handleSubmitResult = async () => {
+    if (isSubmitting) return;
     setEntryError(null);
     setEntrySaved(null);
     if (!entryPatientId || !selectedPanel) {
       setEntryError(t('docLabResults.errPatientAndPanel'));
+      return;
+    }
+    if (!referenceGroup) {
+      setEntryError(t('docLabResults.errReferenceGroup'));
       return;
     }
 
@@ -121,7 +135,8 @@ function LabResultsPage() {
         parameter: test.name,
         value: entryValues[test.name].trim(),
         unit: test.unit,
-        reference_range: test.reference_range_male,
+        reference_range: referenceGroup === 'female' ? test.reference_range_female :
+          referenceGroup === 'pediatric' ? (test.reference_range_pediatric ?? '') : test.reference_range_male,
         // No `flag`. Whether a value is abnormal is a derived clinical
         // judgement and belongs on the server (rule 8); nothing there computes
         // it today, so this submits the measurement and leaves the finding
@@ -132,17 +147,26 @@ function LabResultsPage() {
       setEntryError(t('docLabResults.errNoValues'));
       return;
     }
+    if (results.some(result => !result.reference_range.trim())) {
+      setEntryError(t('docLabResults.errReferenceUnavailable'));
+      return;
+    }
 
     try {
       setIsSubmitting(true);
-      const response = await submitLabResults({
+      const submissionBody = {
         patient_id: entryPatientId,
         test_name: selectedPanel.name,
         test_category: selectedPanel.code,
         results,
         notes: entryNotes.trim() || undefined,
-      });
-      setEntrySaved(response.submission_id);
+      };
+      const outcome = await submitForReply(resultSubmission, submissionBody, () => submitLabResults(submissionBody));
+      if (outcome.kind === 'busy') return;
+      // Only a fresh save has an id to name; the queue read below shows the
+      // record an earlier attempt already wrote.
+      setEntrySaved(outcome.kind === 'saved' ? t('docLabResults.submittedAs', { id: outcome.value.submission_id })
+        : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       resetEntry();
       // Read the queue back from the API rather than trusting the local form.
       setFilterStatus('pending');
@@ -158,28 +182,41 @@ function LabResultsPage() {
   };
 
 
+  // Inside a patient's workspace the queue is that patient's results only: the
+  // rail's "to review" count points here, and must not open on other people.
+  const workspacePatientId = usePatientWorkspace()?.patientId;
+  const beginSubmissionsRead = useLatestRequest();
   const fetchSubmissions = useCallback(async () => {
+    // Opening a chart while the whole-ward list is still loading must not let
+    // that list land inside the chart.
+    const current = beginSubmissionsRead();
     setIsLoading(true);
     try {
       // The shared client owns authentication, retries and response-envelope
       // normalization. It returns the server's submission array, not a
       // guessed browser-fetch shape.
-      const status = filterStatus === 'all' ? undefined : filterStatus;
-      const response = await getAllLabSubmissions(status);
+      const response = workspacePatientId
+        ? await getPatientLabSubmissions(workspacePatientId)
+        : await getAllLabSubmissions();
+      if (!current()) return;
       setSubmissions(response);
+      setWorkflowError(null);
     } catch (error) {
       console.error('Error fetching lab submissions:', error);
+      if (!current()) return;
       setSubmissions([]);
+      setWorkflowError(getApiErrorMessage(error, 'Laboratory results could not be loaded.'));
     } finally {
-      setIsLoading(false);
+      if (current()) setIsLoading(false);
     }
-  }, [filterStatus]);
+  }, [workspacePatientId, beginSubmissionsRead]);
 
   useEffect(() => {
     fetchSubmissions();
-  }, [filterStatus, fetchSubmissions]);
+  }, [fetchSubmissions]);
 
   const handleApprove = async (submissionId: string) => {
+    setWorkflowError(null);
     setIsReviewing(submissionId);
     try {
       const response = await reviewLabResult({ submission_id: submissionId, action: 'approve' });
@@ -190,8 +227,10 @@ function LabResultsPage() {
             : submission
         )
       );
+      await fetchSubmissions();
     } catch (error) {
       console.error('Failed to approve:', error);
+      setWorkflowError(getApiErrorMessage(error, 'The lab result could not be approved.'));
     } finally {
       setIsReviewing(null);
     }
@@ -201,6 +240,7 @@ function LabResultsPage() {
     if (!rejectionReason.trim()) return;
     
     setIsReviewing(submissionId);
+    setWorkflowError(null);
     try {
       const response = await reviewLabResult({
         submission_id: submissionId,
@@ -220,8 +260,10 @@ function LabResultsPage() {
       );
       setShowRejectModal(null);
       setRejectionReason('');
+      await fetchSubmissions();
     } catch (error) {
       console.error('Failed to reject:', error);
+      setWorkflowError(getApiErrorMessage(error, 'The lab result could not be rejected.'));
     } finally {
       setIsReviewing(null);
     }
@@ -249,6 +291,7 @@ function LabResultsPage() {
       });
     } catch (error) {
       console.error('Failed to export lab result PDF:', error);
+      setWorkflowError(getApiErrorMessage(error, 'The laboratory PDF could not be exported.'));
     } finally {
       setExportingId(null);
     }
@@ -295,10 +338,15 @@ function LabResultsPage() {
       submission.patient_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       submission.test_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       submission.patient_id.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
+    return matchesSearch && (filterStatus === 'all' || submission.status === filterStatus);
   });
 
   const pendingCount = submissions.filter(s => s.status === 'pending').length;
+  const today = new Date().toDateString();
+  const reviewedToday = (status: string) => submissions.filter(submission =>
+    submission.status === status && submission.reviewed_at &&
+    new Date(submission.reviewed_at).toDateString() === today
+  ).length;
 
   return (
     <div className="p-8">
@@ -314,6 +362,15 @@ function LabResultsPage() {
           </div>
         </div>
       </div>
+
+      {workflowError && (
+        <div role="alert" className="mb-6 rounded-lg border border-critical bg-critical-subtle p-4 text-critical-subtle-fg">
+          {workflowError}
+        </div>
+      )}
+      {entrySaved && view === 'queue' && (
+        <p role="status" className="mb-4 text-ok-subtle-fg">{entrySaved}</p>
+      )}
 
       {/* Queue / entry switch. The lab technician's "Enter Result" quick
           action points at this page, so the entry form has to live here. */}
@@ -344,6 +401,7 @@ function LabResultsPage() {
       </div>
 
       {view === 'enter' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleSubmitResult(); }} noValidate>
         <div className="bg-surface rounded-xl shadow p-6 mb-8">
           <h2 className="text-lg font-semibold text-content mb-4">{t('docLabResults.enterHeading')}</h2>
 
@@ -368,6 +426,7 @@ function LabResultsPage() {
                   // A new panel means new analytes; carrying the old values
                   // over would attach a number to the wrong test.
                   setEntryValues({});
+                  setReferenceGroup('');
                 }}
                 className="w-full border border-border-interactive rounded-lg px-3 py-2"
               >
@@ -380,6 +439,23 @@ function LabResultsPage() {
               </select>
             </div>
           </div>
+
+          {selectedPanel && (
+            <div className="mb-4">
+              <ChoiceChips
+                id="lab-reference-group"
+                label={t('docLabResults.referenceGroup')}
+                value={(referenceGroup) || undefined}
+                onChange={(chosen) => { const next = chosen ?? ''; setReferenceGroup(next); }}
+                options={[
+                  { value: 'female', label: t('docLabResults.referenceFemale') },
+                  { value: 'male', label: t('docLabResults.referenceMale') },
+                  { value: 'pediatric', label: t('docLabResults.referencePediatric') },
+                ]}
+              />
+              <p className="text-xs text-content-muted mt-2">{t('docLabResults.referenceGroupHelp')}</p>
+            </div>
+          )}
 
           {selectedPanel && (
             <div className="overflow-x-auto mb-4">
@@ -415,7 +491,11 @@ function LabResultsPage() {
                           technician can see what the value will be read
                           against. They are display, not a judgement. */}
                       <td className="py-2 pr-4 text-content-muted">{test.unit}</td>
-                      <td className="py-2 text-content-muted">{test.reference_range_male}</td>
+                      <td className="py-2 text-content-muted">{
+                        referenceGroup === 'female' ? test.reference_range_female :
+                        referenceGroup === 'male' ? test.reference_range_male :
+                        referenceGroup === 'pediatric' ? (test.reference_range_pediatric || '—') : '—'
+                      }</td>
                     </tr>
                   ))}
                 </tbody>
@@ -447,21 +527,20 @@ function LabResultsPage() {
           {entrySaved && (
             <div role="status" className="bg-ok-subtle border border-ok rounded-lg p-3 mb-4">
               <p className="text-sm text-ok-subtle-fg">
-                {t('docLabResults.submittedAs', { id: entrySaved })}
+                {entrySaved}
               </p>
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={handleSubmitResult}
-            disabled={isSubmitting}
-            className="w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed min-h-[24px]"
+          <button type="submit"
+            aria-disabled={isSubmitting || undefined}
+            className="aria-disabled:cursor-wait w-full py-3 bg-brand text-brand-fg rounded-lg font-medium flex items-center justify-center gap-2 min-h-[24px]"
           >
             {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
             {isSubmitting ? t('docLabResults.submitting') : t('docLabResults.submitForReview')}
           </button>
         </div>
+        </form>
       )}
 
       {/* Stats */}
@@ -480,7 +559,7 @@ function LabResultsPage() {
             <CheckCircle className="text-ok-subtle-fg" size={24} />
             <div>
               <p className="text-sm text-ok-subtle-fg font-medium">{t('docLabResults.approvedToday')}</p>
-              <p className="text-2xl font-bold text-ok-subtle-fg">0</p>
+              <p className="text-2xl font-bold text-ok-subtle-fg">{reviewedToday('approved')}</p>
             </div>
           </div>
         </div>
@@ -489,7 +568,7 @@ function LabResultsPage() {
             <XCircle className="text-critical-subtle-fg" size={24} />
             <div>
               <p className="text-sm text-critical-subtle-fg font-medium">{t('docLabResults.rejectedToday')}</p>
-              <p className="text-2xl font-bold text-critical-subtle-fg">0</p>
+              <p className="text-2xl font-bold text-critical-subtle-fg">{reviewedToday('rejected')}</p>
             </div>
           </div>
         </div>
@@ -514,19 +593,19 @@ function LabResultsPage() {
           
           {/* Status Filter */}
           <div className="flex items-center gap-2">
-            <label htmlFor="labresults-status-filter" className="sr-only">{t('docLabResults.filterAria')}</label>
             <Filter size={20} className="text-content-muted" aria-hidden="true" />
-            <select
+            <ChoiceChips
               id="labresults-status-filter"
+              label={t('docLabResults.filterAria')}
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
-              className="px-4 py-2 border border-border-interactive rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="pending">{t('docLabResults.optPending')}</option>
-              <option value="approved">{t('docLabResults.approved')}</option>
-              <option value="rejected">{t('docLabResults.rejected')}</option>
-              <option value="all">{t('docLabResults.optAll')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setFilterStatus(next as typeof filterStatus); }}
+              options={[
+                { value: 'pending', label: t('docLabResults.optPending') },
+                { value: 'approved', label: t('docLabResults.approved') },
+                { value: 'rejected', label: t('docLabResults.rejected') },
+                { value: 'all', label: t('docLabResults.optAll') },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -576,7 +655,7 @@ function LabResultsPage() {
                           <User size={14} />
                           <span>{submission.patient_name}</span>
                           <span className="text-content-muted" aria-hidden="true">•</span>
-                          <span>{submission.patient_id}</span>
+                          <span><PatientName id={submission.patient_id} dobOnly /></span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-content-muted mt-1">
                           <Clock size={12} />
@@ -647,13 +726,23 @@ function LabResultsPage() {
                                 <td className="py-2 px-3">
                                   {result.flag && (
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                                      result.flag === 'HIGH' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                      result.flag === 'LOW' ? 'bg-notice-subtle text-notice-subtle-fg' :
-                                      'bg-caution-subtle text-caution-subtle-fg'
+                                      result.flag.toLowerCase() === 'normal' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                      result.flag.toLowerCase().startsWith('critical') ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                      ['low', 'high'].includes(result.flag.toLowerCase()) ? 'bg-caution-subtle text-caution-subtle-fg' :
+                                      'bg-surface-sunken text-content-secondary'
                                     }`}>
-                                      <AlertTriangle size={10} />
+                                      {result.flag.toLowerCase() === 'normal' ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
                                       {result.flag}
                                     </span>
+                                  )}
+                                  {result.flag?.toLowerCase().startsWith('critical') && (
+                                    <MotionLink opensPatient
+                                      to={workspacePath(submission.patient_id, 'critical-value')}
+                                      state={{ criticalPrefill: { analyte: result.parameter, value: String(result.value), unit: result.unit } }}
+                                      className="ml-2 inline-flex min-h-[32px] items-center rounded px-2 text-xs font-semibold text-critical-subtle-fg underline"
+                                    >
+                                      {t('labQueue.reportCritical')}
+                                    </MotionLink>
                                   )}
                                 </td>
                               </tr>
@@ -723,9 +812,8 @@ function LabResultsPage() {
 
       {/* Reject Modal */}
       {showRejectModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
+        <ModalPanel labelledBy="lab-results-dialog-title" closeOnBackdrop={false} onClose={() => { setShowRejectModal(null); setRejectionReason(''); }} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50" className="bg-surface rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 id="lab-results-dialog-title" className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <XCircle className="text-critical" size={24} />
               {t('docLabResults.rejectTitle')}
             </h3>
@@ -763,8 +851,7 @@ function LabResultsPage() {
                 {t('docLabResults.rejectSubmission')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

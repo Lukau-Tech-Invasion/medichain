@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
+  QrScanner,
+  submitOnce,
+  useSubmission,
   listMar,
   listMarAdministrations,
   administerMedication,
@@ -14,12 +16,14 @@ import {
   Textarea,
   useValidatedForm,
   medicationAdministrationSchema,
+  ChoiceChips,
 } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 
 import StaffName from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
 /**
  * MedicationAdminPage
  * 
@@ -111,8 +115,23 @@ interface RawAdministration {
   barcode_scanned?: boolean; five_rights_verified?: boolean;
 }
 
+/** Formats printed on pharmacy and manufacturer medicine labels. */
+const MEDICINE_BARCODE_FORMATS = ['code_128', 'data_matrix', 'qr_code', 'ean_13'] as const;
+
+/**
+ * Whether a scanned label is this order's. The pharmacy label carries the
+ * order id; a manufacturer barcode that merely names the same drug is not
+ * proof the right dose for the right patient is in hand.
+ */
+export function labelMatchesOrder(scanned: string, orderId: string): boolean {
+  const text = scanned.trim().toLowerCase();
+  const id = orderId.trim().toLowerCase();
+  return id.length > 0 && (text === id || text.split(/[\s|;,]+/).includes(id));
+}
+
 const MedicationAdminPage: React.FC = () => {
   const { t } = useTranslation();
+  const submission = useSubmission('mar');
   const { catalog } = useScoringCatalog();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
@@ -120,7 +139,14 @@ const MedicationAdminPage: React.FC = () => {
   // `PatientSelect` queries the server as the clinician types, so the
   // whole roster is no longer fetched into this screen.
   const [medications, setMedications] = useState<ScheduledMedication[]>([]);
-  const [administrations, setAdministrations] = useState<MedicationAdmin[]>([]);
+  const [storedAdministrations, setAdministrations] = useState<MedicationAdmin[]>([]);
+  // Names resolved on the server per patient. They came from the first page of
+  // the directory, which also gated the whole load: a failed directory read left
+  // the MAR empty.
+  const administrationNames = useDirectoryNames(storedAdministrations.map((a) => a.patientId));
+  const administrations = storedAdministrations.map((a) => ({
+    ...a, patientName: administrationNames.get(a.patientId) ?? a.patientName,
+  }));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'mar' | 'administerMed' | 'history'>('mar');
@@ -138,6 +164,8 @@ const MedicationAdminPage: React.FC = () => {
   const [witnessedBy, setWitnessedBy] = useState('');
   const [patientResponse, setPatientResponse] = useState('');
   const [barcodeScanned, setBarcodeScanned] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanProblem, setScanProblem] = useState('');
   const [fiveRightsVerified, setFiveRightsVerified] = useState(false);
 
   // Fetch all data
@@ -145,9 +173,6 @@ const MedicationAdminPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch patients
-      const loadedPatients = await getPatients();
-
       // Fetch MAR (Medication Administration Records)
       const [marData, storedAdministrations] = await Promise.all([listMar(), listMarAdministrations()]);
       // Map API response to ScheduledMedication interface
@@ -170,12 +195,11 @@ const MedicationAdminPage: React.FC = () => {
       }));
       setMedications(mappedMeds);
 
-      const patientNames = new Map(loadedPatients.map(patient => [patient.patient_id, patient.full_name]));
       setAdministrations(storedAdministrations.map((raw): MedicationAdmin => {
         const event = raw as RawAdministration;
         return {
           adminId: event.administration_id || '', medId: event.medication_id || '',
-          patientId: event.patient_id || '', patientName: patientNames.get(event.patient_id || '') || event.patient_id || '',
+          patientId: event.patient_id || '', patientName: event.patient_id || '',
           medicationName: event.medication_name || '', dose: event.dose || '', route: event.route || '',
           scheduledTime: event.scheduled_time || 'PRN', actualTime: event.administered_at || event.actual_time || '',
           administeredBy: event.administered_by || '', status: (event.status || 'given') as MedicationAdmin['status'],
@@ -211,6 +235,7 @@ const MedicationAdminPage: React.FC = () => {
     setWitnessedBy('');
     setPatientResponse('');
     setBarcodeScanned(false);
+    setScanProblem('');
     setFiveRightsVerified(false);
     setActiveTab('administerMed');
   };
@@ -250,7 +275,9 @@ const MedicationAdminPage: React.FC = () => {
 
     try {
       // Call the real API to record administration
-      await administerMedication({
+      // A dose given twice on the chart is a dose someone may give again: one
+      // key per submission, so a double tap records it once.
+      const administration = {
         patient_id: selectedMed.patientId,
         medication_id: selectedMed.medId,
         medication_name: selectedMed.medicationName,
@@ -267,7 +294,8 @@ const MedicationAdminPage: React.FC = () => {
         patient_response: patientResponse || undefined,
         barcode_scanned: barcodeScanned,
         five_rights_verified: fiveRightsVerified,
-      });
+      };
+      if ((await submitOnce(submission, administration, () => administerMedication(administration))) === 'busy') return;
 
       await loadData();
       showSuccess(t('docMedicationAdmin.successRecorded'));
@@ -477,7 +505,7 @@ const MedicationAdminPage: React.FC = () => {
                   <tr key={med.medId ?? `m-${idx}`} className="hover:bg-surface-sunken">
                     <td className="px-4 py-3">
                       <div className="text-sm font-medium text-content">{med.patientName}</div>
-                      <div className="text-xs text-content-muted">{med.patientId}</div>
+                      <div className="text-xs"><PatientName id={med.patientId} dobOnly /></div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-content">{med.medicationName}</div>
@@ -528,7 +556,7 @@ const MedicationAdminPage: React.FC = () => {
                                   status === 'given' ? 'bg-ok-subtle text-ok-subtle-fg' :
                                   status === 'held' ? 'bg-caution-subtle text-caution-subtle-fg' :
                                   status === 'refused' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                  status === 'overdue' ? 'bg-critical-subtle text-critical-subtle-fg animate-pulse' :
+                                  status === 'overdue' ? 'bg-critical-subtle text-critical-subtle-fg' :
                                   'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                                 }`}
                               >
@@ -625,7 +653,7 @@ const MedicationAdminPage: React.FC = () => {
               <label className="flex items-center text-sm min-h-[24px] py-1">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightPatientLabel')}</span>
-                <span className="ml-2 text-content-secondary">{selectedMed.patientName} ({selectedMed.patientId})</span>
+                <span className="ml-2 text-content-secondary"><PatientName id={selectedMed.patientId} /></span>
               </label>
               <label className="flex items-center text-sm min-h-[24px] py-1">
                 <input type="checkbox" className="mr-2" disabled checked />
@@ -666,21 +694,18 @@ const MedicationAdminPage: React.FC = () => {
           <form onSubmit={handleSubmitAdministration}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="medadmin-status" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docMedicationAdmin.administrationStatusRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips<typeof status>
                   id="medadmin-status"
+                  label={t('docMedicationAdmin.administrationStatusRequired')}
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as typeof status)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="given">{t('docMedicationAdmin.status_given')}</option>
-                  <option value="not-given">{t('docMedicationAdmin.status_not-given')}</option>
-                  <option value="held">{t('docMedicationAdmin.status_held')}</option>
-                  <option value="refused">{t('docMedicationAdmin.status_refused')}</option>
-                </select>
+                  onChange={(next) => next && setStatus(next)}
+                  options={[
+                    { value: 'given', label: t('docMedicationAdmin.status_given') },
+                    { value: 'not-given', label: t('docMedicationAdmin.status_not-given') },
+                    { value: 'held', label: t('docMedicationAdmin.status_held') },
+                    { value: 'refused', label: t('docMedicationAdmin.status_refused') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -762,17 +787,33 @@ const MedicationAdminPage: React.FC = () => {
                 </>
               )}
 
-              <div className="md:col-span-2">
-                <label htmlFor="medadmin-barcode-scanned" className="flex items-center">
-                  <input
-                    id="medadmin-barcode-scanned"
-                    type="checkbox"
-                    checked={barcodeScanned}
-                    onChange={(e) => setBarcodeScanned(e.target.checked)}
-                    className="mr-2"
+              <div className="md:col-span-2 space-y-2">
+                {/* Barcode medication administration: "scanned" is recorded only
+                    when the camera read the label of THIS order. It was a
+                    checkbox, so a scan that never happened could be claimed. */}
+                {barcodeScanned ? (
+                  <p role="status" className="rounded-lg bg-ok-subtle p-3 text-sm font-semibold text-ok-subtle-fg">
+                    {t('docMedicationAdmin.scanMatched')}
+                  </p>
+                ) : (
+                  <button type="button" onClick={() => { setScanProblem(''); setScanning(true); }}
+                    className="min-h-[44px] rounded-lg border border-border-interactive px-4 text-sm font-semibold text-content hover:bg-surface-sunken">
+                    {t('docMedicationAdmin.scanLabel')}
+                  </button>
+                )}
+                {scanProblem && <p role="alert" className="rounded-lg bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{scanProblem}</p>}
+                {scanning && selectedMed && (
+                  <QrScanner
+                    formats={MEDICINE_BARCODE_FORMATS}
+                    hint={t('docMedicationAdmin.scanHint')}
+                    onCancel={() => setScanning(false)}
+                    onResult={(text) => {
+                      setScanning(false);
+                      if (labelMatchesOrder(text, selectedMed.medId)) setBarcodeScanned(true);
+                      else setScanProblem(t('docMedicationAdmin.scanMismatch', { name: selectedMed.medicationName }));
+                    }}
                   />
-                  <span className="text-sm font-medium text-content-secondary">{t('docMedicationAdmin.barcodeScannedCheckbox')}</span>
-                </label>
+                )}
               </div>
             </div>
 
@@ -828,7 +869,7 @@ const MedicationAdminPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm font-medium text-content">{admin.patientName}</div>
-                      <div className="text-xs text-content-muted">{admin.patientId}</div>
+                      <div className="text-xs"><PatientName id={admin.patientId} dobOnly /></div>
                     </td>
                     <td className="px-4 py-3 text-sm text-content">{admin.medicationName}</td>
                     <td className="px-4 py-3">

@@ -14,12 +14,33 @@ client/test-results/
 .junie/
 docs/
 tests/
-# The blockchain workspace (pallets, runtime, node) is a separate cargo
-# workspace on a different Polkadot SDK release. No image here builds it, and
-# shipping it as build context costs time for nothing. Replaces the stale
-# `node/` and `runtime/` entries, which moved under blockchain/.
-blockchain/
 mobile-examples/
 medichain/
 **/*.log
 **/.DS_Store
+
+# Private configuration and browser evidence must never enter image build caches.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+.browser-test/
+output/
+**/.auth/
+**/playwright-report/
+**/test-results/
+backups/
+tmp/
+.horizon/
+.jitsi-config/
+.playwright-cli/
+.presentation-build/
+.chart-data-*/
+.node-bin/
+.codex/
+**/.aws/
+**/.ssh/
+**/.npmrc
+**/node_modules/

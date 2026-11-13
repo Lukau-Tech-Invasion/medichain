@@ -34,6 +34,21 @@ enum ClaimResult {
     DigestMismatch,
 }
 
+/// Routes whose body carries a password. Their stored digest leaves the body
+/// out: an unsalted hash of a body holding a password is a fast, offline-
+/// guessable hash of that password, sitting beside the slow Argon2id verifier
+/// it would undercut. Key, subject, method and route still bind the claim.
+const SECRET_BODY_ROUTES: &[&str] = &["/api/auth/credentials/change"];
+
+/// The body as the stored digest sees it (see `SECRET_BODY_ROUTES`).
+fn digestible_body<'a>(route: &str, body: &'a [u8]) -> &'a [u8] {
+    if SECRET_BODY_ROUTES.contains(&route) {
+        &[]
+    } else {
+        body
+    }
+}
+
 fn digest_request(subject: &str, method: &str, route: &str, key: &str, body: &[u8]) -> String {
     let mut hasher = Sha3_256::new();
     for part in [
@@ -283,6 +298,8 @@ const ESTABLISHES_IDENTITY: &[&str] = &[
     "/api/auth/jwt",
     "/api/auth/jwt/refresh",
     "/api/auth/staff/login",
+    "/api/auth/login",
+    "/api/auth/credentials/redeem",
     "/api/auth/register",
     "/api/auth/demo-login",
 ];
@@ -356,10 +373,10 @@ where
         // cannot be honoured. For the handful of endpoints that establish
         // identity in the first place it is simply the normal case: sign-in has
         // no subject until it succeeds, so demanding one made every credential
-        // login fail with IDEMPOTENCY_AUTH_REQUIRED the moment the client
-        // attached a key. Those endpoints carry their own replay protection --
-        // single-use challenges consumed in the same transaction that issues the
-        // token -- which is stronger than a client-supplied key would be.
+        // login fail with an authentication refusal the moment the client
+        // attached a key. Sign-in is rate limited, and credential redemption
+        // consumes a one-time code. Neither can be keyed by an authenticated
+        // subject before the identity is established.
         let establishes_identity = ESTABLISHES_IDENTITY.contains(&route.as_str());
         let participates = matches!(
             *req.method(),
@@ -380,10 +397,20 @@ where
         let pool = state.as_ref().and_then(|state| state.db_pool.clone());
 
         Box::pin(async move {
+            // No verified caller: no token, or one that does not verify. That
+            // is a 401, the answer the authentication layer gives the same
+            // request without a key. This used to be 409
+            // IDEMPOTENCY_AUTH_REQUIRED, which told an anonymous or forged
+            // caller their request had *conflicted* with something, and made
+            // the status a refused write receives depend on whether the client
+            // happened to attach a key.
             let Some(subject) = subject else {
-                return Ok(req.into_response(operation_error(
-                    "IDEMPOTENCY_AUTH_REQUIRED",
-                    "Authentication is required for an idempotent mutation",
+                return Ok(req.into_response(HttpResponse::Unauthorized().json(
+                    crate::middleware::error_handling::error_envelope_json(
+                        "UNAUTHORIZED",
+                        "Authentication required",
+                        None,
+                    ),
                 )));
             };
             if pool.is_none() && !on_memory_backend {
@@ -402,7 +429,21 @@ where
                 body.extend_from_slice(&chunk?);
             }
             let body: Bytes = body.freeze();
-            let digest = digest_request(&subject, &method, &route, &key, &body);
+            let digest = digest_request(
+                &subject,
+                &method,
+                &route,
+                &key,
+                digestible_body(&route, &body),
+            );
+            // A Class C gate binds its authorization to these exact bytes and
+            // this key (ADR-0008): hashing the transmitted bytes, not a
+            // re-serialisation, removes the field-order problem entirely.
+            req.extensions_mut()
+                .insert(crate::transaction_authorization::TransmittedRequest {
+                    body_digest: crate::transaction_authorization::body_digest(&body),
+                    idempotency_key: key.clone(),
+                });
             req.set_payload(Payload::from(body));
 
             let claim = match &pool {
@@ -471,6 +512,30 @@ where
 
 #[cfg(test)]
 mod tests {
+    /// A body holding a password never reaches the stored digest.
+    #[test]
+    fn a_password_body_is_not_digested() {
+        let with = digest_request(
+            "u",
+            "POST",
+            "/api/auth/credentials/change",
+            "k",
+            digestible_body("/api/auth/credentials/change", b"{\"new_password\":\"a\"}"),
+        );
+        let other = digest_request(
+            "u",
+            "POST",
+            "/api/auth/credentials/change",
+            "k",
+            digestible_body("/api/auth/credentials/change", b"{\"new_password\":\"b\"}"),
+        );
+        assert_eq!(with, other);
+        assert_ne!(
+            digest_request("u", "POST", "/api/x", "k", digestible_body("/api/x", b"1")),
+            digest_request("u", "POST", "/api/x", "k", digestible_body("/api/x", b"2"))
+        );
+    }
+
     use super::*;
 
     // The memory store exists because the durable guard 503'd every
@@ -595,5 +660,50 @@ mod tests {
             Some("actor-a"),
             Some("operation-a")
         ));
+    }
+
+    /// A keyed write with no verified caller is refused 401, the answer the
+    /// authentication layer gives the same write without a key -- not 409, as
+    /// though it had conflicted with something. A signed-in caller's identical
+    /// write still goes through.
+    #[actix_web::test]
+    async fn a_keyed_write_without_a_caller_is_unauthorized_not_a_conflict() {
+        use actix_web::{test, App, HttpResponse};
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(crate::state::AppState::new()))
+                .wrap(IdempotencyMiddleware)
+                .route(
+                    "/api/probe",
+                    web::post().to(|| async { HttpResponse::Ok().finish() }),
+                ),
+        )
+        .await;
+        let keyed = || {
+            test::TestRequest::post()
+                .uri("/api/probe")
+                .insert_header(("Idempotency-Key", uuid::Uuid::new_v4().to_string()))
+        };
+        for (label, request) in [
+            ("no token", keyed().to_request()),
+            (
+                "forged token",
+                keyed()
+                    .insert_header(("Authorization", "Bearer not-a-token"))
+                    .to_request(),
+            ),
+        ] {
+            let response = test::call_service(&app, request).await;
+            assert_eq!(response.status().as_u16(), 401, "{label}");
+            let body: serde_json::Value = test::read_body_json(response).await;
+            assert_eq!(body["error"]["code"], "UNAUTHORIZED", "{label}");
+        }
+        let signed_in = keyed()
+            .insert_header(crate::test_fixtures::as_user("idem-caller"))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, signed_in).await.status().as_u16(),
+            200
+        );
     }
 }

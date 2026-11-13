@@ -78,7 +78,7 @@ export default function CriticalAlertsBanner({
   const getAlertIcon = (type: CriticalAlert['type']) => {
     switch (type) {
       case 'code_blue':
-        return <Siren className="animate-pulse" size={20} />;
+        return <Siren size={20} />;
       default:
         return <AlertTriangle size={20} />;
     }
@@ -89,7 +89,7 @@ export default function CriticalAlertsBanner({
       {/* Header */}
       <div className="p-4 flex items-center justify-between border-b border-red-500">
         <div className="flex items-center gap-3">
-          <Siren className="animate-pulse" size={24} />
+          <Siren size={24} />
           <div>
             <p className="font-bold">Critical Alerts Require Attention</p>
             <p className="text-critical-fg text-sm">

@@ -9,6 +9,9 @@ services:
     image: postgres:16-alpine
     container_name: medichain_postgres
     restart: unless-stopped
+    # Concurrent isolated-schema migrations need more than Docker's 64 MiB
+    # default; exhaustion crashed PostgreSQL during the full API test run.
+    shm_size: "1gb"
     environment:
       # Credentials are interpolated from the environment / .env file.
       # Defaults are DEV-ONLY; production MUST set these (see .env.example).
@@ -30,34 +33,12 @@ services:
       - medichain_network
 
   # =============================================================================
-  # IPFS Node (Kubo)
-  # API at http://localhost:5001
-  # Gateway at http://localhost:8080
-  # =============================================================================
-  ipfs:
-    image: ipfs/kubo:latest
-    container_name: medichain_ipfs
-    restart: unless-stopped
-    ports:
-      - "4001:4001"
-      - "5001:5001"
-      - "8080:8080"
-    volumes:
-      - ipfs_data:/data/ipfs
-    healthcheck:
-      test: ["CMD-SHELL", "ipfs id > /dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - medichain_network
-
-  # =============================================================================
   # MediChain API
   # =============================================================================
   api:
+    image: medichain-api:local
     build:
-      # Context is the repo root so the workspace members (crypto, pallets) are
+      # Context is the repo root so the workspace member (crypto) is
       # available to the build; see api/Dockerfile.
       context: .
       dockerfile: api/Dockerfile
@@ -70,8 +51,7 @@ services:
     expose:
       - "8080"
     environment:
-      # Explicit: the API's own default is 8090 (8080 collides with the IPFS
-      # gateway on a dev host). Inside this container 8080 is free and nginx
+      # Explicit: the API's own default is 8090. Inside this container nginx
       # proxies to `api:8080`, so pin it here rather than changing nginx.
       PORT: 8080
       DATABASE_URL: postgres://${POSTGRES_USER:-medichain}:${POSTGRES_PASSWORD:-medichain_dev_2024}@postgres:5432/${POSTGRES_DB:-medichain}
@@ -81,8 +61,6 @@ services:
       MEDICHAIN_STORAGE: postgres
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:-}
       PATIENT_SEARCH_INDEX_KEY: ${PATIENT_SEARCH_INDEX_KEY:-}
-      IPFS_API_URL: http://ipfs:5001
-      IPFS_GATEWAY_URL: http://ipfs:8080
       # Production secrets — set these in .env (no insecure defaults baked in).
       SESSION_SECRET: ${SESSION_SECRET:-}
       JWT_SECRET: ${JWT_SECRET:-}
@@ -104,7 +82,7 @@ services:
       # harness to opt into a larger per-minute budget. The API rejects zero
       # and invalid values, so a malformed override cannot disable limiting.
       MEDICHAIN_RATE_LIMIT_ANONYMOUS: ${MEDICHAIN_RATE_LIMIT_ANONYMOUS:-60}
-      MEDICHAIN_RATE_LIMIT_AUTHENTICATED: ${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-120}
+      MEDICHAIN_RATE_LIMIT_AUTHENTICATED: ${MEDICHAIN_RATE_LIMIT_AUTHENTICATED:-240}
       # The dispensing policy is deployment-supplied on purpose: the API ships
       # no built-in drug schedule (`api/src/dispensing_policy.rs`), so a
       # deployment that does not provide one cannot dispense a policy-governed
@@ -146,15 +124,22 @@ services:
       MEDICHAIN_APP_URL: ${MEDICHAIN_APP_URL:-}
       MEDICHAIN_BOOTSTRAP_KEY: ${MEDICHAIN_BOOTSTRAP_KEY:-}
       LOG_FORMAT: ${LOG_FORMAT:-}
-      RUST_LOG: ${RUST_LOG:-}
+      # The production file's default. Empty meant error-only: after a full day
+      # of browser testing the log held 106 lines, all startup, and a refused
+      # request or a skipped patient left no trace anyone could read.
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
 
-      # Blockchain anchoring. With no SUBSTRATE_WS_URL the API logs
-      # "blockchain features disabled" and every anchored write is a typed
-      # error rather than a fabricated hash.
-      BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-}
-      SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:-}
-      SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:-}
-      SUBSTRATE_ALLOW_DEV_SIGNER: ${SUBSTRATE_ALLOW_DEV_SIGNER:-}
+      # Sealed audit stream (ADR-0010). Audit batches are chained, signed with
+      # Ed25519 and exported as checkpoints. No default secret: with no
+      # AUDIT_SEAL_SIGNING_KEY a demo seals batches UNSIGNED and verification
+      # says so; outside demo mode the API refuses to start without one.
+      # AUDIT_CHECKPOINT_SINK is none | filesystem (production refuses none);
+      # `filesystem` needs AUDIT_CHECKPOINT_DIR, an absolute path inside the
+      # container -- the audit_checkpoints volume below is mounted at
+      # /var/lib/medichain/audit-checkpoints for it.
+      AUDIT_SEAL_SIGNING_KEY: ${AUDIT_SEAL_SIGNING_KEY:-}
+      AUDIT_CHECKPOINT_SINK: ${AUDIT_CHECKPOINT_SINK:-}
+      AUDIT_CHECKPOINT_DIR: ${AUDIT_CHECKPOINT_DIR:-}
 
       # Telehealth. Without JITSI_DOMAIN the service points at the public
       # meet.jit.si with unauthenticated rooms, which is not somewhere PHI
@@ -228,11 +213,13 @@ services:
       # Read-only, and a single file rather than a directory, so the container
       # cannot rewrite the policy it is being governed by.
       - ${DISPENSING_POLICY_FILE:-./api/data/dispensing_policy.example.json}:/app/policy/dispensing_policy.json:ro
+      # Exported audit checkpoints. Only used when AUDIT_CHECKPOINT_SINK is
+      # `filesystem`. On the same host as the database it proves only what the
+      # host did not later rewrite; copy it to write-once storage for more.
+      - audit_checkpoints:/var/lib/medichain/audit-checkpoints
     depends_on:
       postgres:
         condition: service_healthy
-      ipfs:
-        condition: service_started
     networks:
       - medichain_network
 
@@ -263,8 +250,8 @@ services:
   # =============================================================================
   # Nginx Reverse Proxy
   # Routes http://localhost/ → API (and /api/events SSE). TLS is added in
-  # docker-compose.prod.yml. NOTE: IPFS already binds host :8080, so the API is
-  # reached through nginx on :80 rather than a direct host port.
+  # docker-compose.prod.yml. The API has no direct host port; it is reached
+  # through nginx on :80.
   # =============================================================================
   # Reverse proxy AND frontend host. Previously this ran the stock nginx image
   # with only a proxy config, so `/` was a bare 404 and the compose stack served
@@ -282,9 +269,15 @@ services:
       dockerfile: client/Dockerfile
       args:
         VITE_DEMO_CREDENTIALS_ENABLED: ${VITE_DEMO_CREDENTIALS_ENABLED:-false}
+        VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
+        VITE_EMERGENCY_NUMBER: ${VITE_EMERGENCY_NUMBER:-112}
     image: medichain-web:local
     container_name: medichain_nginx
     restart: unless-stopped
+    environment:
+      # Named in the Content-Security-Policy so the video visit can load and
+      # frame Jitsi (nginx/40-csp-telehealth.sh). Unset: no outside origin.
+      JITSI_DOMAIN: ${JITSI_DOMAIN:-}
     ports:
       - "80:80"
     depends_on:
@@ -303,31 +296,6 @@ services:
     networks:
       - medichain_network
 
-  # =============================================================================
-  # Substrate Node — NOT DEFINED HERE ON PURPOSE
-  # -----------------------------------------------------------------------------
-  # There was a `substrate-node` service here that built `node/Dockerfile`. That
-  # file never existed, and the node source has since moved to `blockchain/node/`,
-  # so the service could not have started under any profile. It has been removed
-  # rather than left as a stanza that looks like working configuration.
-  #
-  # To run a node for local development, run the binary directly — that is the
-  # supported and verified path:
-  #
-  #     scripts/blockchain/run-dev-node.sh --persist
-  #     scripts/blockchain/qualify-node.sh
-  #
-  # and point the API at it with SUBSTRATE_WS_URL=ws://127.0.0.1:9944.
-  # See docs/BLOCKCHAIN_NODE.md.
-  #
-  # Production supplies a separately qualified node through SUBSTRATE_WS_URL; the
-  # API fails closed when that dependency is absent and never fabricates a
-  # transaction hash.
-  #
-  # Note also: the old stanza passed `--rpc-external`, which binds RPC on all
-  # interfaces. Do not reintroduce that without an access-control story.
-  # =============================================================================
-
 # =============================================================================
 # Volumes for Data Persistence
 # =============================================================================
@@ -336,7 +304,7 @@ volumes:
     driver: local
   pgadmin_data:
     driver: local
-  ipfs_data:
+  audit_checkpoints:
     driver: local
 
 # =============================================================================

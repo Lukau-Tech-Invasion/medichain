@@ -77,9 +77,6 @@ pub fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, Pa
 #[derive(Debug, Deserialize)]
 pub struct RegisterPatientRequest {
     pub full_name: String,
-    /// Patient-owned SS58 account used for on-chain identity and audit binding.
-    #[serde(default)]
-    pub wallet_address: Option<String>,
     pub date_of_birth: String,
     /// "HH:MM" birth time, optional — twins-safe identification alongside
     /// date_of_birth + national_id (patient_id itself is already a random
@@ -96,6 +93,8 @@ pub struct RegisterPatientRequest {
     /// contact details remain separately required.
     #[serde(default)]
     pub phone: String,
+    /// Omitted when no verified blood group is available; stored as Unknown.
+    #[serde(default)]
     pub blood_type: String,
     /// Allergies - can be simple strings (converted to Mild severity) for backward compatibility
     pub allergies: Vec<String>,
@@ -109,6 +108,11 @@ pub struct RegisterPatientRequest {
     /// Preferred languages (ISO 639-1 codes), e.g., ["en", "yo", "ha"]
     #[serde(default)]
     pub languages: Vec<String>,
+    /// Three-digit fixture key accepted only when `IS_DEMO=true`. It gives the
+    /// explicit demo seeder stable identifiers without weakening real patient
+    /// registration, where identifiers remain server-generated.
+    #[serde(default)]
+    pub demo_seed_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,9 +120,13 @@ pub struct RegisterPatientResponse {
     pub success: bool,
     pub patient_id: String,
     pub nfc_tag_id: String,
-    pub chain_status: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activation_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,5 +148,6 @@ pub struct HealthCheckResponse {
     pub status: String,
     pub version: String,
     pub timestamp: DateTime<Utc>,
-    pub blockchain_connected: bool,
+    /// The sealed audit stream: backlog, last seal and export, sink and signing.
+    pub audit_seal: serde_json::Value,
 }

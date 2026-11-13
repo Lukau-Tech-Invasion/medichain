@@ -23,6 +23,7 @@
  * is the part nobody had run: the patient's own *productive* actions.
  */
 
+import { amaFormReducer, emptyAmaForm, toAmaDischargeRequest, type AmaFormAction } from '../../client/doctor-portal/src/pages/AMAPage.form';
 import { http, type Journal, type Session, type Manifest, discrepancies, findBy, fieldAt,
   rowsOf,
 } from '../lib/journey';
@@ -93,7 +94,7 @@ export async function patientJourney(
     token: patient.token,
     body: {
       patient_id: id,
-      provider_id: clinician.wallet,
+      provider_id: clinician.userId,
       appointment_type: 'consultation',
       preferred_date: inDays(14),
       preferred_time: '11:00',
@@ -120,7 +121,7 @@ export async function patientJourney(
     );
 
     // The clinician's diary is the other side of the same booking.
-    const diary = await http('GET', `/appointments/provider/${clinician.wallet}`, {
+    const diary = await http('GET', `/appointments/provider/${clinician.userId}`, {
       token: clinician.token,
     });
     const drows = rowsOf(diary.json, 'appointments', 'items');
@@ -155,7 +156,7 @@ export async function patientJourney(
   const send = await http('POST', '/messages/send', {
     token: patient.token,
     body: {
-      recipient_id: clinician.wallet,
+      recipient_id: clinician.userId,
       subject: 'Patient message',
       content,
       related_patient_id: id,
@@ -376,8 +377,8 @@ export async function patientJourney(
         j.record(
           'the log says the patient reported it, not who they are',
           JSON.stringify(logs ?? null).includes('"reported_by":"patient"'),
-          `reported_by is a category (patient/caregiver/system/provider); a wallet ` +
-            `address there is rejected by the database. Stored: ${JSON.stringify(logs).slice(0, 200)}`
+          `reported_by is a category (patient/caregiver/system/provider); a user ` +
+            `id there is rejected by the database. Stored: ${JSON.stringify(logs).slice(0, 200)}`
         );
       } else {
         j.skip('the dose stays marked when the screen is reopened', 'the adherence log was refused');
@@ -497,7 +498,7 @@ export async function patientJourney(
   j.status("a patient cannot read another patient's access log", theirLogs.status, [403, 404], theirLogs.json);
 
   // The arrival the patient does themselves, at the door, on their phone.
-  await runSelfCheckInSteps(j, patient, id);
+  await runSelfCheckInSteps(j, patient, clinician, id);
 
   // --- What the hospital wrote about them ---------------------------------
   await runDischargeVisibilitySteps(j, patient, clinician, id, other);
@@ -519,16 +520,17 @@ export async function patientJourney(
 /**
  * The patient checks themselves in for their own appointment.
  *
- * `POST /api/appointments/{id}/check-in` compared the caller's wallet address
+ * `POST /api/appointments/{id}/check-in` compared the caller's account id
  * to a `PAT-` id, so this was 403 for every patient who ever tried it. WF-007
  * fixed the clinician half of that guard and left the patient half comparing
- * two different namespaces -- the recurring wallet-vs-patient-id defect.
+ * two different namespaces -- the recurring account-id-vs-patient-id defect.
  *
  * Split out so `runPatientJourney` stays inside the 60-line branching budget.
  */
 export async function runSelfCheckInSteps(
   j: Journal,
   patient: Session,
+  clinician: Session,
   id: string
 ): Promise<void> {
   // Every run books against the same provider, so a slot is only free once.
@@ -546,6 +548,9 @@ export async function runSelfCheckInSteps(
       token: patient.token,
       body: {
         patient_id: id,
+        // The patient chooses whom to see, as AppointmentsPage does. Naming
+        // nobody once booked the patient as their own clinician; it is a 400 now.
+        provider_id: clinician.userId,
         appointment_type: 'FollowUp',
         reason: `Journey self check-in ${Date.now()}`,
         // Tomorrow, not today: a slot in the past behaves differently and the
@@ -566,7 +571,7 @@ export async function runSelfCheckInSteps(
   const apptId = String(booked.json.appointment_id ?? booked.json.id ?? '');
 
   if (!bookedOk || !apptId) {
-    j.skip('the patient confirms the time they were offered', 'the appointment was not booked');
+    j.skip('the clinician confirms the time the patient asked for', 'the appointment was not booked');
     j.skip('the patient checks themselves in', 'the appointment was not booked');
     return;
   }
@@ -574,13 +579,15 @@ export async function runSelfCheckInSteps(
   // Confirm first. `is_valid_transition` deliberately refuses
   // `Scheduled -> CheckedIn`: a booking is a proposal until the party who did
   // not make it agrees, and allowing check-in straight from Scheduled would
-  // make confirmation decorative. The journey follows the real path rather
-  // than asking for the shortcut.
+  // make confirmation decorative. The patient booked it, so the clinician is
+  // the party who agrees. (This step once had the patient confirm their own
+  // booking -- possible only because, naming no clinician, they had been
+  // booked as their own provider.)
   const confirm = await http('POST', `/appointments/${apptId}/status`, {
-    token: patient.token,
+    token: clinician.token,
     body: { status: 'Confirmed' },
   });
-  const confirmed = j.status('the patient confirms the time they were offered', confirm.status, [200, 201], confirm.json);
+  const confirmed = j.status('the clinician confirms the time the patient asked for', confirm.status, [200, 201], confirm.json);
 
   if (!confirmed) {
     j.skip('the patient checks themselves in', 'the appointment was not confirmed');
@@ -628,8 +635,10 @@ export async function runDischargeVisibilitySteps(
     token: clinician.token,
     body: {
       patient_id: id,
-      admission_date: new Date(Date.now() - 3 * 86400000).toISOString(),
+      admission_datetime: new Date(Date.now() - 3 * 86400000).toISOString(),
       discharge_date: new Date().toISOString(),
+      // A condition the clinician states; the API refuses a summary without one.
+      discharge_condition: 'improved',
       discharge_diagnosis: diagnosis,
       hospital_course: 'Responded to intravenous antibiotics; afebrile for 48 hours.',
       discharge_medications: [homeMedicine],
@@ -709,7 +718,7 @@ export async function runDischargeVisibilitySteps(
  * The route existed; whether the round trip worked had never been asserted, and
  * the two halves disagree about namespaces in exactly the place this codebase
  * keeps getting wrong: the nurse files against a `PAT-` id, the patient asks
- * with a wallet address, and `list_my_immunizations` bridges them through
+ * with an account id, and `list_my_immunizations` bridges them through
  * `linked_patient_id`. If that resolution ever breaks, a patient is told they
  * have had no vaccinations — which is the answer that gets one repeated.
  *
@@ -844,7 +853,7 @@ export async function runImagingVisibilitySteps(
       // The handler stamps this from the session and refuses a mismatch: an
       // imaging order is an accountable clinical act, so the ordering provider
       // is whoever placed it, not whoever the body names.
-      ordering_provider: clinician.wallet,
+      ordering_provider: clinician.userId,
       order_time: Math.floor(Date.now() / 1000),
       contrast: false,
       allergies_reviewed: true,
@@ -872,7 +881,7 @@ export async function runImagingVisibilitySteps(
       findings: 'Lungs clear. Heart size normal. No pleural effusion.',
       impression: [impression],
       critical_finding: false,
-      radiologist: clinician.wallet,
+      radiologist: clinician.userId,
       status: 'Final',
     },
   });
@@ -942,13 +951,13 @@ export async function runPathologyVisibilitySteps(
   // why the API accepts this shape rather than demanding a completed report.
   const accession = await http('POST', '/surgical/pathology', {
     token: clinician.token,
+    // No accession number: the server mints it and returns it as `id`.
     body: {
-      specimenId: `S-${stamp}`,
       patientId: id,
       patientName: 'Journey Patient',
       collectionDate: new Date().toISOString().slice(0, 10),
       collectionTime: '09:30',
-      clinician: clinician.wallet,
+      clinician: clinician.userId,
       specimenType: 'surgical',
       site,
       laterality: 'left',
@@ -957,7 +966,7 @@ export async function runPathologyVisibilitySteps(
       priority: 'routine',
       status: 'received',
       receivedDate: new Date().toISOString().slice(0, 10),
-      receivedBy: clinician.wallet,
+      receivedBy: clinician.userId,
       container: 'Formalin pot',
       fixative: '10% neutral buffered formalin',
     },
@@ -1120,7 +1129,7 @@ export async function runVisitNoteAndPrescriptionVisibilitySteps(
     // "Send Prescription" is create -> sign -> transmit in one action.
     await http('POST', `/e-prescriptions/${rxId}/sign`, {
       token: clinician.token,
-      body: { signature_method: 'wallet', attestation: 'Issued for a legitimate medical purpose.' },
+      body: { signature_method: 'password', attestation: 'Issued for a legitimate medical purpose.' },
     });
     await http('POST', `/e-prescriptions/${rxId}/transmit`, { token: clinician.token });
 
@@ -1176,7 +1185,7 @@ export async function runConsultVisibilitySteps(
     body: {
       patientId: id,
       specialty: 'Cardiology',
-      consultingProvider: clinician.wallet,
+      consultingProvider: clinician.userId,
       reason,
       clinicalQuestion: question,
       relevantHistory: 'Hypertension, ex-smoker.',
@@ -1261,7 +1270,6 @@ export async function runWardRecordVisibilitySteps(
   const plan = await http('POST', '/emergency/care-plan', {
     token: nurse.token,
     body: {
-      care_plan_id: `CP-${stamp}`,
       patient_id: id,
       diagnoses: [
         {
@@ -1294,9 +1302,6 @@ export async function runWardRecordVisibilitySteps(
           responsibleParty: 'nursing',
         },
       ],
-      created_by: nurse.userId,
-      created_at: Math.floor(Date.now() / 1000),
-      updated_at: Math.floor(Date.now() / 1000),
     },
   });
   await readBackAsPatient(j, patient, id, otherId, {
@@ -1363,7 +1368,7 @@ export async function runWardRecordVisibilitySteps(
       repair_method: 'simple interrupted sutures',
       suture_material: 'Nylon 4-0',
       suture_count: 6,
-      performed_by: clinician.wallet,
+      performed_by: clinician.userId,
       performed_at: new Date().toISOString(),
     },
   });
@@ -1379,32 +1384,40 @@ export async function runWardRecordVisibilitySteps(
   });
 
   // --- 9. AMA discharge ---------------------------------------------------
-  // AMAPage.tsx: createAMADischarge, field for field. `hasCapacity` and
-  // `capacityBasis` are mandatory -- an AMA filed without a capacity
-  // determination is not a lawful AMA, and the handler refuses one.
+  // Built by AMAPage's own builder, not retyped here. This step used to post a
+  // hand-written camelCase body the page had stopped sending, so it passed
+  // while the register showed every discharge blank and unsignable.
+  // `hasCapacity` and `capacityBasis` are mandatory -- an AMA filed without a
+  // capacity determination is not a lawful AMA, and the handler refuses one.
   const statement = `I need to get home to my children (journey ${stamp})`;
+  const amaForm = ([
+    { type: 'set', field: 'patientId', value: id },
+    { type: 'set', field: 'patientName', value: 'Journey Patient' },
+    { type: 'set', field: 'diagnosis', value: 'Community-acquired pneumonia' },
+    { type: 'set', field: 'recommendedTreatment', value: 'Admission for intravenous antibiotics' },
+    { type: 'set', field: 'patientStatement', value: statement },
+    { type: 'set', field: 'riskLevel', value: 'high' },
+    { type: 'set', field: 'capacityBasis', value: 'Alert and oriented; able to repeat back the risks of leaving.' },
+    { type: 'set', field: 'witnessName', value: 'Journey Witness' },
+    { type: 'toggle', field: 'hasCapacity' },
+    { type: 'toggle', field: 'patientRefusedAlternatives' },
+  ] as AmaFormAction[]).reduce(amaFormReducer, emptyAmaForm());
   const ama = await http('POST', '/clinical/ama', {
     token: clinician.token,
-    body: {
-      ama_id: `AMA-${stamp}`,
-      patient_id: id,
-      patient_name: 'Journey Patient',
-      mrn: id,
-      dateCreated: new Date().toISOString(),
-      status: 'pending-signatures',
-      riskLevel: 'high',
-      provider: clinician.wallet,
-      diagnosis: 'Community-acquired pneumonia',
-      recommendedTreatment: 'Admission for intravenous antibiotics',
-      patientStatement: statement,
-      hasCapacity: true,
-      capacityBasis: 'Alert and oriented; able to repeat back the risks of leaving.',
-      patientSigned: false,
-      witnessSigned: false,
-      witnessName: 'Journey Witness',
-      providerSigned: false,
-    },
+    body: toAmaDischargeRequest(amaForm, {
+      attendingPhysicianId: clinician.userId,
+      dischargeDatetime: new Date().toISOString(),
+    }),
   });
+  // The register a clinician opens: the row must say what was filed and that
+  // it awaits signatures, or the bedside signature step cannot be reached.
+  const amaRegister = await http('GET', '/platform/list/ama-discharges', { token: clinician.token });
+  const amaRow = findBy(amaRegister.json, 'id', ama.json?.ama_id);
+  j.record(
+    'the AMA register shows the discharge, awaiting signatures',
+    amaRow?.patient_statement === statement && amaRow?.status === 'pending-signatures' && amaRow?.risk_level === 'high',
+    `a register row that does not say what was filed cannot be signed or reviewed. Got: ${JSON.stringify(amaRow ?? null).slice(0, 300)}`
+  );
   await readBackAsPatient(j, patient, id, otherId, {
     written: j.status('a doctor files the against-medical-advice discharge', ama.status, [200, 201], ama.json),
     route: 'ama-discharges',
@@ -1511,10 +1524,9 @@ async function readBackAsPatient(
  * consent is the signed legal basis, and revoking either leaves the other
  * standing.
  *
- * Covered here rather than in the browser suite because the patient
- * application's e2e harness signs in by creating a fresh demo wallet, and the
- * consent endpoints answer 401 for it — so a browser test would assert nothing
- * about authorisation. This runs as the real fixture patient.
+ * Covered here as well as in the browser suite because this reads the standing
+ * consents back through the API as the real fixture patient, which is the
+ * assertion that separates a withdrawal from a 200 that changed nothing.
  */
 export async function runConsentWithdrawalSteps(
   j: Journal,
@@ -1533,7 +1545,7 @@ export async function runConsentWithdrawalSteps(
 
   const signed = await http('POST', '/consent/sign', {
     token: patient.token,
-    body: { patient_id: id, consent_type: consentType },
+    body: { patient_id: id, consent_type: consentType, consent_given: true },
   });
   const didSign = j.status('the patient signs a consent', signed.status, [200, 201], signed.json);
 

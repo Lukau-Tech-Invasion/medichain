@@ -9,6 +9,9 @@ import {
 import type { CreateEmsHandoffBody, EmsHandoff, EmsVitals } from '@medichain/shared';
 import { Loader2, Plus, RefreshCw, Trash2, Truck } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useAuthStore } from '../store/authStore';
+import { usePatientStore } from '../store/patientStore';
+import { scannedHandoffSeed } from './scannedHandoffSeed';
 
 /**
  * Ambulance handover: the receiving clinician records what the crew reports.
@@ -64,13 +67,16 @@ function vitalsBody(draft: VitalsDraft): EmsVitals {
 
 function EmsHandoffPage() {
   const { t } = useTranslation();
+  const isParamedic = useAuthStore((state) => state.user?.role === 'Paramedic');
 
   const [handoffs, setHandoffs] = useState<EmsHandoff[]>([]);
   const [loaded, setLoaded] = useState(false);
   // "No crew handed over today" and "the arrivals could not be read" differ.
   const [listUnknown, setListUnknown] = useState(false);
 
-  const [patientId, setPatientId] = useState('');
+  // Copy only information disclosed by a current emergency grant, once per form.
+  const [scanned] = useState(() => scannedHandoffSeed(usePatientStore.getState()));
+  const [patientId, setPatientId] = useState(scanned.patientId);
   const [agency, setAgency] = useState('');
   const [unit, setUnit] = useState('');
   const [crew, setCrew] = useState('');
@@ -84,7 +90,7 @@ function EmsHandoffPage() {
   const [gcs, setGcs] = useState('');
   const [vitals, setVitals] = useState<VitalsDraft[]>([]);
   const [interventions, setInterventions] = useState('');
-  const [sample, setSample] = useState<SampleDraft>(EMPTY_SAMPLE);
+  const [sample, setSample] = useState<SampleDraft>({ ...EMPTY_SAMPLE, ...scanned.sample });
   const [alerts, setAlerts] = useState<Record<(typeof ALERTS)[number], boolean>>({
     trauma_alert: false, stroke_alert: false, stemi_alert: false, sepsis_alert: false,
   });
@@ -119,6 +125,7 @@ function EmsHandoffPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (saving) return;
     setError('');
     setNotice('');
     if (!agency.trim() || !complaint.trim()) {
@@ -190,10 +197,17 @@ function EmsHandoffPage() {
         </div>
       )}
 
+      {scanned.patientId && patientId === scanned.patientId && <p role="status" className="text-sm text-content-secondary">
+        Patient ID and recorded history carried over from the emergency scan. Confirm the history with the crew; enter current observations below.
+      </p>}
       <form onSubmit={submit} className="bg-surface rounded-xl shadow p-6 space-y-6">
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
-            <PatientSelect id="ems-patient" label={t('docEms.patientLabel')} value={patientId} onChange={setPatientId} />
+            {isParamedic ? <>
+              <label htmlFor="ems-patient" className={label}>{t('docEms.patientIdLabel')}</label>
+              <input id="ems-patient" value={patientId} onChange={(event) => { setPatientId(event.target.value); setSample({ ...EMPTY_SAMPLE }); }}
+                className={field} autoComplete="off" />
+            </> : <PatientSelect id="ems-patient" label={t('docEms.patientLabel')} value={patientId} onChange={setPatientId} />}
             <p className="text-xs text-content-muted mt-1">{t('docEms.patientHint')}</p>
           </div>
           <div>
@@ -307,7 +321,7 @@ function EmsHandoffPage() {
           <legend className="font-semibold text-content mb-2">{t('docEms.alertsHeading')}</legend>
           <div className="flex flex-wrap gap-4">
             {ALERTS.map((key) => (
-              <label key={key} className="flex items-center gap-2 text-sm">
+              <label key={key} className="flex items-center gap-2 text-sm min-h-[24px] py-1 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={alerts[key]}
@@ -326,8 +340,8 @@ function EmsHandoffPage() {
 
         <button
           type="submit"
-          disabled={saving}
-          className="px-4 py-2 rounded-lg font-medium bg-brand text-brand-fg disabled:opacity-60"
+          aria-disabled={saving || undefined}
+          className="aria-disabled:cursor-wait px-4 py-2 rounded-lg font-medium bg-brand text-brand-fg"
         >
           {saving ? t('docEms.saving') : t('docEms.save')}
         </button>

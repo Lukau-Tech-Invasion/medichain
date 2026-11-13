@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
 use crate::repositories::{
-    AccessLogEntity, AccessLogRepository, DateRange, PaginatedResult, Pagination, RepositoryResult,
+    AccessLogEntity, AccessLogRepository, DateRange, PaginatedResult, Pagination,
+    PatientGrantUsage, RepositoryResult,
 };
 
 /// PostgreSQL-backed access log repository
@@ -23,12 +24,28 @@ impl PgAccessLogRepository {
 
 #[async_trait]
 impl AccessLogRepository for PgAccessLogRepository {
+    async fn patient_grant_usage(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<PatientGrantUsage>> {
+        Ok(sqlx::query_as::<_, PatientGrantUsage>(
+            "SELECT authority_id AS grant_id, COUNT(*) AS access_count,
+                    MAX(accessed_at) AS last_accessed
+             FROM access_logs WHERE patient_id = $1
+               AND authority_type = 'patient_grant' AND authority_id IS NOT NULL
+             GROUP BY authority_id",
+        )
+        .bind(patient_id)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO access_logs (
                 id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
                 action, access_reason, is_emergency_access, ip_address, user_agent,
-                blockchain_tx_hash, accessed_at, facility_id
+                accessed_at, facility_id, authority_type, authority_id
             ) ",
         );
 
@@ -44,9 +61,10 @@ impl AccessLogRepository for PgAccessLogRepository {
                 .push_bind(l.is_emergency_access)
                 .push_bind(&l.ip_address)
                 .push_bind(&l.user_agent)
-                .push_bind(&l.blockchain_tx_hash)
                 .push_bind(l.accessed_at)
-                .push_bind(&l.facility_id);
+                .push_bind(&l.facility_id)
+                .push_bind(&l.authority_type)
+                .push_bind(&l.authority_id);
         });
 
         qb.push(" RETURNING *");
@@ -61,17 +79,17 @@ impl AccessLogRepository for PgAccessLogRepository {
 
     async fn get_by_accessor(
         &self,
-        accessor_id: &str,
+        accessor_ids: &[String],
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
         let mut count_qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT COUNT(*) FROM access_logs WHERE accessor_id = ");
-        count_qb.push_bind(accessor_id);
+            QueryBuilder::new("SELECT COUNT(*) FROM access_logs WHERE accessor_id = ANY(");
+        count_qb.push_bind(accessor_ids).push(")");
         let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
 
         let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM access_logs WHERE accessor_id = ");
-        qb.push_bind(accessor_id);
+            QueryBuilder::new("SELECT * FROM access_logs WHERE accessor_id = ANY(");
+        qb.push_bind(accessor_ids).push(")");
         qb.push(" ORDER BY accessed_at DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");
@@ -231,13 +249,18 @@ impl AccessLogRepository for PgAccessLogRepository {
         Ok(PaginatedResult::new(logs, count.0 as u64, &pagination))
     }
 
-    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)> {
-        // One scan, two counts, so the total and the anchored subset are always
-        // taken from the same snapshot. An empty-string hash is not an anchor.
+    async fn count_sealed(&self) -> RepositoryResult<(u64, u64)> {
+        // One scan, two counts, so the total and the sealed subset are always
+        // taken from the same snapshot. A row is sealed once the batch holding
+        // it is `sealed` or `exported`.
         let row = sqlx::query_as::<_, (i64, i64)>(
-            "SELECT COUNT(*), \
-             COUNT(*) FILTER (WHERE blockchain_tx_hash IS NOT NULL AND TRIM(blockchain_tx_hash) <> '') \
-             FROM access_logs",
+            "SELECT COUNT(*),
+                    COUNT(*) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM audit_seal_batch_members m
+                        JOIN audit_seal_batches b ON b.id = m.batch_id
+                        WHERE m.source = 'access_log' AND m.source_id = a.id
+                          AND b.status IN ('sealed', 'exported')))
+             FROM access_logs a",
         )
         .fetch_one(&self.pool)
         .await?;

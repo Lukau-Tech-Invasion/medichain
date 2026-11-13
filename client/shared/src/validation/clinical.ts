@@ -138,22 +138,10 @@ export const dateOfBirthSchema = pastDateSchema.refine(value => {
   return years <= 130;
 }, 'Check the year — that date gives an age over 130');
 
-/**
- * SS58 wallet address.
- *
- * Length and alphabet only. A checksum check belongs with the crypto module
- * that owns the encoding, not duplicated here — see `@medichain/shared`'s
- * wallet utilities.
- */
-export const walletAddressSchema = z
-  .string()
-  .min(1, 'Enter a wallet address')
-  .regex(/^[1-9A-HJ-NP-Za-km-z]{47,48}$/, 'A wallet address is 47-48 characters, no 0/O/I/l');
-
-/** MediChain patient record id. */
+/** MediChain patient record id: current UUID-derived IDs and older short IDs. */
 export const patientIdSchema = z
   .string()
-  .regex(/^PAT-[0-9a-f]{8}$/, 'A patient id looks like PAT- followed by 8 characters');
+  .regex(/^PAT-(?:[0-9a-f]{8}|[0-9a-f]{32})$/i, 'A patient ID starts with PAT- and has 8 or 32 hexadecimal characters');
 
 /**
  * Phone number, international or local.
@@ -213,7 +201,6 @@ export const requiredText = (fieldLabel: string, max = 200) =>
  */
 export const patientRegistrationSchema = z.object({
   fullName: requiredText('the patient’s full name'),
-  walletAddress: walletAddressSchema,
   dateOfBirth: dateOfBirthSchema,
   nationalId: requiredText('a national ID number', 64),
   gender: z.string(),
@@ -711,6 +698,10 @@ export const pathologyRequestSchema = z.object({
   collectionDate: requiredText('the collection date', 32),
   site: requiredText('the anatomical site', 200),
   clinician: requiredText('the ordering clinician', 200),
+  // Chosen, not defaulted: an order nobody typed used to be filed as a
+  // routine surgical specimen.
+  specimenType: requiredText('the specimen type', 32),
+  priority: requiredText('the priority', 32),
 });
 
 /**
@@ -768,7 +759,7 @@ export const cdsRuleSchema = z.object({
 
 /** Creating a staff account. */
 export const newUserSchema = z.object({
-  walletAddress: requiredText('a wallet address', 128),
+  loginId: requiredText('an Employee ID', 64),
   name: requiredText('the full name', 200),
   email: emailSchema,
 });
@@ -784,6 +775,8 @@ export const amaDetailsSchema = amaCapacitySchema.extend({
   patientName: requiredText("the patient's name", 200),
   diagnosis: requiredText('the diagnosis', 500),
   recommendedTreatment: requiredText('the treatment you recommended', 2_000),
+  // Chosen, not defaulted: "moderate" used to be pre-selected for everyone.
+  riskLevel: requiredText('the risk level', 16),
 });
 
 /**

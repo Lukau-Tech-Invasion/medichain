@@ -1,10 +1,12 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { I18nProvider, DialogHost } from '@medichain/shared';
+import { PatientWorkspace } from './workspace/PatientWorkspace';
+import { DirectoryReasonGate } from './components/AccessReasonGate';
+import { I18nProvider, DialogHost, TransactionAuthorizationHost } from '@medichain/shared';
 
 // Loading fallback for lazy-loaded components
 function PageLoader() {
@@ -19,13 +21,20 @@ function PageLoader() {
 }
 
 // Eager-loaded core pages (critical path)
+import { ClinicianOfflineProvider } from './offline/ClinicianOffline';
 import LoginPage from './pages/LoginPage';
+import ActivatePage from './pages/ActivatePage';
 import DashboardPage from './pages/DashboardPage';
 
 // Lazy-loaded pages grouped by feature for optimal chunking
 // Patient Management
 const PatientSearchPage = lazy(() => import('./pages/PatientSearchPage'));
 const PatientDetailPage = lazy(() => import('./pages/PatientDetailPage'));
+const AmbulanceRunPage = lazy(() => import('./ems/AmbulanceRunPage'));
+const IncomingAmbulancesPage = lazy(() => import('./ems/IncomingAmbulancesPage'));
+const TodayPage = lazy(() => import('./pages/TodayPage'));
+const WardRosterPage = lazy(() => import('./pages/WardRosterPage'));
+
 const RegisterPatientPage = lazy(() => import('./pages/RegisterPatientPage'));
 const AccessLogsPage = lazy(() => import('./pages/AccessLogsPage'));
 const ManagedDevicesPage = lazy(() => import('./pages/ManagedDevicesPage'));
@@ -120,6 +129,8 @@ const AutopsyPage = lazy(() => import('./pages/AutopsyPage'));
 // Admin Portal
 const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage'));
 const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
+const ClaimsEobPage = lazy(() => import('./pages/ClaimsEobPage'));
+const ResearchExportsPage = lazy(() => import('./pages/ResearchExportsPage'));
 const OrderSetsPage = lazy(() => import('./pages/OrderSetsPage'));
 const NoteTemplatesPage = lazy(() => import('./pages/NoteTemplatesPage'));
 const BarcodePage = lazy(() => import('./pages/BarcodePage'));
@@ -144,9 +155,11 @@ const PharmacistDashboardPage = lazy(() => import('./pages/PharmacistDashboardPa
  */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
+  const location = useLocation();
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    // Remember where they were going; sign-in returns them there.
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   return <>{children}</>;
@@ -171,10 +184,38 @@ function SmartDashboardRouter() {
       return <Suspense fallback={<PageLoader />}><LabTechDashboardPage /></Suspense>;
     case 'pharmacist':
       return <Suspense fallback={<PageLoader />}><PharmacistDashboardPage /></Suspense>;
+    case 'paramedic':
+      return <Navigate to="/ems-run" replace />;
     case 'doctor':
     default:
       return <DashboardPage />;
   }
+}
+
+/** The dashboard each role owns, keyed by the normalised role name. */
+const DASHBOARD_ROLES: Record<string, string> = {
+  doctor: 'doctor',
+  nurse: 'nurse',
+  labtechnician: 'lab',
+  lab_technician: 'lab',
+  lab: 'lab',
+  pharmacist: 'pharmacist',
+  admin: 'admin',
+};
+
+/**
+ * A role's own dashboard, opened directly.
+ *
+ * These aliases rendered for anyone signed in, so a pharmacist could open the
+ * nurse's ward board by typing its address. The endpoints behind each panel
+ * enforce their own roles, so the result was a screen of refusals rather than
+ * a leak -- still the wrong answer. Anyone else is sent to their own dashboard.
+ */
+function OwnDashboard({ dashboard, children }: { dashboard: string; children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  const own = DASHBOARD_ROLES[user?.role?.toLowerCase() ?? ''];
+  if (own !== dashboard) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
 }
 
 /**
@@ -183,6 +224,72 @@ function SmartDashboardRouter() {
 function LazyRoute({ element }: { element: React.ReactNode }) {
   return <Suspense fallback={<PageLoader />}>{element}</Suspense>;
 }
+
+/**
+ * Every patient-scoped form, by route segment, for the patient workspace
+ * (`/patients/:patientId/:form`). The same elements the flat routes use, so a
+ * form behaves identically wherever it is opened.
+ */
+const PATIENT_FORM_ELEMENTS: Record<string, React.ReactNode> = {
+  'ama': <LazyRoute element={<AMAPage />} />,
+  'anesthesia': <LazyRoute element={<AnesthesiaPage />} />,
+  'appointments': <LazyRoute element={<AppointmentSchedulerPage />} />,
+  'autopsy': <LazyRoute element={<AutopsyPage />} />,
+  'blood-bank': <LazyRoute element={<BloodBankPage />} />,
+  'burn': <LazyRoute element={<BurnPage />} />,
+  'cardiac': <LazyRoute element={<CardiacPage />} />,
+  'care-plan': <LazyRoute element={<CarePlanPage />} />,
+  'cds-alerts': <LazyRoute element={<CDSAlertsPage />} />,
+  'chain-of-custody': <LazyRoute element={<ChainOfCustodyPage />} />,
+  'claims-eob': <LazyRoute element={<ClaimsEobPage />} />,
+  'code-blue': <LazyRoute element={<CodeBluePage />} />,
+  'consult': <LazyRoute element={<ConsultPage />} />,
+  'critical-value': <LazyRoute element={<CriticalValuePage />} />,
+  'death-certificate': <LazyRoute element={<DeathCertificatePage />} />,
+  'discharge': <LazyRoute element={<DischargePage />} />,
+  'drug-interactions': <LazyRoute element={<DrugInteractionsPage />} />,
+  'e-prescribe': <LazyRoute element={<EPrescribePage />} />,
+  'emergency-protocols': <LazyRoute element={<EmergencyProtocolsPage />} />,
+  'ems-handoff': <LazyRoute element={<EmsHandoffPage />} />,
+  'fall-risk': <LazyRoute element={<FallRiskPage />} />,
+  'family-history': <LazyRoute element={<FamilyHistoryPage />} />,
+  'health-id-cards': <LazyRoute element={<HealthIdCardsPage />} />,
+  'history-physical': <LazyRoute element={<HistoryAndPhysicalPage />} />,
+  'imaging': <LazyRoute element={<ImagingPage />} />,
+  'immunization': <LazyRoute element={<ImmunizationPage />} />,
+  'incident-report': <LazyRoute element={<IncidentReportPage />} />,
+  'intake-output': <LazyRoute element={<IntakeOutputPage />} />,
+  'intubation': <LazyRoute element={<IntubationPage />} />,
+  'iv-site': <LazyRoute element={<IVSitePage />} />,
+  'lab-results': <LazyRoute element={<LabResultsPage />} />,
+  'laceration-repair': <LazyRoute element={<LacerationRepairPage />} />,
+  'mar': <LazyRoute element={<MedicationAdminPage />} />,
+  'medication-admin': <LazyRoute element={<MedicationAdminPage />} />,
+  'nursing': <LazyRoute element={<NursingPage />} />,
+  'nursing-care-plan': <LazyRoute element={<NursingCarePlanPage />} />,
+  'obstetrics': <LazyRoute element={<ObstetricsPage />} />,
+  'operative-note': <LazyRoute element={<OperativeNotePage />} />,
+  'orders': <LazyRoute element={<OrdersPage />} />,
+  'pathology': <LazyRoute element={<PathologyPage />} />,
+  'pediatrics': <LazyRoute element={<PediatricsPage />} />,
+  'post-op': <LazyRoute element={<PostOpPage />} />,
+  'pre-op': <LazyRoute element={<PreOpPage />} />,
+  'progress-note': <LazyRoute element={<ProgressNotePage />} />,
+  'psych': <LazyRoute element={<PsychPage />} />,
+  'retention': <LazyRoute element={<RetentionPage />} />,
+  'sepsis': <LazyRoute element={<SepsisPage />} />,
+  'shift-handoff': <LazyRoute element={<ShiftHandoffPage />} />,
+  'soap': <LazyRoute element={<SOAPNotePage />} />,
+  'specimen': <LazyRoute element={<SpecimenPage />} />,
+  'splint': <LazyRoute element={<SplintPage />} />,
+  'stroke': <LazyRoute element={<StrokePage />} />,
+  'telehealth': <LazyRoute element={<TelehealthPage />} />,
+  'toxicology': <LazyRoute element={<ToxicologyPage />} />,
+  'trauma': <LazyRoute element={<TraumaPage />} />,
+  'triage': <LazyRoute element={<TriagePage />} />,
+  'vitals': <LazyRoute element={<VitalSignsPage />} />,
+  'wound-care': <LazyRoute element={<WoundCarePage />} />,
+};
 
 /**
  * MediChain Doctor Portal - Main App Component
@@ -196,7 +303,7 @@ function LazyRoute({ element }: { element: React.ReactNode }) {
  * - Specialty modules (Burn, Psych, Toxicology, Pediatrics, OB)
  * - Admin functions (User Management, Analytics, CDS Alerts)
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 function App() {
   const initializeTheme = useThemeStore((state) => state.initializeTheme);
@@ -209,15 +316,20 @@ function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/activate" element={<ActivatePage />} />
 
       {/* Protected routes - wrapped in Suspense for lazy loading */}
       <Route
         path="/"
         element={
           <ProtectedRoute>
-            <Suspense fallback={<PageLoader />}>
-              <Layout />
-            </Suspense>
+            <ClinicianOfflineProvider>
+              <DirectoryReasonGate>
+                <Suspense fallback={<PageLoader />}>
+                  <Layout />
+                </Suspense>
+              </DirectoryReasonGate>
+            </ClinicianOfflineProvider>
           </ProtectedRoute>
         }
       >
@@ -231,15 +343,21 @@ function App() {
         <Route path="notifications" element={<LazyRoute element={<NotificationsPage />} />} />
 
         {/* Role-Specific Dashboards (direct access) */}
-        <Route path="dashboard/doctor" element={<DashboardPage />} />
-        <Route path="dashboard/nurse" element={<LazyRoute element={<NurseDashboardPage />} />} />
-        <Route path="dashboard/lab" element={<LazyRoute element={<LabTechDashboardPage />} />} />
-        <Route path="dashboard/pharmacist" element={<LazyRoute element={<PharmacistDashboardPage />} />} />
-        <Route path="dashboard/admin" element={<LazyRoute element={<AdminDashboardPage />} />} />
+        <Route path="dashboard/doctor" element={<OwnDashboard dashboard="doctor"><DashboardPage /></OwnDashboard>} />
+        <Route path="dashboard/nurse" element={<OwnDashboard dashboard="nurse"><LazyRoute element={<NurseDashboardPage />} /></OwnDashboard>} />
+        <Route path="dashboard/lab" element={<OwnDashboard dashboard="lab"><LazyRoute element={<LabTechDashboardPage />} /></OwnDashboard>} />
+        <Route path="dashboard/pharmacist" element={<OwnDashboard dashboard="pharmacist"><LazyRoute element={<PharmacistDashboardPage />} /></OwnDashboard>} />
+        <Route path="dashboard/admin" element={<OwnDashboard dashboard="admin"><LazyRoute element={<AdminDashboardPage />} /></OwnDashboard>} />
 
         {/* Patient Management */}
         <Route path="patients" element={<LazyRoute element={<PatientSearchPage />} />} />
-        <Route path="patients/:patientId" element={<LazyRoute element={<PatientDetailPage />} />} />
+        <Route path="patients/:patientId" element={<PatientWorkspace forms={PATIENT_FORM_ELEMENTS} home={<LazyRoute element={<PatientDetailPage />} />} />} />
+        <Route path="ems-run" element={<LazyRoute element={<AmbulanceRunPage />} />} />
+        <Route path="ems-run/:runId" element={<LazyRoute element={<AmbulanceRunPage />} />} />
+        <Route path="ems-incoming" element={<LazyRoute element={<IncomingAmbulancesPage />} />} />
+        <Route path="today" element={<LazyRoute element={<TodayPage />} />} />
+        <Route path="wards" element={<LazyRoute element={<WardRosterPage />} />} />
+        <Route path="patients/:patientId/:form" element={<PatientWorkspace forms={PATIENT_FORM_ELEMENTS} home={<LazyRoute element={<PatientDetailPage />} />} />} />
         <Route path="register" element={<LazyRoute element={<RegisterPatientPage />} />} />
         <Route path="access-logs" element={<LazyRoute element={<AccessLogsPage />} />} />
         <Route path="devices" element={<LazyRoute element={<ManagedDevicesPage />} />} />
@@ -335,6 +453,8 @@ function App() {
         {/* Admin Portal */}
         <Route path="admin" element={<LazyRoute element={<AdminDashboardPage />} />} />
         <Route path="user-management" element={<LazyRoute element={<UserManagementPage />} />} />
+        <Route path="claims-eob" element={<LazyRoute element={<ClaimsEobPage />} />} />
+        <Route path="research-exports" element={<LazyRoute element={<ResearchExportsPage />} />} />
         <Route path="order-sets" element={<LazyRoute element={<OrderSetsPage />} />} />
         <Route path="note-templates" element={<LazyRoute element={<NoteTemplatesPage />} />} />
         <Route path="barcode" element={<LazyRoute element={<BarcodePage />} />} />
@@ -373,6 +493,8 @@ function AppWithErrorBoundary() {
       <I18nProvider>
         <App />
         <DialogHost />
+        {/* Class C confirmations for gated actions (ADR-0008). */}
+        <TransactionAuthorizationHost />
       </I18nProvider>
     </ErrorBoundary>
   );

@@ -8,6 +8,7 @@ import {
 } from '@medichain/shared';
 import { EmergencyInfo } from '../store';
 import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart, CheckCircle2, XCircle } from 'lucide-react';
+import { PatientName } from './PatientName';
 
 interface EmergencyPatientCardProps {
   patient: EmergencyInfo;
@@ -95,7 +96,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
             <AlertTriangle size={24} />
             <div>
               <h2 className="font-bold text-lg">Emergency Access Active</h2>
-              <p className="text-sm opacity-90">Patient ID: {patient.patientId}</p>
+              <p className="text-sm opacity-90"><PatientName id={patient.patientId} inherit /></p>
             </div>
           </div>
           {accessId && (
@@ -167,7 +168,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               ))}
             </div>
           ) : (
-            <p className="text-content-muted text-sm">No known allergies</p>
+            <p className="text-content-muted text-sm">{t('docPatientDetail.noAllergies')}</p>
           )}
         </div>
 
@@ -187,7 +188,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               ))}
             </ul>
           ) : (
-            <p className="text-content-muted text-sm">No current medications</p>
+            <p className="text-content-muted text-sm">{t('docPatientDetail.noMeds')}</p>
           )}
         </div>
 
@@ -209,7 +210,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               ))}
             </div>
           ) : (
-            <p className="text-content-muted text-sm">No chronic conditions</p>
+            <p className="text-content-muted text-sm">{t('docPatientDetail.noConditions')}</p>
           )}
         </div>
 

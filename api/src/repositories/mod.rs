@@ -37,8 +37,15 @@
 //! - All functions under 60 lines
 //! - Minimum 2 validation checks per write operation
 
+pub mod blood_units;
+pub mod care_relationships;
+pub mod eob_documents;
+pub mod message_attachments;
 pub mod patient_search;
+pub mod refill_requests;
+pub mod telehealth_recordings;
 pub mod traits;
+pub mod wards;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -107,12 +114,25 @@ pub struct RepositoryContainer {
     pub vital_signs: Arc<dyn VitalSignsRepository>,
     pub triage_assessments: Arc<dyn TriageAssessmentRepository>,
     pub access_logs: Arc<dyn AccessLogRepository>,
+    /// Blood-unit stock (WP7.5).
+    pub blood_units: Arc<dyn blood_units::BloodUnitRepository>,
+    /// Explanation-of-benefits documents on insurance claims (WP7.3).
+    pub eob_documents: Arc<dyn eob_documents::EobDocumentRepository>,
+    /// Care relationships and break-glass grants (WP9).
+    pub care_relationships: Arc<dyn care_relationships::CareRelationshipRepository>,
+    pub wards: Arc<dyn wards::WardRepository>,
+    /// Consultation recordings (WP7.6).
+    pub telehealth_recordings: Arc<dyn telehealth_recordings::TelehealthRecordingRepository>,
+    /// Attachments on secure messages (WP7.2).
+    pub message_attachments: Arc<dyn message_attachments::MessageAttachmentRepository>,
+    /// Prescription refill requests (WP7.1).
+    pub refill_requests: Arc<dyn refill_requests::RefillRequestRepository>,
     /// Persistent, permission-granular guardian relationships (supersedes the
     /// Horizon HZ-008 in-memory `guardian_relationships::GuardianRegistry`).
     pub guardian_relationships: Arc<dyn GuardianRelationshipRepository>,
     /// Litigation/regulatory holds that suspend retention-based disposal.
     pub legal_holds: Arc<dyn LegalHoldRepository>,
-    /// Off-chain emergency capsules committed to on-chain (Horizon HZ-003).
+    /// Emergency capsules and their sealed commitments (Horizon HZ-003).
     pub emergency_capsules: Arc<dyn EmergencyCapsuleRepository>,
     /// Retention approvals, processing restrictions, and the deletion register.
     pub retention_execution: Arc<dyn RetentionExecutionRepository>,
@@ -223,6 +243,11 @@ pub struct RepositoryContainer {
     pub insurance_cards: Arc<dyn JsonRecordRepository>,
     pub autopsy_reports: Arc<dyn JsonRecordRepository>,
     pub sync_queue_items: Arc<dyn JsonRecordRepository>,
+    /// Ambulance runs: one per patient a crew attends, owned by the crew member
+    /// who started it; status moves only through `replace_if_field_eq`.
+    pub ems_runs: Arc<dyn JsonRecordRepository>,
+    /// The append-only timeline of each run, owned by the run id.
+    pub ems_run_events: Arc<dyn JsonRecordRepository>,
 
     // Round 5: wearables + telehealth legacy shapes (JSON-record backed)
     pub wearable_device_records: Arc<dyn JsonRecordRepository>,
@@ -268,7 +293,7 @@ pub struct RepositoryContainer {
     pub pharmacy_decisions: Arc<dyn JsonRecordRepository>,
     /// One clinician's barcode scanner preferences.
     pub scanner_settings: Arc<dyn JsonRecordRepository>,
-    /// Staff profile pictures, keyed by wallet.
+    /// Staff profile pictures, keyed by user id.
     pub user_avatars: Arc<dyn JsonRecordRepository>,
     /// When each user last read their notifications. One row per user.
     pub notification_reads: Arc<dyn JsonRecordRepository>,
@@ -288,6 +313,8 @@ pub struct RepositoryContainer {
     pub family_history_records: Arc<dyn JsonRecordRepository>,
     pub user_setting_records: Arc<dyn JsonRecordRepository>,
     pub used_emergency_tokens: Arc<dyn JsonRecordRepository>,
+    /// Research export runs (WP7.4); their gate is in governance_decisions.
+    pub research_export_runs: Arc<dyn JsonRecordRepository>,
 }
 
 /// The `[start, end)` instant range an appointment occupies.
@@ -369,8 +396,8 @@ async fn insert_access_log(
         "INSERT INTO access_logs (
             id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
             action, access_reason, is_emergency_access, ip_address, user_agent,
-            blockchain_tx_hash, accessed_at, facility_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+            accessed_at, facility_id, authority_type, authority_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
     )
     .bind(&log.id)
     .bind(&log.accessor_id)
@@ -383,9 +410,10 @@ async fn insert_access_log(
     .bind(log.is_emergency_access)
     .bind(&log.ip_address)
     .bind(&log.user_agent)
-    .bind(&log.blockchain_tx_hash)
     .bind(log.accessed_at)
     .bind(&log.facility_id)
+    .bind(&log.authority_type)
+    .bind(&log.authority_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -420,6 +448,160 @@ async fn apply_prescription_postgres(
     Ok(changed)
 }
 
+/// Store a refill request and its audit row as one PostgreSQL transaction.
+async fn create_refill_postgres(
+    pool: &sqlx::PgPool,
+    request: &refill_requests::RefillRequestEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<refill_requests::RefillRequestEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = refill_requests::pg::insert_request(&mut tx, request).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Store an attachment row and its audit row as one PostgreSQL transaction.
+async fn create_attachment_postgres(
+    pool: &sqlx::PgPool,
+    row: &message_attachments::MessageAttachmentEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<message_attachments::MessageAttachmentEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = message_attachments::pg::insert_attachment(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Store an EOB document row and its audit row as one PostgreSQL transaction.
+async fn create_eob_postgres(
+    pool: &sqlx::PgPool,
+    row: &eob_documents::EobDocumentEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<eob_documents::EobDocumentEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = eob_documents::pg::insert_document(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Store a break-glass grant and its audit row as one transaction.
+async fn create_break_glass_postgres(
+    pool: &sqlx::PgPool,
+    row: &care_relationships::BreakGlassGrantEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<care_relationships::BreakGlassGrantEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = care_relationships::pg::insert_break_glass(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Store a telehealth recording row and its audit row as one transaction.
+async fn create_recording_postgres(
+    pool: &sqlx::PgPool,
+    row: &telehealth_recordings::TelehealthRecordingEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<telehealth_recordings::TelehealthRecordingEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = telehealth_recordings::pg::insert_recording(&mut tx, row).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Store a received blood unit and its audit row as one transaction.
+async fn receive_unit_postgres(
+    pool: &sqlx::PgPool,
+    unit: &blood_units::BloodUnitEntity,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<blood_units::BloodUnitEntity> {
+    let mut tx = pool.begin().await?;
+    let stored = blood_units::pg::insert_unit(&mut tx, unit).await?;
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Apply a guarded blood-unit transition and its audit row as one
+/// transaction. `None`, with nothing written, when the guard refused it.
+async fn transition_unit_postgres(
+    pool: &sqlx::PgPool,
+    id: &str,
+    transition: &blood_units::UnitTransition,
+    at: chrono::DateTime<chrono::Utc>,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<Option<blood_units::BloodUnitEntity>> {
+    let mut tx = pool.begin().await?;
+    let Some(changed) = blood_units::pg::apply_transition(&mut tx, id, transition, at).await?
+    else {
+        return Ok(None);
+    };
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(Some(changed))
+}
+
+/// Close a refill request and write its audit row as one transaction.
+/// `None` (and nothing written) when the request was no longer open.
+async fn close_refill_postgres(
+    pool: &sqlx::PgPool,
+    closure: &refill_requests::RefillClosure,
+    audit: &AccessLogEntity,
+) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+    let mut tx = pool.begin().await?;
+    let Some(closed) = refill_requests::pg::close_request(&mut tx, closure).await? else {
+        return Ok(None);
+    };
+    insert_access_log(&mut tx, audit).await?;
+    tx.commit().await?;
+    Ok(Some(closed))
+}
+
+/// Approve a refill as one transaction: create the new prescription, take one
+/// refill off the original (guarded on its current count), close the request
+/// and audit. Returns `None`, with nothing written, if the count moved or the
+/// request was no longer open.
+async fn approve_refill_postgres(
+    pool: &sqlx::PgPool,
+    approval: &refill_requests::RefillApproval,
+) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+    let mut tx = pool.begin().await?;
+    let created = &approval.new_prescription;
+    sqlx::query(
+        "INSERT INTO e_prescription_v2_records (id, owner_id, data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&created.id)
+    .bind(&created.owner_id)
+    .bind(&created.data)
+    .bind(created.created_at)
+    .bind(created.updated_at)
+    .execute(&mut *tx)
+    .await?;
+    let decremented = sqlx::query_scalar::<_, String>(
+        "UPDATE e_prescription_v2_records SET data = $2, updated_at = NOW()
+         WHERE id = $1 AND data ->> 'refills_remaining' = $3 RETURNING id",
+    )
+    .bind(&approval.original_prescription_id)
+    .bind(&approval.updated_original.data)
+    .bind(&approval.expected_refills_remaining)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if decremented.is_none() {
+        return Ok(None);
+    }
+    let Some(closed) = refill_requests::pg::close_request(&mut tx, &approval.closure).await? else {
+        return Ok(None);
+    };
+    insert_access_log(&mut tx, &approval.audit).await?;
+    tx.commit().await?;
+    Ok(Some(closed))
+}
+
 impl RepositoryContainer {
     /// Create a new repository container with memory backend
     pub fn new_memory() -> Self {
@@ -433,6 +615,19 @@ impl RepositoryContainer {
             vital_signs: Arc::new(memory::MemoryVitalSignsRepository::new()),
             triage_assessments: Arc::new(memory::MemoryTriageAssessmentRepository::new()),
             access_logs: Arc::new(memory::MemoryAccessLogRepository::new()),
+            refill_requests: Arc::new(refill_requests::MemoryRefillRequestRepository::new()),
+            message_attachments: Arc::new(
+                message_attachments::MemoryMessageAttachmentRepository::new(),
+            ),
+            eob_documents: Arc::new(eob_documents::MemoryEobDocumentRepository::new()),
+            telehealth_recordings: Arc::new(
+                telehealth_recordings::MemoryTelehealthRecordingRepository::new(),
+            ),
+            care_relationships: Arc::new(
+                care_relationships::MemoryCareRelationshipRepository::new(),
+            ),
+            wards: Arc::new(wards::MemoryWardRepository::new()),
+            blood_units: Arc::new(blood_units::MemoryBloodUnitRepository::new()),
             guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
             emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
@@ -529,6 +724,8 @@ impl RepositoryContainer {
             // Phase 7 (Round 4): generic JSON-record feature domains (memory)
             language_preferences: Arc::new(memory::MemoryJsonRecordRepository::new()),
             provider_schedules: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            ems_runs: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            ems_run_events: Arc::new(memory::MemoryJsonRecordRepository::new()),
             eligibility_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
             satisfaction_surveys: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_sessions: Arc::new(memory::MemoryJsonRecordRepository::new()),
@@ -580,6 +777,7 @@ impl RepositoryContainer {
             family_history_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             user_setting_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
             used_emergency_tokens: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            research_export_runs: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
     }
 
@@ -620,6 +818,177 @@ impl RepositoryContainer {
         }
     }
 
+    /// Store a new refill request together with its audit row.
+    ///
+    /// `Duplicate` when the prescription already has an open request (the
+    /// database's partial unique index, mirrored in memory).
+    pub async fn create_refill_request(
+        &self,
+        request: refill_requests::RefillRequestEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<refill_requests::RefillRequestEntity> {
+        if let Some(pool) = &self.pool {
+            return create_refill_postgres(pool, &request, &audit).await;
+        }
+        let _guard = self.prescription_workflow_lock.lock().await;
+        let stored = self.refill_requests.create(request).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Receive a blood unit into stock, with its audit row.
+    /// `Duplicate` when the unit number is already on record.
+    pub async fn receive_blood_unit(
+        &self,
+        unit: blood_units::BloodUnitEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<blood_units::BloodUnitEntity> {
+        if let Some(pool) = &self.pool {
+            return receive_unit_postgres(pool, &unit, &audit).await;
+        }
+        let stored = self.blood_units.create(unit).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Apply a blood-unit transition with its audit row. `None` when the
+    /// unit was not in a state that allows it.
+    pub async fn transition_blood_unit(
+        &self,
+        id: &str,
+        transition: blood_units::UnitTransition,
+        at: chrono::DateTime<chrono::Utc>,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<Option<blood_units::BloodUnitEntity>> {
+        if let Some(pool) = &self.pool {
+            return transition_unit_postgres(pool, id, &transition, at, &audit).await;
+        }
+        let changed = self.blood_units.apply(id, &transition, at).await?;
+        if changed.is_some() {
+            self.access_logs.create(audit).await?;
+        }
+        Ok(changed)
+    }
+
+    /// Record a break-glass grant together with its audit row: a grant that
+    /// exists without its audit row would be unexplained chart access.
+    pub async fn create_break_glass_grant(
+        &self,
+        row: care_relationships::BreakGlassGrantEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<care_relationships::BreakGlassGrantEntity> {
+        if let Some(pool) = &self.pool {
+            return create_break_glass_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.care_relationships.create_break_glass(row).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Record a telehealth recording together with its audit row.
+    pub async fn create_telehealth_recording(
+        &self,
+        row: telehealth_recordings::TelehealthRecordingEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<telehealth_recordings::TelehealthRecordingEntity> {
+        if let Some(pool) = &self.pool {
+            return create_recording_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.telehealth_recordings.create(row).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Record an EOB document together with its audit row.
+    pub async fn create_eob_document(
+        &self,
+        row: eob_documents::EobDocumentEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<eob_documents::EobDocumentEntity> {
+        if let Some(pool) = &self.pool {
+            return create_eob_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.eob_documents.create(row).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Record a message attachment together with its audit row.
+    pub async fn create_message_attachment(
+        &self,
+        row: message_attachments::MessageAttachmentEntity,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<message_attachments::MessageAttachmentEntity> {
+        if let Some(pool) = &self.pool {
+            return create_attachment_postgres(pool, &row, &audit).await;
+        }
+        let stored = self.message_attachments.create(row).await?;
+        self.access_logs.create(audit).await?;
+        Ok(stored)
+    }
+
+    /// Deny or cancel an open refill request, with its audit row.
+    /// `None` when the request was not open (already decided or cancelled).
+    pub async fn close_refill_request(
+        &self,
+        closure: refill_requests::RefillClosure,
+        audit: AccessLogEntity,
+    ) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+        if let Some(pool) = &self.pool {
+            return close_refill_postgres(pool, &closure, &audit).await;
+        }
+        let _guard = self.prescription_workflow_lock.lock().await;
+        let closed = self.refill_requests.close_if_open(&closure).await?;
+        if closed.is_some() {
+            self.access_logs.create(audit).await?;
+        }
+        Ok(closed)
+    }
+
+    /// Approve an open refill request: new prescription, original decremented,
+    /// request closed and audited, all or nothing on PostgreSQL. `None` when
+    /// the request was not open or the original's refill count has moved.
+    pub async fn approve_refill_request(
+        &self,
+        approval: refill_requests::RefillApproval,
+    ) -> RepositoryResult<Option<refill_requests::RefillRequestEntity>> {
+        if let Some(pool) = &self.pool {
+            return approve_refill_postgres(pool, &approval).await;
+        }
+        // Same lock as every other prescription transition, so a dispense and
+        // an approval cannot interleave on the memory backend.
+        let _guard = self.prescription_workflow_lock.lock().await;
+        let still_open = self
+            .refill_requests
+            .get_by_id(&approval.closure.request_id)
+            .await?
+            .is_some_and(|request| request.status == "requested");
+        if !still_open {
+            return Ok(None);
+        }
+        let decremented = self
+            .e_prescriptions_v2
+            .replace_if_field_eq(
+                &approval.original_prescription_id,
+                "refills_remaining",
+                &approval.expected_refills_remaining,
+                approval.updated_original,
+            )
+            .await?;
+        if decremented.is_none() {
+            return Ok(None);
+        }
+        self.e_prescriptions_v2
+            .create(approval.new_prescription)
+            .await?;
+        let closed = self
+            .refill_requests
+            .close_if_open(&approval.closure)
+            .await?;
+        self.access_logs.create(approval.audit).await?;
+        Ok(closed)
+    }
+
     /// Persist a new patient and its NFC tag.
     ///
     /// On the PostgreSQL backend both rows are written inside a single
@@ -650,7 +1019,7 @@ impl RepositoryContainer {
              blood_type, phone_encrypted, email_encrypted, address_encrypted, \
              emergency_contact_name_encrypted, emergency_contact_phone_encrypted, \
              emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, \
-             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, \
+             registered_by, is_verified, is_active, profile_extras_encrypted, \
              name_search_tokens, key_version) ",
         );
         patient_q.push_values([&patient], |mut b, p| {
@@ -672,7 +1041,6 @@ impl RepositoryContainer {
                 .push_bind(p.organ_donor)
                 .push_bind(p.dnr_status)
                 .push_bind(&p.primary_provider_id)
-                .push_bind(&p.wallet_address)
                 .push_bind(&p.registered_by)
                 .push_bind(p.is_verified)
                 .push_bind(p.is_active)
@@ -765,7 +1133,7 @@ impl RepositoryContainer {
             "INSERT INTO access_logs (
                 id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
                 action, access_reason, is_emergency_access, ip_address, user_agent,
-                blockchain_tx_hash, accessed_at, facility_id
+                accessed_at, facility_id, authority_type, authority_id
             ) ",
         );
         qb.push_values([&log], |mut b, l| {
@@ -780,9 +1148,10 @@ impl RepositoryContainer {
                 .push_bind(l.is_emergency_access)
                 .push_bind(&l.ip_address)
                 .push_bind(&l.user_agent)
-                .push_bind(&l.blockchain_tx_hash)
                 .push_bind(l.accessed_at)
-                .push_bind(&l.facility_id);
+                .push_bind(&l.facility_id)
+                .push_bind(&l.authority_type)
+                .push_bind(&l.authority_id);
         });
         qb.build().execute(&mut *tx).await?;
 
@@ -925,6 +1294,21 @@ impl RepositoryContainer {
             vital_signs: Arc::new(postgres::PgVitalSignsRepository::new(pool.clone())),
             triage_assessments: Arc::new(postgres::PgTriageAssessmentRepository::new(pool.clone())),
             access_logs: Arc::new(postgres::PgAccessLogRepository::new(pool.clone())),
+            refill_requests: Arc::new(refill_requests::PgRefillRequestRepository::new(
+                pool.clone(),
+            )),
+            message_attachments: Arc::new(message_attachments::PgMessageAttachmentRepository::new(
+                pool.clone(),
+            )),
+            eob_documents: Arc::new(eob_documents::PgEobDocumentRepository::new(pool.clone())),
+            telehealth_recordings: Arc::new(
+                telehealth_recordings::PgTelehealthRecordingRepository::new(pool.clone()),
+            ),
+            care_relationships: Arc::new(care_relationships::PgCareRelationshipRepository::new(
+                pool.clone(),
+            )),
+            wards: Arc::new(wards::PgWardRepository::new(pool.clone())),
+            blood_units: Arc::new(blood_units::PgBloodUnitRepository::new(pool.clone())),
             guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
                 pool.clone(),
             )),
@@ -1057,6 +1441,8 @@ impl RepositoryContainer {
 
             // Phase 7 (Round 4): generic JSON-record feature domains (PostgreSQL)
             provider_schedules: Arc::new(postgres::PgProviderScheduleRepository::new(pool.clone())),
+            ems_runs: Arc::new(postgres::PgEmsRunRepository::new(pool.clone())),
+            ems_run_events: Arc::new(postgres::PgEmsRunEventRepository::new(pool.clone())),
             language_preferences: Arc::new(postgres::PgLanguagePreferenceRepository::new(
                 pool.clone(),
             )),
@@ -1141,6 +1527,9 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             used_emergency_tokens: Arc::new(postgres::PgUsedEmergencyTokenRepository::new(
+                pool.clone(),
+            )),
+            research_export_runs: Arc::new(postgres::PgResearchExportRunRepository::new(
                 pool.clone(),
             )),
 

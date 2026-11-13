@@ -1,0 +1,61 @@
+# Backups with pgBackRest (WP11). Layer this over the main stack:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.backup.yml up -d
+#
+# - Continuous WAL archiving from PostgreSQL into every configured repository,
+#   so a restore can reach any point in time, not only last night.
+# - Repository 1: local volume (fast restores). Repository 2: Azure Blob
+#   Storage, off-site. Both encrypted with AES-256 by pgBackRest before any
+#   byte leaves the database host, with passphrases from the environment.
+# - Nightly backups and the restore test are run by the scripts in
+#   scripts/backup/ (host cron); see docs/BACKUP_RESTORE_RUNBOOK.md.
+#
+# Required: PGBACKREST_REPO1_CIPHER_PASS. For off-site copies layer
+# docker-compose.backup-offsite.yml too, and run the nightly job with
+# PGBR_REPOS="1 2".
+
+services:
+  postgres:
+    build: ./docker/postgres
+    image: medichain/postgres-pgbackrest:16
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=medichain archive-push %p
+      # Close a WAL segment at least every 5 minutes, so a quiet database
+      # still archives recent changes and the loss window stays bounded.
+      - -c
+      - archive_timeout=300
+      - -c
+      - max_wal_senders=3
+    environment:
+      PGBACKREST_STANZA: medichain
+      PGBACKREST_PG1_PATH: /var/lib/postgresql/data/pgdata
+      PGBACKREST_PG1_USER: ${POSTGRES_USER:-medichain}
+      PGBACKREST_LOG_PATH: /var/log/pgbackrest
+      PGBACKREST_SPOOL_PATH: /var/spool/pgbackrest
+      PGBACKREST_ARCHIVE_ASYNC: "y"
+      PGBACKREST_PROCESS_MAX: "2"
+      PGBACKREST_COMPRESS_TYPE: zst
+      # Repository 1: local, encrypted. Four weekly fulls (and their
+      # differentials and WAL) are kept.
+      PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
+      PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
+      PGBACKREST_REPO1_CIPHER_PASS: ${PGBACKREST_REPO1_CIPHER_PASS:?set PGBACKREST_REPO1_CIPHER_PASS (openssl rand -base64 48)}
+      PGBACKREST_REPO1_RETENTION_FULL: "4"
+      # Repository 2 (off-site, Azure Blob Storage) is added by
+      # docker-compose.backup-offsite.yml. It is a separate file because
+      # pgBackRest refuses a repo2 variable that is present but empty.
+    volumes:
+      - pgbackrest_repo:/var/lib/pgbackrest
+      - pgbackrest_spool:/var/spool/pgbackrest
+
+volumes:
+  pgbackrest_repo:
+    driver: local
+  pgbackrest_spool:
+    driver: local

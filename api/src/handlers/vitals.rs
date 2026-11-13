@@ -16,9 +16,44 @@ pub struct AddVitalSignsRequest {
     pub temperature_celsius: Option<f32>,
     pub pain_scale: Option<u8>,
     pub gcs_total: Option<u8>,
-    pub blood_glucose: Option<u16>,
+    /// mmol/L.
+    pub blood_glucose: Option<f64>,
     pub weight_kg: Option<f32>,
     pub notes: Option<String>,
+    /// ACVPU; absent when not assessed (never assumed alert).
+    #[serde(default)]
+    pub consciousness: Option<crate::clinical_scoring::Acvpu>,
+    /// Supplemental oxygen (true) or room air (false); absent when not recorded.
+    #[serde(default)]
+    pub on_oxygen: Option<bool>,
+    /// Stable fixture key accepted only in explicit demo mode.
+    #[serde(default)]
+    pub demo_seed_key: Option<String>,
+    /// When the clinician says it was measured; absent means now (rule 9).
+    #[serde(default)]
+    pub taken_at: Option<chrono::DateTime<Utc>>,
+}
+
+impl AddVitalSignsRequest {
+    /// Return whether this request contains any measured observation; notes alone are not vitals.
+    fn has_measurement(&self) -> bool {
+        [
+            self.heart_rate.is_some(),
+            self.systolic_bp.is_some(),
+            self.diastolic_bp.is_some(),
+            self.respiratory_rate.is_some(),
+            self.oxygen_saturation.is_some(),
+            self.temperature_celsius.is_some(),
+            self.pain_scale.is_some(),
+            self.gcs_total.is_some(),
+            self.blood_glucose.is_some(),
+            self.weight_kg.is_some(),
+            self.consciousness.is_some(),
+            self.on_oxygen.is_some(),
+        ]
+        .into_iter()
+        .any(|present| present)
+    }
 }
 
 /// Response for vital signs reading
@@ -29,9 +64,14 @@ pub struct VitalSignsResponse {
     pub mean_arterial_pressure: Option<u16>,
     pub critical_alerts: Vec<String>,
     pub message: String,
+    /// Scored here, from what this reading recorded (rule 8).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub news2: Option<crate::clinical_scoring::News2Score>,
 }
 
-fn vital_reading_json(v: crate::repositories::traits::VitalSignsEntity) -> serde_json::Value {
+pub(crate) fn vital_reading_json(
+    v: crate::repositories::traits::VitalSignsEntity,
+) -> serde_json::Value {
     serde_json::json!({
         "reading_id": v.id,
         "timestamp": v.recorded_at.timestamp(),
@@ -47,6 +87,9 @@ fn vital_reading_json(v: crate::repositories::traits::VitalSignsEntity) -> serde
         "gcs_total": v.gcs_score,
         "blood_glucose": v.blood_glucose,
         "weight_kg": v.weight_kg,
+        "notes": v.notes,
+        "consciousness": v.consciousness,
+        "on_oxygen": on_oxygen_of(v.oxygen_delivery.as_deref()),
     })
 }
 
@@ -62,7 +105,7 @@ pub async fn add_vital_signs(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -85,6 +128,13 @@ pub async fn add_vital_signs(
                 current_user.role
             ),
             code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    if !req.has_measurement() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Enter at least one measured vital sign before saving".to_string(),
+            code: "VITAL_MEASUREMENT_REQUIRED".to_string(),
         });
     }
 
@@ -118,20 +168,63 @@ pub async fn add_vital_signs(
         }
     }
 
-    // Generate reading ID
-    let reading_id = format!(
-        "VS-{}",
-        Uuid::new_v4()
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("000")
-    );
+    if let Some(glucose) = req.blood_glucose {
+        if crate::clinical_scoring::glucose_looks_like_mg_dl(glucose) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: format!(
+                    "A blood glucose of {glucose} mmol/L is not plausible; enter it in mmol/L, not mg/dL"
+                ),
+                code: "GLUCOSE_UNIT_SUSPECT".to_string(),
+            });
+        }
+    }
+
+    let reading_id = match req.demo_seed_key.as_deref() {
+        Some(key) => {
+            if !crate::support::is_demo_mode()
+                || key.len() != 3
+                || !key.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    error: "Deterministic demo vital signs are disabled in this deployment."
+                        .to_string(),
+                    code: "DEMO_SEED_DISABLED".to_string(),
+                });
+            }
+            let id = format!("VS-DEMO-{key}");
+            if data.repositories.vital_signs.get_by_id(&id).await.is_ok() {
+                return HttpResponse::Ok().json(VitalSignsResponse {
+                    success: true,
+                    reading_id: id,
+                    mean_arterial_pressure: None,
+                    critical_alerts: Vec::new(),
+                    message: "Deterministic demo vital signs already exist.".to_string(),
+                    news2: None,
+                });
+            }
+            id
+        }
+        None => format!(
+            "VS-{}",
+            Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("000")
+        ),
+    };
+
+    // When it was measured: the time the clinician entered, or for a reading
+    // sent late from a device without signal, the time it was written.
+    let measured_at = match crate::support::stated_clinical_time(&http_req, req.taken_at) {
+        Ok(time) => time,
+        Err(refused) => return refused,
+    };
 
     // Create vital signs reading
     let reading = VitalSignsReading {
         reading_id: reading_id.clone(),
-        timestamp: Utc::now().timestamp(),
+        timestamp: measured_at.timestamp(),
         heart_rate: req.heart_rate,
         systolic_bp: req.systolic_bp,
         diastolic_bp: req.diastolic_bp,
@@ -144,7 +237,12 @@ pub async fn add_vital_signs(
     };
 
     let map = reading.calculate_map();
-    let critical_alerts = reading.has_critical_values();
+    let mut critical_alerts = reading.has_critical_values();
+    // Glucose is not part of `VitalSignsReading`, so its band is checked here.
+    // It was checked nowhere: a critical glucose raised no alert at all.
+    if let Some(glucose) = req.blood_glucose {
+        critical_alerts.extend(crate::clinical_scoring::glucose_alerts(glucose));
+    }
     let has_critical = !critical_alerts.is_empty();
 
     // CDS: evaluate the full rules engine (sepsis/qSOFA, shock, hypertensive crisis,
@@ -170,8 +268,10 @@ pub async fn add_vital_signs(
         let mut entity: crate::repositories::traits::VitalSignsEntity =
             (req.patient_id.clone(), reading).into();
         entity.gcs_score = req.gcs_total.map(i32::from);
-        entity.blood_glucose = req.blood_glucose.map(i32::from);
+        entity.blood_glucose = req.blood_glucose;
         entity.weight_kg = req.weight_kg.map(f64::from);
+        entity.consciousness = req.consciousness.map(|c| c.as_str().to_string());
+        entity.oxygen_delivery = req.on_oxygen.map(|o| oxygen_delivery_of(o).to_string());
         if let Err(e) = data.repositories.vital_signs.create(entity).await {
             log::error!("Vital signs persistence failed: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -225,6 +325,83 @@ pub async fn add_vital_signs(
         } else {
             "Vital signs recorded successfully".to_string()
         },
+        news2: Some(news2_of(&req)),
+    })
+}
+
+/// What `oxygen_delivery` holds for room air and for supplemental oxygen.
+fn oxygen_delivery_of(on_oxygen: bool) -> &'static str {
+    if on_oxygen {
+        "supplemental_oxygen"
+    } else {
+        "room_air"
+    }
+}
+
+/// Whether a stored reading was on oxygen; `None` for anything this form did not write.
+fn on_oxygen_of(delivery: Option<&str>) -> Option<bool> {
+    match delivery {
+        Some("supplemental_oxygen") => Some(true),
+        Some("room_air") => Some(false),
+        _ => None,
+    }
+}
+
+/// NEWS2 for a reading as it was submitted.
+fn news2_of(req: &AddVitalSignsRequest) -> crate::clinical_scoring::News2Score {
+    crate::clinical_scoring::news2_score(&crate::clinical_scoring::News2Inputs {
+        respiratory_rate: req.respiratory_rate.map(i32::from),
+        oxygen_saturation: req.oxygen_saturation.map(i32::from),
+        on_oxygen: req.on_oxygen,
+        systolic_bp: req.systolic_bp.map(i32::from),
+        heart_rate: req.heart_rate.map(i32::from),
+        consciousness: req.consciousness,
+        temperature_celsius: req.temperature_celsius.map(f64::from),
+    })
+}
+
+/// NEWS2 for observations not yet saved: the vitals form's live score (mockup
+/// c3). Pure arithmetic over the request -- nothing is read or stored, so no
+/// patient is named -- but only clinical staff may ask, like the form itself.
+#[post("/api/clinical/scoring/news2")]
+pub async fn preview_news2(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<crate::clinical_scoring::News2Inputs>,
+) -> impl Responder {
+    let caller = get_current_user_id(&http_req).and_then(|id| get_user(&data, &id));
+    match caller {
+        Some(user) if user.role.can_edit_medical_records() => {
+            HttpResponse::Ok().json(crate::clinical_scoring::news2_score(&body))
+        }
+        Some(_) => HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only clinical staff can score observations".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }),
+        None => HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        }),
+    }
+}
+
+/// Response when vital signs cannot be read.
+///
+/// These endpoints used to answer `200` with an empty list on a storage error,
+/// which tells a nurse "no vitals recorded" -- a clinically false statement --
+/// and, with disclosure auditing, would log a read that disclosed nothing.
+///
+/// # Parameters
+/// * `patient_id` - the patient whose vitals were requested (logged, not returned).
+/// * `error` - the repository error text (logged only, never sent to the client).
+///
+/// # Returns
+/// A 503 with a user-safe message.
+fn vitals_unavailable(patient_id: &str, error: &str) -> HttpResponse {
+    log::error!("Vital signs read failed for patient {patient_id}: {error}");
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        error: "Vital signs are temporarily unavailable. Please try again.".to_string(),
+        code: "VITALS_UNAVAILABLE".to_string(),
     })
 }
 
@@ -241,7 +418,7 @@ pub async fn get_patient_vitals(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -282,12 +459,7 @@ pub async fn get_patient_vitals(
                 "critical_alerts": []
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "patient_id": patient_id,
-            "readings": [],
-            "total": 0,
-            "critical_alerts": []
-        })),
+        Err(error) => vitals_unavailable(&patient_id, &error.to_string()),
     }
 }
 
@@ -304,7 +476,7 @@ pub async fn get_vitals_flowsheet(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -345,12 +517,7 @@ pub async fn get_vitals_flowsheet(
                 "critical_alerts": []
             }))
         }
-        Err(_) => HttpResponse::Ok().json(serde_json::json!({
-            "patient_id": patient_id,
-            "readings": [],
-            "total": 0,
-            "critical_alerts": []
-        })),
+        Err(error) => vitals_unavailable(&patient_id, &error.to_string()),
     }
 }
 
@@ -367,7 +534,7 @@ pub async fn get_patient_latest_vitals(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header".to_string(),
+                error: "Authentication required".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -412,7 +579,10 @@ pub async fn get_patient_latest_vitals(
                 pain_scale: vitals.pain_scale.map(|val| val as u8),
                 notes: None,
             };
-            let alerts = reading.has_critical_values();
+            let mut alerts = reading.has_critical_values();
+            if let Some(glucose) = vitals.blood_glucose {
+                alerts.extend(crate::clinical_scoring::glucose_alerts(glucose));
+            }
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
                 "reading": reading,
@@ -482,7 +652,7 @@ mod cds_wiring_tests {
 
     fn test_doctor() -> User {
         User {
-            wallet_address: "doctor_wallet".to_string(),
+            id: "doctor_user".to_string(),
             username: None,
             name: "Dr. Test".to_string(),
             role: Role::Doctor,
@@ -497,6 +667,218 @@ mod cds_wiring_tests {
             status: "active".to_string(),
             last_login: None,
         }
+    }
+
+    /// Empty or notes-only submissions never create a reading; explicit zero remains measured.
+    #[actix_web::test]
+    async fn empty_vitals_are_refused_but_zero_pain_is_recorded() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-VITAL-PRESENCE";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
+        let data = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(add_vital_signs)).await;
+        for payload in [
+            serde_json::json!({"patient_id": patient_id}),
+            serde_json::json!({"patient_id": patient_id, "notes": "Synthetic note only"}),
+        ] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/vitals")
+                    .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                    .set_json(payload)
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+            assert!(data
+                .repositories
+                .vital_signs
+                .get_latest_by_patient(patient_id)
+                .await
+                .unwrap()
+                .is_none());
+        }
+        let response = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/vitals")
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
+            .set_json(serde_json::json!({"patient_id": patient_id, "pain_scale": 0, "notes": "Synthetic measured observation"}))
+            .to_request()).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+        let stored = data
+            .repositories
+            .vital_signs
+            .get_latest_by_patient(patient_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.pain_scale, Some(0));
+        assert!(stored.heart_rate.is_none());
+        assert!(stored.temperature.is_none());
+        assert_eq!(
+            stored.notes.as_deref(),
+            Some("Synthetic measured observation")
+        );
+        assert_eq!(
+            vital_reading_json(stored)["notes"],
+            "Synthetic measured observation"
+        );
+    }
+
+    /// Alertness and breathing support are stored, and the save answers with
+    /// the server's NEWS2 for exactly what was recorded (mockup c3).
+    #[actix_web::test]
+    async fn a_saved_reading_stores_acvpu_and_oxygen_and_returns_news2() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-NEWS2";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(add_vital_signs)
+                .service(preview_news2),
+        )
+        .await;
+        let body = serde_json::json!({"patient_id": patient_id, "systolic_bp": 148, "diastolic_bp": 92,
+            "heart_rate": 104, "respiratory_rate": 20, "consciousness": "new_confusion", "on_oxygen": true});
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/vitals")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+        let saved: serde_json::Value = test::read_body_json(response).await;
+        // Pulse 104 (1) + confusion (3) + oxygen (2) = 6, five of seven recorded.
+        assert_eq!(saved["news2"]["total"], 6);
+        assert_eq!(saved["news2"]["parameters_measured"], 5);
+        assert_eq!(saved["news2"]["complete"], false);
+        let stored = data
+            .repositories
+            .vital_signs
+            .get_latest_by_patient(patient_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.consciousness.as_deref(), Some("new_confusion"));
+        assert_eq!(
+            stored.oxygen_delivery.as_deref(),
+            Some("supplemental_oxygen")
+        );
+        assert_eq!(vital_reading_json(stored)["on_oxygen"], true);
+
+        // The live preview: same arithmetic, nothing stored.
+        let preview = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/scoring/news2")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(serde_json::json!({"respiratory_rate": 26}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(preview.status(), actix_web::http::StatusCode::OK);
+        let scored: serde_json::Value = test::read_body_json(preview).await;
+        assert_eq!(
+            (scored["total"].as_u64(), scored["band"].as_str()),
+            (Some(3), Some("low_medium"))
+        );
+        let anonymous = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/scoring/news2")
+                .set_json(serde_json::json!({}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(
+            anonymous.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
+    }
+
+    /// A recorded GCS preserves its explicit note along with all scored components.
+    #[actix_web::test]
+    async fn gcs_notes_survive_handler_persistence() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-GCS-NOTES";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
+        let data = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(data.clone())
+                .service(crate::create_gcs_assessment),
+        )
+        .await;
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/gcs")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(
+                    serde_json::json!({"patient_id": patient_id, "eye_response": 4,
+                "verbal_response": 5, "motor_response": 6, "notes": "Synthetic GCS note retained"}),
+                )
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::CREATED);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        let stored = data
+            .repositories
+            .gcs_assessments
+            .get_by_id(body["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(stored.total_score, 15);
+        assert_eq!(stored.notes.as_deref(), Some("Synthetic GCS note retained"));
     }
 
     /// A pressure entered the wrong way round is refused, and nothing is stored.
@@ -518,7 +900,7 @@ mod cds_wiring_tests {
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), test_doctor());
+            .insert("doctor_user".to_string(), test_doctor());
         let app_state = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -531,7 +913,7 @@ mod cds_wiring_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/vitals")
-                .insert_header(("x-user-id", "doctor_wallet"))
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
                 .set_json(serde_json::json!({
                     "patient_id": patient_id,
                     "systolic_bp": 80,
@@ -551,6 +933,56 @@ mod cds_wiring_tests {
             .await
             .unwrap();
         assert!(stored.is_none(), "a refused reading was stored");
+    }
+
+    /// Glucose is in mmol/L. A value typed in mg/dL from habit is refused, and a
+    /// critical one now raises an alert -- it raised none in any unit.
+    #[actix_web::test]
+    async fn glucose_is_mmol_l_a_mg_dl_value_is_refused_and_a_low_one_alerts() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-GLUCOSE";
+        let profile = test_patient(patient_id, Vec::new(), Vec::new());
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_user".to_string(), test_doctor());
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(add_vital_signs),
+        )
+        .await;
+        let post = |glucose: f64| {
+            test::TestRequest::post()
+                .uri("/api/clinical/vitals")
+                .insert_header(crate::test_fixtures::as_user("doctor_user"))
+                .set_json(serde_json::json!({ "patient_id": patient_id, "blood_glucose": glucose }))
+                .to_request()
+        };
+
+        let refused = test::call_service(&app, post(110.0)).await;
+        assert_eq!(refused.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = test::read_body_json(refused).await;
+        assert_eq!(body["error"]["code"], "GLUCOSE_UNIT_SUSPECT", "{body}");
+
+        let low: serde_json::Value = test::call_and_read_body_json(&app, post(2.1)).await;
+        assert!(
+            low["critical_alerts"].to_string().contains("Hypoglycaemia"),
+            "{low}"
+        );
+
+        let normal: serde_json::Value = test::call_and_read_body_json(&app, post(5.4)).await;
+        assert_eq!(normal["critical_alerts"], serde_json::json!([]), "{normal}");
     }
 
     /// Recording vital signs for a patient with a documented renal condition and an
@@ -579,7 +1011,7 @@ mod cds_wiring_tests {
             .users
             .write()
             .unwrap()
-            .insert("doctor_wallet".to_string(), test_doctor());
+            .insert("doctor_user".to_string(), test_doctor());
 
         let app_state = web::Data::new(state);
         let app = test::init_service(
@@ -591,7 +1023,7 @@ mod cds_wiring_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/clinical/vitals")
-            .insert_header(("x-user-id", "doctor_wallet"))
+            .insert_header(crate::test_fixtures::as_user("doctor_user"))
             .set_json(serde_json::json!({
                 "patient_id": patient_id,
                 "heart_rate": 80,

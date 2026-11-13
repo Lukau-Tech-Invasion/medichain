@@ -18,6 +18,8 @@
  * interface without fabricating unverified nested field shapes.
  */
 
+import type { AuditSealSummary } from './index';
+
 // ============================================================================
 // Emergency Protocols
 // ============================================================================
@@ -208,24 +210,29 @@ export interface DischargeSummary {
   signature_time: number | null;
 }
 
-export interface AMADischarge {
-  ama_id: string;
+/**
+ * One row of `GET /api/platform/list/ama-discharges` -- the Rust
+ * `AmaRegisterRow`. Absent text is `null`, never an empty placeholder.
+ */
+export interface AmaRegisterRow {
+  id: string;
   patient_id: string;
-  recommended_treatment: string;
-  risks_explained: string[];
-  potential_consequences: string[];
-  patient_understands: boolean;
-  patient_competent: boolean;
-  capacity_assessment: boolean;
+  /** RFC 3339. */
+  created_at: string;
+  discharge_datetime: string;
+  attending_physician_id: string;
+  diagnosis: string | null;
+  recommended_treatment: string | null;
+  patient_statement: string | null;
+  risk_level: string | null;
+  /** Signatures are taken after filing; `completed` once they are. */
+  status: 'pending-signatures' | 'completed';
   patient_signed: boolean;
-  signature_refused: boolean;
-  witness: string;
-  physician: string;
-  follow_up_offered: boolean;
-  prescriptions_offered: boolean;
-  ama_time: number;
-  documentation_time: number;
-  documented_by: string;
+  signature_refused_reason: string | null;
+  signatures_collected_at: string | null;
+  witness_name: string | null;
+  witness_signed: boolean;
+  provider_attested: boolean;
 }
 
 export interface HistoryAndPhysical {
@@ -328,8 +335,14 @@ export interface FamilyMedicalHistory {
 }
 
 export interface FamilyHistoryMember {
+  member_id?: string | null;
+  name?: string | null;
+  notes?: string | null;
+  consanguineous?: boolean | null;
+  recorded_by?: string | null;
+  recorded_at?: number | null;
   relationship: string;
-  living: boolean;
+  living: boolean | null;
   current_age: number | null;
   age_at_death: number | null;
   cause_of_death: string | null;
@@ -340,6 +353,8 @@ export interface FamilyHistoryCondition {
   condition: string;
   age_at_diagnosis: number | null;
   notes: string | null;
+  category?: string | null;
+  severity?: string | null;
 }
 
 export interface GeneticCondition {
@@ -359,7 +374,7 @@ export interface ElectronicPrescription {
   patient_id: string;
   prescriber_id: string;
   prescriber_name: string;
-  prescriber_npi: string;
+  prescriber_npi: string | null;
   prescriber_dea: string | null;
   medication: {
     rxcui: string | null;
@@ -374,7 +389,8 @@ export interface ElectronicPrescription {
     directions: string;
     daw_code: number;
   };
-  pharmacy: Record<string, unknown>;
+  /** Only when the prescriber named one. */
+  pharmacy: Record<string, unknown> | null;
   status: string;
   created_at: number;
   signed_at: number | null;
@@ -780,7 +796,7 @@ export interface DashboardMetricsResponse {
     uptime_seconds: number | null;
     total_requests: number;
     server_errors: number;
-    blockchain_status: string;
+    audit_seal?: AuditSealSummary;
   };
 }
 
@@ -797,12 +813,13 @@ export interface QualityMetricsResponse {
   clinical_alerts_total: number;
   critical_alerts: number;
   /**
-   * Percentage of access-log entries carrying a blockchain anchor. Null while
+   * Percentage of access-log entries already in a sealed batch. Null while
    * there are no entries to measure.
    */
   audit_logs_coverage: number | null;
   audit_entries_total: number;
-  audit_entries_anchored: number;
+  /** Sealing state of the audit stream, as the health endpoint reports it. */
+  audit_seal?: AuditSealSummary;
   /**
    * Always null. A compliance score is a reviewed assessment against a control
    * framework, not something this endpoint derives; publishing a computed

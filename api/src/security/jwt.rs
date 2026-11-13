@@ -1,14 +1,13 @@
 //! JWT issuance and verification (Phase 9.4).
 //!
-//! MediChain authenticates wallets by sr25519 challenge-response. After a wallet
-//! proves ownership (see [`crate::middleware::signature_auth`]), the server issues
-//! a short-lived **access** JWT plus a longer-lived **refresh** JWT. The access
-//! token carries the wallet address (`sub`), role, and whether MFA has been
-//! satisfied this session (`mfa`).
+//! After a person proves a password (and, when enrolled, a TOTP code) the server
+//! issues a short-lived **access** JWT plus a longer-lived **refresh** JWT. The
+//! access token carries the user's id (`sub` = `users.id`), role, and whether MFA
+//! has been satisfied this session (`mfa`).
 //!
-//! This is *additive*: [`crate::support::get_current_user_id`] accepts either a
-//! `Authorization: Bearer <jwt>` header or the legacy `X-User-Id` header, so no
-//! existing handler needs to change to gain JWT support.
+//! The verified `sub` is the only identity a handler sees:
+//! [`crate::support::get_current_user_id`] reads it from the `Authorization:
+//! Bearer <jwt>` header and from nowhere else.
 //!
 //! The signing secret comes from `JWT_SECRET` (falling back to `SESSION_SECRET`,
 //! then a clearly-marked dev default). `validate_production_secrets()` at startup
@@ -38,7 +37,7 @@ pub struct Claims {
     /// Trusted token issuer and intended audience.
     pub iss: String,
     pub aud: String,
-    /// Subject — the SS58 wallet address.
+    /// Subject: `users.id`.
     pub sub: String,
     /// Role string (e.g. "Doctor"); informational, RBAC still re-checks server-side.
     pub role: String,
@@ -89,9 +88,23 @@ fn jwt_secret() -> String {
         .unwrap_or_else(|_| "medichain-dev-secret-change-in-production".to_string())
 }
 
+/// A 32-byte key derived from the signing secret for one named purpose.
+///
+/// Lets another module keep a keyed digest (one-time credential codes) without
+/// holding the secret itself or sharing a key with the token signature. The
+/// purpose string separates the domains: a key derived for one purpose is no use
+/// for another.
+pub fn derived_key(purpose: &str) -> [u8; 32] {
+    let mut material = Vec::with_capacity(purpose.len() + 1 + 64);
+    material.extend_from_slice(purpose.as_bytes());
+    material.push(0);
+    material.extend_from_slice(jwt_secret().as_bytes());
+    medichain_crypto::sha256(&material)
+}
+
 /// Issue a signed token of the given type.
 fn issue(
-    wallet: &str,
+    user_id: &str,
     role: &str,
     mfa: bool,
     typ: &str,
@@ -102,7 +115,7 @@ fn issue(
     let claims = Claims {
         iss: JWT_ISSUER.to_string(),
         aud: JWT_AUDIENCE.to_string(),
-        sub: wallet.to_string(),
+        sub: user_id.to_string(),
         role: role.to_string(),
         context: None,
         patient_profile_id: None,
@@ -137,7 +150,7 @@ pub fn issue_context_access_token(
     let claims = Claims {
         iss: JWT_ISSUER.to_string(),
         aud: JWT_AUDIENCE.to_string(),
-        sub: context.wallet_address.clone(),
+        sub: context.user_id.clone(),
         role: context.role.clone().unwrap_or_default(),
         context: Some(
             match context.context_type {
@@ -172,13 +185,13 @@ pub fn issue_context_access_token(
 /// already be persisted: a token is never returned for a session that failed to
 /// persist, so the caller creates the session first and mints afterwards.
 pub fn issue_access_token(
-    wallet: &str,
+    user_id: &str,
     role: &str,
     mfa: bool,
     session_id: Option<&str>,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     issue(
-        wallet,
+        user_id,
         role,
         mfa,
         TYP_ACCESS,
@@ -193,11 +206,11 @@ pub fn issue_access_token(
 /// session it belongs to is resolved from the stored generation row rather than
 /// from a claim the holder presents.
 pub fn issue_refresh_token(
-    wallet: &str,
+    user_id: &str,
     role: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     issue(
-        wallet,
+        user_id,
         role,
         false,
         TYP_REFRESH,
@@ -225,11 +238,11 @@ pub fn decode_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> 
     Ok(data.claims)
 }
 
-/// Extract the verified wallet address from an `Authorization: Bearer <jwt>` header.
+/// Extract the verified claims from an `Authorization: Bearer <jwt>` header.
 ///
 /// Returns `None` when the header is absent, not a Bearer scheme, or fails to
-/// decode as a valid **access** token (e.g. it is a legacy session token, an
-/// expired token, or a refresh token). Callers fall back to `X-User-Id`.
+/// decode as a valid **access** token (an expired token, a refresh token, a bad
+/// signature). There is no fallback: no token means no identity.
 pub fn bearer_access_subject(auth_header: &str) -> Option<Claims> {
     let token = auth_header.strip_prefix("Bearer ")?.trim();
     let claims = decode_token(token).ok()?;
@@ -243,20 +256,13 @@ pub fn bearer_access_subject(auth_header: &str) -> Option<Claims> {
 mod tests {
     use super::*;
 
+    const USER: &str = "2f2fcb92-96d9-4c87-ad01-aa5f1488da52";
+
     #[test]
     fn access_token_round_trips() {
-        let t = issue_access_token(
-            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-            "Doctor",
-            true,
-            None,
-        )
-        .unwrap();
+        let t = issue_access_token(USER, "Doctor", true, None).unwrap();
         let claims = decode_token(&t).unwrap();
-        assert_eq!(
-            claims.sub,
-            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-        );
+        assert_eq!(claims.sub, USER);
         assert_eq!(claims.role, "Doctor");
         assert!(claims.mfa);
         assert_eq!(claims.typ, TYP_ACCESS);
@@ -267,24 +273,22 @@ mod tests {
 
     #[test]
     fn refresh_token_is_not_accepted_as_access() {
-        let t = issue_refresh_token("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", "Nurse")
-            .unwrap();
+        let t = issue_refresh_token(USER, "Nurse").unwrap();
         let header = format!("Bearer {}", t);
         assert!(bearer_access_subject(&header).is_none());
     }
 
     #[test]
     fn tampered_token_is_rejected() {
-        let mut t = issue_access_token("5Grw", "Admin", false, None).unwrap();
+        let mut t = issue_access_token(USER, "Admin", false, None).unwrap();
         t.push('x');
         assert!(decode_token(&t).is_err());
     }
 
     #[test]
-    fn bearer_subject_extracts_wallet() {
-        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-        let t = issue_access_token(wallet, "Patient", false, None).unwrap();
+    fn bearer_subject_extracts_the_user_id() {
+        let t = issue_access_token(USER, "Patient", false, None).unwrap();
         let claims = bearer_access_subject(&format!("Bearer {}", t)).unwrap();
-        assert_eq!(claims.sub, wallet);
+        assert_eq!(claims.sub, USER);
     }
 }

@@ -45,14 +45,28 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
 
     let mut notifications = Vec::new();
 
-    // For doctors/nurses/admins - check for critical values
-    if current_user.role.can_view_medical_records() {
+    // Clinicians: alerts about the patients they are treating. This used to be
+    // the whole hospital's critical values and code blues, shown to every
+    // clinician and to the administrator, whose role does no bedside care.
+    if current_user.role.can_view_medical_records() && !current_user.role.is_admin() {
+        let mut treating = TreatingCache::default();
         // Via repository (was: in-memory data.critical_values HashMap)
         let critical_values = required_worklist_read!(
             data.repositories.critical_values.list_all().await,
             "critical-value notification"
         );
-        for cv in critical_values.iter().take(5) {
+        let mut mine = Vec::new();
+        for cv in critical_values {
+            if mine.len() == 5 {
+                break;
+            }
+            match treating.check(&data, &current_user, &cv.patient_id).await {
+                Ok(true) => mine.push(cv),
+                Ok(false) => {}
+                Err(response) => return response,
+            }
+        }
+        for cv in mine.iter() {
             notifications.push(serde_json::json!({
                 "id": cv.id,
                 "type": "critical_value",
@@ -63,8 +77,8 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
             }));
         }
 
-        // Check for pending lab approvals (doctors only)
-        if matches!(current_user.role, crate::Role::Doctor | crate::Role::Admin) {
+        // Pending lab approvals: the doctors' review queue.
+        if matches!(current_user.role, crate::Role::Doctor) {
             let pending: Vec<crate::LabResultSubmission> = required_worklist_read!(
                 data.repositories.lab_result_submissions.list_all().await,
                 "pending lab notification"
@@ -90,7 +104,18 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
             data.repositories.code_blue.list_all().await,
             "code-blue notification"
         );
-        for cb in code_blues.iter().take(3) {
+        let mut mine = Vec::new();
+        for cb in code_blues {
+            if mine.len() == 3 {
+                break;
+            }
+            match treating.check(&data, &current_user, &cb.patient_id).await {
+                Ok(true) => mine.push(cb),
+                Ok(false) => {}
+                Err(response) => return response,
+            }
+        }
+        for cb in mine.iter() {
             notifications.push(serde_json::json!({
                 "id": cb.id,
                 "type": "code_blue",
@@ -149,13 +174,29 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
     // reading could clear, and the screen behind it did not exist (the header
     // navigated to `/notifications`, which no route served, so the router's
     // catch-all bounced the click to the dashboard).
-    let read_at = match notifications_read_at(&data, &current_user_id).await {
-        Ok(value) => value,
+    //
+    // Reading one now moves it to History by itself, and removing one takes it
+    // off this person's screen (see `notification_state`).
+    let state = match super::notification_state::load_state(&data, &current_user_id).await {
+        Ok(state) => state,
         Err(response) => return response,
     };
+    let notifications: Vec<serde_json::Value> = notifications
+        .into_iter()
+        .filter(|entry| !state.is_removed(entry))
+        .map(|mut entry| {
+            let read = state.is_read(&entry);
+            let key = super::notification_state::notification_key(&entry);
+            if let Some(fields) = entry.as_object_mut() {
+                fields.insert("read".to_string(), serde_json::Value::Bool(read));
+                fields.insert("key".to_string(), serde_json::json!(key));
+            }
+            entry
+        })
+        .collect();
     let unread = notifications
         .iter()
-        .filter(|entry| entry_is_unread(entry, read_at))
+        .filter(|entry| entry["read"] == serde_json::Value::Bool(false))
         .count();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -163,46 +204,36 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
         "notifications": notifications,
         "count": notifications.len(),
         "unread_count": unread,
-        "read_at": read_at,
+        "read_at": state.read_at,
     }))
 }
 
-/// Is this entry newer than the caller's read marker?
-///
-/// An entry with no timestamp is treated as unread: the alternative is hiding
-/// something because its time could not be established.
-fn entry_is_unread(entry: &serde_json::Value, read_at: i64) -> bool {
-    entry
-        .get("timestamp")
-        .and_then(serde_json::Value::as_i64)
-        .map(|stamp| stamp > read_at)
-        .unwrap_or(true)
-}
+/// "Is this clinician treating this patient?", asked once per patient per
+/// request: the lists above repeat patients, and each answer is a chart check.
+#[derive(Default)]
+struct TreatingCache(std::collections::HashMap<String, bool>);
 
-/// When this user last marked their notifications read. `0` means never.
-async fn notifications_read_at(
-    data: &web::Data<AppState>,
-    user_id: &str,
-) -> Result<i64, HttpResponse> {
-    match data
-        .repositories
-        .notification_reads
-        .get_by_id(user_id)
-        .await
-    {
-        Ok(Some(record)) => Ok(record
-            .data
-            .get("read_at")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0)),
-        Ok(None) => Ok(0),
-        Err(error) => {
-            log::error!("notification read marker load failed: {error}");
-            Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Notifications are temporarily unavailable".to_string(),
-                code: "NOTIFICATION_READ_STATE_UNAVAILABLE".to_string(),
-            }))
+impl TreatingCache {
+    async fn check(
+        &mut self,
+        data: &web::Data<AppState>,
+        clinician: &crate::User,
+        patient_id: &str,
+    ) -> Result<bool, HttpResponse> {
+        if let Some(answer) = self.0.get(patient_id) {
+            return Ok(*answer);
         }
+        let answer = crate::care_access::treats_patient(data, clinician, patient_id)
+            .await
+            .map_err(|error| {
+                log::error!("notification chart check failed: {}", error.0);
+                HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Clinical worklist data is temporarily unavailable".to_string(),
+                    code: "WORKLIST_DATA_UNAVAILABLE".to_string(),
+                })
+            })?;
+        self.0.insert(patient_id.to_string(), answer);
+        Ok(answer)
     }
 }
 
@@ -232,26 +263,20 @@ pub async fn mark_notifications_read(
             code: "USER_NOT_FOUND".to_string(),
         });
     }
-    let now = chrono::Utc::now();
-    let record = crate::repositories::traits::JsonRecordEntity {
-        id: current_user_id.clone(),
-        owner_id: current_user_id,
-        data: serde_json::json!({ "read_at": now.timestamp() }),
-        created_at: now,
-        updated_at: now,
+    // Keep the per-notification marks: overwriting the record with only
+    // `read_at` would bring back everything this person had removed.
+    let mut state = match super::notification_state::load_state(&data, &current_user_id).await {
+        Ok(state) => state,
+        Err(response) => return response,
     };
-    match data.repositories.notification_reads.create(record).await {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+    let now = chrono::Utc::now().timestamp();
+    state.read_at = now;
+    match super::notification_state::save_state(&data, &current_user_id, &state).await {
+        Ok(()) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
-            "read_at": now.timestamp(),
+            "read_at": now,
         })),
-        Err(error) => {
-            log::error!("notification read marker write failed: {error}");
-            HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "The notifications could not be marked read".to_string(),
-                code: "NOTIFICATION_READ_STATE_UNAVAILABLE".to_string(),
-            })
-        }
+        Err(response) => response,
     }
 }
 
@@ -304,7 +329,7 @@ mod notification_read_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/notifications")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
@@ -314,7 +339,7 @@ mod notification_read_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/notifications/read")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
@@ -324,12 +349,197 @@ mod notification_read_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/notifications")
-                .insert_header(("x-user-id", "doctor_a"))
+                .insert_header(crate::test_fixtures::as_user("doctor_a"))
                 .to_request(),
         )
         .await;
         assert_eq!(after["unread_count"], 0, "{after}");
         assert_eq!(after["count"], 1, "the entry is read, not deleted");
+    }
+
+    /// A critical value reaches the clinician treating that patient, not every
+    /// clinician in the hospital and not the administrator.
+    #[actix_web::test]
+    async fn a_critical_value_reaches_the_patients_clinician_only() {
+        let state = AppState::new();
+        for (id, role) in [
+            ("doctor_treating", crate::Role::Doctor),
+            ("doctor_other", crate::Role::Doctor),
+            ("admin_a", crate::Role::Admin),
+        ] {
+            register(&state, id, role);
+        }
+        for patient in ["PAT-1", "PAT-2"] {
+            state
+                .repositories
+                .critical_values
+                .create(crate::repositories::traits::CriticalValueEntity {
+                    id: format!("CV-{patient}"),
+                    patient_id: patient.to_string(),
+                    test_code: "K".to_string(),
+                    test_name: format!("Potassium {patient}"),
+                    unit: "mmol/L".to_string(),
+                    severity: "critical".to_string(),
+                    reported_by: "lab_a".to_string(),
+                    created_at: chrono::Utc::now(),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        crate::care_access::record_encounter(
+            &state,
+            "PAT-1",
+            "doctor_treating",
+            "APPT-1",
+            chrono::Utc::now(),
+        )
+        .await;
+        let state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(get_notifications),
+        )
+        .await;
+        let titles = |body: serde_json::Value| -> Vec<String> {
+            body["notifications"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|n| n["title"].as_str().map(str::to_string))
+                .collect()
+        };
+        let read = |user: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/notifications")
+                .insert_header(crate::test_fixtures::as_user(user))
+                .to_request()
+        };
+
+        let treating = titles(test::call_and_read_body_json(&app, read("doctor_treating")).await);
+        assert!(
+            treating.iter().any(|t| t.contains("Potassium PAT-1")),
+            "{treating:?}"
+        );
+        assert!(
+            !treating.iter().any(|t| t.contains("PAT-2")),
+            "{treating:?}"
+        );
+
+        let other = titles(test::call_and_read_body_json(&app, read("doctor_other")).await);
+        assert!(!other.iter().any(|t| t.contains("Potassium")), "{other:?}");
+
+        let admin = titles(test::call_and_read_body_json(&app, read("admin_a")).await);
+        assert!(admin.is_empty(), "{admin:?}");
+    }
+
+    /// Reading one notification moves it to History; removing one hides it for
+    /// that person only, and the record underneath is untouched.
+    #[actix_web::test]
+    async fn read_and_remove_change_one_persons_view_only() {
+        let state = AppState::new();
+        register(&state, "doctor_a", crate::Role::Doctor);
+        register(&state, "doctor_b", crate::Role::Doctor);
+        for id in ["CV-1", "CV-2"] {
+            state
+                .repositories
+                .critical_values
+                .create(crate::repositories::traits::CriticalValueEntity {
+                    id: id.to_string(),
+                    patient_id: "PAT-1".to_string(),
+                    test_code: "K".to_string(),
+                    test_name: format!("Potassium {id}"),
+                    unit: "mmol/L".to_string(),
+                    severity: "critical".to_string(),
+                    reported_by: "lab_a".to_string(),
+                    created_at: chrono::Utc::now() - chrono::Duration::minutes(1),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
+        for doctor in ["doctor_a", "doctor_b"] {
+            crate::care_access::record_encounter(
+                &state,
+                "PAT-1",
+                doctor,
+                "APPT-1",
+                chrono::Utc::now(),
+            )
+            .await;
+        }
+        let state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(get_notifications)
+                .service(super::super::notification_state::mark_notification_read)
+                .service(super::super::notification_state::remove_notification),
+        )
+        .await;
+        let list = |user: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/notifications")
+                .insert_header(crate::test_fixtures::as_user(user))
+                .to_request()
+        };
+        let mark = |user: &'static str, key: &str, action: &str| {
+            test::TestRequest::post()
+                .uri(&format!("/api/notifications/{key}/{action}"))
+                .insert_header(crate::test_fixtures::as_user(user))
+                .to_request()
+        };
+        let read_flag = |body: &serde_json::Value, key: &str| {
+            body["notifications"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|n| n["key"] == key)
+                .map(|n| n["read"].clone())
+        };
+
+        let before: serde_json::Value = test::call_and_read_body_json(&app, list("doctor_a")).await;
+        assert_eq!(before["unread_count"], 2, "{before}");
+
+        let read = test::call_service(&app, mark("doctor_a", "critical_value:CV-1", "read")).await;
+        assert_eq!(read.status(), StatusCode::OK);
+        let after_read: serde_json::Value =
+            test::call_and_read_body_json(&app, list("doctor_a")).await;
+        assert_eq!(after_read["unread_count"], 1, "{after_read}");
+        assert_eq!(
+            read_flag(&after_read, "critical_value:CV-1"),
+            Some(serde_json::json!(true))
+        );
+        assert_eq!(
+            read_flag(&after_read, "critical_value:CV-2"),
+            Some(serde_json::json!(false))
+        );
+
+        let removed =
+            test::call_service(&app, mark("doctor_a", "critical_value:CV-2", "remove")).await;
+        assert_eq!(removed.status(), StatusCode::OK);
+        let after_remove: serde_json::Value =
+            test::call_and_read_body_json(&app, list("doctor_a")).await;
+        assert_eq!(after_remove["count"], 1, "{after_remove}");
+        assert_eq!(read_flag(&after_remove, "critical_value:CV-2"), None);
+
+        // Somebody else's view is their own.
+        let other: serde_json::Value = test::call_and_read_body_json(&app, list("doctor_b")).await;
+        assert_eq!(other["count"], 2, "{other}");
+        assert_eq!(other["unread_count"], 2, "{other}");
+        // And the record is still there.
+        assert!(state
+            .repositories
+            .critical_values
+            .list_all()
+            .await
+            .unwrap()
+            .iter()
+            .any(|cv| cv.id == "CV-2"));
+
+        let bad = test::call_service(&app, mark("doctor_a", "no-colon", "remove")).await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
     }
 
     #[actix_web::test]

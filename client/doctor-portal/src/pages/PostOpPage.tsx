@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor } from '@medichain/shared';
+import { createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor, ChoiceChips } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import { StoredValue } from '../components/StoredSoapDetails';
 
 /** `null` until the clinician scores that component. */
 type AldreteValue = 0 | 1 | 2 | null;
@@ -103,10 +103,14 @@ const PostOpPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [notes, setNotes] = useState<PostOpNote[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
+  const submissionPending = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const patientNotes = notes.filter(note => note.patientId === selectedPatient);
 
   const [procedure, setProcedure] = useState('');
   const [surgeon, setSurgeon] = useState('');
@@ -137,35 +141,29 @@ const PostOpPage: React.FC = () => {
   const [complications, setComplications] = useState('');
   const [notes2, setNotes2] = useState('');
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     if (activeTab === 'history' && selectedPatient && user) {
+      let cancelled = false;
       const fetchHistory = async () => {
+        setHistoryLoading(true);
+        setHistoryError('');
+        setNotes([]);
         try {
           const data = await getApiClient().get<RecordList>(`/api/surgical/post-op/patient/${selectedPatient}`);
           const records = Array.isArray(data) ? data : (data.records || data.notes || []);
-          setNotes(prev => {
-            const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
-            return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
-          });
+          if (!cancelled) setNotes(records.filter(record => record.patientId === selectedPatient));
         } catch (e) {
           console.error('Failed to fetch post-op history:', e);
+          if (!cancelled) setHistoryError(t('docPostOp.historyReadFailed'));
+        } finally {
+          if (!cancelled) setHistoryLoading(false);
         }
       };
       fetchHistory();
+      return () => { cancelled = true; };
     }
-  }, [activeTab, selectedPatient, user]);
+  }, [activeTab, selectedPatient, user, t]);
 
   // A preview only: the total is recomputed and stored by the server, and the
   // threshold comes from the scoring catalog (rule 8). `null` until every
@@ -174,12 +172,33 @@ const PostOpPage: React.FC = () => {
   const aldreteBand = aldreteScore === null ? null : bandFor(aldreteScore, catalog?.aldrete?.bands);
   const readyForDischarge = aldreteBand === 'ready';
 
+  /** Clear the confirmed saved draft; retain its patient for the durable history read. */
+  const resetCompletedDraft = () => {
+    setProcedure(''); setSurgeon(''); setAnesthesiaType(''); setArrivalTime('');
+    setAldrete({ activity: null, respiration: null, circulation: null, consciousness: null, oxygenSaturation: null });
+    setVitals({ bp: '', hr: '', rr: '', spo2: '', temp: '' });
+    setPainScore(null); setNauseaVomiting(''); setBleeding('');
+    setUrineOutput(''); setFluidIntake(''); setOralIntake(''); setIvAccess('');
+    setMedications(''); setDressingStatus(''); setDrains(''); setSelectedCriteria([]);
+    setDischargeTime(''); setDischargeDisposition(''); setComplications(''); setNotes2('');
+    setActiveTab('history');
+  };
+
+  /** Submit one draft at a time, retaining all entries if the server refuses the write. */
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+    if (submissionPending.current) return;
     if (!selectedPatient) {
       showError(t('docPostOp.errorSelectPatient'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    submissionPending.current = true;
+    setIsSubmitting(true);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const note: PostOpNote = {
       id: '',
       patientId: selectedPatient,
@@ -196,20 +215,19 @@ const PostOpPage: React.FC = () => {
       dischargeCriteria: selectedCriteria, dischargeTime, dischargeDisposition,
       complications, notes: notes2
     };
-    let created: { id?: string };
     try {
-      created = await createPostOp(note);
+      await createPostOp(note);
+      resetCompletedDraft();
+      showSuccess(t('docPostOp.saved'));
     } catch (err) {
       console.error('Failed to save post-op note:', err);
       // Stop here. Falling through added the record to the local list
       // and toasted success for a write that never happened.
       showError(t('common.saveFailed'));
-      return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // The server assigns the id and scores the assessment; the local copy
-    // carries both so the history's de-duplication by id still holds.
-    setNotes([{ ...note, id: created.id ?? '', alderetScore: aldreteScore, readyForDischarge: aldreteScore === null ? null : readyForDischarge }, ...notes]);
-    showSuccess(t('docPostOp.saved'));
   };
 
   return (
@@ -260,7 +278,8 @@ const PostOpPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'assessment' ? (
-          <div className="space-y-6">
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
+          <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient & Procedure Info */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -330,7 +349,7 @@ const PostOpPage: React.FC = () => {
                     <span className="w-40 font-medium">{t(`docPostOp.crit_${key}`)}</span>
                     <div className="flex gap-2">
                       {[0, 1, 2].map(val => (
-                        <button
+                        <button type="button"
                           key={val}
                           onClick={() => setAldrete({ ...aldrete, [key]: val as 0 | 1 | 2 })}
                           className={`px-4 py-2 rounded border ${aldrete[key] === val
@@ -419,50 +438,45 @@ const PostOpPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-4 gap-4 mt-4">
                 <div>
-                  <label htmlFor="postop-pain-score" className="text-sm text-content-muted">{t('docPostOp.painScore')}</label>
-                  {/* A select rather than a slider: a slider always has a value,
-                      so "not asked" could not be told from the 3 it started on. */}
-                  <select
+                  {/* Chips rather than a slider: a slider always has a value, so
+                      "not asked" could not be told from the 3 it started on.
+                      Nothing chosen is "not assessed". */}
+                  <ChoiceChips
                     id="postop-pain-score"
-                    value={painScore === null ? '' : String(painScore)}
-                    onChange={e => setPainScore(e.target.value === '' ? null : Number(e.target.value))}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.notAssessed')}</option>
-                    {Array.from({ length: 11 }, (_, n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
+                    label={t('docPostOp.painScore')}
+                    hint={t('docPostOp.notAssessed')}
+                    value={painScore === null ? undefined : String(painScore)}
+                    onChange={(next) => setPainScore(next === undefined ? null : Number(next))}
+                    options={Array.from({ length: 11 }, (_, n) => ({ value: String(n), label: String(n) }))}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="postop-nausea" className="text-sm text-content-muted">{t('docPostOp.nausea')}</label>
-                  <select
+                  <ChoiceChips
                     id="postop-nausea"
-                    value={nauseaVomiting}
-                    onChange={e => setNauseaVomiting(e.target.value as Nausea | '')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.notAssessed')}</option>
-                    <option value="none">{t('docPostOp.nauseaNone')}</option>
-                    <option value="mild">{t('docPostOp.nauseaMild')}</option>
-                    <option value="moderate">{t('docPostOp.nauseaModerate')}</option>
-                    <option value="severe">{t('docPostOp.nauseaSevere')}</option>
-                  </select>
+                    label={t('docPostOp.nausea')}
+                    value={(nauseaVomiting) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setNauseaVomiting(next as Nausea | ''); }}
+                    options={[
+                      { value: 'none', label: t('docPostOp.nauseaNone') },
+                      { value: 'mild', label: t('docPostOp.nauseaMild') },
+                      { value: 'moderate', label: t('docPostOp.nauseaModerate') },
+                      { value: 'severe', label: t('docPostOp.nauseaSevere') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="postop-bleeding" className="text-sm text-content-muted">{t('docPostOp.bleeding')}</label>
-                  <select
+                  <ChoiceChips
                     id="postop-bleeding"
-                    value={bleeding}
-                    onChange={e => setBleeding(e.target.value as Bleeding | '')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docPostOp.notAssessed')}</option>
-                    <option value="none">{t('docPostOp.bleedNone')}</option>
-                    <option value="minimal">{t('docPostOp.bleedMinimal')}</option>
-                    <option value="moderate">{t('docPostOp.bleedModerate')}</option>
-                    <option value="significant">{t('docPostOp.bleedSignificant')}</option>
-                  </select>
+                    label={t('docPostOp.bleeding')}
+                    value={(bleeding) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setBleeding(next as Bleeding | ''); }}
+                    options={[
+                      { value: 'none', label: t('docPostOp.bleedNone') },
+                      { value: 'minimal', label: t('docPostOp.bleedMinimal') },
+                      { value: 'moderate', label: t('docPostOp.bleedModerate') },
+                      { value: 'significant', label: t('docPostOp.bleedSignificant') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -623,23 +637,30 @@ const PostOpPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              className="w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
             >
-              {t('docPostOp.save')}
+              {isSubmitting ? t('common.saving') : t('docPostOp.save')}
             </button>
-          </div>
+          </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
-            {notes.length === 0 ? (
+            {!selectedPatient ? (
+              <p>{t('docPostOp.selectPatientForHistory')}</p>
+            ) : historyLoading ? (
+              <p role="status">{t('common.loading')}</p>
+            ) : historyError ? (
+              <p role="alert">{historyError}</p>
+            ) : patientNotes.length === 0 ? (
               <div className="text-center py-8 text-content-muted">{t('docPostOp.noNotes')}</div>
             ) : (
-              notes.map(n => (
+              patientNotes.map(n => (
                 <div key={n.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h3 className="font-semibold">{n.patientName}</h3>
+                      <h3 className="font-semibold">{n.patientName || n.patientId}</h3>
                       <p className="text-sm text-content-muted">{formatTimestamp(n.documentedAt)}</p>
                     </div>
                     {typeof n.alderetScore === 'number' && (
@@ -652,6 +673,10 @@ const PostOpPage: React.FC = () => {
                     <p><strong>{t('docPostOp.lblProcedure')}</strong> {n.procedure}</p>
                     <p>{t('docPostOp.painSummary', { pain: n.painScore ?? '—', nausea: n.nauseaVomiting || '—', bleeding: n.bleeding || '—' })}</p>
                     {n.dischargeTime && <p className="text-ok-subtle-fg">{t('docPostOp.dischargedLine', { time: n.dischargeTime })}</p>}
+                    <details className="mt-3 rounded border border-border-interactive p-3">
+                      <summary className="cursor-pointer font-medium">{t('docPostOp.savedDetails')}</summary>
+                      <div className="mt-3"><StoredValue value={n} /></div>
+                    </details>
                   </div>
                 </div>
               ))

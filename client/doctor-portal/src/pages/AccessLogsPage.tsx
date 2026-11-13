@@ -7,8 +7,10 @@ import {
   revokeEmergencyGrant,
   useTranslation,
   formatTimestamp as formatStamp,
+  SealStatusBadge,
+  csvRow, ChoiceChips
 } from '@medichain/shared';
-import type { EmergencyAccessGrant } from '@medichain/shared';
+import type { EmergencyAccessGrant, SealStatus } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -24,6 +26,9 @@ import {
   Download
 } from 'lucide-react';
 import StaffName, { useStaffDirectory } from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
+
+// ux-allow(no-form): the only field is a search box that filters the log as it is typed; there is nothing to submit.
 
 interface AccessLog {
   access_id: string;
@@ -34,13 +39,15 @@ interface AccessLog {
   location: string | null;
   timestamp: string;
   emergency: boolean;
+  /** Where the row stands in the sealed audit stream; `pending` = not yet batched. */
+  seal_status?: SealStatus | null;
 }
 
 function AccessLogsPage() {
   const { t } = useTranslation();
   // Note: user is available for future API calls requiring authentication
   const { user } = useAuthStore();
-  // Resolves a wallet to the person's name for the CSV export; the table
+  // Resolves a user id to the person's name for the CSV export; the table
   // itself renders `<StaffName>`, which cannot be called inside a `.map()`.
   const staffName = useStaffDirectory();
   const [logs, setLogs] = useState<AccessLog[]>([]);
@@ -108,7 +115,7 @@ function AccessLogsPage() {
       setIsLoading(true);
       try {
         const user = useAuthStore.getState().user;
-        if (!user?.walletAddress) {
+        if (!user?.userId) {
           setLogs([]);
           return;
         }
@@ -162,6 +169,7 @@ function AccessLogsPage() {
       download_record: t('docAccessLogs.typeDownload'),
       upload_record: t('docAccessLogs.typeUpload'),
       emergency: t('docAccessLogs.typeEmergency'),
+      handoff_receipt_requested: t('docAccessLogs.typeHandoffReceiptRequested'),
     };
     return labels[type] || type;
   };
@@ -187,6 +195,7 @@ function AccessLogsPage() {
     const matchesSearch = 
       (log.patient_id?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
       (log.accessor_id?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      staffName(log.accessor_id).toLowerCase().includes(searchQuery.toLowerCase()) ||
       (log.access_type?.toLowerCase() || '').includes(searchQuery.toLowerCase());
     
     const matchesFilter = 
@@ -205,16 +214,18 @@ function AccessLogsPage() {
   );
 
   const handleExport = () => {
-    // The accessor's NAME as well as their wallet. This file is the artefact
-    // somebody reads during an access review, and a column of SS58 addresses
-    // answers "was this access appropriate?" for nobody. The wallet stays
+    // The accessor's NAME as well as their id. This file is the artefact
+    // somebody reads during an access review, and a column of UUIDs
+    // answers "was this access appropriate?" for nobody. The id stays
     // beside it because it is the unambiguous identifier.
+    // Quoted and formula-safe: a location or access type somebody typed must
+    // neither shift the columns nor run as a spreadsheet formula.
     const csvContent = [
-      'Access ID,Patient ID,Accessor ID,Accessor Name,Role,Access Type,Location,Timestamp,Emergency',
-      ...filteredLogs.map(log => {
-        const name = (staffName(log.accessor_id) || '').replace(/,/g, ' ');
-        return `${log.access_id},${log.patient_id},${log.accessor_id},${name},${log.accessor_role},${log.access_type},${log.location || 'N/A'},${log.timestamp},${log.emergency}`;
-      })
+      csvRow(['Access ID', 'Patient ID', 'Accessor ID', 'Accessor Name', 'Role', 'Access Type', 'Location', 'Timestamp', 'Emergency']),
+      ...filteredLogs.map(log => csvRow([
+        log.access_id, log.patient_id, log.accessor_id, staffName(log.accessor_id) || '',
+        log.accessor_role, log.access_type, log.location || 'N/A', log.timestamp, log.emergency,
+      ])),
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -290,7 +301,7 @@ function AccessLogsPage() {
                     const open = grant.status === 'Active' || grant.status === 'active';
                     return (
                       <tr key={grant.id} className="border-t border-border">
-                        <td className="py-2 pr-4 text-content">{grant.patient_id}</td>
+                        <td className="py-2 pr-4 text-content"><PatientName id={grant.patient_id} /></td>
                         <td className="py-2 pr-4 text-content-secondary break-all">
                           {grant.requesting_person_id}
                         </td>
@@ -402,8 +413,9 @@ function AccessLogsPage() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted" size={20} />
             <input
               type="text"
+              aria-label={t('docAccessLogs.searchPlaceholder')}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               placeholder={t('docAccessLogs.searchPlaceholder')}
               className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
@@ -411,15 +423,16 @@ function AccessLogsPage() {
           
           <div className="flex items-center gap-2">
             <Filter size={18} className="text-content-muted" />
-            <select
+            <ChoiceChips
+              label={t('docAccessLogs.filterLabel')}
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value as typeof filterType)}
-              className="px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-            >
-              <option value="all">{t('docAccessLogs.filterAll')}</option>
-              <option value="emergency">{t('docAccessLogs.filterEmergency')}</option>
-              <option value="regular">{t('docAccessLogs.filterRegular')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setFilterType(next as typeof filterType); setCurrentPage(1); }}
+              options={[
+                { value: 'all', label: t('docAccessLogs.filterAll') },
+                { value: 'emergency', label: t('docAccessLogs.filterEmergency') },
+                { value: 'regular', label: t('docAccessLogs.filterRegular') },
+              ]}
+            />
           </div>
         </div>
       </div>
@@ -480,7 +493,7 @@ function AccessLogsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-mono text-content">{log.patient_id}</span>
+                          <span className="text-sm"><PatientName id={log.patient_id} /></span>
                         </td>
                         <td className="px-6 py-4">
                           <div>
@@ -511,6 +524,11 @@ function AccessLogsPage() {
                               {t('docAccessLogs.statusVerified')}
                             </span>
                           )}
+                          {log.seal_status && (
+                            <div className="mt-1">
+                              <SealStatusBadge status={log.seal_status} />
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -532,6 +550,7 @@ function AccessLogsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    aria-label={t('docAccessLogs.previousPage')}
                     disabled={currentPage === 1}
                     className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
@@ -542,6 +561,7 @@ function AccessLogsPage() {
                   </span>
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    aria-label={t('docAccessLogs.nextPage')}
                     disabled={currentPage === totalPages}
                     className="p-2 rounded-lg hover:bg-surface-sunken disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
                   >
@@ -554,14 +574,14 @@ function AccessLogsPage() {
         )}
       </div>
 
-      {/* Blockchain Notice */}
+      {/* Accountability notice */}
       <div className="mt-6 bg-brand-subtle border border-brand rounded-lg p-4">
         <div className="flex items-start gap-3">
           <Shield className="text-brand mt-0.5" size={20} />
           <div>
-            <h4 className="font-medium text-brand-subtle-fg">{t('docAccessLogs.blockchainVerified')}</h4>
+            <h4 className="font-medium text-brand-subtle-fg">{t('docAccessLogs.accountabilityTitle')}</h4>
             <p className="text-sm text-brand mt-1">
-              {t('docAccessLogs.blockchainBody')}
+              {t('docAccessLogs.accountabilityBody')}
             </p>
           </div>
         </div>

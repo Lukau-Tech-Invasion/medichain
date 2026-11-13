@@ -19,7 +19,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getAvailableSlots: vi.fn(),
 }));
 
-const provider = { walletAddress: '5Provider', username: 'Dr. Rota', role: 'Doctor' };
+const provider = { userId: '5Provider', username: 'Dr. Rota', role: 'Doctor' };
 
 describe('ProviderSchedulePage', () => {
   beforeEach(() => {

@@ -16,7 +16,7 @@ global.fetch = mockFetch;
 
 describe('LabTechDashboardPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Laboratory Tech',
   };
 
@@ -71,7 +71,7 @@ describe('LabTechDashboardPage', () => {
 });
 
 describe('LabTechDashboardPage recollection control (SCR-009b)', () => {
-  const mockUser = { walletAddress: '5GrwvaEF...mock', role: 'Laboratory Tech' };
+  const mockUser = { userId: '5GrwvaEF...mock', role: 'Laboratory Tech' };
 
   /** One rejected specimen, so the rejection panel has a row to render. */
   const dashboardWithRejection = {

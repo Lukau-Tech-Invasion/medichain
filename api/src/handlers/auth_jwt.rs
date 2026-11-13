@@ -10,134 +10,53 @@ use crate::security::{jwt, mfa};
 // Phase 9.4 — JWT issuance & refresh
 // ============================================================================
 
-#[derive(Debug, Deserialize)]
-pub struct JwtIssueRequest {
-    pub wallet_address: String,
-    pub challenge_id: String,
-    pub nonce: String,
-    /// Hex-encoded sr25519 signature over the issued login challenge message.
-    pub signature: String,
-}
-
 #[derive(Debug, Serialize)]
 pub struct JwtIssueResponse {
     pub success: bool,
     pub access_token: String,
-    pub refresh_token: String,
+    /// Only for a non-browser client that asked for it
+    /// (`X-Refresh-Transport: body`). Browsers receive the refresh token as an
+    /// HttpOnly cookie and never see it (WP12).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     pub token_type: String,
     pub expires_in: i64,
     /// Whether MFA is already satisfied. When false and `mfa_required` is true,
     /// the client must call `/api/auth/mfa/challenge` to step up.
     pub mfa: bool,
     pub mfa_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<CredentialUser>,
 }
 
-fn valid_login_proof(challenge_id: &str, nonce: &str, signature: &str) -> bool {
-    !challenge_id.trim().is_empty() && !nonce.trim().is_empty() && !signature.trim().is_empty()
+#[derive(Debug, Serialize)]
+pub struct CredentialUser {
+    pub user_id: String,
+    pub name: String,
+    pub role: String,
+    pub linked_patient_id: Option<String>,
 }
 
-/// Issue access + refresh JWTs after verifying a durable single-use challenge.
-///
-/// POST /api/auth/jwt
-///
-/// Demo mode does not bypass wallet ownership or replay protection.
-#[post("/api/auth/jwt")]
-pub async fn issue_jwt(
-    data: web::Data<AppState>,
-    body: web::Json<JwtIssueRequest>,
-) -> impl Responder {
-    if !is_valid_wallet_address(&body.wallet_address) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "Invalid wallet address format".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
-
-    if !valid_login_proof(&body.challenge_id, &body.nonce, &body.signature) {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Invalid authentication challenge".to_string(),
-            code: "INVALID_AUTH_CHALLENGE".to_string(),
-        });
-    }
-    let message = crate::auth_challenges::login_message(
-        &body.challenge_id,
-        &body.wallet_address,
-        &body.nonce,
-    );
-    if let Err(error) = medichain_crypto::signature::verify_wallet_message_signature(
-        &body.signature,
-        &message,
-        &body.wallet_address,
-    ) {
-        data.security
-            .observe_failed_auth(&data.ws_manager, &body.wallet_address)
-            .await;
-        log::warn!("JWT wallet signature verification failed: {error}");
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Invalid authentication challenge".to_string(),
-            code: "INVALID_AUTH_CHALLENGE".to_string(),
-        });
-    }
-    let Some(pool) = data.db_pool.as_ref() else {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            error: "Authentication is temporarily unavailable".to_string(),
-            code: "AUTH_STORAGE_REQUIRED".to_string(),
-        });
-    };
-    match crate::auth_challenges::consume(
-        pool,
-        &body.challenge_id,
-        &body.wallet_address,
-        &body.nonce,
-    )
-    .await
-    {
-        Ok(true) => {}
-        Ok(false) => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Invalid authentication challenge".to_string(),
-                code: "INVALID_AUTH_CHALLENGE".to_string(),
-            });
-        }
-        Err(error) => {
-            log::error!("Could not consume authentication challenge: {error}");
-            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                error: "Authentication is temporarily unavailable".to_string(),
-                code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
-            });
-        }
-    }
-
-    // The wallet must be a registered user.
-    let user = match get_user(&data, &body.wallet_address) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Wallet not registered".to_string(),
-                code: "WALLET_NOT_REGISTERED".to_string(),
-            });
-        }
-    };
-
-    issue_token_pair(&data, &body.wallet_address, &user.role.to_string(), None).await
-}
-
-#[cfg(test)]
-mod jwt_issue_tests {
-    use super::valid_login_proof;
-
-    #[test]
-    fn wallet_challenge_fields_are_mandatory_even_for_demo_runtime_configuration() {
-        assert!(!valid_login_proof("", "nonce", "signature"));
-        assert!(!valid_login_proof("challenge", "", "signature"));
-        assert!(!valid_login_proof("challenge", "nonce", ""));
-        assert!(valid_login_proof("challenge", "nonce", "signature"));
-    }
-}
-
-#[derive(Debug, Deserialize)]
+/// Body of a refresh. Browsers send none: their refresh token arrives as the
+/// HttpOnly cookie. A non-browser client sends it here.
+#[derive(Debug, Default, Deserialize)]
 pub struct JwtRefreshRequest {
-    pub refresh_token: String,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+}
+
+/// 401 for an unusable refresh, clearing the cookie so a browser stops
+/// presenting a token that will never work again.
+fn refresh_refused(message: &str, code: &str) -> HttpResponse {
+    HttpResponse::Unauthorized()
+        .insert_header((
+            actix_web::http::header::SET_COOKIE,
+            crate::refresh_cookie::clear_value(),
+        ))
+        .json(ErrorResponse {
+            error: message.to_string(),
+            code: code.to_string(),
+        })
 }
 
 /// Exchange a valid refresh token for a fresh access token.
@@ -146,53 +65,56 @@ pub struct JwtRefreshRequest {
 #[post("/api/auth/jwt/refresh")]
 pub async fn refresh_jwt(
     data: web::Data<AppState>,
-    body: web::Json<JwtRefreshRequest>,
+    http_req: HttpRequest,
+    body: Option<web::Json<JwtRefreshRequest>>,
 ) -> impl Responder {
-    let claims = match jwt::decode_token(&body.refresh_token) {
-        Ok(c) if c.typ == jwt::TYP_REFRESH => c,
-        _ => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Invalid or expired refresh token".to_string(),
-                code: "INVALID_REFRESH_TOKEN".to_string(),
-            });
-        }
+    let presented = body
+        .and_then(|json| json.into_inner().refresh_token)
+        .or_else(|| crate::refresh_cookie::read(&http_req));
+    let Some(presented) = presented else {
+        return refresh_refused("No session to restore; sign in again", "NO_REFRESH_TOKEN");
     };
-    let user = match get_user(&data, &claims.sub) {
-        Some(user) => user,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Account is inactive or no longer registered".to_string(),
-                code: "ACCOUNT_INACTIVE".to_string(),
-            });
-        }
+    let claims = match jwt::decode_token(&presented) {
+        Ok(c) if c.typ == jwt::TYP_REFRESH => c,
+        _ => return refresh_refused("Invalid or expired refresh token", "INVALID_REFRESH_TOKEN"),
+    };
+    let Some(user) = get_user(&data, &claims.sub) else {
+        return refresh_refused(
+            "Account is inactive or no longer registered",
+            "ACCOUNT_INACTIVE",
+        );
     };
     issue_token_pair(
         &data,
+        &http_req,
         &claims.sub,
         &user.role.to_string(),
-        Some((&body.refresh_token, &claims.jti)),
+        Some((&presented, &claims.jti)),
+        false,
     )
     .await
 }
 
-/// Issue an access+refresh pair for a wallet. The access token's `mfa` claim is
-/// `true` only when the wallet has *not* enrolled MFA; enrolled wallets receive
+/// Issue an access+refresh pair for a user_id. The access token's `mfa` claim is
+/// `true` only when the user_id has *not* enrolled MFA; enrolled user_ids receive
 /// `mfa=false` and must step up via `/api/auth/mfa/challenge`.
-async fn issue_token_pair(
+pub(super) async fn issue_token_pair(
     data: &web::Data<AppState>,
-    wallet: &str,
+    http_req: &HttpRequest,
+    user_id: &str,
     role: &str,
     previous_refresh: Option<(&str, &str)>,
+    mfa_verified: bool,
 ) -> HttpResponse {
-    let mfa_enabled = data.security.mfa_enabled(wallet);
-    let mfa_satisfied = !mfa_enabled;
+    let mfa_enabled = data.security.mfa_enabled(user_id);
+    let mfa_satisfied = !mfa_enabled || mfa_verified;
 
     // Order matters (ADR-0008). The access token carries the login session's
     // `sid`, so the session has to be persisted before the token can be minted --
     // and a token must never be handed out for a session that failed to persist.
     // The refresh token is minted first only because its digest and JTI are what
     // the generation row stores.
-    let refresh = match jwt::issue_refresh_token(wallet, role) {
+    let refresh = match jwt::issue_refresh_token(user_id, role) {
         Ok(t) => t,
         Err(e) => return jwt_error(e),
     };
@@ -215,7 +137,7 @@ async fn issue_token_pair(
         // inherits the same `sid`, which is the whole point of the split.
         Some((token, jti)) => crate::auth_sessions::rotate(
             pool,
-            wallet,
+            user_id,
             token,
             jti,
             &refresh,
@@ -228,7 +150,7 @@ async fn issue_token_pair(
                 .ok_or_else(|| sqlx::Error::Protocol("refresh session is no longer active".into()))
         }),
         None => {
-            crate::auth_sessions::create(pool, wallet, &refresh, &refresh_claims.jti, expires_at)
+            crate::auth_sessions::create(pool, user_id, &refresh, &refresh_claims.jti, expires_at)
                 .await
         }
     };
@@ -236,6 +158,12 @@ async fn issue_token_pair(
         Ok(id) => id,
         Err(error) => {
             log::error!("Refresh-session persistence failed: {error}");
+            if previous_refresh.is_some() {
+                return refresh_refused(
+                    "Invalid or expired refresh token",
+                    "INVALID_REFRESH_TOKEN",
+                );
+            }
             let mut status = if previous_refresh.is_some() {
                 HttpResponse::Unauthorized()
             } else {
@@ -260,7 +188,7 @@ async fn issue_token_pair(
     // caller gets an error and the unused session row simply expires -- that is
     // operational debris, not an issued credential for an unpersisted session.
     let access = match jwt::issue_access_token(
-        wallet,
+        user_id,
         role,
         mfa_satisfied,
         Some(&login_session_id.to_string()),
@@ -269,15 +197,27 @@ async fn issue_token_pair(
         Err(e) => return jwt_error(e),
     };
 
-    HttpResponse::Ok().json(JwtIssueResponse {
-        success: true,
-        access_token: access,
-        refresh_token: refresh,
-        token_type: "Bearer".to_string(),
-        expires_in: jwt::ACCESS_TOKEN_TTL_SECS,
-        mfa: mfa_satisfied,
-        mfa_required: mfa_enabled,
-    })
+    let in_body = crate::refresh_cookie::body_transport_requested(http_req);
+    HttpResponse::Ok()
+        .insert_header((
+            actix_web::http::header::SET_COOKIE,
+            crate::refresh_cookie::set_value(&refresh),
+        ))
+        .json(JwtIssueResponse {
+            success: true,
+            access_token: access,
+            refresh_token: in_body.then_some(refresh),
+            token_type: "Bearer".to_string(),
+            expires_in: jwt::ACCESS_TOKEN_TTL_SECS,
+            mfa: mfa_satisfied,
+            mfa_required: mfa_enabled,
+            user: get_user(data, user_id).map(|account| CredentialUser {
+                user_id: account.id,
+                name: account.name,
+                role: account.role.to_string(),
+                linked_patient_id: account.linked_patient_id,
+            }),
+        })
 }
 
 fn jwt_error(e: jsonwebtoken::errors::Error) -> HttpResponse {
@@ -337,10 +277,15 @@ pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse
     match crate::auth_sessions::revoke_session(pool, session_id, "logout").await {
         // `false` means the session was already ended. Logging out twice is not
         // an error worth surfacing to a user who wanted to be signed out.
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Session ended",
-        })),
+        Ok(_) => HttpResponse::Ok()
+            .insert_header((
+                actix_web::http::header::SET_COOKIE,
+                crate::refresh_cookie::clear_value(),
+            ))
+            .json(serde_json::json!({
+                "success": true,
+                "message": "Session ended",
+            })),
         Err(error) => {
             log::error!("Session revocation failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
@@ -351,7 +296,7 @@ pub async fn logout(data: web::Data<AppState>, req: HttpRequest) -> HttpResponse
     }
 }
 
-/// End every login session for the caller's wallet ("sign out everywhere").
+/// End every login session for the caller's user_id ("sign out everywhere").
 ///
 /// This is the control a user reaches for after losing a device, so it must not
 /// depend on the lost device cooperating: it revokes by subject, not by the
@@ -370,11 +315,16 @@ pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResp
             code: "AUTH_STORAGE_REQUIRED".to_string(),
         });
     };
-    match crate::auth_sessions::revoke_all_for_wallet(pool, &claims.sub, "logout_all").await {
-        Ok(ended) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "sessions_ended": ended,
-        })),
+    match crate::auth_sessions::revoke_all_for_user(pool, &claims.sub, "logout_all").await {
+        Ok(ended) => HttpResponse::Ok()
+            .insert_header((
+                actix_web::http::header::SET_COOKIE,
+                crate::refresh_cookie::clear_value(),
+            ))
+            .json(serde_json::json!({
+                "success": true,
+                "sessions_ended": ended,
+            })),
         Err(error) => {
             log::error!("Bulk session revocation failed: {error}");
             HttpResponse::ServiceUnavailable().json(ErrorResponse {
@@ -387,13 +337,13 @@ pub async fn logout_all(data: web::Data<AppState>, req: HttpRequest) -> HttpResp
 
 #[post("/api/auth/mfa/enroll")]
 pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+    let user_id = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
     let secret = mfa::generate_secret_base32();
-    let uri = match mfa::provisioning_uri(&secret, &wallet) {
+    let uri = match mfa::provisioning_uri(&secret, &user_id) {
         Ok(u) => u,
         Err(e) => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -407,7 +357,7 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
     // Persist before publishing the enrollment into the runtime cache. A
     // success response for a memory-only enrollment would disappear on restart
     // and make server-side assurance checks disagree across replicas.
-    if let Err(error) = data.persist_mfa_enrollment(&wallet, &secret, false).await {
+    if let Err(error) = data.persist_mfa_enrollment(&user_id, &secret, false).await {
         log::error!("Failed to persist MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             error: "MFA enrollment is temporarily unavailable".to_string(),
@@ -418,10 +368,11 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
         secret_base32: secret.clone(),
         enabled: false,
         created_at: Utc::now(),
+        last_used_step: None,
     };
     match data.security.mfa.write() {
         Ok(mut enrollments) => {
-            enrollments.insert(wallet.clone(), record);
+            enrollments.insert(user_id.clone(), record);
         }
         Err(_) => {
             log::error!("MFA cache is unavailable after persisting enrollment");
@@ -456,17 +407,17 @@ pub async fn mfa_verify(
     req: HttpRequest,
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
-    let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+    let user_id = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
-    let secret = match data
+    let _secret = match data
         .security
         .mfa
         .read()
         .ok()
-        .and_then(|m| m.get(&wallet).map(|r| r.secret_base32.clone()))
+        .and_then(|m| m.get(&user_id).map(|r| r.secret_base32.clone()))
     {
         Some(s) => s,
         None => {
@@ -478,9 +429,13 @@ pub async fn mfa_verify(
         }
     };
 
-    if !mfa::verify_code(&secret, &wallet, &body.code) {
+    if data
+        .verify_totp(&user_id, &body.code, crate::state::TotpScope::Pending)
+        .await
+        != crate::state::TotpOutcome::Accepted
+    {
         data.security
-            .observe_failed_auth(&data.ws_manager, &wallet)
+            .observe_failed_auth(&data.ws_manager, &user_id)
             .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "Invalid MFA code".to_string(),
@@ -488,7 +443,7 @@ pub async fn mfa_verify(
         });
     }
 
-    if let Err(error) = data.update_mfa_enabled(&wallet, true).await {
+    if let Err(error) = data.update_mfa_enabled(&user_id, true).await {
         log::error!("Failed to persist MFA activation: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             error: "MFA activation is temporarily unavailable".to_string(),
@@ -496,7 +451,7 @@ pub async fn mfa_verify(
         });
     }
     match data.security.mfa.write() {
-        Ok(mut enrollments) => match enrollments.get_mut(&wallet) {
+        Ok(mut enrollments) => match enrollments.get_mut(&user_id) {
             Some(record) => record.enabled = true,
             None => {
                 log::error!("Persisted MFA activation has no cache record");
@@ -532,13 +487,13 @@ pub async fn mfa_challenge(
     req: HttpRequest,
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
-    let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+    let user_id = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
-    let secret = match data.security.mfa.read().ok().and_then(|m| {
-        m.get(&wallet)
+    let _secret = match data.security.mfa.read().ok().and_then(|m| {
+        m.get(&user_id)
             .filter(|r| r.enabled)
             .map(|r| r.secret_base32.clone())
     }) {
@@ -551,9 +506,13 @@ pub async fn mfa_challenge(
         }
     };
 
-    if !mfa::verify_code(&secret, &wallet, &body.code) {
+    if data
+        .verify_totp(&user_id, &body.code, crate::state::TotpScope::Enabled)
+        .await
+        != crate::state::TotpOutcome::Accepted
+    {
         data.security
-            .observe_failed_auth(&data.ws_manager, &wallet)
+            .observe_failed_auth(&data.ws_manager, &user_id)
             .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "Invalid MFA code".to_string(),
@@ -561,16 +520,51 @@ pub async fn mfa_challenge(
         });
     }
 
-    let role = get_user(&data, &wallet)
+    let role = get_user(&data, &user_id)
         .map(|u| u.role.to_string())
         .unwrap_or_else(|| "Patient".to_string());
 
-    // MFA step-up replaces the access token but not the login. Carrying the
-    // existing `sid` forward is what keeps step-up state, and any challenge bound
-    // to this session, attached to the same login rather than orphaned.
-    let login_session_id = get_current_claims(&req).and_then(|claims| claims.sid.clone());
+    // Class B assurance is server-owned. Persist it before minting an elevated
+    // token so the token and /api/auth/assurance agree for this login.
+    let Some(login_session_id) = get_current_claims(&req).and_then(|claims| claims.sid.clone())
+    else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "A current signed-in session is required".to_string(),
+            code: "SESSION_REQUIRED".to_string(),
+        });
+    };
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Authorization is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    let session_id = uuid::Uuid::parse_str(&login_session_id).ok();
+    let actor_id = uuid::Uuid::parse_str(&user_id).ok();
+    let result = match (session_id, actor_id) {
+        (Some(session_id), Some(actor_id)) => {
+            crate::transaction_authorization::record_step_up(pool, session_id, actor_id).await
+        }
+        _ => Err(sqlx::Error::RowNotFound),
+    };
+    match result {
+        Ok(()) => {}
+        Err(sqlx::Error::RowNotFound) => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "This session has ended; sign in again".to_string(),
+                code: "SESSION_REVOKED".to_string(),
+            });
+        }
+        Err(error) => {
+            log::error!("MFA step-up storage failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Authorization is temporarily unavailable".to_string(),
+                code: "AUTH_STORAGE_REQUIRED".to_string(),
+            });
+        }
+    }
 
-    match jwt::issue_access_token(&wallet, &role, true, login_session_id.as_deref()) {
+    match jwt::issue_access_token(&user_id, &role, true, Some(&login_session_id)) {
         Ok(access) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "access_token": access,
@@ -587,8 +581,8 @@ pub async fn mfa_challenge(
 /// GET /api/auth/mfa/status
 #[get("/api/auth/mfa/status")]
 pub async fn mfa_status(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+    let user_id = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let (enrolled, enabled) = data
@@ -596,7 +590,7 @@ pub async fn mfa_status(data: web::Data<AppState>, req: HttpRequest) -> impl Res
         .mfa
         .read()
         .ok()
-        .and_then(|m| m.get(&wallet).map(|r| (true, r.enabled)))
+        .and_then(|m| m.get(&user_id).map(|r| (true, r.enabled)))
         .unwrap_or((false, false));
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -615,13 +609,13 @@ pub async fn mfa_disable(
     req: HttpRequest,
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
-    let wallet = match crate::support::require_registered_caller(&data, &req) {
-        Ok(u) => u.wallet_address,
+    let user_id = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
-    let secret = match data.security.mfa.read().ok().and_then(|m| {
-        m.get(&wallet)
+    let _secret = match data.security.mfa.read().ok().and_then(|m| {
+        m.get(&user_id)
             .filter(|r| r.enabled)
             .map(|r| r.secret_base32.clone())
     }) {
@@ -634,14 +628,18 @@ pub async fn mfa_disable(
         }
     };
 
-    if !mfa::verify_code(&secret, &wallet, &body.code) {
+    if data
+        .verify_totp(&user_id, &body.code, crate::state::TotpScope::Enabled)
+        .await
+        != crate::state::TotpOutcome::Accepted
+    {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             error: "Invalid MFA code".to_string(),
             code: "MFA_CODE_INVALID".to_string(),
         });
     }
 
-    if let Err(error) = data.delete_mfa_enrollment(&wallet).await {
+    if let Err(error) = data.delete_mfa_enrollment(&user_id).await {
         log::error!("Failed to delete MFA enrollment: {error}");
         return HttpResponse::ServiceUnavailable().json(ErrorResponse {
             error: "MFA could not be disabled because the durable record is unavailable"
@@ -651,7 +649,7 @@ pub async fn mfa_disable(
     }
     match data.security.mfa.write() {
         Ok(mut enrollments) => {
-            enrollments.remove(&wallet);
+            enrollments.remove(&user_id);
         }
         Err(_) => {
             log::error!("MFA cache is unavailable after disabling enrollment");
@@ -748,7 +746,7 @@ pub async fn declare_breach(
 
 pub(crate) fn unauthorized_missing_user() -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
-        error: "Authentication required (Bearer JWT or X-User-Id)".to_string(),
+        error: "Sign in is required".to_string(),
         code: "UNAUTHORIZED".to_string(),
     })
 }
@@ -758,8 +756,8 @@ pub(crate) fn require_admin(
     data: &web::Data<AppState>,
     req: &HttpRequest,
 ) -> Result<(), HttpResponse> {
-    let wallet = get_current_user_id(req).ok_or_else(unauthorized_missing_user)?;
-    let user = get_user(data, &wallet).ok_or_else(|| {
+    let user_id = get_current_user_id(req).ok_or_else(unauthorized_missing_user)?;
+    let user = get_user(data, &user_id).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
@@ -784,8 +782,8 @@ pub(crate) fn require_admin(
 pub(crate) enum CallerAssurance {
     /// No caller could be resolved at all.
     Anonymous,
-    /// Identity established — a JWT subject, or an `X-User-Id` the signature
-    /// middleware has verified — but no step-up proven on this request.
+    /// Identity established by a verified access token, but no step-up proven
+    /// on this request.
     Identified,
     /// Identity established *and* step-up verified.
     SteppedUp,
@@ -825,9 +823,8 @@ pub(crate) fn privileged_assurance_decision(
     if assurance == CallerAssurance::Anonymous {
         return Err(AssuranceDenial::NoCaller);
     }
-    // Demo mode trusts `X-User-Id` by design and warns so at startup; demo
-    // admins have no MFA enrollment, so enforcing here would only break the
-    // demo without protecting anything real.
+    // Synthetic demo admins have no MFA enrollment. The JWT still establishes
+    // identity before this exemption can apply.
     if is_demo {
         return Ok(());
     }
@@ -842,20 +839,15 @@ pub(crate) fn privileged_assurance_decision(
 
 /// Resolve what the request actually proves.
 ///
-/// An expired or malformed JWT yields no claims, and `get_current_user_id`
-/// then falls back to `X-User-Id` (`support.rs:227-233`). That fallback must
-/// downgrade the caller to `Identified` — never leave them stepped-up on the
-/// strength of a claim that is no longer valid.
+/// An expired or malformed JWT yields no claims, and cannot establish even
+/// the identified assurance level.
 fn caller_assurance(req: &HttpRequest) -> CallerAssurance {
     match get_current_claims(req) {
         Some(claims) if stepped_up_claim_is_fresh(&claims, chrono::Utc::now().timestamp()) => {
             CallerAssurance::SteppedUp
         }
         Some(_) => CallerAssurance::Identified,
-        None => match req.headers().get("X-User-Id") {
-            Some(_) => CallerAssurance::Identified,
-            None => CallerAssurance::Anonymous,
-        },
+        None => CallerAssurance::Anonymous,
     }
 }
 
@@ -868,11 +860,10 @@ pub(crate) fn stepped_up_claim_is_fresh(claims: &jwt::Claims, now: i64) -> bool 
     claims.mfa && auth_time <= now && now.saturating_sub(auth_time) <= jwt::MFA_STEP_UP_TTL_SECS
 }
 
-/// Whether `wallet` has a durable, enabled MFA enrollment.
+/// Whether `user_id` has a durable, enabled MFA enrollment.
 ///
 /// Read per request from server-side state (`user_mfa` → `security.mfa`), which
-/// is what makes the policy work for callers who present no JWT: enrollment is
-/// keyed by wallet, not by credential.
+/// is what makes the policy independent of the login factor.
 /// Gate a privileged operation on caller assurance.
 ///
 /// This is the single policy every sensitive endpoint consumes. It replaces
@@ -884,10 +875,9 @@ pub(crate) fn require_privileged_assurance(
 ) -> Option<HttpResponse> {
     let assurance = caller_assurance(req);
     // Enrollment is read per request from durable server-side state
-    // (`user_mfa` → `security.mfa`). That is what makes this work for callers
-    // presenting no JWT: enrollment is keyed by wallet, not by credential.
+    // (`user_mfa` → `security.mfa`), keyed by the verified JWT subject.
     let enrolled = get_current_user_id(req)
-        .map(|wallet| data.security.mfa_enabled(&wallet))
+        .map(|user_id| data.security.mfa_enabled(&user_id))
         .unwrap_or(false);
 
     match privileged_assurance_decision(crate::support::is_demo_mode(), enrolled, assurance) {
@@ -911,5 +901,101 @@ pub(crate) fn require_privileged_assurance(
                 code: "MFA_REQUIRED".to_string(),
             }),
         ),
+    }
+}
+
+#[cfg(all(test, feature = "postgres"))]
+mod refresh_cookie_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    /// State on PostgreSQL with a registered doctor and one login session,
+    /// returning the session's refresh token.
+    async fn state_with_session() -> (web::Data<AppState>, String) {
+        let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let mut state = AppState::new();
+        state.db_pool = Some(pool.clone());
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        crate::test_fixtures::register(&state, &user, crate::Role::Doctor);
+        let token = jwt::issue_refresh_token(&user, "Doctor").unwrap();
+        let claims = jwt::decode_token(&token).unwrap();
+        crate::auth_sessions::create(
+            &pool,
+            &user,
+            &token,
+            &claims.jti,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .await
+        .unwrap();
+        (web::Data::new(state), token)
+    }
+
+    async fn refresh_with_cookie(
+        data: &web::Data<AppState>,
+        token: &str,
+    ) -> actix_web::dev::ServiceResponse {
+        let app = test::init_service(App::new().app_data(data.clone()).service(refresh_jwt)).await;
+        let request = test::TestRequest::post()
+            .uri("/api/auth/jwt/refresh")
+            .insert_header((
+                actix_web::http::header::COOKIE,
+                format!("{}={token}", crate::refresh_cookie::REFRESH_COOKIE),
+            ))
+            .to_request();
+        test::call_service(&app, request).await
+    }
+
+    fn set_cookie(response: &actix_web::dev::ServiceResponse) -> String {
+        response
+            .headers()
+            .get(actix_web::http::header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    /// A reload restores the session from the cookie alone, rotating it; the
+    /// browser never sees the refresh token in the body.
+    #[actix_web::test]
+    async fn the_cookie_restores_and_rotates_the_session() {
+        let (data, token) = state_with_session().await;
+        let response = refresh_with_cookie(&data, &token).await;
+        assert_eq!(response.status(), 200);
+        let cookie = set_cookie(&response);
+        assert!(
+            cookie.contains("HttpOnly") && !cookie.contains(&token),
+            "rotated: {cookie}"
+        );
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert!(body["access_token"].is_string());
+        assert!(
+            body.get("refresh_token").is_none(),
+            "never readable by script"
+        );
+    }
+
+    /// The rotated-away token is refused and the cookie cleared; with no
+    /// cookie at all there is nothing to restore.
+    #[actix_web::test]
+    async fn an_old_or_missing_cookie_is_refused_and_cleared() {
+        let (data, token) = state_with_session().await;
+        assert_eq!(refresh_with_cookie(&data, &token).await.status(), 200);
+        let replay = refresh_with_cookie(&data, &token).await;
+        assert_eq!(replay.status(), 401);
+        assert!(set_cookie(&replay).contains("Max-Age=0"));
+
+        let app = test::init_service(App::new().app_data(data.clone()).service(refresh_jwt)).await;
+        let bare = test::TestRequest::post()
+            .uri("/api/auth/jwt/refresh")
+            .to_request();
+        let response = test::call_service(&app, bare).await;
+        assert_eq!(response.status(), 401);
+        let body = test::read_body(response).await;
+        assert!(
+            String::from_utf8_lossy(&body).contains("NO_REFRESH_TOKEN"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
     }
 }

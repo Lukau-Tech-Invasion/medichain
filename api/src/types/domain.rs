@@ -4,7 +4,7 @@ use super::*;
 // Data Types
 // ============================================================================
 
-/// User roles matching the blockchain pallet
+/// User roles
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Role {
     Admin,
@@ -12,6 +12,7 @@ pub enum Role {
     Nurse,
     LabTechnician,
     Pharmacist,
+    Paramedic,
     Patient,
 }
 
@@ -45,8 +46,7 @@ impl Role {
     /// that has failed, and every use is audited before disclosure. Excluding
     /// it would leave a deployment with no recourse at the worst moment.
     ///
-    /// Paramedics map to `Nurse` in this system, so pre-hospital break-glass is
-    /// covered by the `Nurse` arm.
+    /// Paramedics hold their own restricted role; emergency access is audited.
     ///
     /// Decided 2026-09-10 by the product owner, closing the open question
     /// `docs/NEXT_WEEK_TODO.md` printed on every CI run. It gates
@@ -56,7 +56,18 @@ impl Role {
     /// device-bound grant is gated on a professional work context and an
     /// enrolled managed device instead.)
     pub fn may_break_glass(&self) -> bool {
-        matches!(self, Role::Doctor | Role::Nurse | Role::Admin)
+        matches!(
+            self,
+            Role::Doctor | Role::Nurse | Role::Paramedic | Role::Admin
+        )
+    }
+
+    /// Emergency services may write handovers and manage an MCI board.
+    pub fn may_manage_ems(&self) -> bool {
+        matches!(
+            self,
+            Role::Doctor | Role::Nurse | Role::Paramedic | Role::Admin
+        )
     }
 
     /// Which roles may issue a patient a national health ID card.
@@ -75,7 +86,7 @@ impl Role {
     ///
     /// Doctor and Nurse are included because card issuance happens at
     /// registration, at the point of care, by the clinician in front of the
-    /// patient; paramedics map to `Nurse`. `Admin` is included because it
+    /// patient. `Admin` is included because it
     /// already suspends cards. Neither a pharmacist dispensing against a
     /// prescription nor a lab technician analysing a sample is in a position to
     /// establish who a patient is.
@@ -106,14 +117,6 @@ impl Role {
     /// * Reading clinical data — that is `can_view_medical_records`, which also
     ///   still includes `Admin`.
     ///
-    /// # The pallet's predicate of the same name is a different question
-    ///
-    /// `pallet_access_control::can_edit_medical_records` gates which *chain
-    /// account* may submit a medical-record extrinsic, and the API's own service
-    /// signer holds `Role::Admin` there — the dev genesis grants `//Alice` Admin
-    /// precisely because it is the API's default signer. Removing `Admin` there
-    /// would stop every on-chain write the API makes. That predicate is about a
-    /// service identity; this one is about a person.
     pub fn can_edit_medical_records(&self) -> bool {
         matches!(self, Role::Doctor | Role::Nurse)
     }
@@ -163,16 +166,19 @@ impl std::fmt::Display for Role {
             Role::Nurse => write!(f, "Nurse"),
             Role::LabTechnician => write!(f, "LabTechnician"),
             Role::Pharmacist => write!(f, "Pharmacist"),
+            Role::Paramedic => write!(f, "Paramedic"),
             Role::Patient => write!(f, "Patient"),
         }
     }
 }
 
-/// User account with role (wallet-based identity)
+/// User account with role.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    /// SS58 wallet address (primary identifier for blockchain auth)
-    pub wallet_address: String,
+    /// `users.id` as text: the only identifier of a user, the JWT `sub`, and the
+    /// value of every actor column (ADR-0010). On the wire it is `user_id`.
+    #[serde(rename = "user_id")]
+    pub id: String,
     /// Optional username for display
     pub username: Option<String>,
     /// Full name
@@ -181,7 +187,7 @@ pub struct User {
     pub role: Role,
     /// When the user was registered
     pub created_at: DateTime<Utc>,
-    /// Which admin registered this user (wallet address)
+    /// Which admin registered this user (their `users.id`)
     pub created_by: Option<String>,
     /// Optional linked patient ID (for patient users)
     pub linked_patient_id: Option<String>,
@@ -224,6 +230,17 @@ pub enum BloodType {
     ABNegative,
     OPositive,
     ONegative,
+    /// Not typed, or not known to whoever recorded it.
+    ///
+    /// A Special Case (Fowler, *Patterns of Enterprise Application
+    /// Architecture*): the same interface as a real group, so every reader
+    /// handles it, instead of a guessed group standing in for "we do not know".
+    /// Registration used to require one of the eight, which forced a guess for
+    /// an unconscious or untyped patient, and the patient loader turned a
+    /// missing group into O+. The emergency views already treat it as
+    /// "compatible donors: O-", the uncrossmatched default. `patients.blood_type`
+    /// has always allowed 'Unknown'.
+    Unknown,
 }
 
 impl serde::Serialize for BloodType {
@@ -250,6 +267,7 @@ impl<'de> serde::Deserialize<'de> for BloodType {
             "AB-" | "ABNegative" => Ok(BloodType::ABNegative),
             "O+" | "OPositive" => Ok(BloodType::OPositive),
             "O-" | "ONegative" => Ok(BloodType::ONegative),
+            "Unknown" | "unknown" => Ok(BloodType::Unknown),
             _ => Err(serde::de::Error::custom(format!(
                 "Invalid blood type: {}",
                 s
@@ -269,6 +287,7 @@ impl std::fmt::Display for BloodType {
             BloodType::ABNegative => write!(f, "AB-"),
             BloodType::OPositive => write!(f, "O+"),
             BloodType::ONegative => write!(f, "O-"),
+            BloodType::Unknown => write!(f, "Unknown"),
         }
     }
 }
@@ -503,7 +522,7 @@ pub struct EmergencyInfo {
     pub emergency_contacts: Vec<EmergencyContact>,
     pub organ_donor: bool,
     pub dnr_status: bool,
-    /// Wallet/staff id of the provider who verified the DNR advance directive.
+    /// User id/staff id of the provider who verified the DNR advance directive.
     /// `None` means the DNR is recorded but UNVERIFIED — first responders must
     /// assume full resuscitation until the directive is confirmed.
     #[serde(default)]
@@ -572,7 +591,7 @@ pub struct PatientProfile {
 // serialized + encrypted into `profile_extras_encrypted` so reads round-trip
 // losslessly (incl. address/insurance/doctors/preferences/directives); typed
 // columns are populated for lookup/search. FK columns (registered_by,
-// primary_provider_id) stay NULL because user IDs here are wallet addresses, not
+// primary_provider_id) stay NULL because user IDs here are user ids, not
 // the `users(id)` UUIDs the schema's foreign keys expect.
 // ----------------------------------------------------------------------------
 
@@ -658,7 +677,6 @@ pub(crate) fn patient_profile_to_entity(
         dnr_verified_at: profile.emergency_info.dnr_verified_at,
         dnr_document_ref: profile.emergency_info.dnr_document_ref.clone(),
         primary_provider_id: None,
-        wallet_address: None,
         created_at: profile.created_at,
         updated_at: profile.last_updated,
         registered_by: None,
@@ -767,9 +785,53 @@ pub struct AccessLogEntry {
     pub emergency: bool,
 }
 
+/// Read-side view of one access-log row, returned by the access-log endpoints.
+///
+/// `AccessLogEntry` is the write-side shape a dozen handlers build, and it has
+/// no room for *why* or *what*. Converting the stored row through it threw
+/// those away, so the patient's transparency screen could say *who* and *when*
+/// but never *why* they looked or *what* they saw -- the two halves of the
+/// promise that actually matter. This view carries every field the row stores
+/// that a patient is entitled to see. The IP address and user agent are left
+/// out on purpose: they identify the clinician's device, not the disclosure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccessLogView {
+    pub access_id: String,
+    pub patient_id: String,
+    pub accessor_id: String,
+    pub accessor_role: String,
+    /// The stored action (`view`, `download`, `nfc_tap`, ...).
+    pub access_type: String,
+    /// The clinician's declared reason, or `None` when none was recorded.
+    pub access_reason: Option<String>,
+    /// Plain-language category of what was disclosed (e.g. "Vital signs").
+    pub resource_type: String,
+    pub resource_id: Option<String>,
+    pub location: Option<String>,
+    pub timestamp: DateTime<Utc>,
+    pub emergency: bool,
+    /// Where this entry is in the sealed audit stream: `pending` (not batched
+    /// yet), `sealed` or `exported`.
+    pub seal_status: String,
+    /// What authorised the access (WP9): `care_relationship`, `break_glass`,
+    /// `patient_grant`, `guardian`, `admin`, …; `None` on older rows.
+    pub authority_type: Option<String>,
+    pub authority_id: Option<String>,
+}
+
 #[cfg(test)]
 mod role_authority_tests {
     use super::*;
+
+    /// The EMS role can handle emergencies without inheriting chart authority.
+    #[test]
+    fn paramedic_role_is_restricted_to_emergency_authority() {
+        assert!(Role::Paramedic.may_manage_ems());
+        assert!(Role::Paramedic.may_break_glass());
+        assert!(!Role::Paramedic.is_healthcare_provider());
+        assert!(!Role::Paramedic.can_view_medical_records());
+        assert!(!Role::Paramedic.can_edit_medical_records());
+    }
 
     /// The separation of duties, asserted rather than commented.
     ///

@@ -18,7 +18,9 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn(),
   getPatients: vi.fn(),
+  listAMADischarges: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
@@ -40,7 +42,8 @@ const goToRiskDisclosureStep = async () => {
 
   // One picker instead of a typed id and a separately typed name.
   await selectPatient(/Select Patient/i, 'Test Patient');
-  fireEvent.change(screen.getByLabelText(/MRN/i), { target: { value: 'MRN-001' } });
+  // No MRN to type: it was never sent, and the picked patient is the record.
+  expect(screen.queryByLabelText(/MRN/i)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
 
   fireEvent.change(screen.getByLabelText(/Diagnosis/i), { target: { value: 'Chest pain' } });
@@ -52,12 +55,16 @@ const goToRiskDisclosureStep = async () => {
 
 describe('AMAPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-PAGE-QA',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
@@ -66,6 +73,7 @@ describe('AMAPage', () => {
     vi.mocked(shared.getPatients).mockResolvedValue([
       patientFixture({ patient_id: 'PAT-001', full_name: 'Test Patient' }),
     ] as never);
+    vi.mocked(shared.listAMADischarges).mockResolvedValue([]);
   });
 
   it('renders AMA page', () => {
@@ -114,5 +122,43 @@ describe('AMAPage', () => {
 
     fireEvent.click(screen.getByLabelText(/Patient has capacity to refuse/i));
     expect(screen.getByRole('button', { name: /Continue to Signatures/i })).toBeDisabled();
+  });
+});
+
+describe('AMAPage register', () => {
+  /** One register row, as `GET /api/platform/list/ama-discharges` serves it. */
+  const row = (overrides: Partial<shared.AmaRegisterRow> = {}): shared.AmaRegisterRow => ({
+    id: 'AMA-7', patient_id: 'PAT-001', created_at: '2026-11-10T08:00:00Z',
+    discharge_datetime: '2026-11-10T08:00:00Z', attending_physician_id: 'doctor_a',
+    diagnosis: 'Pneumonia', recommended_treatment: 'IV antibiotics',
+    patient_statement: 'I need to get home', risk_level: 'high', status: 'pending-signatures',
+    patient_signed: false, signature_refused_reason: null, signatures_collected_at: null,
+    witness_name: 'Nurse B', witness_signed: false, provider_attested: true,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useAuthStore).mockReturnValue({ user: { userId: 'doctor_a', role: 'Doctor' } });
+    vi.mocked(shared.getPatients).mockResolvedValue([] as never);
+  });
+
+  const openRecord = async () => {
+    render(<AMAPage />);
+    fireEvent.click(await screen.findByText('Pneumonia'));
+  };
+
+  it('a discharge awaiting signatures offers the bedside signature step', async () => {
+    vi.mocked(shared.listAMADischarges).mockResolvedValue([row()]);
+    await openRecord();
+    expect(screen.getByRole('button', { name: /Collect Signatures/i })).toBeInTheDocument();
+    expect(screen.getByText(/I need to get home/)).toBeInTheDocument();
+    expect(screen.getByText('IV antibiotics')).toBeInTheDocument();
+  });
+
+  it('a completed discharge does not offer it again', async () => {
+    vi.mocked(shared.listAMADischarges).mockResolvedValue([row({ status: 'completed', patient_signed: true })]);
+    await openRecord();
+    expect(screen.queryByRole('button', { name: /Collect Signatures/i })).not.toBeInTheDocument();
   });
 });

@@ -172,6 +172,12 @@ impl IVAssessmentRepository for PgIVAssessmentRepository {
             .push_bind(assessment.site_discontinued);
         qb.push(", discontinuation_reason = ")
             .push_bind(&assessment.discontinuation_reason);
+        // Keep bedside history and removal attribution with the updated columns.
+        qb.push(", data = ").push_bind(&assessment.data);
+        qb.push(", assessed_by = ")
+            .push_bind(&assessment.assessed_by);
+        qb.push(", assessed_at = ")
+            .push_bind(assessment.assessed_at);
         qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
             .push_bind(&assessment.id);
         qb.push(" RETURNING *");

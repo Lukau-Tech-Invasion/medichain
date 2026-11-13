@@ -14,19 +14,17 @@
 //! - If DATABASE_URL is set, persistent storage with demo users
 //! - Falls back to in-memory storage if no database configured
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
-use crate::middleware::jwt_identity::JwtIdentityMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
 use crate::middleware::session_state::SessionStateMiddleware;
-use crate::middleware::signature_auth::SignatureAuthMiddleware;
 use crate::middleware::versioning::ApiVersionMiddleware;
 
 // Database modules (PostgreSQL integration)
@@ -34,22 +32,33 @@ mod db;
 mod encryption_keyring;
 mod federation_identity;
 mod models;
+mod password_policy;
 mod repositories;
 mod services;
 
+mod actor_directory;
+mod attachment_scan;
+mod audit_batching;
+mod audit_merkle;
 mod audit_outbox;
-mod auth_challenges;
+mod audit_s3_sink;
+mod audit_seal;
 mod auth_sessions;
-mod blockchain;
+mod blood_inventory;
+mod care_access;
 mod clinical;
 mod clinical_endpoints;
 mod clinical_scoring;
+mod credentials;
 mod deferred_emergency_audit;
 mod device_lifecycle;
 mod dispensing_policy;
+mod document_intake;
 mod emergency_capsule;
 mod emergency_grants;
+mod governance;
 mod ipfs;
+mod job_lock;
 mod middleware;
 mod mobile_records;
 mod national_id;
@@ -61,6 +70,8 @@ mod patient_access;
 mod patient_name_index;
 mod pdf;
 mod privacy_logging;
+mod refresh_cookie;
+mod research_export;
 mod retention;
 mod security;
 mod telehealth;
@@ -95,6 +106,9 @@ pub(crate) use state::*;
 pub(crate) use support::*;
 pub(crate) use types::*;
 
+/// Seconds between runs of the access-audit Merkle batching job (WP8).
+const AUDIT_BATCH_INTERVAL_SECS: u64 = 60;
+
 /// Initialize logging (Phase 8.2).
 ///
 /// One pipeline, composed from layers, for every build.
@@ -103,7 +117,7 @@ pub(crate) use types::*;
 /// whose format closure applied `privacy_logging`, and — under
 /// `--features tokio-console` — a bare `console_subscriber::init()`. Only one
 /// global subscriber can exist, so the console build replaced the redacting one
-/// outright and logged the wallet addresses, bearer tokens and patient
+/// outright and logged account identifiers, bearer tokens and patient
 /// identifiers every other build redacts. The control vanished precisely when
 /// someone was debugging a live system closely enough to want a task console.
 ///
@@ -145,7 +159,7 @@ fn init_logging() {
 /// Bring up the storage backend the environment names, or say why not.
 ///
 /// Extracted from `main` because startup is four separate decisions -- storage,
-/// chain, caches, background jobs -- and reading any one of them meant reading
+/// audit sealing, caches, background jobs -- and reading any one of them meant reading
 /// all four. See the register entry on the 60-line rule for the measurement
 /// that motivated this.
 async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
@@ -159,14 +173,6 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                 .ok()
                 .and_then(|v| v.parse().ok());
 
-            // Fail-closed outside demo mode. Previously a migration failure was a
-            // warning and a connection failure silently fell back to volatile
-            // in-memory storage, so the API could report "ready" while running on
-            // an incompatible schema — or while every clinical write was destined
-            // to vanish on restart. A health application must not advertise
-            // readiness in either state. In demo mode the fallback is retained
-            // deliberately: that profile is synthetic-data-only by definition.
-            let demo = crate::support::is_demo_mode();
             match db::create_pool_with_retry(&database_url, max_retries, None).await {
                 Ok(pool) => {
                     println!("  [OK] Database connection established");
@@ -174,45 +180,8 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                     // Run migrations
                     println!("  [DB] Running database migrations...");
                     if let Err(e) = db::run_migrations(&pool).await {
-                        if demo {
-                            // Demo mode still starts, but the previous message
-                            // ("Migration warning: ...", then a healthy boot)
-                            // was indistinguishable from success in a scrolling
-                            // log. It hid a database sitting 31 migrations
-                            // behind the code — 8 of 39 applied — because sqlx
-                            // halts the ENTIRE chain when one already-applied
-                            // migration's checksum changes. Endpoints then fail
-                            // on missing tables that look like ordinary bugs.
-                            let applied = db::applied_migration_count(&pool).await;
-                            let on_disk = db::available_migration_count();
-                            eprintln!("\n=================================================");
-                            eprintln!("  [WARN] DATABASE MIGRATIONS DID NOT APPLY");
-                            log::warn!("database migration did not apply: {e}");
-                            match (applied, on_disk) {
-                                (Some(a), Some(d)) if d > a => eprintln!(
-                                    "  Schema is STALE: {a} of {d} migrations applied — {} missing.\n  \
-                                     Tables added by the missing {} will not exist, and any endpoint \
-                                     touching them will fail at runtime.",
-                                    d - a, d - a
-                                ),
-                                _ => eprintln!(
-                                    "  Schema state is unknown; assume it does not match the code."
-                                ),
-                            }
-                            eprintln!(
-                                "  Starting anyway because IS_DEMO=true. This would ABORT startup \
-                                 in any non-demo deployment."
-                            );
-                            eprintln!("=================================================\n");
-                        } else {
-                            log::error!("startup aborted because database migrations failed: {e}");
-                            eprintln!(
-                                "        Starting now would serve clinical traffic against an \
-                                 unknown schema. Fix the migration, or set IS_DEMO=true for a \
-                                 synthetic-data demo."
-                            );
-                            return Err(std::io::Error::other("database migrations failed"));
-                        }
+                        log::error!("startup aborted because database migrations failed: {e}");
+                        return Err(std::io::Error::other("database migrations failed"));
                     } else {
                         println!("  [OK] Migrations completed");
                     }
@@ -220,102 +189,36 @@ async fn initialise_storage() -> std::io::Result<Option<sqlx::PgPool>> {
                     Some(pool)
                 }
                 Err(e) => {
-                    if demo {
-                        // Loud on purpose. This branch silently turned a
-                        // postgres-configured deployment into an EMPTY in-memory
-                        // one while /health still answered "healthy", so the
-                        // first symptom was every demo login failing with
-                        // "Wallet not registered" on a stack that looked green.
-                        // The two-line warning it used to print was lost among
-                        // the startup banner and the demo-secret warnings.
-                        eprintln!("\n============================================================");
-                        eprintln!("  [DEGRADED] DATABASE_URL was set, but the database is");
-                        log::warn!("database configured but unreachable: {e}");
-                        eprintln!();
-                        eprintln!("  Falling back to EMPTY in-memory storage (demo mode).");
-                        eprintln!("  No seeded users, patients or records exist in this mode:");
-                        eprintln!("  every login will fail with WALLET_NOT_REGISTERED.");
-                        eprintln!();
-                        eprintln!("  If the database is merely slow to start (WAL replay after");
-                        eprintln!("  an unclean shutdown can exceed two minutes), restart the");
-                        eprintln!("  API once it is accepting connections, or raise");
-                        eprintln!("  DB_MAX_RETRIES.");
-                        eprintln!("============================================================\n");
-                        None
-                    } else {
-                        log::error!(
-                            "startup aborted because configured database is unreachable: {e}"
-                        );
-                        eprintln!(
-                            "        Refusing to fall back to volatile in-memory storage: \
-                             clinical writes would be lost on restart while the API reported \
-                             healthy. Fix connectivity, or set IS_DEMO=true for a \
-                             synthetic-data demo."
-                        );
-                        return Err(std::io::Error::other("database unreachable"));
-                    }
+                    log::error!("startup aborted because configured database is unreachable: {e}");
+                    return Err(std::io::Error::other("database unreachable"));
                 }
             }
         }
         Err(_) => {
             // No DATABASE_URL at all. Outside demo mode this is a configuration
             // error, not a default: it silently selects volatile storage.
-            if !crate::support::is_demo_mode() {
+            if !crate::support::is_demo_mode()
+                || crate::repositories::StorageBackend::from_env()
+                    == crate::repositories::StorageBackend::Postgres
+            {
                 eprintln!(
-                    "\n[ERROR] STARTUP ABORTED: no DATABASE_URL set and IS_DEMO is not true."
+                    "\n[ERROR] STARTUP ABORTED: PostgreSQL is required but DATABASE_URL is unset."
                 );
                 eprintln!(
-                    "        In-memory storage is a demo-only profile. Set DATABASE_URL for a \
-                     persistent deployment, or IS_DEMO=true to run on synthetic data."
+                    "        Set DATABASE_URL for persistent storage. In-memory storage is \
+                     available only for an explicit demo without PostgreSQL selected."
                 );
                 return Err(std::io::Error::other(
                     "no DATABASE_URL set outside demo mode",
                 ));
             }
             println!("  [INFO] No DATABASE_URL set - using in-memory storage (demo mode)");
-            None
-        }
-    })
-}
-
-/// Connect the Substrate client, if one is configured.
-///
-/// Failure is fatal only when `BLOCKCHAIN_ENABLED` claims the chain is in use;
-/// otherwise it is a warning, because a disabled chain has nothing to connect
-/// to and every write path already returns a typed error for it.
-async fn connect_blockchain(
-) -> std::io::Result<Option<std::sync::Arc<crate::blockchain::SubstrateClient>>> {
-    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
-    Ok(match crate::blockchain::SubstrateClient::from_env() {
-        Some(ws_url) => {
-            log::info!("connecting to configured Substrate node");
-            match crate::blockchain::SubstrateClient::new(&ws_url).await {
-                Ok(client) => {
-                    let connected = client.health_check().await;
-                    if connected && client.is_ready() {
-                        println!("  [OK] Blockchain node connected");
-                    } else if crate::blockchain::blockchain_enabled() {
-                        return Err(std::io::Error::other(
-                            "blockchain is enabled but the node/subxt client is not ready",
-                        ));
-                    } else {
-                        println!("  [WARN] Blockchain node not reachable - will retry on requests");
-                    }
-                    Some(std::sync::Arc::new(client))
-                }
-                Err(e) => {
-                    if crate::blockchain::blockchain_enabled() {
-                        return Err(std::io::Error::other(format!(
-                            "blockchain client initialization failed: {e}"
-                        )));
-                    }
-                    log::warn!("blockchain client initialization failed: {e}");
-                    None
-                }
-            }
-        }
-        None => {
-            println!("  [INFO] No SUBSTRATE_WS_URL set - blockchain features disabled");
+            // Said once, at the start, rather than discovered later: the
+            // challenge store lives in PostgreSQL, so this mode cannot ask for
+            // an exact confirmation of a sensitive action.
+            println!(
+                "  [WARN] ADR-0008 Class C confirmation is NOT enforced on in-memory storage; sensitive actions run without it. Production refuses this mode."
+            );
             None
         }
     })
@@ -323,9 +226,8 @@ async fn connect_blockchain(
 
 /// Fill the in-process caches the authorization path reads from.
 ///
-/// Outside demo mode every one of these is fatal: an empty user cache is not a
-/// degraded service, it is an API that refuses every authenticated request
-/// while reporting healthy.
+/// A configured PostgreSQL deployment cannot claim readiness with empty auth,
+/// patient or security caches, even when its data is synthetic.
 async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> {
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
@@ -334,12 +236,11 @@ async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> 
             Ok(count) => {
                 println!("  [OK] Loaded {} demo users", count);
             }
-            Err(e) if !crate::support::is_demo_mode() => {
+            Err(e) => {
                 return Err(std::io::Error::other(format!(
                     "failed to initialize authorization users: {e}"
                 )));
             }
-            Err(e) => log::warn!("failed to load demo users: {e}"),
         }
 
         // Refill the health ID card registry.
@@ -360,24 +261,22 @@ async fn hydrate_caches(app_state: &web::Data<AppState>) -> std::io::Result<()> 
             Ok(count) => {
                 println!("  [OK] Loaded {} demo patients", count);
             }
-            Err(e) if !crate::support::is_demo_mode() => {
+            Err(e) => {
                 return Err(std::io::Error::other(format!(
                     "failed to initialize patient cache: {e}"
                 )));
             }
-            Err(e) => log::warn!("failed to load demo patients: {e}"),
         }
 
         // Load persisted MFA enrollments + recent security alerts (Phase 11.3/11.4)
         println!("  [INFO] Loading security state (MFA + alerts) from database...");
         match app_state.load_security_from_db().await {
             Ok(count) => println!("  [OK] Loaded {} MFA enrollments", count),
-            Err(e) if !crate::support::is_demo_mode() => {
+            Err(e) => {
                 return Err(std::io::Error::other(format!(
                     "failed to initialize MFA security state: {e}"
                 )));
             }
-            Err(e) => log::warn!("failed to load security state: {e}"),
         }
     }
 
@@ -410,23 +309,14 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
         });
     }
 
-    if let (Some(pool), Some(client)) = (
-        app_state.db_pool.clone(),
-        app_state.substrate_client.clone(),
-    ) {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-            loop {
-                interval.tick().await;
-                match crate::audit_outbox::deliver_pending_chain_events(&pool, &client).await {
-                    Ok(count) if count > 0 => {
-                        log::info!("Delivered {} pending blockchain operation(s)", count)
-                    }
-                    Ok(_) => {}
-                    Err(error) => log::error!("Blockchain outbox delivery failed: {}", error),
-                }
-            }
-        });
+    // Seal the audit stream (WP8, ADR-0010): batch, chain, sign and export.
+    // PostgreSQL only; a failure is logged and retried, never shown to a request.
+    if let Some(pool) = app_state.db_pool.clone() {
+        crate::audit_batching::spawn_batching_job(
+            pool,
+            tokio::time::Duration::from_secs(AUDIT_BATCH_INTERVAL_SECS),
+            app_state.audit_seal.clone(),
+        );
     }
 
     // Start medication reminder background task
@@ -436,8 +326,16 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
             loop {
                 interval.tick().await;
-                crate::clinical_endpoints::check_and_send_medication_reminders(&reminder_state)
-                    .await;
+                crate::job_lock::run_exclusive(
+                    reminder_state.db_pool.as_ref(),
+                    crate::job_lock::JobKey::MedicationReminders,
+                    || {
+                        crate::clinical_endpoints::check_and_send_medication_reminders(
+                            &reminder_state,
+                        )
+                    },
+                )
+                .await;
             }
         });
         println!("  [INFO] Medication reminder task started (checks every 60s)");
@@ -450,8 +348,16 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
             loop {
                 interval.tick().await;
-                crate::clinical_endpoints::check_and_send_appointment_reminders(&reminder_state)
-                    .await;
+                crate::job_lock::run_exclusive(
+                    reminder_state.db_pool.as_ref(),
+                    crate::job_lock::JobKey::AppointmentReminders,
+                    || {
+                        crate::clinical_endpoints::check_and_send_appointment_reminders(
+                            &reminder_state,
+                        )
+                    },
+                )
+                .await;
             }
         });
         println!("  [INFO] Appointment reminder task started (checks every 5m)");
@@ -471,7 +377,15 @@ fn spawn_background_jobs(app_state: &web::Data<AppState>) {
             ));
             loop {
                 interval.tick().await;
-                let assessment = crate::retention::run_retention_assessment(&retention_state).await;
+                let Some(assessment) = crate::job_lock::run_exclusive(
+                    retention_state.db_pool.as_ref(),
+                    crate::job_lock::JobKey::RetentionAssessment,
+                    || crate::retention::run_retention_assessment(&retention_state),
+                )
+                .await
+                else {
+                    continue;
+                };
                 if assessment.total_due > 0 || assessment.total_held > 0 {
                     log::info!(
                         "retention assessment {}: {} due, {} held, 0 deleted (report-only)",
@@ -498,13 +412,8 @@ async fn main() -> std::io::Result<()> {
     // the hardcoded availability figure it used to print.
     crate::middleware::metrics::mark_process_start();
 
-    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
-    // docker-compose publishes on the host. When the API bound 8080 it stole that
-    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
-    // resolved back to the API itself — every encrypted-record download fetched
-    // the API, got a 404, and surfaced as a misleading "Record content not found".
-    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
-    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
+    // The API defaults to 8090 for local development. Inside Docker it binds
+    // 8080 in its own namespace, set explicitly as `PORT` in docker-compose.yml.
     let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let bind_addr = format!("{}:{}", host, port);
@@ -532,15 +441,19 @@ async fn main() -> std::io::Result<()> {
 
     let db_pool = initialise_storage().await?;
 
-    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
+    // Outside demo mode the audit seal needs a signing key and a checkpoint sink.
+    let audit_seal = crate::audit_seal::SealRuntime::from_env(crate::support::is_demo_mode())
         .map_err(std::io::Error::other)?;
-
-    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
-    let substrate_client = connect_blockchain().await?;
+    if audit_seal.signer.is_none() {
+        log::warn!("AUDIT_SEAL_SIGNING_KEY is not set: audit batches are sealed unsigned (demo)");
+    }
 
     // Create shared state with optional database pool (using async version for PostgreSQL support)
-    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
-    if !crate::support::is_demo_mode()
+    let persistent_storage_requested = db_pool.is_some()
+        || crate::repositories::StorageBackend::from_env()
+            == crate::repositories::StorageBackend::Postgres;
+    let state = AppState::new_with_pool_async(db_pool, audit_seal).await;
+    if persistent_storage_requested
         && state.repositories.backend != crate::repositories::StorageBackend::Postgres
     {
         return Err(std::io::Error::other(
@@ -554,12 +467,6 @@ async fn main() -> std::io::Result<()> {
     // deployment-wide read into a cross-organisation disclosure.
     if let Some(pool) = app_state.db_pool.as_ref() {
         startup::validate_single_organisation(pool)
-            .await
-            .map_err(std::io::Error::other)?;
-        // A published development key holding an Admin role is an open door,
-        // and nothing else checks for it — `blockchain.rs` guards only the
-        // chain signer.
-        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
             .await
             .map_err(std::io::Error::other)?;
     }
@@ -579,12 +486,18 @@ async fn main() -> std::io::Result<()> {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
                 loop {
                     interval.tick().await;
-                    match crate::deferred_emergency_audit::replay_pending(&replay_state).await {
-                        Ok(count) if count > 0 => {
+                    let replayed = crate::job_lock::run_exclusive(
+                        replay_state.db_pool.as_ref(),
+                        crate::job_lock::JobKey::DeferredEmergencyAudit,
+                        || crate::deferred_emergency_audit::replay_pending(&replay_state),
+                    )
+                    .await;
+                    match replayed {
+                        Some(Ok(count)) if count > 0 => {
                             log::info!("Reconciled {count} deferred emergency audit event(s)")
                         }
-                        Ok(_) => {}
-                        Err(error) => {
+                        Some(Ok(_)) | None => {}
+                        Some(Err(error)) => {
                             log::error!("Deferred emergency audit backlog unreconciled: {error}")
                         }
                     }
@@ -624,12 +537,30 @@ async fn main() -> std::io::Result<()> {
                     actix_web::http::header::AUTHORIZATION,
                     actix_web::http::header::ACCEPT,
                     actix_web::http::header::CONTENT_TYPE,
-                    actix_web::http::header::HeaderName::from_static("x-user-id"),
                     actix_web::http::header::HeaderName::from_static("x-request-id"),
-                    // SEC-005: Wallet signature authentication headers
-                    actix_web::http::header::HeaderName::from_static("x-signature"),
-                    actix_web::http::header::HeaderName::from_static("x-timestamp"),
+                    // Clinician's declared reason for opening a chart (PHI audit).
+                    actix_web::http::header::HeaderName::from_static(
+                        crate::middleware::phi_access_audit::ACCESS_REASON_HEADER,
+                    ),
+                    // Server-issued chart access context (WP10).
+                    actix_web::http::header::HeaderName::from_static(
+                        crate::middleware::phi_access_audit::ACCESS_CONTEXT_HEADER,
+                    ),
+                    // Sent by the client on every mutation; without it here a
+                    // cross-origin write fails its preflight in production.
+                    actix_web::http::header::HeaderName::from_static("idempotency-key"),
+                    // When a record replayed from a device without signal was
+                    // written (`support::clinical_time`).
+                    actix_web::http::header::HeaderName::from_static(
+                        crate::support::OFFLINE_RECORDED_AT_HEADER,
+                    ),
                 ])
+                // The HttpOnly refresh cookie (WP12) crosses origins only with
+                // credentials allowed. Safe here: origins are listed exactly,
+                // and the cookie is SameSite=Strict besides. Demo mode (any
+                // origin) deliberately does not allow credentials; its clients
+                // reach the API through the same-origin proxy.
+                .supports_credentials()
                 .max_age(3600);
 
             for origin in allowed_origins.split(',') {
@@ -644,27 +575,7 @@ async fn main() -> std::io::Result<()> {
         // count.
         let rate_limit = rate_limit.clone();
 
-        // Configure signature authentication (SEC-005)
-        // SECURE BY DEFAULT: verification is ENABLED unless the operator explicitly
-        // opts out via IS_DEMO=true or REQUIRE_SIGNATURES=false. IS_DEMO defaults to
-        // "false" here (matches the CORS block above) so a misconfigured/forgotten
-        // env never silently trusts the unauthenticated X-User-Id header.
-        // Precedence: REQUIRE_SIGNATURES (when set) overrides the IS_DEMO-derived default.
         let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
-        let require_signatures = match std::env::var("REQUIRE_SIGNATURES") {
-            Ok(val) => val == "true",
-            Err(_) => !is_demo, // Default: on in production, off only when IS_DEMO=true
-        };
-        let signature_auth = if require_signatures {
-            log::info!("Signature authentication ENABLED - all authenticated requests require a wallet signature");
-            SignatureAuthMiddleware::enabled()
-        } else {
-            log::warn!(
-                "Signature verification DISABLED — X-User-Id is NOT cryptographically verified. \
-                 Do NOT use in production. (Set IS_DEMO=false and unset REQUIRE_SIGNATURES to enable.)"
-            );
-            SignatureAuthMiddleware::disabled()
-        };
 
         // Configure encryption policy
         let encryption_policy = if !is_demo {
@@ -674,21 +585,21 @@ async fn main() -> std::io::Result<()> {
         };
 
         App::new()
+            // Innermost on purpose: it must see the matched route and the
+            // handler's final status, and its 503 must still get CORS headers.
+            .wrap(crate::middleware::phi_access_audit::PhiAccessAuditMiddleware)
+            // A patient session reaches only the patient surface. Inside CORS so
+            // a refusal is readable; after the /api/v1 rewrite so both match.
+            .wrap(crate::middleware::patient_surface::PatientSurfaceMiddleware)
             .wrap(cors)
             // Security/HSTS headers on every response (Phase 6.2).
             .wrap(SecurityHeadersMiddleware)
             // Rewrites /api/v1/... → /api/... before routing (Phase 9.1).
             .wrap(ApiVersionMiddleware)
             .wrap(rate_limit)
-            // Must execute after signature authentication so durable operation
-            // claims are never scoped by an unverified legacy identity header.
+            // Identity for durable operation claims comes only from the verified JWT.
             .wrap(IdempotencyMiddleware)
-            // Runs after signature verification. It bridges verified Bearer
-            // sessions to handlers that have not yet stopped reading the
-            // legacy header directly; it never trusts client header content.
-            .wrap(JwtIdentityMiddleware)
             .wrap(SessionStateMiddleware)
-            .wrap(signature_auth)
             .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
             .app_data(app_state.clone())

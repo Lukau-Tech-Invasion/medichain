@@ -1,3 +1,6 @@
+import { PatientRecordDocuments } from '../components/PatientRecordDocuments';
+import { LatestPediatricAssessment } from '../components/LatestPediatricAssessment';
+import { PatientAdministrativeDetails, type PatientAdministrativeData } from '../components/PatientAdministrativeDetails';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -16,16 +19,21 @@ import {
   StepUpDialog,
   useTranslation,
   ApiClientError,
+  BreakGlassPanel,
+  CARE_RELATIONSHIP_REQUIRED,
   getPatient,
   type PatientProfile,
   formatDateOnly,
   formatTimestamp,
+  SealStatusBadge,
+  notifySuccess, ChoiceChips,
+  ModalPanel,
 } from '@medichain/shared';
 import type { EmergencyCapsuleAccess, EmergencyCapsuleVersion } from '@medichain/shared';
 import type { GuardianRelationship } from '@medichain/shared';
 import { useAuthStore } from '../store';
+import { ageInYears } from '../workspace/identity';
 import { 
-  ArrowLeft, 
   User, 
   Heart, 
   AlertTriangle, 
@@ -57,6 +65,7 @@ interface PatientDetails {
   lastUpdated: string;
   /** The primary doctor named on the profile, when one is recorded. */
   primaryDoctor: string;
+  administrative?: PatientAdministrativeData;
 }
 
 interface ClinicalDetailsForm {
@@ -126,6 +135,9 @@ function PatientDetailPage() {
   const [patient, setPatient] = useState<PatientDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // WP9: the chart was refused for lack of a care relationship; offer break-glass.
+  const [needsBreakGlass, setNeedsBreakGlass] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [activeTab, setActiveTab] = useState<'overview' | 'records' | 'access'>('overview');
   const [editingClinicalDetails, setEditingClinicalDetails] = useState(false);
   const [savingClinicalDetails, setSavingClinicalDetails] = useState(false);
@@ -150,6 +162,7 @@ function PatientDetailPage() {
   };
 
   const saveClinicalDetails = async () => {
+    if (savingClinicalDetails) return;
     if (!patient) return;
     const updates = {
       allergies: clinicalItems(clinicalDetailsForm.allergies),
@@ -170,6 +183,7 @@ function PatientDetailPage() {
         lastUpdated: new Date().toISOString(),
       });
       setEditingClinicalDetails(false);
+      notifySuccess('Patient details saved.');
     } catch (saveError) {
       setClinicalDetailsError(
         saveError instanceof Error ? saveError.message : t('docPatientDetail.editSaveFailed')
@@ -237,7 +251,8 @@ function PatientDetailPage() {
   const vitalOrDash = (key: string, suffix = ''): string => {
     const value = latestVitals?.[key];
     if (value === null || value === undefined || value === '') return '—';
-    return `${value}${suffix}`;
+    const display = key === 'temperature_celsius' && typeof value === 'number' ? value.toFixed(1) : value;
+    return `${display}${suffix}`;
   };
 
   // Recording and ending a guardianship both run through
@@ -247,7 +262,7 @@ function PatientDetailPage() {
   // it -- which is how delegated authority over a minor's records became
   // unmanageable in production while working perfectly in the demo.
   const stepUp = useStepUp();
-  const [newGuardianWallet, setNewGuardianWallet] = useState('');
+  const [newGuardianUserId, setNewGuardianUserId] = useState('');
   const [newGuardianType, setNewGuardianType] = useState('parent_or_guardian');
   const [newGuardianPermissions, setNewGuardianPermissions] = useState<string[]>([]);
   // The relationship whose permissions are being changed, and the set as edited.
@@ -343,15 +358,9 @@ function PatientDetailPage() {
     setCapsuleBusy(true);
     try {
       const body = await publishEmergencyCapsule(patientId);
-      // `anchoring` rather than the hash: a transaction hash with
-      // `chain_finalized: false` is a placeholder, and reporting it as an
-      // anchoring would claim something that did not happen.
-      setCapsuleNotice(
-        t('docPatientDetail.capsulePublished', {
-          version: body.version,
-          anchoring: body.anchoring,
-        })
-      );
+      // The notice says the version is in force; the seal state of its
+      // commitment is shown beside the version in the list, from the server.
+      setCapsuleNotice(t('docPatientDetail.capsulePublished', { version: body.version }));
       await loadCapsule();
     } catch (err) {
       setCapsuleError(getApiErrorMessage(err, t('docPatientDetail.capsulePublishFailed')));
@@ -387,8 +396,8 @@ function PatientDetailPage() {
   const recordGuardian = async () => {
     if (!patientId) return;
     setGuardianError(null);
-    if (!newGuardianWallet.trim()) {
-      setGuardianError(t('docPatientDetail.guardianWalletRequired'));
+    if (!newGuardianUserId.trim()) {
+      setGuardianError(t('docPatientDetail.guardianUserIdRequired'));
       return;
     }
     // Authority with no permissions is not authority. An empty set would record
@@ -401,13 +410,13 @@ function PatientDetailPage() {
       setGuardianBusy(true);
       await stepUp.run(() =>
         verifyGuardian({
-          guardian_wallet: newGuardianWallet.trim(),
+          guardian_user_id: newGuardianUserId.trim(),
           ward_patient_id: patientId,
           relationship_type: newGuardianType,
           permissions: newGuardianPermissions,
         })
       );
-      setNewGuardianWallet('');
+      setNewGuardianUserId('');
       setNewGuardianPermissions([]);
       await loadGuardians();
     } catch (err) {
@@ -468,6 +477,7 @@ function PatientDetailPage() {
     const fetchPatient = async () => {
       setLoading(true);
       setError(null);
+      setNeedsBreakGlass(false);
       
       try {
         let data: PatientProfile & Record<string, any>;
@@ -476,6 +486,8 @@ function PatientDetailPage() {
         } catch (refused) {
           if (refused instanceof ApiClientError && refused.status === 404) {
             setPatient(null);
+          } else if (refused instanceof ApiClientError && refused.code === CARE_RELATIONSHIP_REQUIRED) {
+            setNeedsBreakGlass(true);
           } else {
             const status = refused instanceof ApiClientError ? refused.status : 0;
             setError(getApiErrorMessage(refused, t('docPatientDetail.errorStatus', { status })));
@@ -499,6 +511,7 @@ function PatientDetailPage() {
           dnrStatus: data.emergency_info?.dnr_status || false,
           lastUpdated: data.last_updated || new Date().toISOString(),
           primaryDoctor: data.primary_doctor?.name || t('docPatientDetail.unknown'),
+          administrative: { phone: data.phone, gender: data.gender, address: data.address, insurance: data.insurance },
         });
       } catch (err) {
         console.error('Failed to fetch patient:', err);
@@ -508,7 +521,7 @@ function PatientDetailPage() {
     };
 
     fetchPatient();
-  }, [patientId, user, t]);
+  }, [patientId, user, t, reloadKey]);
 
   if (loading) {
     // role="status" + a text label: a bare spinner announces nothing to a
@@ -523,6 +536,19 @@ function PatientDetailPage() {
       >
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
         <span className="sr-only">Loading patient information…</span>
+      </div>
+    );
+  }
+
+  if (needsBreakGlass && patientId) {
+    return (
+      <div className="p-8">
+        <BreakGlassPanel patientId={patientId} onOpened={() => setReloadKey((key) => key + 1)} />
+        <p className="mt-4 text-center">
+          <Link to="/patients" className="text-brand hover:underline">
+            {t('docPatientDetail.backToSearch')}
+          </Link>
+        </p>
       </div>
     );
   }
@@ -558,90 +584,65 @@ function PatientDetailPage() {
   }
 
   return (
-    <div className="p-8">
-      {/* Back Button */}
-      <Link to="/patients" className="inline-flex items-center gap-2 text-content-muted hover:text-content-secondary mb-6">
-        <ArrowLeft size={20} />
-        {t('docPatientDetail.backToPatients')}
-      </Link>
-
-      {/* Patient Header */}
-      <div className="bg-surface rounded-xl shadow p-6 mb-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-brand-subtle rounded-full flex items-center justify-center">
-              <span className="text-2xl font-bold text-brand">
-                {patient.fullName.split(' ').map(n => n[0]).join('')}
-              </span>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-content">{patient.fullName}</h1>
-              <p className="text-content-muted">{patient.nationalHealthId}</p>
-              <div className="flex items-center gap-4 mt-2">
-                <span className="text-sm bg-surface-sunken px-2 py-1 rounded">
-                  {t('docPatientDetail.dob', { date: patient.dateOfBirth })}
-                </span>
-                <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
-                  {t('docPatientDetail.blood', { type: patient.bloodType })}
-                </span>
-                {patient.dnrStatus && (
-                  <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
-                    {t('docPatientDetail.dnr')}
-                  </span>
-                )}
-                {patient.organDonor && (
-                  <span className="text-sm bg-ok-subtle text-ok-subtle-fg px-2 py-1 rounded">
-                    {t('docPatientDetail.organDonor')}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex gap-2">
+    <div className="p-4">
+      {/* The workspace banner above already names the patient, their age,
+          allergies, blood group and code status, and "Close patient" is the way
+          back: this page shows one header, not two (mockup c4). */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label={t('docPatientDetail.tabsLabel')} className="flex gap-1 rounded-lg bg-surface-sunken p-1">
+          {(['overview', 'records', 'access'] as const).map((tab) => (
             <button
+              key={tab}
               type="button"
-              onClick={() => patient && downloadPatientSummary(patient)}
-              className="px-4 py-2 border border-border rounded-lg hover:bg-surface-sunken flex items-center gap-2"
+              aria-pressed={activeTab === tab}
+              onClick={() => setActiveTab(tab)}
+              className={`min-h-[40px] rounded-md px-4 transition-colors ${
+                activeTab === tab
+                  ? 'bg-surface shadow text-content'
+                  : 'text-content-muted hover:text-content-secondary'
+              }`}
             >
-              <Download size={18} />
-              {t('docPatientDetail.export')}
+              {tab === 'access' ? t('docPatientDetail.tabAccess') : tab === 'records' ? t('docPatientDetail.tabRecords') : t('docPatientDetail.tabOverview')}
             </button>
-            <button
-              type="button"
-              onClick={openClinicalDetailsEditor}
-              className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
-            >
-              <Edit size={18} />
-              {t('docPatientDetail.edit')}
-            </button>
-          </div>
+          ))}
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-surface-sunken p-1 rounded-lg w-fit">
-        {(['overview', 'records', 'access'] as const).map((tab) => (
+        <div className="flex flex-wrap items-center gap-2">
+          {patient.bloodType === 'Unknown' && (
+            <span role="alert" className="text-sm font-medium text-critical-subtle-fg">
+              {t('emergency.unknownBloodTypeWarning')}
+            </span>
+          )}
+          {patient.organDonor && (
+            <span className="rounded bg-ok-subtle px-2 py-1 text-sm text-ok-subtle-fg">
+              {t('docPatientDetail.organDonor')}
+            </span>
+          )}
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-md transition-colors ${
-              activeTab === tab
-                ? 'bg-surface shadow text-content'
-                : 'text-content-muted hover:text-content-secondary'
-            }`}
+            type="button"
+            onClick={() => patient && downloadPatientSummary(patient)}
+            className="flex min-h-[40px] items-center gap-2 rounded-lg border border-border-interactive px-4 hover:bg-surface-sunken"
           >
-            {tab === 'access' ? t('docPatientDetail.tabAccess') : tab === 'records' ? t('docPatientDetail.tabRecords') : t('docPatientDetail.tabOverview')}
+            <Download size={18} aria-hidden="true" />
+            {t('docPatientDetail.export')}
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={openClinicalDetailsEditor}
+            className="flex min-h-[40px] items-center gap-2 rounded-lg bg-brand px-4 text-brand-fg hover:bg-brand-hover"
+          >
+            <Edit size={18} aria-hidden="true" />
+            {t('docPatientDetail.edit')}
+          </button>
+        </div>
       </div>
 
       {/* Tab Content */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Allergies */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+          {/* Allergies stay here as well as in the banner: this card is what
+              tells "none recorded" apart from "none known" (rule 12). */}
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.allergies')}</h3>
             </div>
@@ -659,8 +660,8 @@ function PatientDetailPage() {
           </div>
 
           {/* Medications */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Pill className="text-brand" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.currentMeds')}</h3>
             </div>
@@ -679,8 +680,8 @@ function PatientDetailPage() {
           </div>
 
           {/* Chronic Conditions */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Heart className="text-critical" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.chronicConditions')}</h3>
             </div>
@@ -697,9 +698,13 @@ function PatientDetailPage() {
             )}
           </div>
 
-          {/* Last recorded observations */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <PatientAdministrativeDetails details={patient.administrative ?? {}} />
+          {/* Children only: an adult's chart is no place for a paediatric panel. An
+              unknown age is not taken to mean adult. */}
+          {(ageInYears(patient.dateOfBirth) ?? 0) < 18 && <LatestPediatricAssessment patientId={patientId!} />}
+          {/* Dedicated vital-sign chart: separate encounters retain their own observations. */}
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Activity className="text-content-muted" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.latestVitalsHeading')}</h3>
             </div>
@@ -751,8 +756,8 @@ function PatientDetailPage() {
           </div>
 
           {/* Emergency Contacts */}
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Phone className="text-ok" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.emergencyContacts')}</h3>
             </div>
@@ -772,21 +777,18 @@ function PatientDetailPage() {
       )}
 
       {activeTab === 'records' && (
-        <div className="bg-surface rounded-xl shadow p-6">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="bg-surface rounded-lg border border-border p-4">
+          <div className="flex items-center gap-2 mb-2">
             <FileText className="text-content-muted" size={20} />
             <h3 className="font-semibold text-content">{t('docPatientDetail.medicalRecords')}</h3>
           </div>
-          <p className="text-content-muted text-center py-8">
-            {t('docPatientDetail.recordsLine1')}<br />
-            {t('docPatientDetail.recordsLine2')}
-          </p>
+          {patientId && <PatientRecordDocuments key={patientId} patientId={patientId} />}
         </div>
       )}
 
       {activeTab === 'access' && (
         <div className="space-y-6">
-          <div className="bg-surface rounded-xl shadow p-6">
+          <div className="bg-surface rounded-lg border border-border p-4">
             <h3 className="font-semibold text-content mb-1">
               {t('docPatientDetail.capsuleHeading')}
             </h3>
@@ -845,13 +847,7 @@ function PatientDetailPage() {
                               date: formatTimestamp(entry.created_at),
                             })}
                           </p>
-                          <p className="text-xs text-content-muted break-all">
-                            {/* A hash without `chain_finalized` is a
-                                placeholder, not an anchoring. */}
-                            {entry.chain_finalized && entry.chain_tx_hash
-                              ? t('docPatientDetail.capsuleAnchored', { hash: entry.chain_tx_hash })
-                              : t('docPatientDetail.capsuleNotAnchored')}
-                          </p>
+                          <SealStatusBadge status={entry.seal_status} className="mt-1" />
                           {entry.revoked_at && (
                             <p className="text-xs text-content-muted mt-1">
                               {t('docPatientDetail.capsuleRevokedOn', {
@@ -878,8 +874,8 @@ function PatientDetailPage() {
             )}
           </div>
 
-          <div className="bg-surface rounded-xl shadow p-6">
-            <div className="flex items-center gap-2 mb-4">
+          <div className="bg-surface rounded-lg border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
               <Clock className="text-content-muted" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.accessHistory')}</h3>
             </div>
@@ -923,7 +919,7 @@ function PatientDetailPage() {
             )}
           </div>
 
-          <div className="bg-surface rounded-xl shadow p-6">
+          <div className="bg-surface rounded-lg border border-border p-4">
             <h3 className="font-semibold text-content mb-1">{t('docPatientDetail.guardiansHeading')}</h3>
             <p className="text-sm text-content-muted mb-4">{t('docPatientDetail.guardiansSubtitle')}</p>
 
@@ -945,7 +941,7 @@ function PatientDetailPage() {
                     className="flex items-start justify-between gap-3 border border-border rounded-lg p-3"
                   >
                     <div>
-                      <p className="font-medium text-content break-all">{relationship.guardian_wallet}</p>
+                      <p className="font-medium text-content break-all">{relationship.guardian_user_id}</p>
                       <p className="text-sm text-content-muted">
                         {relationship.relationship_type} — {relationship.permissions.join(', ')}
                       </p>
@@ -1029,31 +1025,29 @@ function PatientDetailPage() {
             <div className="border-t border-border pt-4 space-y-3">
               <h4 className="font-medium text-content">{t('docPatientDetail.guardianAddHeading')}</h4>
               <div>
-                <label htmlFor="guardian-wallet" className="block text-sm font-medium mb-1">
-                  {t('docPatientDetail.guardianWalletLabel')}
+                <label htmlFor="guardian-user-id" className="block text-sm font-medium mb-1">
+                  {t('docPatientDetail.guardianUserIdLabel')}
                 </label>
                 <input
-                  id="guardian-wallet"
+                  id="guardian-user-id"
                   type="text"
-                  value={newGuardianWallet}
-                  onChange={(e) => setNewGuardianWallet(e.target.value)}
+                  value={newGuardianUserId}
+                  onChange={(e) => setNewGuardianUserId(e.target.value)}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
               <div>
-                <label htmlFor="guardian-type" className="block text-sm font-medium mb-1">
-                  {t('docPatientDetail.guardianTypeLabel')}
-                </label>
-                <select
+                <ChoiceChips
                   id="guardian-type"
+                  label={t('docPatientDetail.guardianTypeLabel')}
                   value={newGuardianType}
-                  onChange={(e) => setNewGuardianType(e.target.value)}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="parent_or_guardian">{t('docPatientDetail.guardianTypeParent')}</option>
-                  <option value="legal_proxy">{t('docPatientDetail.guardianTypeProxy')}</option>
-                  <option value="power_of_attorney">{t('docPatientDetail.guardianTypePoa')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewGuardianType(next); }}
+                  options={[
+                    { value: 'parent_or_guardian', label: t('docPatientDetail.guardianTypeParent') },
+                    { value: 'legal_proxy', label: t('docPatientDetail.guardianTypeProxy') },
+                    { value: 'power_of_attorney', label: t('docPatientDetail.guardianTypePoa') },
+                  ]}
+                />
               </div>
               <fieldset>
                 <legend className="block text-sm font-medium mb-1">
@@ -1090,13 +1084,14 @@ function PatientDetailPage() {
       <StepUpDialog state={stepUp} />
 
       {editingClinicalDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
-          <section
-            aria-modal="true"
-            aria-labelledby="patient-clinical-details-title"
-            className="w-full max-w-2xl rounded-xl bg-surface p-6 shadow-xl"
-            role="dialog"
-          >
+        <ModalPanel
+          labelledBy="patient-clinical-details-title"
+          onClose={() => setEditingClinicalDetails(false)}
+          closeOnBackdrop={false}
+          className="w-full max-w-2xl rounded-xl bg-surface p-6 shadow-xl"
+        >
+          <form onSubmit={(event) => { event.preventDefault(); void saveClinicalDetails(); }} noValidate>
+          <section>
             <h2 id="patient-clinical-details-title" className="text-xl font-semibold text-content">
               {t('docPatientDetail.editClinicalTitle')}
             </h2>
@@ -1142,17 +1137,16 @@ function PatientDetailPage() {
               >
                 {t('docPatientDetail.editCancel')}
               </button>
-              <button
-                type="button"
-                disabled={savingClinicalDetails}
-                onClick={saveClinicalDetails}
-                className="rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={savingClinicalDetails || undefined}
+                className="aria-disabled:cursor-wait rounded-lg bg-brand px-4 py-2 text-brand-fg hover:bg-brand"
               >
                 {savingClinicalDetails ? t('docPatientDetail.editSaving') : t('docPatientDetail.editSave')}
               </button>
             </div>
           </section>
-        </div>
+          </form>
+        </ModalPanel>
       )}
     </div>
   );

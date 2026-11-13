@@ -8,7 +8,7 @@ import {
   Input,
   useValidatedForm,
   patientRegistrationSchema,
-  generateWalletIdentity,
+  ChoiceChips,
 } from '@medichain/shared';
 import { 
   UserPlus, 
@@ -16,11 +16,10 @@ import {
   AlertTriangle,
   Loader2
 } from 'lucide-react';
-import { RecoveryPhrasePanel } from '../components/RecoveryPhrasePanel';
+import { OneTimeCodePanel } from '../components/OneTimeCodePanel';
 
 interface FormData {
   fullName: string;
-  walletAddress: string;
   dateOfBirth: string;
   nationalId: string;
   /** Optional: blank means "not recorded", which the patient list renders by omission. */
@@ -38,7 +37,6 @@ interface FormData {
 
 const initialFormData: FormData = {
   fullName: '',
-  walletAddress: '',
   dateOfBirth: '',
   nationalId: '',
   gender: '',
@@ -62,19 +60,6 @@ function RegisterPatientPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [formData, setFormData] = useState<FormData>(initialFormData);
-  // The recovery phrase for an identity generated here, shown ONCE.
-  //
-  // A patient being registered does not have a wallet yet -- that is what
-  // registration is for -- so requiring the clerk to type a 48-character SS58
-  // address made the form impossible to complete honestly. The only addresses
-  // a clerk could produce are someone else's.
-  const [newIdentity, setNewIdentity] = useState<{ mnemonic: string; address: string } | null>(null);
-  const [generating, setGenerating] = useState(false);
-  // Registration waits on this while a generated phrase is showing: a record
-  // bound to a wallet whose phrase nobody kept is one its patient can never
-  // open.
-  const [phraseAcknowledged, setPhraseAcknowledged] = useState(false);
-
   // --- Checking the ID against its issuing register ---------------------------
   //
   // `POST /api/national-id/verify` fronts five real registers -- Fayda,
@@ -134,43 +119,23 @@ function RegisterPatientPage() {
     }
   };
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ patientId: string; nfcTagId: string } | null>(null);
+  // What registration returned. The activation code is shown ONCE, here: the
+  // server keeps only a hash of it, so leaving this screen is the end of it.
+  const [success, setSuccess] = useState<{
+    patientId: string;
+    nfcTagId: string;
+    activationCode: string;
+    activationExpiresAt: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Schema-driven, per field. This page previously validated exactly one field
   // (the emergency phone) by hand; every other input reached the API unchecked,
-  // so a date of birth in the future or a malformed wallet address was caught
+  // so a date of birth in the future or a malformed national ID was caught
   // only by a 400 with no indication of which field was wrong.
   const form = useValidatedForm(patientRegistrationSchema);
 
-  /**
-   * Mint the patient an identity.
-   *
-   * The keypair is generated in this browser and the server only ever sees
-   * the public address. The recovery phrase is shown once, here, because it
-   * is the patient's — storing it would make the clinic able to act as them,
-   * which is the whole property the wallet model exists to prevent.
-   */
-  const handleGenerateIdentity = async () => {
-    setGenerating(true);
-    try {
-      const identity = await generateWalletIdentity();
-      setFormData((current) => ({ ...current, walletAddress: identity.address }));
-      setNewIdentity({ mnemonic: identity.mnemonic, address: identity.address });
-      setPhraseAcknowledged(false);
-    } catch (err) {
-      setError(getApiErrorMessage(err, t('docRegisterPatient.identityFailed')));
-    } finally {
-      setGenerating(false);
-    }
-  };
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
-    // An address typed over a generated one is not the generated one, and its
-    // phrase must stop being offered as the key to this record.
-    if (name === 'walletAddress' && newIdentity && value !== newIdentity.address) {
-      setNewIdentity(null);
-    }
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
@@ -179,6 +144,7 @@ function RegisterPatientPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError(null);
 
     // Validate the whole form, not just the one field somebody remembered.
@@ -193,18 +159,11 @@ function RegisterPatientPage() {
       return;
     }
 
-    if (newIdentity && !phraseAcknowledged) {
-      setError(t('docRegisterPatient.recoveryNotAcknowledged'));
-      document.getElementById('recovery-phrase-acknowledged')?.focus();
-      return;
-    }
-
     setIsSubmitting(true);
 
     try {
       const data = await registerPatient({
         full_name: formData.fullName,
-        wallet_address: formData.walletAddress,
         date_of_birth: formData.dateOfBirth,
         national_id: formData.nationalId,
         // Omit rather than send '' so the server records "not stated" as absent.
@@ -215,7 +174,7 @@ function RegisterPatientPage() {
         // blank -- which the backend stores faithfully as a known-empty
         // value (CLAUDE.md rule 9).
         phone: undefined,
-        blood_type: formData.bloodType,
+        blood_type: formData.bloodType || undefined,
         allergies: formData.allergies.split(',').map(s => s.trim()).filter(Boolean),
         current_medications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),
         chronic_conditions: formData.chronicConditions.split(',').map(s => s.trim()).filter(Boolean),
@@ -229,6 +188,8 @@ function RegisterPatientPage() {
       setSuccess({
         patientId: data.patient_id,
         nfcTagId: data.nfc_tag_id,
+        activationCode: data.activation_code,
+        activationExpiresAt: data.activation_expires_at,
       });
     } catch (err) {
       setError(getApiErrorMessage(err, t('docRegisterPatient.regFailed')));
@@ -253,6 +214,7 @@ function RegisterPatientPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-content-muted">{t('docRegisterPatient.patientId')}</p>
+                {/* ux-allow(raw-patient-id): the new record's number, shown once so the clinician can note it. */}
                 <p className="font-mono font-medium">{success.patientId}</p>
               </div>
               <div>
@@ -262,23 +224,29 @@ function RegisterPatientPage() {
             </div>
           </div>
 
-          {/* Still on screen after registering, because this is the moment
-              the patient signs in for the first time. It is never fetched
-              again: leaving this page is the end of it. */}
-          {newIdentity && (
-            <div className="mb-6 text-left">
-              <RecoveryPhrasePanel mnemonic={newIdentity.mnemonic} />
-              <p className="mt-2 text-sm text-content-muted">{t('docRegisterPatient.recoverySignInHint')}</p>
-            </div>
-          )}
+          {/* Still on screen after registering, because this is the moment the
+              patient is given the way in. It is never fetched again: leaving
+              this page is the end of it. The clinic hands the patient the code
+              and never learns the password they choose with it. */}
+          <div className="mb-6">
+            <OneTimeCodePanel
+              code={success.activationCode}
+              expiresAt={success.activationExpiresAt}
+              identifier={success.patientId}
+              identifierLabel={t('docRegisterPatient.patientId')}
+              title={t('docRegisterPatient.activationTitle')}
+              body={t('docRegisterPatient.activationBody')}
+              printTitle={t('docRegisterPatient.activationPrintTitle')}
+              printBody={t('docRegisterPatient.activationPrintBody')}
+            />
+            <p className="mt-2 text-sm text-content-muted text-left">{t('docRegisterPatient.activationSignInHint')}</p>
+          </div>
 
           <div className="flex gap-3">
             <button
               onClick={() => {
                 setSuccess(null);
                 setFormData(initialFormData);
-                setNewIdentity(null);
-                setPhraseAcknowledged(false);
               }}
               className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors"
             >
@@ -321,7 +289,7 @@ function RegisterPatientPage() {
       {/*
         Error summary. Every field is schema-validated, but most inputs on this
         page are still hand-rolled markup with nowhere to show a message — so
-        without this, a bad wallet address or a future date of birth would make
+        without this, a malformed national ID or a future date of birth would make
         submit do nothing at all, with no explanation. Converting the remaining
         fields to <Input> is tracked in docs/OUTSTANDING_WORK.md §2.1; until
         then this guarantees the failure is at least visible and actionable.
@@ -389,41 +357,6 @@ function RegisterPatientPage() {
               />
             </div>
 
-            <div className="md:col-span-2">
-              <label htmlFor="register-wallet-address" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.walletAddress')}</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  id="register-wallet-address"
-                  name="walletAddress"
-                  value={formData.walletAddress}
-                  onChange={handleChange}
-                  required
-                  className="flex-1 px-4 py-2 border border-border-interactive rounded-lg bg-surface text-content focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
-                />
-                {/* A patient being registered has no wallet yet — that is what
-                    registration is for — so without this the only addresses a
-                    clerk could enter are somebody else's. */}
-                <button
-                  type="button"
-                  onClick={handleGenerateIdentity}
-                  disabled={generating}
-                  className="px-4 py-2 bg-brand text-brand-fg rounded-lg whitespace-nowrap disabled:bg-disabled disabled:text-disabled-fg"
-                >
-                  {generating ? t('docRegisterPatient.generating') : t('docRegisterPatient.generateIdentity')}
-                </button>
-              </div>
-
-              {newIdentity && (
-                <RecoveryPhrasePanel
-                  mnemonic={newIdentity.mnemonic}
-                  acknowledged={phraseAcknowledged}
-                  onAcknowledgedChange={setPhraseAcknowledged}
-                />
-              )}
-            </div>
-            
             <div>
               <label htmlFor="register-national-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.nationalId')}</label>
               <input
@@ -437,22 +370,20 @@ function RegisterPatientPage() {
                 placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label htmlFor="register-id-country" className="sr-only">
-                  {t('docRegisterPatient.idCountry')}
-                </label>
-                <select
+                <ChoiceChips
                   id="register-id-country"
-                  value={idCountry}
-                  onChange={(e) => setIdCountry(e.target.value)}
-                  className="px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
-                >
-                  <option value="">{t('docRegisterPatient.idCountryPrompt')}</option>
-                  <option value="south_africa">{t('docRegisterPatient.idCountryZA')}</option>
-                  <option value="kenya">{t('docRegisterPatient.idCountryKE')}</option>
-                  <option value="nigeria">{t('docRegisterPatient.idCountryNG')}</option>
-                  <option value="ghana">{t('docRegisterPatient.idCountryGH')}</option>
-                  <option value="ethiopia">{t('docRegisterPatient.idCountryET')}</option>
-                </select>
+                  label={t('docRegisterPatient.idCountry')}
+                  hint={t('docRegisterPatient.idCountryPrompt')}
+                  value={idCountry || undefined}
+                  onChange={(value) => setIdCountry(value ?? '')}
+                  options={[
+                    { value: 'south_africa', label: t('docRegisterPatient.idCountryZA') },
+                    { value: 'kenya', label: t('docRegisterPatient.idCountryKE') },
+                    { value: 'nigeria', label: t('docRegisterPatient.idCountryNG') },
+                    { value: 'ghana', label: t('docRegisterPatient.idCountryGH') },
+                    { value: 'ethiopia', label: t('docRegisterPatient.idCountryET') },
+                  ]}
+                />
                 <button
                   type="button"
                   onClick={() => void checkNationalId()}
@@ -484,13 +415,15 @@ function RegisterPatientPage() {
                 name="bloodType"
                 value={formData.bloodType}
                 onChange={handleChange}
-                required
                 className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectBloodType')}</option>
                 {bloodTypes.map(bt => (
                   <option key={bt} value={bt}>{bt}</option>
                 ))}
+                {/* Chosen explicitly, never assumed: an untyped patient used to
+                    force a guess, which the emergency card then showed as fact. */}
+                <option value="Unknown">{t('docRegisterPatient.bloodTypeUnknown')}</option>
               </select>
             </div>
 
@@ -656,8 +589,8 @@ function RegisterPatientPage() {
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+            aria-disabled={isSubmitting || undefined}
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors aria-disabled:cursor-wait flex items-center gap-2"
           >
             {isSubmitting ? (
               <>

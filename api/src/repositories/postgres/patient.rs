@@ -33,9 +33,7 @@ fn push_search_predicate<'a>(
         .push_bind(&criteria.identifier)
         .push(") OR LOWER(health_id) = LOWER(")
         .push_bind(&criteria.identifier)
-        .push(") OR wallet_address = ")
-        .push_bind(&criteria.identifier)
-        .push(" OR national_id_hash = ")
+        .push(") OR national_id_hash = ")
         .push_bind(&criteria.national_id_hash);
     if !criteria.name_tokens.is_empty() {
         qb.push(" OR name_search_tokens @> ")
@@ -48,7 +46,7 @@ fn push_search_predicate<'a>(
 impl PatientRepository for PgPatientRepository {
     async fn create(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, dnr_verified_by, dnr_verified_at, dnr_document_ref, primary_provider_id, wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted, name_search_tokens, key_version) "
+            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, dnr_verified_by, dnr_verified_at, dnr_document_ref, primary_provider_id, registered_by, is_verified, is_active, profile_extras_encrypted, name_search_tokens, key_version) "
         );
 
         qb.push_values([&patient], |mut b, p| {
@@ -73,7 +71,6 @@ impl PatientRepository for PgPatientRepository {
                 .push_bind(p.dnr_verified_at)
                 .push_bind(&p.dnr_document_ref)
                 .push_bind(&p.primary_provider_id)
-                .push_bind(&p.wallet_address)
                 .push_bind(&p.registered_by)
                 .push_bind(p.is_verified)
                 .push_bind(p.is_active)
@@ -134,24 +131,9 @@ impl PatientRepository for PgPatientRepository {
         Ok(patient)
     }
 
-    async fn get_by_wallet(&self, wallet: &str) -> RepositoryResult<PatientEntity> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM patients WHERE wallet_address = ");
-        qb.push_bind(wallet);
-        qb.push(" AND is_active = true");
-
-        let patient = qb
-            .build_query_as::<PatientEntity>()
-            .fetch_one(&self.pool)
-            .await?;
-
-        Ok(patient)
-    }
-
     async fn update(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE patients SET ");
-        qb.push("health_id = ").push_bind(&patient.health_id);
-        qb.push(", national_id_hash = ")
+        qb.push("national_id_hash = ")
             .push_bind(&patient.national_id_hash);
         qb.push(", national_id_type = ")
             .push_bind(&patient.national_id_type);
@@ -185,8 +167,6 @@ impl PatientRepository for PgPatientRepository {
             .push_bind(&patient.dnr_document_ref);
         qb.push(", primary_provider_id = ")
             .push_bind(&patient.primary_provider_id);
-        qb.push(", wallet_address = ")
-            .push_bind(&patient.wallet_address);
         qb.push(", is_verified = ").push_bind(patient.is_verified);
         qb.push(", is_active = ").push_bind(patient.is_active);
         qb.push(", profile_extras_encrypted = ")

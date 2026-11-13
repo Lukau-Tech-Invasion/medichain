@@ -1,22 +1,24 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   createFallRisk,
   listPatientFallRisk,
-  getPatients,
   useTranslation,
   useScoringCatalog,
   morseTotal,
   bandFor,
   formatTimestamp,
+  formatDateOnly,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
   AlertTriangle,
   Shield,
   CheckCircle2,
   Save,
-  Search,
   User,
   Activity,
   TrendingUp,
@@ -29,16 +31,18 @@ import {
   Eye,
   RefreshCw
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
+import { PatientName } from '../components/PatientName';
 
 type RiskLevel = 'low' | 'moderate' | 'high';
 
 interface MorseScale {
-  fallHistory: 0 | 25;
-  secondaryDiagnosis: 0 | 15;
-  ambulatoryAid: 0 | 15 | 30;
-  ivTherapy: 0 | 20;
-  gait: 0 | 10 | 20;
-  mentalStatus: 0 | 15;
+  fallHistory: 0 | 25 | null;
+  secondaryDiagnosis: 0 | 15 | null;
+  ambulatoryAid: 0 | 15 | 30 | null;
+  ivTherapy: 0 | 20 | null;
+  gait: 0 | 10 | 20 | null;
+  mentalStatus: 0 | 15 | null;
 }
 
 /**
@@ -53,20 +57,22 @@ interface FallRiskHistoryRow {
   /** Generated from `total_score`; null for the same reason. */
   risk_level: string | null;
   interventions?: string[] | null;
+  notes?: string | null;
   assessed_at: string;
   assessed_by: string;
 }
 
 export default function FallRiskPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('fall-risk');
+  const returnAfterSave = useReturnAfterSave();
   const [searchParams] = useSearchParams();
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
   // the body claimed.
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -85,17 +91,17 @@ export default function FallRiskPage() {
   // What the server actually scored and stored. Until a save happens the page
   // shows a preview; after it, it shows the record.
   const [savedResult, setSavedResult] = useState<{
-    total_score: number;
-    risk_level: RiskLevel;
+    total_score: number | null;
+    risk_level: RiskLevel | null;
   } | null>(null);
 
   const [morseScale, setMorseScale] = useState<MorseScale>({
-    fallHistory: 0,
-    secondaryDiagnosis: 0,
-    ambulatoryAid: 0,
-    ivTherapy: 0,
-    gait: 0,
-    mentalStatus: 0
+    fallHistory: null,
+    secondaryDiagnosis: null,
+    ambulatoryAid: null,
+    ivTherapy: null,
+    gait: null,
+    mentalStatus: null
   });
 
   const [medications, setMedications] = useState({
@@ -118,7 +124,7 @@ export default function FallRiskPage() {
     wheelchairBound: false,
     usesWalker: false,
     usesCane: false,
-    independent: true
+    independent: false
   });
 
   const [interventions, setInterventions] = useState<string[]>([]);
@@ -184,22 +190,16 @@ export default function FallRiskPage() {
     'Equipment in Way'
   ];
 
+  // A `?patient=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patient');
-        if (patientId && patientData) {
-          const patient = patientData.find((p: PatientProfile) => p.patient_id === patientId);
-          if (patient) setSelectedPatient(patient);
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patient');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
 
 
@@ -208,6 +208,16 @@ export default function FallRiskPage() {
       setAssessmentHistory([]);
       return;
     }
+    setMorseScale({ fallHistory: null, secondaryDiagnosis: null, ambulatoryAid: null,
+      ivTherapy: null, gait: null, mentalStatus: null });
+    setSavedResult(null);
+    setMedications({ sedatives: false, antihypertensives: false, diuretics: false, psychotropics: false, narcotics: false });
+    setRecentFall({ occurred: false, date: '', circumstances: '', injuries: '' });
+    setMobility({ bedridden: false, wheelchairBound: false, usesWalker: false, usesCane: false, independent: false });
+    setInterventions([]);
+    setAdditionalFactors([]);
+    setEnvironmentalHazards([]);
+    setNotes('');
     let active = true;
     listPatientFallRisk(selectedPatient.patient_id)
       .then((rows) => {
@@ -223,10 +233,6 @@ export default function FallRiskPage() {
       active = false;
     };
   }, [selectedPatient]);
-  const filteredPatients = patients.filter(p =>
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   // Live preview only. The stored score and band are computed by the server
   // from the same six items and returned by `createFallRisk` — see
@@ -236,18 +242,21 @@ export default function FallRiskPage() {
   // literals here: this page used to carry its own `>= 45` / `>= 25`, which
   // was the third copy of them in the codebase after the Rust handler and the
   // generated `risk_level` column.
-  const totalScore = morseTotal(morseScale as unknown as Record<string, number>);
-  const previewRisk = bandFor(totalScore, catalog?.morse_fall_scale?.bands) as RiskLevel | null;
+  const assessmentComplete = Object.values(morseScale).every(value => value !== null);
+  const totalScore = assessmentComplete ? morseTotal(morseScale as unknown as Record<string, number>) : null;
+  useEffect(() => { setSavedResult(null); }, [morseScale]);
+  const previewRisk = totalScore === null ? null : bandFor(totalScore, catalog?.morse_fall_scale?.bands) as RiskLevel | null;
   // Until the catalog loads there is no band, and a guessed band on a falls
   // assessment is the difference between a bed alarm and no bed alarm.
   const riskLevel: RiskLevel | null = savedResult?.risk_level ?? previewRisk;
-  const displayScore = savedResult?.total_score ?? totalScore;
+  const displayScore = savedResult?.total_score ?? totalScore ?? '—';
 
   const getRiskColor = (level: RiskLevel | null) => {
     switch (level) {
       case 'high': return 'text-critical-subtle-fg bg-critical-subtle border-red-500';
       case 'moderate': return 'text-caution-subtle-fg bg-caution-subtle border-yellow-500';
-      default: return 'text-ok-subtle-fg bg-ok-subtle border-green-500';
+      case 'low': return 'text-ok-subtle-fg bg-ok-subtle border-green-500';
+      default: return 'text-content-secondary bg-surface-sunken border-border';
     }
   };
 
@@ -255,7 +264,8 @@ export default function FallRiskPage() {
     switch (level) {
       case 'high': return 'bg-red-700 text-white';
       case 'moderate': return 'bg-caution text-white';
-      default: return 'bg-green-700 text-white';
+      case 'low': return 'bg-green-700 text-white';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
@@ -284,8 +294,13 @@ export default function FallRiskPage() {
   };
 
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docFallRisk.errorSelectPatient'));
+      return;
+    }
+    if (!assessmentComplete || totalScore === null) {
+      setError('Complete all six Morse assessment observations before saving.');
       return;
     }
 
@@ -293,6 +308,8 @@ export default function FallRiskPage() {
     setError('');
 
     try {
+      // The completeness guard above makes each submitted observation explicit.
+      const observed = morseScale as { [K in keyof MorseScale]: NonNullable<MorseScale[K]> };
       // The six Morse items go flat, under the names the API and the database
       // column set use. They used to be nested under `morse_scale` with
       // camelCase keys, which the handler did not read — so it scored every
@@ -302,15 +319,16 @@ export default function FallRiskPage() {
       //
       // `total_score` and `risk_level` are deliberately not sent. The server
       // derives both, and in PostgreSQL they are generated columns besides.
+      let saved: Awaited<ReturnType<typeof createFallRisk>> | undefined;
       const assessmentData = {
         patient_id: selectedPatient.patient_id,
         assessment_tool: 'morse',
-        history_of_falling: morseScale.fallHistory,
-        secondary_diagnosis: morseScale.secondaryDiagnosis,
-        ambulatory_aid: morseScale.ambulatoryAid,
-        iv_therapy: morseScale.ivTherapy,
-        gait_status: morseScale.gait,
-        mental_status: morseScale.mentalStatus,
+        history_of_falling: observed.fallHistory,
+        secondary_diagnosis: observed.secondaryDiagnosis,
+        ambulatory_aid: observed.ambulatoryAid,
+        iv_therapy: observed.ivTherapy,
+        gait_status: observed.gait,
+        mental_status: observed.mentalStatus,
         interventions,
         additional_factors: additionalFactors,
         environmental_hazards: environmentalHazards,
@@ -323,15 +341,29 @@ export default function FallRiskPage() {
         assessed_at: new Date().toISOString()
       };
 
-      const saved = await createFallRisk(assessmentData);
+      const outcome = await submitOnce(submission, assessmentData, async () => {
+        saved = await createFallRisk(assessmentData);
+      });
+      if (outcome === 'busy') return;
+      if (outcome === 'duplicate' || !saved && outcome !== 'queued') {
+        setSuccess(t('forms.alreadySaved'));
+        setTimeout(() => returnAfterSave(), 2000);
+        return;
+      }
+      if (outcome === 'queued' || !saved) {
+        // The score is the server's (rule 8); it exists once the record is sent.
+        setSuccess(`${t('forms.queued')} ${t('clinicianOffline.scoreOffline')}`);
+        setTimeout(() => returnAfterSave(), 2000);
+        return;
+      }
       // Show what was stored, not what the form calculated. If the two ever
       // disagree the record is the one that matters.
       setSavedResult({
-        total_score: saved.total_score ?? totalScore,
-        risk_level: (saved.risk_level as RiskLevel) ?? previewRisk ?? 'low'
+        total_score: saved.total_score ?? null,
+        risk_level: (saved.risk_level as RiskLevel) ?? null
       });
       setSuccess(t('docFallRisk.successSaved'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docFallRisk.errorSaveFailed'));
       console.error('Failed to save fall risk assessment', err);
@@ -358,7 +390,9 @@ export default function FallRiskPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && (
+                  <p className="text-sm opacity-75">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>
+                )}
               </div>
             )}
           </div>
@@ -379,7 +413,7 @@ export default function FallRiskPage() {
         )}
 
         {/* Risk Score Display */}
-        {selectedPatient && (
+        {selectedPatient && activeTab === 'assessment' && (
           <div className={`mb-6 rounded-lg border-2 p-6 ${getRiskColor(riskLevel)}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
@@ -445,39 +479,17 @@ export default function FallRiskPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Patient Selection */}
             <div className="lg:col-span-1">
-              <div className="bg-surface rounded-lg shadow p-4">
+              <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-caution" />
                   {t('docFallRisk.selectPatientTitle')}
                 </h2>
-                <div className="relative mb-4">
-                  <label htmlFor="fallrisk-patient-search" className="sr-only">{t('docFallRisk.searchPatientsSr')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    id="fallrisk-patient-search"
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('docFallRisk.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
-                  />
-                </div>
-                <div className="max-h-64 overflow-y-auto space-y-2">
-                  {filteredPatients.map(patient => (
-                    <button
-                      key={patient.patient_id}
-                      onClick={() => setSelectedPatient(patient)}
-                      className={`w-full text-left p-3 rounded-lg transition-colors ${
-                        selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-surface-sunken border-2 border-orange-500'
-                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                      }`}
-                    >
-                      <p className="font-medium text-content">{patient.full_name}</p>
-                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                    </button>
-                  ))}
-                </div>
+                <PatientSelect
+                  id="fallrisk-patient-search"
+                  label={t('docFallRisk.searchPatientsSr')}
+                  value={selectedPatient?.patient_id ?? ''}
+                  onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+                />
               </div>
 
               {/* Risk Factor Medications */}
@@ -536,6 +548,7 @@ export default function FallRiskPage() {
             </div>
 
             {/* Main Assessment */}
+            <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
             <div className="lg:col-span-2 space-y-6">
               {/* Morse Fall Scale */}
               <div className="bg-surface rounded-lg shadow p-6">
@@ -895,10 +908,9 @@ export default function FallRiskPage() {
 
               {/* Submit Button */}
               <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={isSubmitting || !selectedPatient}
-                  className="bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait bg-orange-700 text-white px-8 py-3 rounded-lg hover:bg-orange-800 flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -914,6 +926,7 @@ export default function FallRiskPage() {
                 </button>
               </div>
             </div>
+            </form>
           </div>
         )}
 
@@ -935,7 +948,7 @@ export default function FallRiskPage() {
                   <div key={assessment.id} className="border rounded-lg p-4">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-bold">{assessment.patient_id}</p>
+                        <p className="font-bold"><PatientName id={assessment.patient_id} /></p>
                         <p className="text-sm text-content-muted">
                           {formatTimestamp(assessment.assessed_at)}
                         </p>
@@ -955,6 +968,10 @@ export default function FallRiskPage() {
                     <p className="text-sm text-content-muted mt-2">
                       {t('docFallRisk.interventionsCountLine', { count: assessment.interventions?.length ?? 0 })}
                     </p>
+                    <ul className="mt-2 list-disc pl-5 text-sm">
+                      {(assessment.interventions || []).map(intervention => <li key={intervention}>{intervention}</li>)}
+                    </ul>
+                    {assessment.notes && <p className="mt-2 text-sm">{assessment.notes}</p>}
                   </div>
                 ))}
               </div>

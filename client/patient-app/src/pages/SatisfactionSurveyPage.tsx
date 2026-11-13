@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   createSatisfactionSurvey,
   debugLog,
@@ -6,6 +7,8 @@ import {
   type Appointment,
   type SatisfactionSurveyResponseInput,
   useTranslation,
+  localDateInput,
+  notifySuccess,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -85,23 +88,28 @@ const SatisfactionSurveyPage: React.FC = () => {
     { id: 'f4', category: 'facility', question: t('survey.qF4'), type: 'yesno', required: false }
   ];
 
+  const [searchParams] = useSearchParams();
+  const visitParam = searchParams.get('visit');
+
   useEffect(() => {
     if (!patient?.healthId) return;
 
     const loadRecentVisit = async () => {
       try {
         const result = await getPatientAppointments(patient.healthId);
-        const latest = [...result.appointments]
+        const completed = [...result.appointments]
           .filter(appointment => appointment.status.toLowerCase() === 'completed')
-          .sort((left, right) => (right.scheduled_time ?? 0) - (left.scheduled_time ?? 0))[0];
-        setRecentVisit(latest ?? null);
+          .sort((left, right) => (right.scheduled_time ?? 0) - (left.scheduled_time ?? 0));
+        // Opened from a visit's "Rate this visit": that visit, not just the latest.
+        const asked = completed.find(appointment => appointment.appointment_id === visitParam);
+        setRecentVisit(asked ?? completed[0] ?? null);
       } catch (error) {
         debugLog('SatisfactionSurveyPage', 'Could not load a recent completed visit:', error);
       }
     };
 
     void loadRecentVisit();
-  }, [patient?.healthId]);
+  }, [patient?.healthId, visitParam]);
 
   const getResponse = (questionId: string): SurveyResponse | undefined => {
     return responses.find(r => r.questionId === questionId);
@@ -127,6 +135,11 @@ const SatisfactionSurveyPage: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+    if (!isStepComplete([...visitQuestions, ...staffQuestions, ...facilityQuestions]) || !overallRating || wouldRecommend === null) {
+      setSubmitError('Answer all required questions before submitting feedback.');
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -147,7 +160,7 @@ const SatisfactionSurveyPage: React.FC = () => {
 
       await createSatisfactionSurvey({
         visit_id: recentVisit?.appointment_id,
-        visit_date: recentVisit?.scheduled_date ?? new Date().toISOString().slice(0, 10),
+        visit_date: recentVisit?.scheduled_date ?? localDateInput(),
         department: recentVisit?.appointment_type ?? 'General care',
         survey_type: 'PostVisit',
         responses: apiResponses,
@@ -158,6 +171,7 @@ const SatisfactionSurveyPage: React.FC = () => {
         follow_up_requested: false,
       });
       setStep('submitted');
+      notifySuccess('Thank you. Your feedback was sent.');
     } catch (error) {
       debugLog('SatisfactionSurveyPage', 'Survey submission failed:', error);
       setSubmitError(t('survey.submitError'));
@@ -260,6 +274,7 @@ const SatisfactionSurveyPage: React.FC = () => {
   const currentStepIndex = progressSteps.indexOf(step);
 
   return (
+    <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
     <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-pink-700 to-rose-800 text-white p-6">
@@ -323,7 +338,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 </div>
               </div>
 
-              <button
+              <button type="button"
                 onClick={() => setStep('visit')}
                 className="w-full py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover flex items-center justify-center gap-2"
               >
@@ -388,13 +403,13 @@ const SatisfactionSurveyPage: React.FC = () => {
             </div>
             {renderQuestionSet(staffQuestions)}
             <div className="flex gap-3">
-              <button
+              <button type="button"
                 onClick={() => setStep('visit')}
                 className="flex-1 py-3 border border-border-strong text-content-secondary rounded-lg font-semibold hover:bg-surface-sunken"
               >
                 {t('common.back')}
               </button>
-              <button
+              <button type="button"
                 onClick={() => setStep('facility')}
                 disabled={!isStepComplete(staffQuestions)}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
@@ -419,15 +434,16 @@ const SatisfactionSurveyPage: React.FC = () => {
             </div>
             {renderQuestionSet(facilityQuestions)}
             <div className="flex gap-3">
-              <button
+              <button type="button"
                 onClick={() => setStep('staff')}
                 className="flex-1 py-3 border border-border-strong text-content-secondary rounded-lg font-semibold hover:bg-surface-sunken"
               >
                 {t('common.back')}
               </button>
-              <button
+              <button type="button"
                 onClick={() => setStep('feedback')}
-                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover flex items-center justify-center gap-2"
+                disabled={!isStepComplete(facilityQuestions)}
+                className="flex-1 py-3 bg-brand text-brand-fg rounded-lg font-semibold hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {t('survey.continue')}
                 <ChevronRight className="w-5 h-5" />
@@ -532,15 +548,14 @@ const SatisfactionSurveyPage: React.FC = () => {
             )}
 
             <div className="flex gap-3">
-              <button
+              <button type="button"
                 onClick={() => setStep('facility')}
                 className="flex-1 py-3 border border-border-strong text-content-secondary rounded-lg font-semibold hover:bg-surface-sunken"
               >
                 {t('common.back')}
               </button>
-              <button
-                onClick={handleSubmit}
-                disabled={overallRating === 0 || wouldRecommend === null || isSubmitting}
+              <button type="submit"
+                aria-disabled={isSubmitting || undefined}
                 className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                   overallRating > 0 && wouldRecommend !== null && !isSubmitting
                     ? 'bg-brand text-brand-fg hover:bg-brand-hover'
@@ -570,7 +585,7 @@ const SatisfactionSurveyPage: React.FC = () => {
             <p className="text-content-muted mb-8">
               {t('survey.thankYouBody')}
             </p>
-            <button
+            <button type="button"
               onClick={() => {
                 setStep('intro');
                 setResponses([]);
@@ -587,6 +602,7 @@ const SatisfactionSurveyPage: React.FC = () => {
         )}
       </div>
     </div>
+    </form>
   );
 };
 

@@ -1,14 +1,20 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const playwrightPort = process.env.PLAYWRIGHT_PORT || '5174';
-const playwrightBaseUrl = `http://localhost:${playwrightPort}`;
+const deployedUrl = process.env.E2E_DEPLOYED_URL;
+const playwrightBaseUrl = deployedUrl || `http://localhost:${playwrightPort}`;
 
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: true,
+  // Serial, always. Every spec signs in as the ONE seeded fixture patient, and
+  // the mobile and desktop projects ran the same spec at the same moment: one
+  // project's withdrawal changed the consent count the other was asserting on,
+  // and a message sent by one run pushed the other's out of view. Each spec
+  // failed on whichever project lost the race and passed alone (2026-09-25).
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: 'list',
   use: {
     baseURL: playwrightBaseUrl,
@@ -21,7 +27,7 @@ export default defineConfig({
     { name: 'mobile', use: { ...devices['Pixel 5'] } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
   ],
-  webServer: {
+  webServer: deployedUrl ? undefined : {
     command: `npm run dev -- --port ${playwrightPort}`,
     url: playwrightBaseUrl,
     // A reused server can carry an arbitrary proxy target from a previous

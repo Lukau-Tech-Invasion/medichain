@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Motion storyboard</title><link rel="stylesheet" href="mock.css">
+<style>.desk{padding:22px 26px;display:flex;flex-direction:column;gap:14px}
+.sb{display:grid;grid-template-columns:170px repeat(3,1fr);gap:12px;align-items:stretch}
+.frame{background:rgb(var(--surface));border:1px solid rgb(var(--border));border-radius:12px;padding:10px;position:relative;min-height:150px;overflow:hidden}
+.ft{position:absolute;top:6px;right:8px;font-size:11px;color:rgb(var(--muted));font-variant-numeric:tabular-nums}
+.lbl{display:flex;flex-direction:column;justify-content:center;gap:4px}
+.mini-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;border:1px solid rgb(var(--border));font-size:13px;margin-top:6px}
+.ghost{opacity:.45}.hl{border-color:rgb(var(--primary));background:rgb(var(--primary-sub))}
+.arrow{position:absolute;color:rgb(var(--primary));font-size:22px}</style></head>
+<body><div class="desk">
+  <div class="row between"><h1 style="font-size:22px">Motion storyboard</h1><span class="small muted">Tokens: short 150 ms · medium 250 ms · long 350 ms · standard easing · transform + opacity only</span></div>
+
+  <div class="sb">
+    <div class="lbl"><p class="b">Open patient</p><p class="xs muted">350 ms · standard<br>Reduced: 150 ms fade</p><p class="xs t2">Continuity — which patient</p></div>
+    <div class="frame"><span class="ft">0 ms</span><div class="mini-row hl"><span class="avatar" style="width:26px;height:26px;font-size:11px">TN</span>Thandiwe Ndlovu</div><div class="mini-row">Sipho Mabaso</div><p class="xs muted" style="margin-top:8px">Tap the row</p></div>
+    <div class="frame"><span class="ft">175 ms</span><div class="mini-row ghost">Sipho Mabaso</div><div style="position:absolute;left:40px;top:40px" class="row"><span class="avatar" style="width:30px;height:30px;font-size:12px">TN</span><span class="b small">Thandiwe Ndlovu</span></div><span class="arrow" style="left:16px;top:70px">↖</span><p class="xs muted" style="position:absolute;bottom:10px">Name glides up; list fades</p></div>
+    <div class="frame"><span class="ft">350 ms</span><div class="row" style="gap:8px;padding:6px;border-radius:9px;border:1px solid rgb(var(--primary))"><span class="avatar" style="width:30px;height:30px;font-size:12px">TN</span><div><p class="b small">Thandiwe Ndlovu</p><p class="xs muted">F · 34 · 12 Mar 1992</p></div></div><p class="xs muted" style="margin-top:10px">Settled in the banner; forms ready</p></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl"><p class="b">Save a form</p><p class="xs muted">150 ms tick + 250 ms enter<br>Reduced: fades</p><p class="xs t2">Feedback — saved, and where</p></div>
+    <div class="frame"><span class="ft">0 ms</span><span class="btn sm primary" style="margin-top:14px">Save vital signs</span><p class="b xs" style="margin-top:14px">This visit</p><div class="mini-row">08:58 Chart opened</div></div>
+    <div class="frame"><span class="ft">150 ms</span><span class="btn sm" style="margin-top:14px;border-color:rgb(var(--ok));color:rgb(var(--ok))"><i data-i="check" class="sm"></i>Saved</span><p class="b xs" style="margin-top:14px">This visit</p><div class="mini-row ghost" style="transform:translateY(-6px)">09:02 Vital signs</div><div class="mini-row">08:58 Chart opened</div></div>
+    <div class="frame"><span class="ft">400 ms</span><span class="btn sm primary" style="margin-top:14px">Save vital signs</span><p class="b xs" style="margin-top:14px">This visit</p><div class="mini-row hl">09:02 Vital signs · BP 128/82</div><div class="mini-row">08:58 Chart opened</div></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl"><p class="b">Ambulance on ED board</p><p class="xs muted">250 ms enter, once<br>Reduced: fade</p><p class="xs t2">Attention without alarm</p></div>
+    <div class="frame"><span class="ft">0 ms</span><div class="mini-row">Thandiwe Ndlovu · arrived</div></div>
+    <div class="frame"><span class="ft">125 ms</span><div class="mini-row ghost" style="transform:translateX(14px)">? Unknown man ~40 · ETA 14</div><div class="mini-row">Thandiwe Ndlovu · arrived</div></div>
+    <div class="frame"><span class="ft">250 ms</span><div class="mini-row hl">? Unknown man ~40 · ETA 14 · STEMI</div><div class="mini-row">Thandiwe Ndlovu · arrived</div><p class="xs muted" style="margin-top:8px">ETA updates as text — no ticking animation</p></div>
+  </div>
+
+  <div class="sb">
+    <div class="lbl"><p class="b">Never</p><p class="xs t2">Flashing alerts · shimmering skeletons · bounces · motion on every keystroke · anything that moves &gt; 5 s by itself</p></div>
+    <div class="frame" style="grid-column:span 3"><p class="small t2">Rules: animate only position and opacity · frequent actions ≤ 150 ms or none · reduced motion substitutes a fade · the browser's page-transition API is wrapped so it respects the reduce-motion setting · nothing flashes more than 3 times a second (WCAG 2.3.1) · critical alerts rise once and stay still until acknowledged.</p></div>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

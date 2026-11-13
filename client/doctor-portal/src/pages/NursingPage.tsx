@@ -8,7 +8,10 @@ import {
   listWardIntakeOutput,
   listWardMar,
   recordWardFluid,
-  useTranslation,
+  formatTimestamp,
+  useTranslation, ChoiceChips,
+  submitOnce,
+  useSubmission,
 } from '@medichain/shared';
 import { 
   Pill, Droplets, ClipboardList, Plus, Save, Clock, 
@@ -82,14 +85,14 @@ interface NursingIntervention {
   intervention: string;
   frequency: string;
   rationale: string;
-  status: 'active' | 'completed' | 'discontinued';
+  status: 'active' | 'completed' | 'discontinued' | null;
 }
 
 interface NursingOutcome {
   outcome: string;
   target_date: string;
   indicators: string[];
-  status: 'not_met' | 'partially_met' | 'met';
+  status: 'not_met' | 'partially_met' | 'met' | null;
 }
 
 interface NursingCarePlan {
@@ -162,7 +165,7 @@ function mapIoRecord(value: unknown): IntakeOutputRecord | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as JsonObject;
   const fluidEntries = (items: unknown): FluidEntry[] => asObjects(items).map((item) => ({
-    time: stringValue(item.recorded_at) || stringValue(record.record_date),
+    time: stringValue(item.recorded_at),
     type: stringValue(item.label) || stringValue(item.category),
     amount_ml: typeof item.amount_ml === 'number' ? item.amount_ml : 0,
     notes: stringValue(item.notes),
@@ -190,7 +193,7 @@ function mapIoRecord(value: unknown): IntakeOutputRecord | null {
 }
 
 /** Map structured care-plan entries without turning missing clinical fields into defaults. */
-function mapCarePlan(value: unknown): NursingCarePlan | null {
+export function mapCarePlan(value: unknown): NursingCarePlan | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const plan = value as JsonObject;
   const diagnoses = asObjects(plan.nursing_diagnoses).map((diagnosis) => ({
@@ -212,7 +215,7 @@ function mapCarePlan(value: unknown): NursingCarePlan | null {
       rationale: stringValue(intervention.rationale),
       status: ['active', 'completed', 'discontinued'].includes(stringValue(intervention.status))
         ? stringValue(intervention.status) as NursingIntervention['status']
-        : 'active',
+        : null,
     })),
     outcomes: asObjects(plan.goals).map((goal) => ({
       outcome: stringValue(goal.description) || stringValue(goal.outcome),
@@ -220,7 +223,7 @@ function mapCarePlan(value: unknown): NursingCarePlan | null {
       indicators: stringValue(goal.measurableOutcome) ? [stringValue(goal.measurableOutcome)] : [],
       status: ['not_met', 'partially_met', 'met'].includes(stringValue(goal.status))
         ? stringValue(goal.status) as NursingOutcome['status']
-        : 'not_met',
+        : null,
     })),
     created_by: stringValue(plan.created_by),
     created_at: stringValue(plan.created_at),
@@ -232,6 +235,9 @@ type TabType = 'mar' | 'io' | 'careplan';
 
 function NursingPage() {
   const { t } = useTranslation();
+  // One submission per save, so a save with no signal is kept on this device
+  // and sent later (once) instead of failing.
+  const submission = useSubmission('nursing-fluid');
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabType>('mar');
@@ -335,31 +341,34 @@ function NursingPage() {
   // I/O: Record intake or output
   const [newFluidEntry, setNewFluidEntry] = useState({
     type: 'intake',
-    fluidType: 'Oral',
+    fluidType: '',
     amount: 0,
     notes: '',
   });
 
   const recordFluid = async () => {
-    if (!user) return;
-    if (!selectedPatient || newFluidEntry.amount <= 0) {
+    if (!user || saving) return;
+    if (!selectedPatient || !newFluidEntry.fluidType || !Number.isFinite(newFluidEntry.amount) || newFluidEntry.amount <= 0) {
       setError(t('docNursing.errorSelectPatientAmount'));
       return;
     }
 
     setSaving(true);
+    setError(null);
     try {
-      await recordWardFluid({
+      const fluid = {
         patient_id: selectedPatient,
         entry_type: newFluidEntry.type,
         fluid_type: newFluidEntry.fluidType,
         amount_ml: newFluidEntry.amount,
         notes: newFluidEntry.notes,
         time: new Date().toISOString(),
-      });
-      setSuccess(t('docNursing.successFluidRecorded'));
-      setNewFluidEntry({ type: 'intake', fluidType: 'Oral', amount: 0, notes: '' });
-      fetchData();
+      };
+      const outcome = await submitOnce(submission, fluid, () => recordWardFluid(fluid));
+      if (outcome === 'busy') return;
+      setSuccess(outcome === 'queued' ? t('forms.queued') : t('docNursing.successFluidRecorded'));
+      setNewFluidEntry({ type: 'intake', fluidType: '', amount: 0, notes: '' });
+      if (outcome !== 'queued') fetchData();
     } catch (err) {
       setError(getApiErrorMessage(err, t('docNursing.errorRecordFluid')));
     } finally {
@@ -563,6 +572,7 @@ function NursingPage() {
           {activeTab === 'io' && (
             <div className="space-y-6">
               {/* Quick Entry Form */}
+              <form onSubmit={(event) => { event.preventDefault(); void recordFluid(); }} noValidate>
               <div className="bg-surface rounded-xl shadow p-6">
                 <h3 className="font-semibold text-content mb-4 flex items-center gap-2">
                   <Plus size={20} />
@@ -578,16 +588,16 @@ function NursingPage() {
                     />
                   </div>
                   <div>
-                    <label htmlFor="nursing-entry-type" className="sr-only">{t('docNursing.entryTypeLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="nursing-entry-type"
+                      label={t('docNursing.entryTypeLabel')}
                       value={newFluidEntry.type}
-                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, type: e.target.value })}
-                      className="w-full px-3 py-2 border border-border-interactive rounded-lg"
-                    >
-                      <option value="intake">{t('docNursing.intakeOption')}</option>
-                      <option value="output">{t('docNursing.outputOption')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setNewFluidEntry({ ...newFluidEntry, type: next, fluidType: '' }); }}
+                      options={[
+                        { value: 'intake', label: t('docNursing.intakeOption') },
+                        { value: 'output', label: t('docNursing.outputOption') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label htmlFor="nursing-fluid-type" className="sr-only">{t('docNursing.fluidTypeLabel')}</label>
@@ -597,6 +607,7 @@ function NursingPage() {
                       onChange={(e) => setNewFluidEntry({ ...newFluidEntry, fluidType: e.target.value })}
                       className="w-full px-3 py-2 border border-border-interactive rounded-lg"
                     >
+                      <option value="" disabled>—</option>
                       {newFluidEntry.type === 'intake' ? (
                       <>
                         <option value="Oral">{t('docNursing.fluidType_oral')}</option>
@@ -627,16 +638,16 @@ function NursingPage() {
                       aria-label={t('docNursing.amountMlAriaLabel')}
                     />
                   </div>
-                  <button
-                    onClick={recordFluid}
-                    disabled={saving}
-                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center justify-center gap-2"
+                  <button type="submit"
+                    aria-disabled={saving || undefined}
+                    className="aria-disabled:cursor-wait px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center justify-center gap-2"
                   >
                     {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                     {t('docNursing.recordButton')}
                   </button>
                 </div>
               </div>
+              </form>
 
               {/* I/O Records */}
               {ioRecords.length === 0 ? (
@@ -679,7 +690,7 @@ function NursingPage() {
                         <div className="space-y-2">
                           {(record.intake ?? []).map((entry, idx) => (
                             <div key={idx} className="flex justify-between text-sm">
-                              <span>{entry.time.split('T')[1]?.substring(0, 5)} - {entry.type}</span>
+                              <span>{formatTimestamp(entry.time) || t('docNursing.notRecorded')} - {entry.type}</span>
                               <span className="font-medium">{entry.amount_ml} mL</span>
                             </div>
                           ))}
@@ -694,7 +705,7 @@ function NursingPage() {
                         <div className="space-y-2">
                           {(record.output ?? []).map((entry, idx) => (
                             <div key={idx} className="flex justify-between text-sm">
-                              <span>{entry.time.split('T')[1]?.substring(0, 5)} - {entry.type}</span>
+                              <span>{formatTimestamp(entry.time) || t('docNursing.notRecorded')} - {entry.type}</span>
                               <span className="font-medium">{entry.amount_ml} mL</span>
                             </div>
                           ))}
@@ -751,7 +762,7 @@ function NursingPage() {
                                 int.status === 'completed' ? 'bg-notice-subtle text-notice-subtle-fg' :
                                 'bg-surface-sunken text-content-secondary'
                               }`}>
-                                {t(`docNursing.interventionStatus_${int.status}`)}
+                                {int.status ? t(`docNursing.interventionStatus_${int.status}`) : t('docNursing.notRecorded')}
                               </span>
                             </div>
                           ))}
@@ -768,9 +779,9 @@ function NursingPage() {
                                 <span className={`px-2 py-1 rounded text-xs ${
                                   out.status === 'met' ? 'bg-ok-subtle text-ok-subtle-fg' :
                                   out.status === 'partially_met' ? 'bg-caution-subtle text-caution-subtle-fg' :
-                                  'bg-critical-subtle text-critical-subtle-fg'
+                                  out.status === 'not_met' ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-muted'
                                 }`}>
-                                  {t(`docNursing.outcomeStatus_${out.status}`)}
+                                  {out.status ? t(`docNursing.outcomeStatus_${out.status}`) : t('docNursing.notRecorded')}
                                 </span>
                               </div>
                               <p className="text-xs text-content-muted">{t('docNursing.targetLine', { date: out.target_date })}</p>

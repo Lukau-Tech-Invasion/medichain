@@ -1,5 +1,5 @@
 # MediChain CI Workflow
-# Runs on every push and pull request to main branch
+# Runs on pushes and pull requests to the main and development branches
 
 name: MediChain CI
 
@@ -7,7 +7,7 @@ on:
     push:
         branches: [main, development/**]
     pull_request:
-        branches: [main]
+        branches: [main, development/**]
     workflow_dispatch:
 
 env:
@@ -39,6 +39,9 @@ jobs:
             - name: Every endpoint has an auth decision
               run: python scripts/check-endpoint-auth.py
 
+            - name: Production Compose isolates ports and configures backups
+              run: python scripts/check-production-compose.py
+
             # The gate above asks "is there an authorization decision here". It
             # cannot see a decision that is present and too permissive — it
             # counted the telehealth recording endpoint as properly authorized
@@ -50,11 +53,9 @@ jobs:
               run: python scripts/check-write-authorization.py
 
             # Both gates above look at the server. This one looks at the client:
-            # the legacy `X-User-Id` header is a caller-supplied wallet address,
-            # and the only module allowed to decide whether to send it is the
-            # shared session helper. A page writing that literal itself sends the
-            # identifier even when a Bearer session already carries it, and has
-            # to be found again the day the legacy path is withdrawn.
+            # the legacy `X-User-Id` header was a caller-supplied account id. The
+            # API now refuses it, and only negative assertions may still send it,
+            # so a page that writes the literal is a regression to be found.
             - name: Only the shared session helper emits the legacy identity header
               run: python scripts/check-legacy-identity-headers.py
 
@@ -80,6 +81,13 @@ jobs:
             # constraint, so an omission common to both is still caught.
             - name: Every audit action the handlers write is permitted by the schema
               run: python scripts/check-audit-action-vocabulary.py
+
+            # Patients are promised they can see who read their record. One
+            # middleware keeps that promise for every patient-scoped GET in its
+            # registry; a new route missing from the registry would be read
+            # without a trace, so its absence fails the build.
+            - name: Every patient-data read route is disclosure-audited
+              run: python scripts/check-phi-read-audit.py
 
             # MediChain authenticates by proving control of a key. A "quick
             # login" list short-circuits that by naming an identity and asking
@@ -131,6 +139,28 @@ jobs:
             # the pharmacist's Dispense button did nothing at all.
             - name: No client calls a native browser dialog
               run: python scripts/check-native-dialogs.py
+
+            # Nothing pulses, bounces or pings: a critical alert rises once and
+            # stays still (c10). Spinners are kept, and reduced motion stops them.
+            - name: No looping animation in the clients
+              run: python scripts/check-looping-motion.py
+
+            # A patient session is refused on any route the patient surface
+            # does not list; a route the patient app newly calls must be added.
+            - name: Every patient-app call is on the patient surface
+              run: python scripts/check-patient-surface.py
+
+            # Seven interface defect classes (hand-rolled overlays, short
+            # selects, raw patient ids, inputs outside a form, console-only
+            # catches, unexplained disabled submits, runtime colour classes),
+            # ratcheted per file from the 2026-10-30 counts.
+            - name: UX patterns do not regress
+              run: python scripts/check-ux-patterns.py
+
+            # 38 forms saved and showed nothing, so a save looked like a dead
+            # click. Every saving handler gives a visible success signal.
+            - name: No form saves silently
+              run: python scripts/check-silent-saves.py
 
             # `new Date(undefined).toLocaleString()` prints "Invalid Date";
             # 83 sites did it before they moved onto the shared formatters.
@@ -235,6 +265,20 @@ jobs:
             - name: Every page payload fits the type its handler takes
               run: python scripts/check-payload-contracts.py
 
+            # The TypeScript request types are generated from the Rust structs
+            # the handlers deserialise. A struct changed without regenerating
+            # leaves the client typed against a shape the server no longer
+            # takes, and nothing else here would notice.
+            - name: Generated request types match the Rust structs
+              run: python scripts/gen-request-types.py --check
+
+            # Both gates below existed and passed locally but never ran here.
+            - name: Every column that can hold a user is in the actor registry
+              run: python scripts/check-actor-columns.py
+
+            - name: No migration seeds accounts, patients or identities
+              run: python scripts/check-no-migration-seeds.py
+
             # An INSERT whose column list and bind chain have drifted apart.
             #
             # `QueryBuilder` joins a string literal to a sequence of method
@@ -291,7 +335,7 @@ jobs:
               run: python scripts/check-function-length.py
 
     # ============================================================================
-    # Rust Backend (Substrate pallets, API, crypto, node)
+    # Rust Backend (API, crypto)
     # ============================================================================
     rust:
         name: Rust CI
@@ -365,98 +409,10 @@ jobs:
             - name: Run tests
               run: cargo test
 
-            # `cargo audit` used to run here, report-only, because "the
-            # substrate/subxt transitive tree carries upstream advisories we
-            # don't directly control". Removed 2026-09-16: the Supply Chain job
-            # below runs `cargo-deny ... advisories` **enforced** against both
-            # workspaces, with the exceptions reviewed and written down in
-            # `deny.toml`. This step was a second scanner with no policy behind
-            # it, whose output nothing acted on, costing a `cargo install` on
-            # every run. Two advisory scanners where one is a gate and the other
-            # is noise is worse than one gate.
-
-    # ============================================================================
-    # Blockchain workspace (pallets + runtime + node)
-    # ----------------------------------------------------------------------------
-    # `blockchain/` is a SEPARATE cargo workspace on a different Polkadot SDK
-    # release from the API. That matters for CI correctness: the `rust` job above
-    # runs `cargo fmt --all` / `cargo clippy --all-targets` / `cargo test` with no
-    # `-p` flags, so it only ever sees the root workspace. When the pallets moved
-    # out of it they left that job's scope entirely, and a workspace-scoped
-    # command reports success for crates it never compiled. Without this job the
-    # 60 pallet tests would simply stop running and nothing would go red.
-    # ============================================================================
-    blockchain:
-        name: Blockchain (pallets + runtime)
-        runs-on: ubuntu-latest
-
-        env:
-            # REQUIRED. The repository root has its own rust-toolchain.toml pinning
-            # `channel = "stable"`, and rustup resolves the nearest such file
-            # walking up from the working directory. Because cargo is invoked from
-            # the repo root via --manifest-path, that root file outranks both the
-            # toolchain action below and blockchain/rust-toolchain.toml.
-            # RUSTUP_TOOLCHAIN outranks the files, so it is what actually pins the
-            # compiler here. Without it the build runs on `stable`, which has
-            # neither the wasm targets nor rust-src.
-            RUSTUP_TOOLCHAIN: '1.92.0'
-
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-
-            # `rust-src` is not optional: substrate-wasm-builder compiles the
-            # runtime with `-Z build-std` and fails outright without the standard
-            # library sources.
-            - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@1.92.0
-              with:
-                  components: rustfmt, clippy, rust-src
-                  targets: wasm32v1-none, wasm32-unknown-unknown
-
-            # clang/libclang are required by the rocksdb bindgen build in the
-            # node's dependency tree; protobuf by the networking stack.
-            - name: Install native build dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y protobuf-compiler libprotobuf-dev clang libclang-dev
-
-            - name: Cache cargo registry and build
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      ~/.cargo/registry
-                      ~/.cargo/git
-                      blockchain/target
-                  # Image and toolchain are in the key on purpose; see the long
-                  # note in blockchain-node-release.yml. `runner.os` alone is
-                  # "Linux" for every Ubuntu image, so a cache built on one can be
-                  # restored onto another with an incompatible glibc.
-                  key: ${{ runner.os }}-ubuntu-latest-rust1.92.0-blockchain-${{ hashFiles('blockchain/Cargo.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-ubuntu-latest-rust1.92.0-blockchain-
-
-            - name: Check formatting
-              run: cargo fmt --manifest-path blockchain/Cargo.toml --all -- --check
-
-            # Enforced here, unlike the root `rust` job's clippy, which is
-            # deliberately report-only while pre-existing findings are worked down.
-            # This code is new, so it starts clean and stays clean.
-            - name: Clippy (enforced)
-              run: >-
-                  cargo clippy --manifest-path blockchain/Cargo.toml
-                  --workspace --all-targets -- -D warnings
-
-            - name: Build runtime (generates WASM)
-              run: cargo check --manifest-path blockchain/Cargo.toml -p medichain-runtime
-
-            - name: Build node
-              run: cargo check --manifest-path blockchain/Cargo.toml -p medichain-node
-
-            # Guards the role-bootstrap regression: pallet-access-control's genesis
-            # config is the only way UserRoles can ever be populated.
-            - name: Run blockchain tests
-              run: cargo test --manifest-path blockchain/Cargo.toml --workspace
+            # `cargo audit` is not run here: the Supply Chain job below runs
+            # `cargo-deny ... advisories` **enforced**, with the exceptions
+            # reviewed and written down in `deny.toml`. Two advisory scanners
+            # where one is a gate and the other is noise is worse than one gate.
 
     # ============================================================================
     # Supply-Chain Security (cargo-deny advisories/licenses/bans + SBOM)
@@ -496,82 +452,6 @@ jobs:
               with:
                   command: check
                   command-arguments: advisories
-
-            # ----------------------------------------------------------------
-            # The SAME checks over the `blockchain/` workspace.
-            #
-            # Everything above runs from the repo root, so it only ever sees the
-            # root workspace -- exactly the scoping trap the `blockchain` job's
-            # header describes for tests. Until this step existed, all 1171
-            # locked dependencies of the node and runtime (the whole Substrate
-            # networking, consensus and crypto stack) went unscanned: no
-            # advisories, no licence review, no source pinning. The API's much
-            # smaller tree was fully covered, which made the gap easy to miss.
-            #
-            # Config: blockchain/deny.toml (separate from the root's on purpose
-            # -- the Polkadot SDK ships GPL crates the root's permissive-only
-            # allow-list would reject outright).
-            # ----------------------------------------------------------------
-            - name: cargo-deny blockchain (sources, enforced)
-              uses: EmbarkStudios/cargo-deny-action@v2
-              with:
-                  manifest-path: blockchain/Cargo.toml
-                  command: check
-                  command-arguments: sources
-
-            # Advisories: ENFORCED for the blockchain tree as of 2026-08-26.
-            #
-            # This was report-only while the graph reported 5 vulnerabilities
-            # and 2 unmaintained crates. It no longer does. One left by a
-            # precise lockfile bump (h2 0.4.15 -> 0.4.19, RUSTSEC-2026-0258);
-            # the remaining five are reasoned acceptances in
-            # blockchain/deny.toml, each quoting the upstream constraint that
-            # blocks it and naming the single condition that removes it.
-            #
-            # Enforcing it is now the cheaper option, not the stricter one: a
-            # report-only gate on a graph nobody can currently fix trains
-            # reviewers to scroll past it, and the root gate had to be rescued
-            # from exactly that. blockchain/deny.toml also now sets
-            # unused-ignored-advisory = "deny", so an acceptance whose crate
-            # leaves the tree fails the build instead of becoming a stale
-            # comment.
-            #
-            # Expect this to go red one day on a PR that changed nothing: the
-            # advisory database is fetched at run time. That is the gate
-            # working. The fix is an upgrade or a reasoned entry, never
-            # continue-on-error.
-            - name: cargo-deny blockchain (advisories, enforced)
-              uses: EmbarkStudios/cargo-deny-action@v2
-              with:
-                  manifest-path: blockchain/Cargo.toml
-                  command: check
-                  command-arguments: advisories
-
-            # Licences stay report-only, and only licences.
-            #
-            # Blocking since 2026-09-16. The allow-list was derived offline
-            # from 1074 of the 1171 locked packages — the remaining 97 were not
-            # in the local registry cache — so this was report-only, on the
-            # stated condition: "flip it once a full CI run confirms the list
-            # covers all 1171."
-            #
-            # That condition is met. `cargo deny --manifest-path
-            # blockchain/Cargo.toml check licenses bans` now resolves the whole
-            # 1171-package graph and reports `bans ok, licenses ok` with zero
-            # errors; the only remaining diagnostics are `license-not-
-            # encountered` warnings for allowances nothing uses, which are the
-            # opposite of a gap.
-            #
-            # This matters more here than in most graphs: `medichain-node` links
-            # 17 strict GPL-3.0-only crates, and the obligation attaches on
-            # distribution. A report-only licence check is how that reaches a
-            # partner unnoticed.
-            - name: cargo-deny blockchain (licences and bans)
-              uses: EmbarkStudios/cargo-deny-action@v2
-              with:
-                  manifest-path: blockchain/Cargo.toml
-                  command: check
-                  command-arguments: licenses bans
 
             # Licenses: ENFORCED as of 2026-08-25. Kept as its own step so a new
             # licence problem and a new advisory fail separately and read
@@ -827,7 +707,7 @@ jobs:
     # invisible until the backend was first exercised — at which point patient
     # registration turned out to be impossible (a 64-char SHA3 hash into a
     # VARCHAR(32)), four repository methods were unimplemented, and 16 actor
-    # columns were typed uuid while the application writes wallet addresses.
+    # columns were typed uuid while the application wrote pre-account identifiers.
     #
     # The matrix is the point: a defect that only appears on one backend must
     # fail the build. `scripts/synthetic-e2e-test.sh` already parameterises
@@ -861,16 +741,6 @@ jobs:
                     --health-interval 10s
                     --health-timeout 5s
                     --health-retries 10
-
-            # Without IPFS the suite SKIPS its whole encrypted-record section
-            # (upload -> encrypt -> IPFS -> download -> decrypt) rather than
-            # failing, so a regression there would go unnoticed while the job
-            # still reported green. A skipped section is not a passing one.
-            ipfs:
-                image: ipfs/kubo:v0.29.0
-                ports:
-                    - 5001:5001
-                    - 8080:8080
 
         steps:
             - name: Checkout code
@@ -911,7 +781,6 @@ jobs:
                   IS_DEMO: "true"
                   MEDICHAIN_DEV_MODE: "true"
                   REQUIRE_SIGNATURES: "false"
-                  BLOCKCHAIN_ENABLED: "false"
                   DISPENSING_POLICY_PATH: api/data/dispensing_policy.example.json
                   MEDICHAIN_BOOTSTRAP_KEY: synthetic-test-bootstrap-key-2026
                   PORT: "8090"
@@ -919,8 +788,6 @@ jobs:
                   RUST_LOG: warn
                   # 127.0.0.1, not `localhost`: the latter can resolve to ::1
                   # first and the published port is not reachable there.
-                  IPFS_API_URL: http://127.0.0.1:5001
-                  IPFS_GATEWAY_URL: http://127.0.0.1:8080
               run: ./scripts/ci-start-api.sh
 
             - name: Start API (postgres backend)
@@ -929,7 +796,6 @@ jobs:
                   IS_DEMO: "true"
                   MEDICHAIN_DEV_MODE: "true"
                   REQUIRE_SIGNATURES: "false"
-                  BLOCKCHAIN_ENABLED: "false"
                   DISPENSING_POLICY_PATH: api/data/dispensing_policy.example.json
                   MEDICHAIN_BOOTSTRAP_KEY: synthetic-test-bootstrap-key-2026
                   PORT: "8090"

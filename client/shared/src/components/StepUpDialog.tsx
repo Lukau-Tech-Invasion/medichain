@@ -1,17 +1,21 @@
 import { useState } from 'react';
 import { useTranslation } from '../i18n/react';
 import type { StepUpState } from '../hooks/useStepUp';
+import { getRememberedLoginId } from '../auth/loginId';
+import { ModalPanel } from './ModalPanel';
 
 /**
- * Ask for a TOTP code so a refused privileged action can go through.
+ * Ask for a TOTP code, or for the password, to confirm a held action.
  *
  * Rendered by any page whose action can be met with `403 MFA_REQUIRED`. See
  * `useStepUp` for why this exists: the server names the remedy in its error
  * message, and until this dialog there was nothing a person could do with it.
  *
- * Two distinct demands, because they have different remedies:
+ * Distinct demands have different remedies:
  *   * `step_up` — enrolled, but this session is not freshly verified. A code
- *     fixes it here.
+ *     from the authenticator app fixes it here.
+ *   * `transaction` — an exact request needs authorizing. A code, or the
+ *     password when the account has no authenticator (`requiredFactor`).
  *   * `enrollment` — no MFA at all. A code cannot fix that; the person has to
  *     enrol first, and saying "enter your code" to someone with no
  *     authenticator is a dead end dressed as a prompt.
@@ -19,25 +23,39 @@ import type { StepUpState } from '../hooks/useStepUp';
 export function StepUpDialog({ state }: { state: StepUpState }) {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginId, setLoginId] = useState('');
 
   if (!state.demand) return null;
 
   const enrolling = state.demand === 'enrollment';
+  const usingPassword = state.demand === 'transaction' && state.requiredFactor === 'password';
+  const usingCode = !enrolling && !usingPassword;
+
+  const body = enrolling
+    ? t('stepUp.enrollBody')
+    : usingPassword
+      ? t('stepUp.passwordBody')
+      : state.demand === 'transaction'
+        ? t('stepUp.transactionBody')
+        : t('stepUp.body');
+
+  const inputClass =
+    'w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px] mb-4';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="step-up-title"
+    // ModalPanel: focus stays inside, Escape cancels, the page behind does not
+    // scroll. The hand-rolled overlay this replaces had none of the three.
+    <ModalPanel
+      labelledBy="step-up-title"
+      onClose={state.cancel}
+      closeOnBackdrop={false}
+      className="bg-surface rounded-xl shadow-lg p-6 w-full max-w-sm"
     >
-      <div className="bg-surface rounded-xl shadow-lg p-6 w-full max-w-sm">
         <h2 id="step-up-title" className="font-semibold text-content mb-1">
           {t('stepUp.title')}
         </h2>
-        <p className="text-sm text-content-muted mb-4">
-          {enrolling ? t('stepUp.enrollBody') : t('stepUp.body')}
-        </p>
+        <p className="text-sm text-content-muted mb-4">{body}</p>
 
         {state.error && (
           <div role="alert" className="mb-4 bg-critical-subtle border border-critical rounded-lg p-3">
@@ -45,11 +63,13 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
           </div>
         )}
 
-        {!enrolling && (
+        {usingCode && (
           <form
             onSubmit={(event) => {
               event.preventDefault();
+              if (state.verifying) return;
               void state.submitCode(code.trim());
+              setCode('');
             }}
           >
             <label htmlFor="step-up-code" className="block text-sm font-medium text-content-secondary mb-1">
@@ -62,7 +82,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
               inputMode="numeric"
               autoComplete="one-time-code"
               required
-              className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px] mb-4"
+              className={inputClass}
             />
             <div className="flex gap-2 justify-end">
               <button
@@ -74,8 +94,63 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
               </button>
               <button
                 type="submit"
-                disabled={state.verifying}
-                className="px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+                aria-disabled={state.verifying || undefined}
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg aria-disabled:cursor-wait min-h-[44px]"
+              >
+                {state.verifying ? t('stepUp.verifying') : t('stepUp.confirm')}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {usingPassword && (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (state.verifying) return;
+              void state.submitPassword(password, loginId || getRememberedLoginId());
+              setPassword('');
+            }}
+          >
+            {state.needsLoginId && (
+              <>
+                <label htmlFor="step-up-login-id" className="block text-sm font-medium text-content-secondary mb-1">
+                  {t('stepUp.loginIdLabel')}
+                </label>
+                <input
+                  id="step-up-login-id"
+                  value={loginId}
+                  onChange={(event) => setLoginId(event.target.value)}
+                  autoComplete="username"
+                  required
+                  className={inputClass}
+                />
+              </>
+            )}
+            <label htmlFor="step-up-password" className="block text-sm font-medium text-content-secondary mb-1">
+              {t('stepUp.passwordLabel')}
+            </label>
+            <input
+              id="step-up-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
+              className={inputClass}
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={state.cancel}
+                className="px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+              >
+                {t('stepUp.cancel')}
+              </button>
+              <button
+                type="submit"
+                aria-disabled={state.verifying || undefined}
+                className="px-4 py-2 bg-brand text-brand-fg rounded-lg aria-disabled:cursor-wait min-h-[44px]"
               >
                 {state.verifying ? t('stepUp.verifying') : t('stepUp.confirm')}
               </button>
@@ -94,8 +169,7 @@ export function StepUpDialog({ state }: { state: StepUpState }) {
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </ModalPanel>
   );
 }
 

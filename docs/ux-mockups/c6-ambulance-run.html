@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Ambulance run</title><link rel="stylesheet" href="mock.css"></head>
+<body><div class="phone tall">
+  <header class="appbar"><div class="row" style="gap:8px"><i data-i="truck" style="color:rgb(var(--danger))"></i><div><p class="b" style="font-size:15px">Run 1047 · Unit 14</p><p class="xs muted">P. Mokoena · S. Dube</p></div></div><span class="badge warn">En route</span></header>
+  <main class="content" style="gap:12px;padding-top:12px;padding-bottom:110px">
+    <!-- Who: from the card scan, nothing typed. -->
+    <div class="card pad-sm row"><span class="avatar">TN</span><div class="grow"><p class="b">Thandiwe Ndlovu · F · 34</p><p class="xs muted">Card scanned 14:11</p></div><span class="badge info">O+</span></div>
+    <div class="row" style="gap:6px"><span class="badge danger"><i data-i="alert" class="sm"></i>Penicillin</span><span class="badge danger">Latex</span><span class="badge info">Type 2 diabetes · metformin</span></div>
+    <div class="card pad-sm row" style="gap:10px;border-color:rgb(var(--primary))"><i data-i="mapPin" style="color:rgb(var(--primary))"></i><div class="grow"><p class="small b">Riverside District Hospital · ED</p><p class="xs muted">ETA 6 min · pre-alert sent 14:18 <i data-i="check" class="sm" style="color:rgb(var(--ok));vertical-align:-3px"></i> · updates streaming</p></div></div>
+    <!-- Recording is tapping: each tap adds a time-stamped line below. -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      <span class="qa"><i data-i="pulse"></i>Vitals</span><span class="qa"><i data-i="bandage"></i>Treatment</span><span class="qa"><i data-i="syringe"></i>Medicine</span><span class="qa"><i data-i="file"></i>Note</span>
+    </div>
+    <h3>Timeline</h3>
+    <div class="tl">
+      <div class="tl-row"><span class="tl-time">14:24</span><span class="tl-dot"></span><div><p class="small b">Vitals</p><span class="vit"><span>BP <b>104/66</b></span><span>HR <b>106</b></span><span>SpO₂ <b>96%</b></span><span>GCS <b>15</b></span></span></div></div>
+      <div class="tl-row"><span class="tl-time">14:18</span><span class="tl-dot amber"></span><div><p class="small b">Left scene → Riverside District</p><p class="xs muted">Pre-alert sent with the timeline so far</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:16</span><span class="tl-dot"></span><div><p class="small b">Medicine · Sodium chloride 0.9% 500 mL IV</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:15</span><span class="tl-dot"></span><div><p class="small b">IV access · 18G left forearm</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:14</span><span class="tl-dot"></span><div><p class="small b">Oxygen 15 L/min · non-rebreather</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:13</span><span class="tl-dot"></span><div><p class="small b">Splint · left forearm</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:12</span><span class="tl-dot red"></span><div><p class="small b">Vitals</p><span class="vit"><span>BP <b>92/58</b></span><span>HR <b>118</b></span><span>SpO₂ <b>91%</b></span><span>GCS <b>14</b></span></span></div></div>
+      <div class="tl-row"><span class="tl-time">14:11</span><span class="tl-dot"></span><div><p class="small b">Patient identified · card scan</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:09</span><span class="tl-dot grey"></span><div><p class="small b">On scene · car crash, driver, airbag deployed</p></div></div>
+      <div class="tl-row"><span class="tl-time">14:02</span><span class="tl-dot grey"></span><div><p class="small b">Dispatched</p></div></div>
+    </div>
+  </main>
+  <!-- One button. Everything above is the handover. -->
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:12px 16px 18px;background:rgb(var(--surface));border-top:1px solid rgb(var(--border))">
+    <span class="btn primary" style="width:100%;min-height:56px;font-size:17px"><i data-i="send"></i>Hand over to Riverside District</span>
+    <p class="xs muted" style="text-align:center;margin-top:6px">10 entries · nothing to retype · works without signal</p>
+  </div>
+  <span class="mock-tag">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

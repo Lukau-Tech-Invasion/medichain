@@ -118,22 +118,22 @@ pub fn telemetry_snapshot() -> TelemetrySnapshot {
     let mut server_errors = 0_u64;
 
     for family in &families {
-        match family.get_name() {
+        match family.name() {
             "http_request_duration_seconds" => {
                 for metric in family.get_metric() {
-                    let h = metric.get_histogram();
-                    latency_sum += h.get_sample_sum();
-                    latency_count += h.get_sample_count();
+                    let h = &metric.histogram;
+                    latency_sum += h.sample_sum();
+                    latency_count += h.sample_count();
                 }
             }
             "http_requests_total" => {
                 for metric in family.get_metric() {
-                    let value = metric.get_counter().get_value() as u64;
+                    let value = metric.counter.value() as u64;
                     total_requests += value;
                     let is_server_error = metric
                         .get_label()
                         .iter()
-                        .any(|l| l.get_name() == "status" && l.get_value().starts_with('5'));
+                        .any(|l| l.name() == "status" && l.value().starts_with('5'));
                     if is_server_error {
                         server_errors += value;
                     }
@@ -192,7 +192,7 @@ pub async fn metrics_endpoint(
     // rates, latency by route — which is reconnaissance for an attacker and was
     // previously readable by anyone. Production must use `METRICS_TOKEN`:
     // `/api/metrics` is deliberately bypassed by request-signature middleware
-    // for Prometheus, so a known legacy `X-User-Id` is not cryptographic proof.
+    // for Prometheus, so a session token is not what authorises it there.
     // Demo retains the registered-identity fallback for local diagnostics only.
     let token = std::env::var("METRICS_TOKEN").ok();
     let authorized =
@@ -211,7 +211,7 @@ pub async fn metrics_endpoint(
                 .unwrap_or(false),
             // RESOLVE the caller, don't just observe a header. A first cut of this
             // used `get_current_user_id(...).is_some()`, which is satisfied by
-            // `X-User-Id: anything` — the precise "authentication mistaken for
+            // an arbitrary identity string — the precise "authentication mistaken for
             // authorization" defect this whole pass exists to remove. The suite's
             // forged-identity assertion caught it.
             MetricsAuthorizationMode::DemoRegisteredIdentity => {

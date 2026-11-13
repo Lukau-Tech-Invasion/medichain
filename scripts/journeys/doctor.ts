@@ -45,7 +45,6 @@ export async function doctorJourney(
     token: doctor.token,
     body: {
       full_name: fullName,
-      wallet_address: '',
       date_of_birth: '1984-04-12',
       national_id: `JH${stamp}`,
       gender: 'female',
@@ -66,11 +65,35 @@ export async function doctorJourney(
   // still reports on the steps that follow — a broken first step must not
   // silently delete the other twenty.
   const patient = registered ? String(reg.json.patient_id) : m.patient.linked_patient_id;
+  if (registered) {
+    // Booking a clinical encounter establishes the bounded care relationship
+    // required to read the chart. The second clinician needs their own visit.
+    const slot = Math.floor(stamp / 1000) % (14 * 16);
+    const visitDate = inDays(1 + Math.floor(slot / 16));
+    const hour = 8 + Math.floor((slot % 16) / 2);
+    const visitTime = `${String(hour).padStart(2, '0')}:${slot % 2 === 0 ? '00' : '30'}`;
+    for (const [label, clinician] of [['registrar', doctor], ['colleague', colleague]] as const) {
+      const visit = await http('POST', '/appointments', {
+        token: clinician.token,
+        body: {
+          patient_id: patient,
+          appointment_type: 'consultation',
+          preferred_date: visitDate,
+          preferred_time: visitTime,
+          reason: `Clinical assessment after registration (journey ${stamp})`,
+        },
+      });
+      j.status(`${label} has a clinical encounter for the new patient`, visit.status, [200, 201], visit.json);
+    }
+  }
   if (!registered) {
     j.skip('the registered patient is findable by the clinician who registered them', 'registration failed');
     j.skip('the allergy the clinician recorded is on the patient record', 'registration failed');
   } else {
-    const roster = await http('GET', '/patients?limit=200', { token: doctor.token });
+    const roster = await http('GET', '/patients?limit=200', {
+      token: doctor.token,
+      headers: { 'X-Access-Reason': 'Patient directory lookup for treatment' },
+    });
     const rows = rowsOf(roster.json, 'data', 'patients');
     const mine = findBy(rows, 'patient_id', patient);
     j.record(
@@ -79,12 +102,13 @@ export async function doctorJourney(
       `roster held ${Array.isArray(rows) ? rows.length : 'a non-array'} patient(s). ` +
         `A patient who registers and does not appear on the roster is a patient nobody can treat.`
     );
-    // An allergy is the single most consequential field on the record, and the
-    // one the emergency capsule is built from.
+    // The directory deliberately omits clinical details. Open the chart to
+    // verify the allergy the clinician entered during registration.
+    const chart = await http('GET', `/patients/${patient}`, { token: doctor.token });
     j.record(
       'the allergy the clinician recorded is on the patient record',
-      JSON.stringify(mine ?? {}).toLowerCase().includes('penicillin'),
-      `stored: ${JSON.stringify(mine ?? {}).slice(0, 400)}`
+      chart.status === 200 && JSON.stringify(chart.json).toLowerCase().includes('penicillin'),
+      `status ${chart.status}; stored: ${JSON.stringify(chart.json).slice(0, 400)}`
     );
   }
 
@@ -214,7 +238,8 @@ export async function doctorJourney(
     j.record(
       "a colleague can read the note on the patient's chart",
       mine !== undefined,
-      `the chart held ${Array.isArray(rows) ? rows.length : 'a non-array'} note(s)`
+      `status ${read.status}; the chart held ${Array.isArray(rows) ? rows.length : 'a non-array'} note(s): ` +
+        JSON.stringify(read.json).slice(0, 350)
     );
     // The four letters of SOAP, each checked. A note that keeps the subjective
     // and drops the plan is the shape of defect this repository keeps producing.
@@ -265,7 +290,7 @@ export async function doctorJourney(
       end_time: null,
       frequency: null,
       instructions: 'Fasting sample',
-      ordering_provider: doctor.wallet,
+      ordering_provider: doctor.userId,
       order_time: now,
       verbal_order: false,
       read_back: null,
@@ -419,7 +444,7 @@ export async function doctorJourney(
   const apptId = String(appt.json.appointment_id ?? appt.json.id ?? '');
 
   if (apptOk && apptId) {
-    const mineList = await http('GET', `/appointments/provider/${doctor.wallet}`, {
+    const mineList = await http('GET', `/appointments/provider/${doctor.userId}`, {
       token: doctor.token,
     });
     const rows = rowsOf(mineList.json, 'appointments', 'items');
@@ -474,7 +499,8 @@ export async function doctorJourney(
     body: {
       patient_id: patient,
       patient_name: fullName,
-      admission_date: today(),
+      // The page sends the admission day as local midnight, and only when entered.
+      admission_datetime: new Date(`${today()}T00:00`).toISOString(),
       discharge_date: today(),
       discharge_disposition: 'home',
       primary_diagnosis: primaryDiagnosis,
@@ -494,7 +520,7 @@ export async function doctorJourney(
       diet_instructions: 'Reduced refined carbohydrate',
       warning_signs: ['Vomiting', 'Drowsiness'],
       emergency_contact_instructions: 'Return to the emergency unit',
-      prepared_by: doctor.wallet,
+      prepared_by: doctor.userId,
     },
   });
   const dischargeOk = j.status('a discharge summary is prepared', discharge.status, [200, 201], discharge.json);
@@ -532,7 +558,7 @@ export async function doctorJourney(
     token: doctor.token,
     // `name` is required by the endpoint. Omitting it answers 400 before the
     // authorization check runs, which proves nothing about the control.
-    body: { wallet_address: colleague.wallet, name: 'Dr Browser Test Two', role: 'Nurse' },
+    body: { user_id: colleague.userId, name: 'Dr Browser Test Two', role: 'Nurse' },
   });
   j.status('a doctor cannot assign roles', roles.status, [401, 403], roles.json);
 

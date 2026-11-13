@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import EmergencyAccessPage from './EmergencyAccessPage';
-import { usePatientStore } from '../store';
+import { useAuthStore, usePatientStore } from '../store';
 
 // Mock the components
 vi.mock('../components', () => ({
@@ -32,6 +32,7 @@ vi.mock('../components', () => ({
 
 vi.mock('../store', () => ({
   usePatientStore: vi.fn(),
+  useAuthStore: vi.fn(),
 }));
 
 describe('EmergencyAccessPage', () => {
@@ -44,6 +45,19 @@ describe('EmergencyAccessPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useAuthStore).mockReturnValue(false);
+  });
+
+  it('keeps emergency access available to paramedics without a full-chart link', () => {
+    vi.mocked(useAuthStore).mockReturnValue(true);
+    vi.mocked(usePatientStore).mockReturnValue({
+      currentEmergency: mockEmergencyPatient,
+      clearEmergencyAccess: vi.fn(),
+    });
+    render(<EmergencyAccessPage />);
+    expect(screen.getByTestId('emergency-card')).toBeInTheDocument();
+    expect(screen.getByText(/End Access/i)).toBeInTheDocument();
+    expect(screen.queryByText(/View Records/i)).not.toBeInTheDocument();
   });
 
   it('renders instructions when no emergency patient is active', () => {

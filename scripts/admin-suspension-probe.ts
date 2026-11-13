@@ -27,21 +27,9 @@
  *   MEDICHAIN_API_URL=http://127.0.0.1:8090/api \
  *   ./node_modules/.bin/vite-node ../scripts/admin-suspension-probe.ts
  */
-import {
-  deriveCredential,
-  openKeystore,
-  signerFromSecret,
-  secretFromMnemonic,
-} from '../client/shared/src/auth/credentials';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { http, loadManifest, signIn, signInPatient, SignInRateLimited, type PatientFixture } from './lib/journey';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://127.0.0.1:8090/api';
-const PASSWORD = 'BrowserTest!2026';
-const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-
-type Json = Record<string, any>;
 
 const results: Array<{ name: string; passed: boolean; skipped?: boolean; detail: string }> = [];
 function check(name: string, passed: boolean, detail = ''): void {
@@ -52,10 +40,9 @@ function check(name: string, passed: boolean, detail = ''): void {
 /**
  * A control refused us, so the check could not run.
  *
- * This probe makes four authentication attempts, and the challenge limiter is
- * five per wallet per minute — so running it twice inside a minute legitimately
- * runs out. That is the limiter working. Reporting it as a failed suspension
- * check would be a lie about the product.
+ * Running this probe repeatedly inside a minute can legitimately hit the
+ * request rate limit. That is the limiter working. Reporting it as a failed
+ * suspension check would be a lie about the product.
  */
 function skip(name: string, reason: string): void {
   results.push({ name, passed: false, skipped: true, detail: reason });
@@ -65,69 +52,22 @@ function skip(name: string, reason: string): void {
 /** 429 means "ask again later", never "the account is suspended". */
 const RATE_LIMITED = 429;
 
-async function http(method: string, path: string, o: { token?: string; body?: unknown } = {}) {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (o.token) h.Authorization = `Bearer ${o.token}`;
-  if (method !== 'GET') h['Idempotency-Key'] = globalThis.crypto.randomUUID();
-  const r = await fetch(`${API}${path}`, {
-    method,
-    headers: h,
-    body: o.body === undefined ? undefined : JSON.stringify(o.body),
-  });
-  let j: Json = {};
-  try {
-    j = (await r.json()) as Json;
-  } catch {
-    /* empty body */
-  }
-  return { status: r.status, json: j };
-}
-
-/** Full staff sign-in: credential -> keystore -> signer -> challenge -> JWT. */
-async function staffToken(loginId: string): Promise<string> {
-  const { authProof, keystoreKey } = await deriveCredential(PASSWORD, loginId);
-  const l = await http('POST', '/auth/staff/login', {
-    body: { identifier: loginId, auth_proof: authProof },
-  });
-  if (l.status !== 200) throw new Error(`staff login ${loginId}: ${l.status}`);
-  const opened = await openKeystore(l.json.encrypted_keystore, keystoreKey);
-  const signer = await signerFromSecret(opened.miniSecret, opened.address);
-  const c = await http('POST', '/auth/challenge', {
-    body: { wallet_address: l.json.wallet_address },
-  });
-  const sig = await signer.sign(c.json.challenge.message);
-  const j = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: l.json.wallet_address,
-      challenge_id: c.json.challenge.challenge_id,
-      nonce: c.json.challenge.nonce,
-      signature: sig,
-    },
-  });
-  return String(j.json.access_token);
-}
-
 /**
- * Can this wallet obtain a session right now?
+ * Can this patient obtain a session right now?
  *
- * Returns the HTTP status of the JWT exchange, or the challenge status when
- * the challenge itself is refused — a suspended account may be stopped at
- * either step, and both are legitimate answers.
+ * Returns 200 when a session was issued, otherwise the HTTP status the sign-in
+ * was refused with. A suspended account may be refused with several statuses
+ * and all are legitimate answers; 200 is the only wrong one.
  */
-async function canAuthenticate(wallet: string, mnemonic: string): Promise<number> {
-  const signer = await signerFromSecret(await secretFromMnemonic(mnemonic), wallet);
-  const c = await http('POST', '/auth/challenge', { body: { wallet_address: wallet } });
-  if (c.status !== 200) return c.status;
-  const sig = await signer.sign(c.json.challenge.message);
-  const j = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: wallet,
-      challenge_id: c.json.challenge.challenge_id,
-      nonce: c.json.challenge.nonce,
-      signature: sig,
-    },
-  });
-  return j.status;
+async function canAuthenticate(fixture: PatientFixture): Promise<number> {
+  try {
+    await signInPatient(fixture, 'suspension-probe');
+    return 200;
+  } catch (e) {
+    if (e instanceof SignInRateLimited) return RATE_LIMITED;
+    const status = /: (\d{3}) /.exec(String(e));
+    return status ? Number(status[1]) : 0;
+  }
 }
 
 async function main(): Promise<void> {
@@ -136,43 +76,38 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const m = JSON.parse(
-    readFileSync(join(REPO_ROOT, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as Json;
+  const m = loadManifest();
   const target = m.patient_b;
 
   console.log(`\nAdmin suspension probe against ${API}`);
-  console.log(`Target: ${target.wallet} (${target.linked_patient_id})\n`);
+  console.log(`Target: ${target.login_id} / ${target.user_id} (${target.linked_patient_id})\n`);
 
-  const adminFixture = m.staff.find((s: Json) => String(s.login_id).startsWith('bt.admin.'));
+  const adminFixture = m.staff.find((s) => s.role === 'Admin');
   if (!adminFixture) {
-    check('an admin fixture exists', false, 'no bt.admin.* in the manifest');
+    check('an admin fixture exists', false, 'no Admin in the manifest');
     process.exit(1);
   }
-  const admin = await staffToken(adminFixture.login_id);
+  const admin = (await signIn(adminFixture.login_id, 'admin')).token;
   check('admin signs in through the real credential flow', Boolean(admin), '');
 
   // --- baseline -----------------------------------------------------------
-  const before = await canAuthenticate(target.wallet, target.mnemonic);
+  const before = await canAuthenticate(target);
   if (before === RATE_LIMITED) {
-    skip(
-      'admin suspension cycle',
-      'the challenge limiter is already satisfied for this wallet — re-run after a minute'
-    );
-    report();
+    skip('admin suspension cycle', 'the request rate limit is already satisfied — re-run after a minute');
+    finish();
     return;
   }
   check('the target can authenticate before suspension', before === 200, `status ${before}`);
 
   // --- suspend ------------------------------------------------------------
-  const susp = await http('PUT', `/users/${target.wallet}`, {
+  const susp = await http('PUT', `/users/${target.user_id}`, {
     token: admin,
     body: { status: 'suspended' },
   });
   check('admin suspends the account', susp.status === 200, `status ${susp.status}`);
 
   // The point of the whole mutation.
-  const during = await canAuthenticate(target.wallet, target.mnemonic);
+  const during = await canAuthenticate(target);
   check(
     'a suspended account cannot authenticate',
     during !== 200 && during !== RATE_LIMITED,
@@ -182,10 +117,10 @@ async function main(): Promise<void> {
   );
 
   // A non-admin must not be able to undo it.
-  const doctorFixture = m.staff.find((s: Json) => String(s.login_id).startsWith('bt.doctor.'));
+  const doctorFixture = m.staff.find((s) => s.role === 'Doctor');
   if (doctorFixture) {
-    const doctor = await staffToken(doctorFixture.login_id);
-    const escalate = await http('PUT', `/users/${target.wallet}`, {
+    const doctor = (await signIn(doctorFixture.login_id, 'doctor')).token;
+    const escalate = await http('PUT', `/users/${target.user_id}`, {
       token: doctor,
       body: { status: 'active' },
     });
@@ -196,7 +131,7 @@ async function main(): Promise<void> {
     );
 
     // And the suspension must still hold after that attempt.
-    const stillOut = await canAuthenticate(target.wallet, target.mnemonic);
+    const stillOut = await canAuthenticate(target);
     check(
       'the account is still suspended after the failed escalation',
       stillOut !== 200 && stillOut !== RATE_LIMITED,
@@ -205,13 +140,13 @@ async function main(): Promise<void> {
   }
 
   // --- restore ------------------------------------------------------------
-  const back = await http('PUT', `/users/${target.wallet}`, {
+  const back = await http('PUT', `/users/${target.user_id}`, {
     token: admin,
     body: { status: 'active' },
   });
   check('admin reactivates the account', back.status === 200, `status ${back.status}`);
 
-  const after = await canAuthenticate(target.wallet, target.mnemonic);
+  const after = await canAuthenticate(target);
   if (after === RATE_LIMITED) {
     skip('the reactivated account can authenticate again', 'rate limited — reactivation itself returned 200');
   } else {
@@ -228,9 +163,13 @@ async function main(): Promise<void> {
     `status ${logs.status}`
   );
 
-  const failed = results.filter((r) => !r.passed);
+  finish();
+}
+
+function finish(): void {
+  const failed = results.filter((r) => !r.passed && !r.skipped);
   console.log(`\n${'='.repeat(64)}`);
-  console.log(`${results.length - failed.length}/${results.length} checks passed`);
+  console.log(`${results.filter((r) => r.passed).length}/${results.length} checks passed`);
   if (failed.length) {
     console.log('\nFAILED:');
     for (const f of failed) console.log(`  ${f.name}\n      ${f.detail}`);

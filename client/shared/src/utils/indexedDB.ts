@@ -8,6 +8,8 @@
  * - Cached documents
  */
 
+import { canSeal, forgetSealKey, openBody, sealBody } from './offlineSeal';
+
 const DB_NAME = 'MediChainOfflineDB';
 const DB_VERSION = 1;
 
@@ -22,6 +24,7 @@ export const STORES = {
 export type StoreName = typeof STORES[keyof typeof STORES];
 
 export interface SyncQueueItem {
+  ownerUserId?: string;
   id: string;
   action: 'upload' | 'download' | 'update' | 'delete';
   endpoint: string;
@@ -35,9 +38,15 @@ export interface SyncQueueItem {
   priority: 'high' | 'medium' | 'low';
   patientId?: string;
   error?: string;
+  /**
+   * After this instant (ms) the item is not sent: a handover queued yesterday
+   * is no longer a handover, and sending it late would mislead. Absent = no limit.
+   */
+  expiresAt?: number;
 }
 
 export interface CachedDataItem {
+  ownerUserId?: string;
   id: string;
   category: string;
   name: string;
@@ -236,11 +245,24 @@ export async function getByIndex<T>(
  * Add item to sync queue
  */
 export async function enqueueSyncItem(
-  item: Omit<SyncQueueItem, 'id' | 'timestamp' | 'status' | 'retryCount'>
+  item: Omit<SyncQueueItem, 'id' | 'timestamp' | 'status' | 'retryCount'>,
+  /**
+   * The operation's idempotency key, when the request already had one. Keeping
+   * it means a request that reached the server just before the signal dropped
+   * is recognised on replay instead of being written a second time.
+   */
+  operationKey?: string,
 ): Promise<string> {
-  const id = `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const id = operationKey ?? `sync_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  // The same operation queued twice (a double tap with no signal) is one item.
+  if (operationKey && (await getItem<SyncQueueItem>(STORES.SYNC_QUEUE, operationKey))) return operationKey;
+  // Sealed at rest for the account that queued it (utils/offlineSeal.ts).
+  const body = item.ownerUserId && item.body !== undefined && canSeal()
+    ? await sealBody(item.body, item.ownerUserId)
+    : item.body;
   const queueItem: SyncQueueItem = {
     ...item,
+    body,
     id,
     timestamp: Date.now(),
     status: 'pending',
@@ -282,14 +304,38 @@ export async function updateSyncStatus(
   }
 }
 
+/** Unsent mutations queued by `ownerUserId`, for the sign-out warning. */
+export async function unsentSyncItems(ownerUserId: string): Promise<SyncQueueItem[]> {
+  const items = await getAllSyncItems();
+  return items.filter((item) => item.ownerUserId === ownerUserId && item.method !== 'GET'
+    && (item.status === 'pending' || item.status === 'in-progress'));
+}
+
 /**
- * Remove completed sync items
+ * Discard everything `ownerUserId` queued and destroy the key it was sealed
+ * under, so nothing of it can be read on this device afterwards.
  */
-export async function clearCompletedSyncItems(): Promise<number> {
+export async function discardUnsentSyncItems(ownerUserId: string): Promise<number> {
   const items = await getAllSyncItems();
   let removed = 0;
   for (const item of items) {
-    if (item.status === 'completed') {
+    if (item.ownerUserId === ownerUserId) {
+      await deleteItem(STORES.SYNC_QUEUE, item.id);
+      removed++;
+    }
+  }
+  if (canSeal()) await forgetSealKey(ownerUserId).catch(() => undefined);
+  return removed;
+}
+
+/**
+ * Remove completed sync items
+ */
+export async function clearCompletedSyncItems(ownerUserId?: string): Promise<number> {
+  const items = await getAllSyncItems();
+  let removed = 0;
+  for (const item of items) {
+    if (item.status === 'completed' && (!ownerUserId || item.ownerUserId === ownerUserId)) {
       await deleteItem(STORES.SYNC_QUEUE, item.id);
       removed++;
     }
@@ -302,7 +348,12 @@ export async function clearCompletedSyncItems(): Promise<number> {
 // ============================================================================
 
 /**
- * Cache data with expiration
+ * Cache data with expiration.
+ *
+ * Data with an owner is sealed under that account's device key
+ * (`offlineSeal`), so a copied browser profile yields ciphertext and sign-out
+ * (`forgetSealKey`) makes it unreadable. Where the browser cannot seal, owned
+ * data is not kept at all rather than kept in the clear.
  */
 export async function cacheData(
   id: string,
@@ -310,13 +361,16 @@ export async function cacheData(
   name: string,
   data: unknown,
   ttlMs: number = 24 * 60 * 60 * 1000, // Default 24 hours
-  priority: 'high' | 'medium' | 'low' = 'medium'
+  priority: 'high' | 'medium' | 'low' = 'medium',
+  ownerUserId?: string,
 ): Promise<void> {
+  if (ownerUserId && !canSeal()) return;
   const item: CachedDataItem = {
+    ownerUserId,
     id,
     category,
     name,
-    data,
+    data: ownerUserId ? await sealBody(data, ownerUserId) : data,
     size: JSON.stringify(data).length,
     lastSynced: Date.now(),
     expiresAt: Date.now() + ttlMs,
@@ -337,8 +391,31 @@ export async function getCachedData<T>(id: string): Promise<T | null> {
     await deleteItem(STORES.CACHED_DATA, id);
     return null;
   }
-  
-  return item.data as T;
+  if (!item.ownerUserId) return item.data as T;
+  try {
+    return (await openBody(item.data, item.ownerUserId)) as T;
+  } catch {
+    // The account's key is gone (signed out): the copy is unreadable, so drop it.
+    await deleteItem(STORES.CACHED_DATA, id);
+    return null;
+  }
+}
+
+/**
+ * At sign-out: delete everything `ownerUserId` kept for offline reading, and
+ * destroy their sealing key unless unsent work still needs it (the clinician's
+ * sign-out offers to send or discard that first; discarding destroys the key).
+ * On a shared phone the next person, signed in or not, then has nothing of the
+ * previous account to read.
+ */
+export async function forgetOfflineCopiesOf(ownerUserId: string): Promise<void> {
+  const items = await getAllItems<CachedDataItem>(STORES.CACHED_DATA);
+  for (const item of items) {
+    if (item.ownerUserId === ownerUserId) await deleteItem(STORES.CACHED_DATA, item.id);
+  }
+  if (canSeal() && (await unsentSyncItems(ownerUserId)).length === 0) {
+    await forgetSealKey(ownerUserId).catch(() => undefined);
+  }
 }
 
 /**
@@ -349,8 +426,9 @@ export async function getAllCachedItems(): Promise<CachedDataItem[]> {
 }
 
 /** Remove cached data for one displayed category without touching other records. */
-export async function clearCachedDataByCategory(category: string): Promise<number> {
-  const items = await getByIndex<CachedDataItem>(STORES.CACHED_DATA, 'category', category);
+export async function clearCachedDataByCategory(category: string, ownerUserId?: string): Promise<number> {
+  const items = (await getByIndex<CachedDataItem>(STORES.CACHED_DATA, 'category', category))
+    .filter(item => !ownerUserId || item.ownerUserId === ownerUserId);
   await Promise.all(items.map((item) => deleteItem(STORES.CACHED_DATA, item.id)));
   return items.length;
 }
@@ -358,19 +436,25 @@ export async function clearCachedDataByCategory(category: string): Promise<numbe
 /**
  * Clear expired cache entries
  */
-export async function clearExpiredCache(): Promise<number> {
+export async function clearExpiredCache(ownerUserId?: string): Promise<number> {
   const items = await getAllCachedItems();
   const now = Date.now();
   let removed = 0;
   
   for (const item of items) {
-    if (now > item.expiresAt) {
+    if (now > item.expiresAt && (!ownerUserId || item.ownerUserId === ownerUserId)) {
       await deleteItem(STORES.CACHED_DATA, item.id);
       removed++;
     }
   }
   
   return removed;
+}
+
+/** Remove only cached records explicitly owned by the signed-in account. */
+export async function clearCachedDataForOwner(ownerUserId: string): Promise<void> {
+  const items = (await getAllCachedItems()).filter(item => item.ownerUserId === ownerUserId);
+  await Promise.all(items.map(item => deleteItem(STORES.CACHED_DATA, item.id)));
 }
 
 // ============================================================================

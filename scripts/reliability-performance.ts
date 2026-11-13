@@ -34,17 +34,13 @@
  *   --seed-only   establish state for a restart test, then exit
  *   --verify-only verify state survived a restart, then exit
  */
-import {
-  deriveCredential,
-  openKeystore,
-  signerFromSecret,
-} from '../client/shared/src/auth/credentials';
+import { deriveAuthProof } from './lib/auth';
+import { loadManifest, passwordFor } from './lib/journey';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://127.0.0.1:8090/api';
-const PASSWORD = 'BrowserTest!2026';
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const STATE_FILE = join(REPO_ROOT, '.browser-test', 'reliability-state.json');
 
@@ -84,27 +80,15 @@ async function http(
 }
 
 async function staffToken(loginId: string): Promise<string> {
-  const { authProof, keystoreKey } = await deriveCredential(PASSWORD, loginId);
-  const l = await http('POST', '/auth/staff/login', {
+  const authProof = await deriveAuthProof(passwordFor(loginId), loginId);
+  const l = await http('POST', '/auth/login', {
     body: { identifier: loginId, auth_proof: authProof },
   });
-  if (l.status !== 200) throw new Error(`staff login ${loginId}: ${l.status}`);
-  const opened = await openKeystore(l.json.encrypted_keystore, keystoreKey);
-  const signer = await signerFromSecret(opened.miniSecret, opened.address);
-  const c = await http('POST', '/auth/challenge', {
-    body: { wallet_address: l.json.wallet_address },
-  });
-  if (c.status === 429) throw new Error('RATE_LIMITED');
-  const sig = await signer.sign(c.json.challenge.message);
-  const j = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: l.json.wallet_address,
-      challenge_id: c.json.challenge.challenge_id,
-      nonce: c.json.challenge.nonce,
-      signature: sig,
-    },
-  });
-  return String(j.json.access_token);
+  if (l.status === 429 && String(l.json?.error?.code ?? l.json?.code) !== 'ACCOUNT_LOCKED') {
+    throw new Error('RATE_LIMITED');
+  }
+  if (l.status !== 200 || !l.json.access_token) throw new Error(`login ${loginId}: ${l.status}`);
+  return String(l.json.access_token);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,21 +143,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const m = JSON.parse(
-    readFileSync(join(REPO_ROOT, '.browser-test', 'fixtures.json'), 'utf8')
-  ) as Json;
+  const m = loadManifest();
   const pid = m.patient.linked_patient_id;
   const seedOnly = process.argv.includes('--seed-only');
   const verifyOnly = process.argv.includes('--verify-only');
 
   let doctor: string;
   try {
-    doctor = await staffToken(
-      m.staff.find((s: Json) => String(s.login_id).startsWith('bt.doctor.')).login_id
-    );
+    const fixture = m.staff.find((s) => s.role === 'Doctor');
+    if (!fixture) throw new Error('no Doctor in .browser-test/fixtures.json; re-run the seeder');
+    doctor = await staffToken(fixture.login_id);
   } catch (e) {
     if (String(e).includes('RATE_LIMITED')) {
-      skip('reliability and performance', 'challenge limiter — re-run after a minute');
+      skip('reliability and performance', 'sign-in rate limit — re-run after a minute');
       finish();
       return;
     }
@@ -377,8 +359,8 @@ async function main(): Promise<void> {
     'needs process control over the outbox worker, which this harness does not have'
   );
   skip(
-    'blockchain outage and recovery',
-    'BLOCKCHAIN_ENABLED=false here and no node can be built on this host (BC-003)'
+    'audit checkpoint export outage and recovery',
+    'AUDIT_CHECKPOINT_SINK=none here, and this harness has no control over a sink to break (the request path never depends on it)'
   );
 
   report(samples);

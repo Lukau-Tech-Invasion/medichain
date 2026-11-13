@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, useTranslation, formatTimestamp } from '@medichain/shared';
+import { joinTelehealthSession, listMyTelehealthSessions, getApiErrorMessage, JitsiMeetComponent, TelehealthRecordingList, useTranslation, formatTimestamp } from '@medichain/shared';
 import type { TelehealthSession } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -14,6 +14,7 @@ import {
   WifiOff,
   ExternalLink,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
 interface JitsiCredentials {
@@ -38,7 +39,7 @@ interface JoinResponse {
  * - View past sessions with duration/status
  * - Joins the provider-issued room through the authenticated join endpoint
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function TelehealthPage() {
   const { t } = useTranslation();
@@ -169,7 +170,7 @@ export function TelehealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('telehealth.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('telehealth.title')}</PageTitle>
           <p className="text-content-muted">{t('telehealth.subtitle')}</p>
         </div>
         <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
@@ -246,7 +247,7 @@ export function TelehealthPage() {
             {activeTab === 'upcoming' && (
               <button
                 onClick={() => handleJoin(session)}
-                className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-2.5 bg-brand text-brand-fg rounded-lg font-medium hover:brightness-95 transition-colors flex items-center justify-center gap-2"
               >
                 <Video className="w-4 h-4" />
                 {t('telehealth.joinCall')}
@@ -257,6 +258,12 @@ export function TelehealthPage() {
               <div className="flex items-center gap-2 text-sm text-ok-subtle-fg bg-ok-subtle rounded-lg p-2">
                 <CheckCircle className="w-4 h-4" />
                 {t('telehealth.sessionCompleted')}
+              </div>
+            )}
+
+            {activeTab === 'past' && (
+              <div className="mt-3">
+                <TelehealthRecordingList sessionId={session.session_id} />
               </div>
             )}
           </div>
@@ -286,7 +293,8 @@ export function TelehealthPage() {
 
       {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
       {!activeCall && activeCallUrl && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        // ux-allow(overlay): the full-screen call itself, not a dialog; Escape must not end a consultation.
+        <div role="dialog" aria-modal="true" aria-label={t('telehealth.videoCallTitle')} className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-neutral-900 text-white">
             <span className="flex items-center gap-2 font-medium">
               <Video className="w-5 h-5" /> {t('telehealth.videoCallTitle')}

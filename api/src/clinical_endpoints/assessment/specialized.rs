@@ -249,7 +249,7 @@ pub async fn create_burn(
         patient_id: body.patient_id.clone(),
         // The assessing clinician is whoever authenticated. A body-supplied
         // `assessed_by` lets one clinician file under another's name.
-        assessed_by: current_user.wallet_address.clone(),
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .assessment_datetime
             .as_deref()
@@ -341,6 +341,39 @@ pub async fn create_burn(
     }
 }
 
+/// Read stored burn assessments for an authorised patient chart.
+#[get("/api/clinical/burn/patient/{patient_id}")]
+pub async fn list_burn_for_patient(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let user = match get_current_user(&data, &http_req) {
+        Some(user) => user,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    if !user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().finish();
+    }
+    match data
+        .repositories
+        .burn_assessments
+        .get_by_patient(
+            &path.into_inner(),
+            crate::repositories::Pagination::new(0, 100),
+        )
+        .await
+    {
+        Ok(page) => HttpResponse::Ok().json(serde_json::json!({
+            "assessments": page.items,
+        })),
+        Err(error) => {
+            log::error!("Burn history read failed: {error}");
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
 #[get("/api/clinical/burn/{assessment_id}")]
 pub async fn get_burn(
     data: web::Data<AppState>,
@@ -390,6 +423,93 @@ pub async fn get_burn(
     }
 }
 
+/// Align collected psychiatric observations with typed storage and server attribution.
+fn psych_storage_body(
+    mut body: serde_json::Value,
+    actor_id: &str,
+    assessment_id: &str,
+    timestamp: i64,
+) -> serde_json::Value {
+    // Fixed field pairs keep nested browser observations and typed columns consistent.
+    for (column, section, field) in [
+        ("suicidal_ideation", "suicide_risk", "ideation"),
+        ("suicidal_plan", "suicide_risk", "plan"),
+        ("suicidal_intent", "suicide_risk", "intent"),
+        ("suicidal_means_access", "suicide_risk", "access_to_means"),
+        ("risk_level", "suicide_risk", "risk_level"),
+        ("homicidal_ideation", "homicidal_risk", "ideation"),
+        ("appearance", "mental_status_exam", "appearance"),
+        ("behavior", "mental_status_exam", "behavior"),
+        ("speech", "mental_status_exam", "speech"),
+        ("mood", "mental_status_exam", "mood"),
+        ("affect", "mental_status_exam", "affect"),
+        ("thought_process", "mental_status_exam", "thought_process"),
+        ("thought_content", "mental_status_exam", "thought_content"),
+        ("perceptions", "mental_status_exam", "perceptions"),
+        ("cognition", "mental_status_exam", "cognition"),
+        ("insight", "mental_status_exam", "insight"),
+        ("judgment", "mental_status_exam", "judgment"),
+    ] {
+        if let Some(value) = body.get(section).and_then(|item| item.get(field)).cloned() {
+            body[column] = value;
+        }
+    }
+    if let Some(level) = body.get("risk_level").and_then(|value| value.as_str()) {
+        let level = level.to_lowercase();
+        body["risk_level"] = serde_json::json!(level);
+    }
+    if let Some(admission) = body
+        .pointer("/legal_status/admission_type")
+        .and_then(|value| value.as_str())
+    {
+        body["involuntary_hold"] = match admission.to_lowercase().as_str() {
+            "voluntary" => serde_json::json!(false),
+            "involuntary" | "5150" | "5250" => serde_json::json!(true),
+            _ => serde_json::Value::Null,
+        };
+    }
+    body["assessment_id"] = serde_json::json!(assessment_id);
+    body["assessed_by"] = serde_json::json!(actor_id);
+    body["assessed_at"] = serde_json::json!(timestamp);
+    body
+}
+
+/// Validate optional attempt counts and bounded substance rows before storing a psychiatric document.
+fn psych_input_error(body: &serde_json::Value) -> Option<&'static str> {
+    if let Some(count) = body
+        .pointer("/suicide_risk/attempt_count")
+        .filter(|value| !value.is_null())
+    {
+        let valid = count.as_f64().is_some_and(|number| {
+            number >= 0.0 && number.fract() == 0.0 && number <= 9_007_199_254_740_991.0
+        });
+        if !valid {
+            return Some(
+                "Enter a valid non-negative whole number for prior attempts, or leave it blank.",
+            );
+        }
+    }
+    if let Some(value) = body
+        .pointer("/substance_use/substances")
+        .filter(|value| !value.is_null())
+    {
+        let Some(rows) = value.as_array() else {
+            return Some("Substance entries must be a list.");
+        };
+        if rows.len() > 100 {
+            return Some("An assessment can contain at most 100 substance rows.");
+        }
+        if rows.iter().any(|row| {
+            row.get("substance")
+                .and_then(|value| value.as_str())
+                .is_none_or(|name| name.trim().is_empty())
+        }) {
+            return Some("Enter a substance name for each added row, or remove the unused row.");
+        }
+    }
+    None
+}
+
 /// Create psychiatric assessment
 #[post("/api/clinical/psych")]
 pub async fn create_psych(
@@ -426,9 +546,23 @@ pub async fn create_psych(
     if let Err(resp) = require_known_patient(&data, &patient_id).await {
         return resp;
     }
+    if let Some(message) = psych_input_error(&body) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: message.to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("PSY-{}", uuid::Uuid::new_v4().simple());
+    let mut body = psych_storage_body(body, &current_user.id, &assessment_id, now.timestamp());
+    // Correlate a lost response with this actor's submitted operation, never a body-supplied key.
+    body["client_operation_id"] = http_req
+        .headers()
+        .get("Idempotency-Key")
+        .and_then(|value| value.to_str().ok())
+        .map(serde_json::Value::from)
+        .unwrap_or(serde_json::Value::Null);
     let entity = PsychiatricAssessmentEntity {
         id: assessment_id.clone(),
         patient_id: body
@@ -463,26 +597,11 @@ pub async fn create_psych(
         previous_hospitalizations: body.get("previous_hospitalizations").cloned(),
         current_medications: body.get("current_medications").cloned(),
         substance_use: body.get("substance_use").cloned(),
-        suicidal_ideation: body
-            .get("suicidal_ideation")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        suicidal_plan: body
-            .get("suicidal_plan")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        suicidal_intent: body
-            .get("suicidal_intent")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        suicidal_means_access: body
-            .get("suicidal_means_access")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        homicidal_ideation: body
-            .get("homicidal_ideation")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        suicidal_ideation: body.get("suicidal_ideation").and_then(|v| v.as_bool()),
+        suicidal_plan: body.get("suicidal_plan").and_then(|v| v.as_bool()),
+        suicidal_intent: body.get("suicidal_intent").and_then(|v| v.as_bool()),
+        suicidal_means_access: body.get("suicidal_means_access").and_then(|v| v.as_bool()),
+        homicidal_ideation: body.get("homicidal_ideation").and_then(|v| v.as_bool()),
         homicidal_target: body
             .get("homicidal_target")
             .and_then(|v| v.as_str())
@@ -543,32 +662,19 @@ pub async fn create_psych(
             .get("risk_level")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or("low")
-            .to_string(),
+            .map(str::to_string),
         disposition: body
             .get("disposition")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        involuntary_hold: body
-            .get("involuntary_hold")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        involuntary_hold: body.get("involuntary_hold").and_then(|v| v.as_bool()),
         hold_type: body
             .get("hold_type")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        sitter_required: body
-            .get("sitter_required")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        one_to_one_observation: body
-            .get("one_to_one_observation")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        psychiatry_consulted: body
-            .get("psychiatry_consulted")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        sitter_required: body.get("sitter_required").and_then(|v| v.as_bool()),
+        one_to_one_observation: body.get("one_to_one_observation").and_then(|v| v.as_bool()),
+        psychiatry_consulted: body.get("psychiatry_consulted").and_then(|v| v.as_bool()),
         psychiatrist_id: body
             .get("psychiatrist_id")
             .and_then(|v| v.as_str())
@@ -596,10 +702,13 @@ pub async fn create_psych(
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(error) => {
+            log::error!("Psychiatric assessment storage failed: {error}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Assessment could not be saved. Please try again.".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -687,7 +796,52 @@ pub async fn list_psych_for_patient(
     }
 }
 
-/// Create toxicology assessment
+/// Read durable toxicology history for an authorised patient chart.
+#[get("/api/clinical/tox/patient/{patient_id}")]
+pub async fn list_tox_for_patient(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(user) => user,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().finish();
+    }
+    match data
+        .repositories
+        .toxicology_assessments
+        .get_by_patient(
+            &path.into_inner(),
+            crate::repositories::Pagination::new(0, 100),
+        )
+        .await
+    {
+        Ok(page) => HttpResponse::Ok().json(serde_json::json!({
+            "assessments": page.items.into_iter().map(|item| {
+                let mut record = item.data;
+                if !record.is_object() {
+                    record = serde_json::json!({
+                        "patientId": item.patient_id, "assessedAt": item.assessment_datetime,
+                        "substance": item.substances, "amount": item.amount_if_known,
+                        "route": item.route_of_exposure, "notes": item.notes,
+                        "severity": "unknown", "antidotesGiven": [],
+                    });
+                }
+                record["id"] = serde_json::json!(item.id);
+                record
+            }).collect::<Vec<_>>(),
+        })),
+        Err(error) => {
+            log::error!("Toxicology history read failed: {error}");
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+/// Create a toxicology assessment from clinician-entered observations.
 #[post("/api/clinical/tox")]
 pub async fn create_tox(
     data: web::Data<AppState>,
@@ -1004,6 +1158,8 @@ pub struct MciCasualtyInput {
     pub destination: Option<String>,
     #[serde(default, alias = "triageTime")]
     pub triage_time: Option<String>,
+    #[serde(default, alias = "transportTime")]
+    pub transport_time: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
     /// A responder's manual override of the computed category.
@@ -1121,6 +1277,7 @@ fn normalise_mci_incident_type(raw: &str) -> &'static str {
 /// row is the same entity with the casualty half left blank, and written out
 /// twice that is thirty lines of duplication waiting to disagree.
 struct MciIncidentHeader<'a> {
+    incident: &'a MciIncidentInput,
     incident_id: &'a str,
     incident_name: &'a str,
     incident_datetime: chrono::DateTime<chrono::Utc>,
@@ -1190,6 +1347,10 @@ impl MciIncidentHeader<'_> {
         let mut record = serde_json::to_value(casualty).unwrap_or_default();
         if let Some(obj) = record.as_object_mut() {
             obj.insert(
+                "incident".to_string(),
+                serde_json::to_value(self.incident).unwrap_or_default(),
+            );
+            obj.insert(
                 "start_triage_computed".to_string(),
                 serde_json::json!(computed),
             );
@@ -1216,6 +1377,11 @@ impl MciIncidentHeader<'_> {
             ),
             mechanism_of_injury: casualty.chief_complaint.clone(),
             destination: casualty.destination.clone(),
+            disposition_datetime: casualty
+                .transport_time
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&chrono::Utc)),
             patient_tracking_updated: true,
             special_circumstances: casualty.notes.clone(),
             data: record,
@@ -1230,6 +1396,44 @@ impl MciIncidentHeader<'_> {
             ..self.base(0)
         }
     }
+}
+
+/// A casualty linked to a patient record (their card was scanned) must name a
+/// real patient. A lookup that failed is not a patient who does not exist.
+async fn casualty_patients_exist(
+    data: &web::Data<AppState>,
+    casualties: &[MciCasualtyInput],
+) -> Result<(), HttpResponse> {
+    for casualty in casualties.iter().take(MCI_MAX_CASUALTIES) {
+        let Some(patient_id) = casualty
+            .patient_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        else {
+            continue;
+        };
+        match data.repositories.patients.get_by_id(patient_id).await {
+            Ok(_) => {}
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+                return Err(HttpResponse::NotFound().json(ErrorResponse {
+                    error: format!(
+                        "Casualty {} names a patient that does not exist",
+                        casualty.tag_number
+                    ),
+                    code: "PATIENT_NOT_FOUND".to_string(),
+                }));
+            }
+            Err(e) => {
+                log::error!("MCI casualty patient lookup failed: {e}");
+                return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "The casualty's patient record could not be checked".to_string(),
+                    code: "DATABASE_ERROR".to_string(),
+                }));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Create MCI record
@@ -1249,7 +1453,7 @@ pub async fn create_mci(
         }
     };
 
-    if !current_user.role.can_edit_medical_records() {
+    if !current_user.role.may_manage_ems() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
@@ -1262,6 +1466,10 @@ pub async fn create_mci(
             error: format!("at most {MCI_MAX_CASUALTIES} casualties per submission"),
             code: "TOO_MANY_CASUALTIES".to_string(),
         });
+    }
+
+    if let Err(response) = casualty_patients_exist(&data, &body.casualties).await {
+        return response;
     }
 
     let now = chrono::Utc::now();
@@ -1286,6 +1494,7 @@ pub async fn create_mci(
     // gets a row, so the activation itself is on file from the moment it is
     // declared rather than only once someone is tagged.
     let header = MciIncidentHeader {
+        incident: &body.incident,
         incident_id: &incident_id,
         incident_name: &body.incident.incident_name,
         incident_datetime,
@@ -1293,7 +1502,7 @@ pub async fn create_mci(
         incident_type: &incident_type,
         activation_level: &activation_level,
         commander: body.incident.incident_commander.as_deref(),
-        created_by: &current_user.wallet_address,
+        created_by: &current_user.id,
         now,
     };
 
@@ -1376,7 +1585,7 @@ pub async fn get_mci(
         }
     };
 
-    if !current_user.role.can_view_medical_records() {
+    if !current_user.role.may_manage_ems() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
@@ -1424,5 +1633,351 @@ pub async fn get_mci(
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod paramedic_mci_tests {
+    use crate::test_fixtures::register;
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    #[actix_web::test]
+    async fn psychiatric_missing_observations_remain_unknown() {
+        let state = AppState::new();
+        register(&state, "psych-unknown-doctor", Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-PSYCH-UNKNOWN").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_psych)
+                .service(super::get_psych),
+        )
+        .await;
+        for observed in [serde_json::Value::Null, serde_json::json!(false)] {
+            let created = test::call_service(&app, test::TestRequest::post()
+                .uri("/api/clinical/psych")
+                .insert_header(crate::test_fixtures::as_user("psych-unknown-doctor"))
+                .set_json(serde_json::json!({"patient_id":"PAT-PSYCH-UNKNOWN",
+                    "suicide_risk":{"ideation":observed}, "chief_complaint":"Synthetic unknown observation test"}))
+                .to_request()).await;
+            assert_eq!(created.status(), StatusCode::CREATED);
+            let saved: serde_json::Value = test::read_body_json(created).await;
+            let read = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!(
+                        "/api/clinical/psych/{}",
+                        saved["assessment_id"].as_str().unwrap()
+                    ))
+                    .insert_header(crate::test_fixtures::as_user("psych-unknown-doctor"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(read.status(), StatusCode::OK);
+            let record: serde_json::Value = test::read_body_json(read).await;
+            assert_eq!(record["suicidal_ideation"], observed);
+            for field in [
+                "suicidal_plan",
+                "suicidal_intent",
+                "suicidal_means_access",
+                "homicidal_ideation",
+                "risk_level",
+                "involuntary_hold",
+                "sitter_required",
+                "one_to_one_observation",
+                "psychiatry_consulted",
+            ] {
+                assert!(record[field].is_null(), "{field} must remain unknown");
+            }
+        }
+    }
+
+    /// Malformed counts and empty substance entries are rejected before creating a record.
+    #[actix_web::test]
+    async fn psychiatric_invalid_inputs_do_not_create_assessments() {
+        let state = AppState::new();
+        register(&state, "psych-validation-doctor", Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-PSYCH-VALIDATION").await;
+        let repository = state.repositories.psychiatric_assessments.clone();
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_psych),
+        )
+        .await;
+        for invalid in [
+            serde_json::json!({"suicide_risk":{"attempt_count":-1}}),
+            serde_json::json!({"suicide_risk":{"attempt_count":1.5}}),
+            serde_json::json!({"suicide_risk":{"attempt_count":"2"}}),
+            serde_json::json!({"suicide_risk":{"attempt_count":9007199254740992u64}}),
+            serde_json::json!({"substance_use":{"substances":[{}]}}),
+            serde_json::json!({"substance_use":{"substances":[{"substance":"  "}]}}),
+            serde_json::json!({"substance_use":{"substances":"not an array"}}),
+            serde_json::json!({"substance_use":{"substances":vec![serde_json::json!({"substance":"Synthetic fixture"});101]}}),
+        ] {
+            let mut body = invalid;
+            body["patient_id"] = serde_json::json!("PAT-PSYCH-VALIDATION");
+            let response = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/psych")
+                    .insert_header(crate::test_fixtures::as_user("psych-validation-doctor"))
+                    .set_json(body)
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        let records = repository
+            .get_by_patient(
+                "PAT-PSYCH-VALIDATION",
+                crate::repositories::Pagination::new(0, 100),
+            )
+            .await
+            .unwrap();
+        assert!(records.items.is_empty());
+    }
+
+    #[actix_web::test]
+    async fn psychiatric_storage_preserves_nested_risk_and_server_attribution() {
+        let state = AppState::new();
+        register(&state, "psych-doctor", Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-PSYCH").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_psych)
+                .service(super::get_psych),
+        )
+        .await;
+        let created = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/psych")
+            .insert_header(crate::test_fixtures::as_user("psych-doctor"))
+            .insert_header(("Idempotency-Key", "psych-server-operation"))
+            .set_json(serde_json::json!({"patient_id":"PAT-PSYCH", "assessed_by":"spoofed",
+                "assessment_id":"client-id", "client_operation_id":"spoofed-operation", "suicide_risk":{"attempt_count":0,"ideation":true,
+                    "plan":true,"intent":true,"access_to_means":true,"risk_level":"High"},
+                "homicidal_risk":{"ideation":true},
+                "mental_status_exam":{"mood":"Synthetic observed mood"},
+                "notes":"Stored synthetic notes", "safety_plan":"Follow-up scheduled",
+                "history_of_present_illness":"Stored synthetic history",
+                "legal_status":{"admission_type":"involuntary"}}))
+            .to_request()).await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let saved: serde_json::Value = test::read_body_json(created).await;
+        let read = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/api/clinical/psych/{}",
+                    saved["assessment_id"].as_str().unwrap()
+                ))
+                .insert_header(crate::test_fixtures::as_user("psych-doctor"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(read.status(), StatusCode::OK);
+        let record: serde_json::Value = test::read_body_json(read).await;
+        assert_eq!(record["assessed_by"], "psych-doctor");
+        assert_eq!(record["data"]["assessment_id"], saved["assessment_id"]);
+        assert_eq!(record["data"]["assessed_by"], "psych-doctor");
+        assert_eq!(
+            record["data"]["client_operation_id"],
+            "psych-server-operation"
+        );
+        assert_eq!(record["data"]["suicide_risk"]["attempt_count"], 0);
+        for flag in [
+            "suicidal_ideation",
+            "suicidal_plan",
+            "suicidal_intent",
+            "suicidal_means_access",
+            "homicidal_ideation",
+        ] {
+            assert_eq!(record[flag], true, "{flag}");
+        }
+        assert_eq!(record["risk_level"], "high");
+        assert_eq!(record["involuntary_hold"], true);
+        assert_eq!(record["notes"], "Stored synthetic notes");
+        assert_eq!(record["safety_plan"], "Follow-up scheduled");
+        assert_eq!(record["mood"], "Synthetic observed mood");
+        assert_eq!(
+            record["data"]["history_of_present_illness"],
+            "Stored synthetic history"
+        );
+    }
+
+    #[actix_web::test]
+    async fn burn_history_reads_stored_assessments_and_refuses_paramedics() {
+        let state = AppState::new();
+        register(&state, "burn-doctor", Role::Doctor);
+        register(&state, "burn-medic", Role::Paramedic);
+        crate::test_fixtures::seed_patient(&state, "PAT-BURN").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_burn)
+                .service(super::list_burn_for_patient),
+        )
+        .await;
+        let created = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/burn")
+                .insert_header(crate::test_fixtures::as_user("burn-doctor"))
+                .set_json(serde_json::json!({"patient_id":"PAT-BURN", "weight":68,
+                "areas":[{"regionId":"head", "percent_of_region":10,
+                    "depth":"partial-superficial"}], "notes":"Stored synthetic burn"}))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let saved: serde_json::Value = test::read_body_json(created).await;
+        let read = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/clinical/burn/patient/PAT-BURN")
+                .insert_header(crate::test_fixtures::as_user("burn-doctor"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(read.status(), StatusCode::OK);
+        let history: serde_json::Value = test::read_body_json(read).await;
+        assert_eq!(history["assessments"][0]["id"], saved["assessment_id"]);
+        assert_eq!(history["assessments"][0]["notes"], "Stored synthetic burn");
+        let denied = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/clinical/burn/patient/PAT-BURN")
+                .insert_header(crate::test_fixtures::as_user("burn-medic"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn toxicology_history_reads_the_saved_patient_case_and_refuses_paramedics() {
+        let state = AppState::new();
+        register(&state, "tox-doctor", Role::Doctor);
+        register(&state, "tox-medic", Role::Paramedic);
+        crate::test_fixtures::seed_patient(&state, "PAT-TOX").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_tox)
+                .service(super::list_tox_for_patient),
+        )
+        .await;
+        let created = test::call_service(&app, test::TestRequest::post()
+            .uri("/api/clinical/tox")
+            .insert_header(crate::test_fixtures::as_user("tox-doctor"))
+            .set_json(serde_json::json!({"patientId":"PAT-TOX", "substance":"acetaminophen", "notes":"Synthetic safety review"}))
+            .to_request()).await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let saved: serde_json::Value = test::read_body_json(created).await;
+        let read = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/clinical/tox/patient/PAT-TOX")
+                .insert_header(crate::test_fixtures::as_user("tox-doctor"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(read.status(), StatusCode::OK);
+        let history: serde_json::Value = test::read_body_json(read).await;
+        assert_eq!(history["assessments"][0]["id"], saved["assessment_id"]);
+        assert_eq!(
+            history["assessments"][0]["notes"],
+            "Synthetic safety review"
+        );
+        let denied = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/clinical/tox/patient/PAT-TOX")
+                .insert_header(crate::test_fixtures::as_user("tox-medic"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[actix_web::test]
+    async fn paramedic_may_create_and_read_mci_but_patient_may_not() {
+        let state = AppState::new();
+        register(&state, "5MedicMci", Role::Paramedic);
+        register(&state, "5PatientMci", Role::Patient);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_mci)
+                .service(super::get_mci),
+        )
+        .await;
+        let body = serde_json::json!({"incident": {
+            "incident_name": "Highway collision", "incident_type": "motor_vehicle_collision",
+            "location": "N1", "startTime": "2026-10-08T21:00:00+02:00",
+            "commandPost": "Synthetic QA command post", "contactNumber": "QA contact",
+            "estimatedCasualties": 1, "resourcesRequested": ["Additional Ambulances"]
+        }, "patients": [{
+            "tagNumber": "QA-MCI-001", "vitals": {"ambulatory": true},
+            "destination": "Synthetic receiving hospital",
+            "transportTime": "2026-10-08T21:30:00+02:00"
+        }]});
+        let denied = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/mci")
+                .insert_header(crate::test_fixtures::as_user("5PatientMci"))
+                .set_json(&body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let created = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/clinical/mci")
+                .insert_header(crate::test_fixtures::as_user("5MedicMci"))
+                .set_json(body)
+                .to_request(),
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let result: serde_json::Value = test::read_body_json(created).await;
+        let path = format!(
+            "/api/clinical/mci/{}",
+            result["incident_id"].as_str().unwrap()
+        );
+        let allowed = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&path)
+                .insert_header(crate::test_fixtures::as_user("5MedicMci"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(allowed.status(), StatusCode::OK);
+        let saved: serde_json::Value = test::read_body_json(allowed).await;
+        let casualty = &saved["casualties"][0];
+        assert_eq!(casualty["incident_datetime"], "2026-10-08T19:00:00Z");
+        assert_eq!(casualty["disposition_datetime"], "2026-10-08T19:30:00Z");
+        assert_eq!(
+            casualty["data"]["incident"]["command_post"],
+            "Synthetic QA command post"
+        );
+        assert_eq!(
+            casualty["data"]["incident"]["resources_requested"][0],
+            "Additional Ambulances"
+        );
+        let denied = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri(&path)
+                .insert_header(crate::test_fixtures::as_user("5PatientMci"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     }
 }

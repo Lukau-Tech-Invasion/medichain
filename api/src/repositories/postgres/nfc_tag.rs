@@ -187,4 +187,12 @@ impl NfcTagRepository for PgNfcTagRepository {
 
         Ok(PaginatedResult::new(tags, count.0 as u64, &pagination))
     }
+
+    async fn count_by_status(&self) -> RepositoryResult<Vec<(String, u64)>> {
+        let rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT status, COUNT(*) FROM nfc_tags GROUP BY status")
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(s, n)| (s, n as u64)).collect())
+    }
 }

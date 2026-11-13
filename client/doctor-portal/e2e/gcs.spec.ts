@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle } from './support';
+import { fixturePatientId, pickPatientById, signIn, settle, choose } from './support';
 
 /**
  * A nurse records a Glasgow Coma Scale assessment.
@@ -28,12 +28,7 @@ test('a nurse records a GCS assessment and the server scores it', async ({ brows
   // Choosing a patient is what reveals the assessment card. `PatientSelect` is
   // a searchable combobox -- a text input over a dropdown of buttons -- not a
   // native <select>, so it is opened and clicked rather than selectOption'd.
-  const patientSearch = page.locator('#vitals-patient-select');
-  await expect(patientSearch).toBeVisible({ timeout: 20000 });
-  await patientSearch.click();
-  const firstPatient = page.locator('button', { hasText: /PAT-/ }).first();
-  await expect(firstPatient).toBeVisible({ timeout: 20000 });
-  await firstPatient.click();
+  await pickPatientById(page, '#vitals-patient-select', fixturePatientId());
 
   // The card only renders once the catalogue has loaded, so its presence is
   // itself the assertion that the scale reached the screen.
@@ -45,17 +40,17 @@ test('a nurse records a GCS assessment and the server scores it', async ({ brows
 
   // An incomplete assessment is refused: a missing component is not a lower
   // score, and the total the server computed would silently be wrong.
-  await eye.selectOption('3');
+  await choose(eye, '3');
   await page.getByRole('button', { name: /record gcs assessment/i }).click();
   await expect(page.getByRole('alert')).toContainText(/all three components/i);
 
   // E3 + V4 + M5 = 12. The page is never told that; the server returns it.
-  await page.locator('#gcs-verbal').selectOption('4');
-  await page.locator('#gcs-motor').selectOption('5');
+  await choose(page.locator('#gcs-verbal'), '4');
+  await choose(page.locator('#gcs-motor'), '5');
   await page.locator('#gcs-notes').fill(`Neuro obs (e2e ${Date.now()})`);
   await page.getByRole('button', { name: /record gcs assessment/i }).click();
 
-  const result = page.getByRole('status');
+  const result = page.locator('#main-content').getByRole('status');
   await expect(result).toContainText('GCS 12', { timeout: 20000 });
   // And the server's own interpretation of that score.
   await expect(result).toContainText(/moderate brain injury/i);

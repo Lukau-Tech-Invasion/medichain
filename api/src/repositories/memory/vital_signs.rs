@@ -1,5 +1,6 @@
 //! In-memory vital signs repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use std::collections::HashMap;
@@ -32,10 +33,7 @@ impl Default for MemoryVitalSignsRepository {
 #[async_trait]
 impl VitalSignsRepository for MemoryVitalSignsRepository {
     async fn create(&self, vitals: VitalSignsEntity) -> RepositoryResult<VitalSignsEntity> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         if storage.contains_key(&vitals.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -45,16 +43,10 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
         }
         drop(storage);
 
-        let mut storage = self
-            .storage
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         storage.insert(vitals.id.clone(), vitals.clone());
 
-        let mut patient_index = self
-            .patient_index
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut patient_index = self.patient_index.write().map_err(lock_poisoned)?;
         patient_index
             .entry(vitals.patient_id.clone())
             .or_default()
@@ -64,10 +56,7 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<VitalSignsEntity> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         storage
             .get(id)
@@ -79,15 +68,9 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Option<VitalSignsEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let latest = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -106,15 +89,9 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<VitalSignsEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut vitals: Vec<VitalSignsEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -140,15 +117,9 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
         patient_id: &str,
         range: DateRange,
     ) -> RepositoryResult<Vec<VitalSignsEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut vitals: Vec<VitalSignsEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -177,10 +148,7 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
     }
 
     async fn get_critical(&self) -> RepositoryResult<Vec<VitalSignsEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let cutoff = Utc::now() - Duration::hours(24);
 
@@ -204,6 +172,7 @@ mod tests {
         VitalSignsEntity {
             id: id.to_string(),
             patient_id: patient_id.to_string(),
+            notes: None,
             heart_rate: Some(80),
             respiratory_rate: Some(16),
             blood_pressure_systolic: Some(120),
@@ -219,7 +188,7 @@ mod tests {
             gcs_eye: Some(4),
             gcs_verbal: Some(5),
             gcs_motor: Some(6),
-            blood_glucose: Some(100),
+            blood_glucose: Some(5.6),
             weight_kg: Some(70.0),
             height_cm: Some(175.0),
             bmi: Some(22.9),
@@ -231,6 +200,7 @@ mod tests {
             recorded_by: "RN-001".to_string(),
             facility_id: None,
             created_at: Utc::now(),
+            consciousness: None,
         }
     }
 

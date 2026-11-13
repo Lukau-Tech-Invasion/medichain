@@ -11,8 +11,7 @@
 //! middleware confirms that session still exists, still belongs to the subject
 //! the token names, and has not been revoked.
 //!
-//! It runs *before* `JwtIdentityMiddleware`, so a revoked session never reaches
-//! the point where its subject would be injected as a downstream identity.
+//! It runs before route handlers, so a revoked session never reaches one.
 
 use actix_web::{
     body::EitherBody,
@@ -30,8 +29,7 @@ type SessionRow = (String, Option<chrono::DateTime<chrono::Utc>>);
 
 /// Outcome of checking one request's session claim.
 enum SessionVerdict {
-    /// No Bearer token, or a token predating ADR-0008 that carries no `sid`.
-    /// Nothing to enforce here; the normal authentication path still applies.
+    /// No Bearer token. Protected handlers still require authentication.
     NotApplicable,
     Active,
     /// Revoked, expired, unknown, or bound to a different subject.
@@ -50,7 +48,7 @@ async fn verify_session(pool: &PgPool, req: &ServiceRequest) -> SessionVerdict {
         return SessionVerdict::NotApplicable;
     };
     let Some(sid) = claims.sid.as_deref() else {
-        return SessionVerdict::NotApplicable;
+        return SessionVerdict::Rejected("Sign in again to start a current session");
     };
     let Ok(sid) = Uuid::parse_str(sid) else {
         return SessionVerdict::Rejected("Session is not valid");
@@ -61,16 +59,16 @@ async fn verify_session(pool: &PgPool, req: &ServiceRequest) -> SessionVerdict {
     // binding matters -- a token must not be able to name someone else's
     // session and inherit its state.
     let row: Result<Option<SessionRow>, _> =
-        sqlx::query_as("SELECT wallet_address, revoked_at FROM auth_login_sessions WHERE id = $1")
+        sqlx::query_as("SELECT user_id::text, revoked_at FROM auth_login_sessions WHERE id = $1")
             .bind(sid)
             .fetch_optional(pool)
             .await;
 
     match row {
-        Ok(Some((wallet, revoked_at))) => {
+        Ok(Some((session_user, revoked_at))) => {
             if revoked_at.is_some() {
                 SessionVerdict::Rejected("This session has ended; sign in again")
-            } else if wallet != claims.sub {
+            } else if session_user != claims.sub {
                 SessionVerdict::Rejected("Session is not valid")
             } else {
                 SessionVerdict::Active
@@ -126,8 +124,7 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let service = Rc::clone(&self.service);
         Box::pin(async move {
-            // In-memory deployments have no session store to consult, and demo
-            // mode never issues a `sid`, so there is nothing to enforce there.
+            // In-memory deployments have no durable sessions to consult.
             let pool = req
                 .app_data::<actix_web::web::Data<crate::state::AppState>>()
                 .and_then(|state| state.db_pool.clone());
@@ -155,9 +152,6 @@ where
 mod tests {
     use super::*;
     use actix_web::{test as actix_test, web, App, HttpResponse};
-
-    const WALLET: &str = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
-    const OTHER: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
 
     async fn protected() -> HttpResponse {
         HttpResponse::Ok().body("reached the handler")
@@ -188,10 +182,10 @@ mod tests {
             .as_u16()
     }
 
-    async fn open_session(pool: &sqlx::PgPool, wallet: &str) -> uuid::Uuid {
+    async fn open_session(pool: &sqlx::PgPool, user_id: &str) -> uuid::Uuid {
         crate::auth_sessions::create(
             pool,
-            wallet,
+            user_id,
             &format!("http-generation-{}", uuid::Uuid::new_v4()),
             &uuid::Uuid::new_v4().to_string(),
             chrono::Utc::now() + chrono::Duration::hours(1),
@@ -218,9 +212,10 @@ mod tests {
     #[tokio::test]
     async fn revoked_session_is_refused_on_a_real_request() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
-        let sid = open_session(&pool, WALLET).await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let sid = open_session(&pool, &user).await;
         let token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&sid.to_string()),
@@ -251,24 +246,25 @@ mod tests {
     #[tokio::test]
     async fn logout_all_refuses_every_session_for_the_subject() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
-        let phone = open_session(&pool, WALLET).await;
-        let desk = open_session(&pool, WALLET).await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let phone = open_session(&pool, &user).await;
+        let desk = open_session(&pool, &user).await;
         let phone_token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&phone.to_string()),
         )
         .unwrap();
         let desk_token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&desk.to_string()),
         )
         .unwrap();
 
-        crate::auth_sessions::revoke_all_for_wallet(&pool, WALLET, "logout_all")
+        crate::auth_sessions::revoke_all_for_user(&pool, &user, "logout_all")
             .await
             .expect("logout all");
 
@@ -285,10 +281,12 @@ mod tests {
     #[tokio::test]
     async fn a_token_cannot_borrow_another_subjects_session() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
-        let victim_session = open_session(&pool, WALLET).await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let other = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+        let victim_session = open_session(&pool, &user).await;
 
         let forged = crate::security::jwt::issue_access_token(
-            OTHER,
+            &other,
             "Doctor",
             false,
             Some(&victim_session.to_string()),
@@ -308,8 +306,9 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_session_is_refused() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
         let token = crate::security::jwt::issue_access_token(
-            WALLET,
+            &user,
             "Doctor",
             false,
             Some(&uuid::Uuid::new_v4().to_string()),
@@ -319,19 +318,18 @@ mod tests {
         assert_eq!(status_for(pool, &token).await, 401);
     }
 
-    /// Tokens issued before ADR-0008 carry no `sid`. They must pass through this
-    /// middleware untouched -- it enforces session state, it does not become a
-    /// second authentication gate for tokens that never claimed one.
+    /// Old access tokens without a durable session cannot bypass revocation.
     #[tokio::test]
-    async fn a_token_without_a_session_claim_is_left_alone() {
+    async fn a_token_without_a_session_claim_is_refused() {
         let pool = crate::repositories::postgres::tests::get_test_pool().await;
+        let user = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
         let legacy =
-            crate::security::jwt::issue_access_token(WALLET, "Doctor", false, None).unwrap();
+            crate::security::jwt::issue_access_token(&user, "Doctor", false, None).unwrap();
 
         assert_eq!(
             status_for(pool, &legacy).await,
-            200,
-            "a pre-ADR-0008 token has no session to check"
+            401,
+            "an access token without a durable session cannot be trusted"
         );
     }
 }

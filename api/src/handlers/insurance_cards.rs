@@ -40,6 +40,15 @@ fn require_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
     })
 }
 
+/// Log repository details without returning them to an insurance-card caller.
+fn card_repository_error(error: impl std::fmt::Display) -> HttpResponse {
+    log::error!("Insurance-card repository operation failed: {error}");
+    HttpResponse::InternalServerError().json(ErrorResponse {
+        error: "Insurance-card storage is temporarily unavailable".to_string(),
+        code: "REPOSITORY_ERROR".to_string(),
+    })
+}
+
 /// Fetch a card by id and confirm the caller may act on it: the card's owner, or
 /// a healthcare provider. Otherwise the appropriate error response.
 ///
@@ -60,17 +69,15 @@ async fn require_card_access(
                 code: "NOT_FOUND".to_string(),
             }))
         }
-        Err(e) => {
-            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
-                error: e.to_string(),
-                code: "REPOSITORY_ERROR".to_string(),
-            }))
-        }
+        Err(e) => return Err(card_repository_error(e)),
     };
     let is_provider = get_user(data, caller)
         .map(|u| u.role.is_healthcare_provider())
         .unwrap_or(false);
-    if !is_provider && existing.owner_id != caller {
+    // The owner is the patient RECORD (`PAT-...`), and `caller` is a user id;
+    // comparing them directly refused every patient their own card.
+    if !is_provider && !crate::support::caller_owns_patient_record(data, caller, &existing.owner_id)
+    {
         return Err(HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "ACCESS_DENIED".to_string(),
@@ -101,7 +108,11 @@ pub async fn list_insurance_cards(
         let is_provider = get_user(&data, &uid)
             .map(|u| u.role.is_healthcare_provider())
             .unwrap_or(false);
-        if !is_provider && uid != patient_id {
+        // User id against record id, through the shared helper: a bare
+        // `uid != patient_id` refused every patient their own cards, while the
+        // create path above accepted them -- so a patient could file a card
+        // and never see, change or remove it.
+        if !is_provider && !crate::support::caller_owns_patient_record(&data, &uid, &patient_id) {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 error: "Access denied".to_string(),
                 code: "ACCESS_DENIED".to_string(),
@@ -128,10 +139,7 @@ pub async fn list_insurance_cards(
                 "next_cursor": next_cursor,
             }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 
@@ -171,8 +179,7 @@ pub async fn create_insurance_card(
             })
         }
     };
-    let is_self =
-        caller.linked_patient_id.as_deref() == Some(patient_id.as_str()) || caller_id == patient_id;
+    let is_self = caller.linked_patient_id.as_deref() == Some(patient_id.as_str());
     if !is_self && !caller.role.is_healthcare_provider() && !caller.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "You may not create an insurance card for this patient".to_string(),
@@ -194,10 +201,7 @@ pub async fn create_insurance_card(
             "success": true,
             "card": card_json(&saved),
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 
@@ -237,10 +241,7 @@ pub async fn update_insurance_card(
             "success": true,
             "card": card_json(&saved),
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
     }
 }
 
@@ -339,10 +340,11 @@ pub async fn upload_insurance_card_image(
     {
         Ok(r) => r,
         Err(e) => {
+            log::error!("Encrypted insurance-card upload failed: {e}");
             return HttpResponse::InternalServerError().json(ErrorResponse {
-                error: format!("IPFS upload failed: {}", e),
+                error: "Document storage is temporarily unavailable".to_string(),
                 code: "IPFS_ERROR".to_string(),
-            })
+            });
         }
     };
 
@@ -367,10 +369,7 @@ pub async fn upload_insurance_card_image(
         updated_at: Utc::now(),
     };
     if let Err(e) = data.repositories.insurance_cards.create(entity).await {
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        });
+        return card_repository_error(e);
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -461,9 +460,105 @@ pub async fn delete_insurance_card(
             "success": true,
             "message": "Insurance card deleted",
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            error: e.to_string(),
-            code: "REPOSITORY_ERROR".to_string(),
-        }),
+        Err(e) => card_repository_error(e),
+    }
+}
+
+/// A patient can keep the insurance cards they file: list, change and remove
+/// them. Every owner check compared the stored `PAT-` record id with the
+/// caller's user id, so the create path accepted a card the patient could then
+/// never see again.
+#[cfg(test)]
+mod patient_card_access_tests {
+    use crate::test_fixtures::{register, staff};
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    #[actix_rt::test]
+    async fn a_patient_lists_changes_and_removes_their_own_card_and_no_one_elses() {
+        let state = AppState::new();
+        let mut me = staff("5PatientCard", Role::Patient);
+        me.linked_patient_id = Some("PAT-CARD-1".to_string());
+        state.users.write().unwrap().insert(me.id.clone(), me);
+        let mut other = staff("5OtherPatient", Role::Patient);
+        other.linked_patient_id = Some("PAT-CARD-2".to_string());
+        state.users.write().unwrap().insert(other.id.clone(), other);
+        register(&state, "5ClerkDoc", Role::Doctor);
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_insurance_card)
+                .service(super::list_insurance_cards)
+                .service(super::update_insurance_card)
+                .service(super::delete_insurance_card),
+        )
+        .await;
+        let as_ = |who: &str, req: test::TestRequest| {
+            req.insert_header(crate::test_fixtures::as_user(who))
+                .to_request()
+        };
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            as_("5PatientCard", test::TestRequest::post().uri("/api/insurance/cards").set_json(
+                serde_json::json!({ "patient_id": "PAT-CARD-1", "insurer": "Discovery Health" }),
+            )),
+        )
+        .await;
+        let card_id = created["card"]["id"].as_str().expect("card id").to_string();
+
+        let mine: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            as_(
+                "5PatientCard",
+                test::TestRequest::get().uri("/api/insurance/cards/PAT-CARD-1"),
+            ),
+        )
+        .await;
+        assert_eq!(mine["count"], 1, "{mine}");
+
+        let updated = test::call_service(
+            &app,
+            as_(
+                "5PatientCard",
+                test::TestRequest::put()
+                    .uri(&format!("/api/insurance/cards/{card_id}"))
+                    .set_json(
+                        serde_json::json!({ "patient_id": "PAT-CARD-1", "insurer": "Bonitas" }),
+                    ),
+            ),
+        )
+        .await;
+        assert_eq!(updated.status(), StatusCode::OK);
+
+        // Another patient can neither list nor remove it.
+        let theirs = test::call_service(
+            &app,
+            as_(
+                "5OtherPatient",
+                test::TestRequest::get().uri("/api/insurance/cards/PAT-CARD-1"),
+            ),
+        )
+        .await;
+        assert_eq!(theirs.status(), StatusCode::FORBIDDEN);
+        let stolen = test::call_service(
+            &app,
+            as_(
+                "5OtherPatient",
+                test::TestRequest::delete().uri(&format!("/api/insurance/cards/{card_id}")),
+            ),
+        )
+        .await;
+        assert_eq!(stolen.status(), StatusCode::FORBIDDEN);
+
+        let removed = test::call_service(
+            &app,
+            as_(
+                "5PatientCard",
+                test::TestRequest::delete().uri(&format!("/api/insurance/cards/{card_id}")),
+            ),
+        )
+        .await;
+        assert!(removed.status().is_success(), "{}", removed.status());
     }
 }

@@ -48,6 +48,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
+        // An HTML button defaults to "submit": inside a form, an "Add" or
+        // "Cancel" written as <Button> would save the record. Submitting is
+        // asked for explicitly with type="submit".
+        type="button"
         disabled={disabled || isLoading}
         className={clsx(baseStyles, variants[variant], sizes[size], className)}
         {...props}

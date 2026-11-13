@@ -1,5 +1,6 @@
 //! In-memory nursing care plan repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     NursingCarePlanEntity, NursingCarePlanRepository, PaginatedResult, Pagination, RepositoryError,
     RepositoryResult,
@@ -31,7 +32,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         &self,
         mut plan: NursingCarePlanEntity,
     ) -> RepositoryResult<NursingCarePlanEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&plan.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -49,7 +50,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<NursingCarePlanEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("Nursing care plan with ID {} not found", id))
         })
@@ -60,7 +61,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut plans: Vec<NursingCarePlanEntity> = storage
             .values()
@@ -82,7 +83,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Vec<NursingCarePlanEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let active_plans: Vec<NursingCarePlanEntity> = storage
             .values()
@@ -101,7 +102,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         &self,
         mut plan: NursingCarePlanEntity,
     ) -> RepositoryResult<NursingCarePlanEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&plan.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -116,7 +117,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
     }
 
     async fn delete(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if let Some(mut plan) = storage.get(id).cloned() {
             plan.is_active = false;
@@ -136,7 +137,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         care_level: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut plans: Vec<NursingCarePlanEntity> = storage
             .values()
@@ -164,7 +165,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut plans: Vec<NursingCarePlanEntity> =
             storage.values().filter(|p| p.is_active).cloned().collect();

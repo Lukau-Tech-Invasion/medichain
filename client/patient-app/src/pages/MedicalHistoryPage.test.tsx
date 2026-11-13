@@ -16,7 +16,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getMyImmunizations: vi.fn(),
   getMyFamilyHistory: vi.fn(),
   getPatientRecords: vi.fn(),
-  downloadMedicalRecord: vi.fn(),
+  downloadRecordContent: vi.fn(),
 }));
 
 describe('MedicalHistoryPage (Patient)', () => {
@@ -24,7 +24,7 @@ describe('MedicalHistoryPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -62,6 +62,21 @@ describe('MedicalHistoryPage (Patient)', () => {
       updated_by: 'clinician',
     });
     vi.mocked(shared.getPatientRecords).mockResolvedValue([]);
+  });
+
+  it('shows an unknown-status relative even when no conditions are recorded', async () => {
+    vi.mocked(shared.getMyFamilyHistory).mockResolvedValue({ patient_id: 'HEALTH123',
+      family_members: [{ member_id: 'QA-RELATIVE', relationship: 'HalfSister', living: null,
+        name: 'Fictional Lerato', notes: 'Synthetic relative note', current_age: null,
+        age_at_death: null, cause_of_death: null, conditions: [] }],
+      genetic_conditions: [], three_gen_complete: false, last_updated: 0, updated_by: 'clinician' });
+    render(<MemoryRouter><MedicalHistoryPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: /Family History/i }));
+    expect(await screen.findByText('Fictional Lerato')).toBeInTheDocument();
+    expect(screen.getByText('Half Sister')).toBeInTheDocument();
+    expect(screen.getByText('Vital status: Not recorded')).toBeInTheDocument();
+    expect(screen.getByText('Relative notes: Synthetic relative note')).toBeInTheDocument();
+    expect(screen.queryByText('Deceased')).not.toBeInTheDocument();
   });
 
   it('renders medical history page', async () => {
@@ -107,12 +122,8 @@ describe('MedicalHistoryPage (Patient)', () => {
       content_hash: 'QmDocument', metadata_hash: 'QmMetadata', record_type: 'other',
       uploaded_at: 1_789_876_000, content_checksum: 'checksum',
     }]);
-    vi.mocked(shared.downloadMedicalRecord).mockResolvedValue({
-      success: true,
-      content_base64: btoa('record contents'),
-      filename: 'record.pdf', content_type: 'application/pdf', record_type: 'other',
-      uploaded_by: 'clinician', uploaded_at: 1_789_876_000,
-    });
+    const storedBlob = new Blob(['record contents'], { type: 'application/pdf' });
+    vi.mocked(shared.downloadRecordContent).mockResolvedValue({ blob: storedBlob, contentType: 'application/pdf' });
     const createObjectUrl = vi.fn(() => 'blob:record');
     const revokeObjectUrl = vi.fn();
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
@@ -124,9 +135,8 @@ describe('MedicalHistoryPage (Patient)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Documents/i }));
     fireEvent.click(await screen.findByTitle('Download'));
 
-    await waitFor(() => expect(shared.downloadMedicalRecord).toHaveBeenCalledWith({
-      content_hash: 'QmDocument', metadata_hash: 'QmMetadata',
-    }));
+    await waitFor(() => expect(shared.downloadRecordContent).toHaveBeenCalledWith('QmDocument'));
+    expect(createObjectUrl).toHaveBeenCalledWith(storedBlob);
     expect(createObjectUrl).toHaveBeenCalledOnce();
     expect(revokeObjectUrl).toHaveBeenCalledWith('blob:record');
     click.mockRestore();

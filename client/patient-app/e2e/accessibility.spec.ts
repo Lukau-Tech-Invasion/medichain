@@ -248,6 +248,26 @@ test('a focused control is never hidden behind the sticky header', async ({ page
   const obscured: string[] = [];
   for (let i = 0; i < 25; i++) {
     await page.keyboard.press('Tab');
+    // `scroll-behavior: smooth` (index.css) animates the scroll that brings the
+    // focused control into view. Measuring in the same frame as the keypress
+    // caught controls mid-animation, under whichever bar the page was passing;
+    // what a person sees is where the scroll comes to rest.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          let last = -1;
+          let still = 0;
+          let frames = 0;
+          const tick = () => {
+            still = window.scrollY === last ? still + 1 : 0;
+            last = window.scrollY;
+            frames += 1;
+            if (still >= 3 || frames >= 120) resolve();
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
     const hidden = await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
       if (!el || el === document.body) return null;

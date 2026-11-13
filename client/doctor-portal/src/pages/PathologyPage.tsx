@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useReducer } from 'react';
+import {
+  emptyPathologyOrder, emptyPathologyReport, finalizeBlocker, pathologyOrderReducer,
+  pathologyReportReducer, toPathologyOrder, toPathologyReportUpdate,
+  type PathologyOrderAction, type PathologyOrderForm, type PathologyReportAction,
+  type PathologyReportForm, type PathologySpecimen,
+} from './PathologyPage.form';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
-  getPatients,
   listPathology,
   createPathology,
   updatePathologyReport,
@@ -14,11 +19,12 @@ import {
   LoadingSpinner,
   Input,
   useValidatedForm,
-  pathologyRequestSchema,
+  pathologyRequestSchema, ChoiceChips
 } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
+import { PatientName } from '../components/PatientName';
 
 /**
  * PathologyPage
@@ -30,38 +36,6 @@ import PatientSelect from '../components/PatientSelect';
  * - Final diagnosis with SNOMED coding
  * - Digital slide viewer integration ready
  */
-
-interface PathologySpecimen {
-  specimenId: string;
-  patientId: string;
-  patientName: string;
-  collectionDate: string;
-  collectionTime: string;
-  clinician: string;
-  specimenType: 'surgical' | 'cytology' | 'biopsy' | 'bone-marrow' | 'autopsy';
-  site: string;
-  laterality: 'left' | 'right' | 'bilateral' | 'n/a';
-  clinicalHistory: string;
-  clinicalDiagnosis: string;
-  priority: 'routine' | 'urgent' | 'stat';
-  status: 'received' | 'grossing' | 'processing' | 'embedding' | 'cutting' | 'staining' | 'prelim' | 'final' | 'addendum';
-  receivedDate?: string;
-  receivedBy?: string;
-  container: string;
-  fixative: string;
-  grossDescription?: string;
-  blocks?: string[];
-  slides?: string[];
-  specialStains?: string[];
-  ihcMarkers?: string[];
-  microscopicDescription?: string;
-  diagnosis?: string;
-  snomedCode?: string;
-  reportDate?: string;
-  pathologist?: string;
-  isCritical?: boolean;
-  communicatedTo?: string;
-}
 
 /** One decrypted slide image belonging to the specimen on screen. */
 interface SlideImage {
@@ -152,7 +126,8 @@ const PathologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [specimens, setSpecimens] = useState<PathologySpecimen[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,38 +135,28 @@ const PathologyPage: React.FC = () => {
   const [selectedSpecimen, setSelectedSpecimen] = useState<PathologySpecimen | null>(null);
   const [slideImages, setSlideImages] = useState<SlideImage[]>([]);
   const [slideImagesLoading, setSlideImagesLoading] = useState(false);
+  const [slideImagesError, setSlideImagesError] = useState('');
   const [slideUploading, setSlideUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  // New order form state
-  const [selectedPatientId, setSelectedPatientId] = useState('');
-  const [collectionDate, setCollectionDate] = useState('');
-  const [collectionTime, setCollectionTime] = useState('');
-  const [clinician, setClinician] = useState('');
-  const [specimenType, setSpecimenType] = useState<'surgical' | 'cytology' | 'biopsy' | 'bone-marrow' | 'autopsy'>('surgical');
-  const [site, setSite] = useState('');
-  const [laterality, setLaterality] = useState<'left' | 'right' | 'bilateral' | 'n/a'>('n/a');
-  const [clinicalHistory, setClinicalHistory] = useState('');
-  const [clinicalDiagnosis, setClinicalDiagnosis] = useState('');
-  const [priority, setPriority] = useState<'routine' | 'urgent' | 'stat'>('routine');
-  const [container, setContainer] = useState('');
-  const [fixative, setFixative] = useState('10% formalin');
+  // The order and the report are each one object; PathologyPage.form.ts owns their rules.
+  const [order, dispatchOrder] = useReducer(pathologyOrderReducer, undefined, emptyPathologyOrder);
+  const {
+    selectedPatientId, collectionDate, collectionTime, clinician, specimenType, site,
+    laterality, clinicalHistory, clinicalDiagnosis, priority, container, fixative,
+  } = order;
+  const setOrderField = <K extends keyof PathologyOrderForm>(field: K, value: PathologyOrderForm[K]) =>
+    dispatchOrder({ type: 'set', field, value } as PathologyOrderAction);
 
-  // Report form state
-  const [grossDescription, setGrossDescription] = useState('');
-  const [blocks, setBlocks] = useState<string[]>([]);
-  const [newBlock, setNewBlock] = useState('');
-  const [slides, setSlides] = useState<string[]>([]);
-  const [newSlide, setNewSlide] = useState('');
-  const [specialStains, setSpecialStains] = useState<string[]>([]);
-  const [ihcMarkers, setIhcMarkers] = useState<string[]>([]);
-  const [microscopicDescription, setMicroscopicDescription] = useState('');
-  const [diagnosis, setDiagnosis] = useState('');
-  const [snomedCode, setSnomedCode] = useState('');
-  const [isCritical, setIsCritical] = useState(false);
-  const [communicatedTo, setCommunicatedTo] = useState('');
+  const [report, dispatchReport] = useReducer(pathologyReportReducer, undefined, emptyPathologyReport);
+  const {
+    grossDescription, blocks, newBlock, slides, newSlide, specialStains,
+    ihcMarkers, microscopicDescription, diagnosis, snomedCode, isCritical, communicatedTo,
+  } = report;
+  const setReportField = <K extends keyof PathologyReportForm>(field: K, value: PathologyReportForm[K]) =>
+    dispatchReport({ type: 'set', field, value } as PathologyReportAction);
 
   const fetchSpecimens = useCallback(async () => {
     try {
@@ -210,11 +175,6 @@ const PathologyPage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
-    const loadPatients = async () => {
-      const loadedPatients = await getPatients();
-      setPatients(loadedPatients);
-    };
-    loadPatients();
     fetchSpecimens();
   }, [user, fetchSpecimens]);
 
@@ -222,9 +182,10 @@ const PathologyPage: React.FC = () => {
     pathologyRequestSchema
   );
 
-  const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician });
+  const pathologyOrder = () => ({ selectedPatientId, collectionDate, site, clinician, specimenType, priority });
 
-  const handleSubmitOrder = async (e: React.FormEvent) => {
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatientId);
+  const handleSubmitOrder = guardSubmit(async (e: React.FormEvent) => {
     e.preventDefault();
     // The anatomical site is what makes the specimen interpretable: a report on
     // "a biopsy" cannot say whether the margin it describes is the one that
@@ -233,31 +194,23 @@ const PathologyPage: React.FC = () => {
       return;
     }
 
-    const patient = patients.find(p => p.patient_id === selectedPatientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
-    const newSpecimen: PathologySpecimen = {
-      specimenId: `S24-${String(specimens.length + 1).padStart(3, '0')}`,
-      patientId: selectedPatientId,
+    const newOrder = toPathologyOrder(order, {
       patientName: patient.full_name,
-      collectionDate,
-      collectionTime: collectionTime || '00:00',
-      clinician,
-      specimenType,
-      site,
-      laterality,
-      clinicalHistory,
-      clinicalDiagnosis,
-      priority,
-      status: 'received',
       receivedDate: new Date().toISOString().split('T')[0],
       receivedBy: user?.userId || 'Unknown',
-      container,
-      fixative
-    };
+    });
 
+    // The accession number is the server's. The page used to build one from
+    // the length of its own worklist, which two people ordering at once shared.
+    let accession: string;
     try {
-      await createPathology(newSpecimen);
+      accession = (await createPathology(newOrder)).id;
     } catch (err) {
       console.error('Failed to save pathology specimen:', err);
       // Stop here. Falling through announced success for a write that
@@ -266,23 +219,13 @@ const PathologyPage: React.FC = () => {
       return;
     }
 
-    setSpecimens([...specimens, newSpecimen]);
-    showSuccess(t('docPathology.submittedSuccess', { id: newSpecimen.specimenId }));
+    showSuccess(t('docPathology.submittedSuccess', { id: accession }));
+    // Read back rather than appended: the row on screen is the one stored.
+    await fetchSpecimens();
 
-    // Reset form
-    setSelectedPatientId('');
-    setCollectionDate('');
-    setCollectionTime('');
-    setClinician('');
-    setSite('');
-    setLaterality('n/a');
-    setClinicalHistory('');
-    setClinicalDiagnosis('');
-    setPriority('routine');
-    setContainer('');
-    setFixative('10% formalin');
+    dispatchOrder({ type: 'reset' });
     setActiveTab('worklist');
-  };
+  });
 
   /**
    * Load the slide images attached to a specimen.
@@ -317,12 +260,12 @@ const PathologyPage: React.FC = () => {
         }
       }
       setSlideImages(found);
-    } catch (err) {
-      console.error('Failed to load slide images:', err);
+    } catch {
+      setSlideImagesError(t('docPathology.errorLoadSlides'));
     } finally {
       setSlideImagesLoading(false);
     }
-  }, []);
+  }, [t]);
 
   /** Encrypt and store one captured slide image against the open specimen. */
   const attachSlideImage = async (file: File) => {
@@ -356,40 +299,29 @@ const PathologyPage: React.FC = () => {
   const handleOpenReport = (specimen: PathologySpecimen) => {
     setSelectedSpecimen(specimen);
     void loadSlideImages(specimen);
-    setGrossDescription(specimen.grossDescription || '');
-    setBlocks(specimen.blocks || []);
-    setSlides(specimen.slides || []);
-    setSpecialStains(specimen.specialStains || []);
-    setIhcMarkers(specimen.ihcMarkers || []);
-    setMicroscopicDescription(specimen.microscopicDescription || '');
-    setDiagnosis(specimen.diagnosis || '');
-    setSnomedCode(specimen.snomedCode || '');
-    setIsCritical(specimen.isCritical || false);
-    setCommunicatedTo(specimen.communicatedTo || '');
+    dispatchReport({ type: 'open', specimen });
     setActiveTab('report');
   };
 
-  const handleSaveReport = async (finalizeReport: boolean) => {
+  const handleSaveReport = guardSubmit(async (finalizeReport: boolean) => {
     if (!selectedSpecimen) return;
+    if (selectedSpecimen.status === 'final') {
+      showError(t('docPathology.finalReadOnly'));
+      return;
+    }
 
-    if (finalizeReport) {
-      if (!diagnosis || !microscopicDescription) {
-        showError(t('docPathology.errorFinalizeFields'));
-        return;
-      }
-      if (isCritical && !communicatedTo) {
-        showError(t('docPathology.errorCriticalCommunication'));
-        return;
-      }
+    const blocker = finalizeReport ? finalizeBlocker(report) : null;
+    if (blocker === 'missingFields') {
+      showError(t('docPathology.errorFinalizeFields'));
+      return;
+    }
+    if (blocker === 'criticalNotCommunicated') {
+      showError(t('docPathology.errorCriticalCommunication'));
+      return;
     }
 
     try {
-      await updatePathologyReport(selectedSpecimen.specimenId, {
-        gross_description: grossDescription, microscopic_description: microscopicDescription,
-        diagnosis, blocks, slides, special_stains: specialStains, ihc_markers: ihcMarkers,
-        snomed_code: snomedCode, is_critical: isCritical, communicated_to: communicatedTo,
-        status: finalizeReport ? 'final' : 'prelim',
-      });
+      await updatePathologyReport(selectedSpecimen.specimenId, toPathologyReportUpdate(report, finalizeReport));
       await fetchSpecimens();
     } catch (err) {
       showError(err instanceof Error ? err.message : t('common.saveFailed'));
@@ -398,37 +330,12 @@ const PathologyPage: React.FC = () => {
     showSuccess(finalizeReport ? t('docPathology.reportFinalizedSuccess') : t('docPathology.reportSavedPrelimSuccess'));
     setActiveTab('worklist');
     setSelectedSpecimen(null);
-  };
+  });
 
-  const addBlock = () => {
-    if (newBlock.trim()) {
-      setBlocks([...blocks, newBlock.trim()]);
-      setNewBlock('');
-    }
-  };
-
-  const addSlide = () => {
-    if (newSlide.trim()) {
-      setSlides([...slides, newSlide.trim()]);
-      setNewSlide('');
-    }
-  };
-
-  const toggleSpecialStain = (stain: string) => {
-    if (specialStains.includes(stain)) {
-      setSpecialStains(specialStains.filter(s => s !== stain));
-    } else {
-      setSpecialStains([...specialStains, stain]);
-    }
-  };
-
-  const toggleIHCMarker = (marker: string) => {
-    if (ihcMarkers.includes(marker)) {
-      setIhcMarkers(ihcMarkers.filter(m => m !== marker));
-    } else {
-      setIhcMarkers([...ihcMarkers, marker]);
-    }
-  };
+  const addBlock = () => dispatchReport({ type: 'addBlock' });
+  const addSlide = () => dispatchReport({ type: 'addSlide' });
+  const toggleSpecialStain = (stain: string) => dispatchReport({ type: 'toggleStain', stain });
+  const toggleIHCMarker = (marker: string) => dispatchReport({ type: 'toggleMarker', marker });
 
   const filteredSpecimens = specimens.filter(specimen => {
     // Belt as well as braces. `toSpecimen` defaults every field, but a search
@@ -574,36 +481,36 @@ const PathologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="path-status-filter" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-status-filter"
+                  label={t('docPathology.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="all">{t('docPathology.allStatuses')}</option>
-                  <option value="received">{t('docPathology.status_received')}</option>
-                  <option value="grossing">{t('docPathology.status_grossing')}</option>
-                  <option value="processing">{t('docPathology.status_processing')}</option>
-                  <option value="prelim">{t('docPathology.status_prelim')}</option>
-                  <option value="final">{t('docPathology.status_final')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next); }}
+                  options={[
+                    { value: 'all', label: t('docPathology.allStatuses') },
+                    { value: 'received', label: t('docPathology.status_received') },
+                    { value: 'grossing', label: t('docPathology.status_grossing') },
+                    { value: 'processing', label: t('docPathology.status_processing') },
+                    { value: 'prelim', label: t('docPathology.status_prelim') },
+                    { value: 'final', label: t('docPathology.status_final') },
+                  ]}
+                />
               </div>
               <div>
-                <label htmlFor="path-type-filter" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.typeLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-type-filter"
+                  label={t('docPathology.typeLabel')}
                   value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="all">{t('docPathology.allTypes')}</option>
-                  <option value="surgical">{t('docPathology.specimenType_surgical')}</option>
-                  <option value="biopsy">{t('docPathology.specimenType_biopsy')}</option>
-                  <option value="cytology">{t('docPathology.specimenType_cytology')}</option>
-                  <option value="bone-marrow">{t('docPathology.specimenType_bone-marrow')}</option>
-                  <option value="autopsy">{t('docPathology.specimenType_autopsy')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setTypeFilter(next); }}
+                  options={[
+                    { value: 'all', label: t('docPathology.allTypes') },
+                    { value: 'surgical', label: t('docPathology.specimenType_surgical') },
+                    { value: 'biopsy', label: t('docPathology.specimenType_biopsy') },
+                    { value: 'cytology', label: t('docPathology.specimenType_cytology') },
+                    { value: 'bone-marrow', label: t('docPathology.specimenType_bone-marrow') },
+                    { value: 'autopsy', label: t('docPathology.specimenType_autopsy') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -645,7 +552,7 @@ const PathologyPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-content">{specimen.patientName}</div>
-                        <div className="text-xs text-content-muted">{specimen.patientId}</div>
+                        <div className="text-xs"><PatientName id={specimen.patientId} dobOnly /></div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm">
@@ -661,7 +568,7 @@ const PathologyPage: React.FC = () => {
                           <Calendar className="h-4 w-4 mr-1" />
                           {specimen.collectionDate}
                         </div>
-                        <div className="text-xs text-content-muted">{specimen.collectionTime}</div>
+                        <div className="text-xs text-content-muted">{specimen.collectionTime || t('docPathology.notRecorded')}</div>
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(specimen.status)}`}>
@@ -698,29 +605,27 @@ const PathologyPage: React.FC = () => {
                   id="path-patient"
                   label={t('docPathology.patientRequired')}
                   value={selectedPatientId}
-                  onChange={(selectedPatientId) => setSelectedPatientId(selectedPatientId)}
+                  onChange={(selectedPatientId) => setOrderField('selectedPatientId', selectedPatientId)}
                   required
                 />
               </div>
 
               {/* Specimen Type */}
               <div>
-                <label htmlFor="path-specimen-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('docPathology.specimenTypeRequired')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="path-specimen-type"
-                  value={specimenType}
-                  onChange={(e) => setSpecimenType(e.target.value as typeof specimenType)}
-                  className="w-full px-3 py-2 border rounded-md"
-                  required
-                >
-                  <option value="surgical">{t('docPathology.specimenType_surgical')}</option>
-                  <option value="biopsy">{t('docPathology.specimenType_biopsy')}</option>
-                  <option value="cytology">{t('docPathology.specimenType_cytology')}</option>
-                  <option value="bone-marrow">{t('docPathology.specimenType_bone-marrow')}</option>
-                  <option value="autopsy">{t('docPathology.specimenType_autopsy')}</option>
-                </select>
+                  label={t('docPathology.specimenTypeRequired')}
+                  value={specimenType || undefined}
+                  error={errors.specimenType}
+                  onChange={(next) => { clearField('specimenType'); setOrderField('specimenType', next ?? ''); }}
+                  options={[
+                    { value: 'surgical', label: t('docPathology.specimenType_surgical') },
+                    { value: 'biopsy', label: t('docPathology.specimenType_biopsy') },
+                    { value: 'cytology', label: t('docPathology.specimenType_cytology') },
+                    { value: 'bone-marrow', label: t('docPathology.specimenType_bone-marrow') },
+                    { value: 'autopsy', label: t('docPathology.specimenType_autopsy') },
+                  ]}
+                />
               </div>
 
               {/* Collection Date/Time */}
@@ -732,7 +637,7 @@ const PathologyPage: React.FC = () => {
                   id="path-collection-date"
                   type="date"
                   value={collectionDate}
-                  onChange={(e) => { clearField('collectionDate'); setCollectionDate(e.target.value); }}
+                  onChange={(e) => { clearField('collectionDate'); setOrderField('collectionDate', e.target.value); }}
                   onBlur={() => validateField('collectionDate', pathologyOrder())}
                   error={errors.collectionDate}
                   required
@@ -745,7 +650,7 @@ const PathologyPage: React.FC = () => {
                   id="path-collection-time"
                   type="time"
                   value={collectionTime}
-                  onChange={(e) => setCollectionTime(e.target.value)}
+                  onChange={(e) => setOrderField('collectionTime', e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -759,7 +664,7 @@ const PathologyPage: React.FC = () => {
                   id="path-site"
                   type="text"
                   value={site}
-                  onChange={(e) => { clearField('site'); setSite(e.target.value); }}
+                  onChange={(e) => { clearField('site'); setOrderField('site', e.target.value); }}
                   onBlur={() => validateField('site', pathologyOrder())}
                   error={errors.site}
                   required
@@ -769,18 +674,18 @@ const PathologyPage: React.FC = () => {
 
               {/* Laterality */}
               <div>
-                <label htmlFor="path-laterality" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.lateralityLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-laterality"
-                  value={laterality}
-                  onChange={(e) => setLaterality(e.target.value as typeof laterality)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="n/a">{t('docPathology.laterality_na')}</option>
-                  <option value="left">{t('docPathology.laterality_left')}</option>
-                  <option value="right">{t('docPathology.laterality_right')}</option>
-                  <option value="bilateral">{t('docPathology.laterality_bilateral')}</option>
-                </select>
+                  label={t('docPathology.lateralityLabel')}
+                  value={laterality || undefined}
+                  onChange={(next) => setOrderField('laterality', next ?? '')}
+                  options={[
+                    { value: 'n/a', label: t('docPathology.laterality_na') },
+                    { value: 'left', label: t('docPathology.laterality_left') },
+                    { value: 'right', label: t('docPathology.laterality_right') },
+                    { value: 'bilateral', label: t('docPathology.laterality_bilateral') },
+                  ]}
+                />
               </div>
 
               {/* Clinician */}
@@ -792,7 +697,7 @@ const PathologyPage: React.FC = () => {
                   id="path-clinician"
                   type="text"
                   value={clinician}
-                  onChange={(e) => { clearField('clinician'); setClinician(e.target.value); }}
+                  onChange={(e) => { clearField('clinician'); setOrderField('clinician', e.target.value); }}
                   onBlur={() => validateField('clinician', pathologyOrder())}
                   error={errors.clinician}
                   required
@@ -802,17 +707,18 @@ const PathologyPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label htmlFor="path-priority" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.priorityLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-priority"
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value as typeof priority)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="routine">{t('docPathology.priority_routine')}</option>
-                  <option value="urgent">{t('docPathology.priority_urgent')}</option>
-                  <option value="stat">{t('docPathology.priority_stat')}</option>
-                </select>
+                  label={t('docPathology.priorityLabel')}
+                  value={priority || undefined}
+                  error={errors.priority}
+                  onChange={(next) => { clearField('priority'); setOrderField('priority', next ?? ''); }}
+                  options={[
+                    { value: 'routine', label: t('docPathology.priority_routine') },
+                    { value: 'urgent', label: t('docPathology.priority_urgent') },
+                    { value: 'stat', label: t('docPathology.priority_stat') },
+                  ]}
+                />
               </div>
 
               {/* Container */}
@@ -822,7 +728,7 @@ const PathologyPage: React.FC = () => {
                   id="path-container"
                   type="text"
                   value={container}
-                  onChange={(e) => setContainer(e.target.value)}
+                  onChange={(e) => setOrderField('container', e.target.value)}
                   placeholder={t('docPathology.containerTypePh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
@@ -830,19 +736,19 @@ const PathologyPage: React.FC = () => {
 
               {/* Fixative */}
               <div>
-                <label htmlFor="path-fixative" className="block text-sm font-medium text-content-secondary mb-1">{t('docPathology.fixativeLabel')}</label>
-                <select
+                <ChoiceChips
                   id="path-fixative"
-                  value={fixative}
-                  onChange={(e) => setFixative(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md"
-                >
-                  <option value="10% formalin">{t('docPathology.fixative_formalin')}</option>
-                  <option value="95% alcohol">{t('docPathology.fixative_alcohol')}</option>
-                  <option value="CytoLyt">{t('docPathology.fixative_cytolyt')}</option>
-                  <option value="RPMI">{t('docPathology.fixative_rpmi')}</option>
-                  <option value="none">{t('docPathology.fixative_none')}</option>
-                </select>
+                  label={t('docPathology.fixativeLabel')}
+                  value={fixative || undefined}
+                  onChange={(next) => setOrderField('fixative', next ?? '')}
+                  options={[
+                    { value: '10% formalin', label: t('docPathology.fixative_formalin') },
+                    { value: '95% alcohol', label: t('docPathology.fixative_alcohol') },
+                    { value: 'CytoLyt', label: t('docPathology.fixative_cytolyt') },
+                    { value: 'RPMI', label: t('docPathology.fixative_rpmi') },
+                    { value: 'none', label: t('docPathology.fixative_none') },
+                  ]}
+                />
               </div>
 
               {/* Clinical History */}
@@ -851,7 +757,7 @@ const PathologyPage: React.FC = () => {
                 <textarea
                   id="path-clinical-history"
                   value={clinicalHistory}
-                  onChange={(e) => setClinicalHistory(e.target.value)}
+                  onChange={(e) => setOrderField('clinicalHistory', e.target.value)}
                   rows={3}
                   placeholder={t('docPathology.clinicalHistoryPh')}
                   className="w-full px-3 py-2 border rounded-md"
@@ -865,7 +771,7 @@ const PathologyPage: React.FC = () => {
                   id="path-clinical-diagnosis"
                   type="text"
                   value={clinicalDiagnosis}
-                  onChange={(e) => setClinicalDiagnosis(e.target.value)}
+                  onChange={(e) => setOrderField('clinicalDiagnosis', e.target.value)}
                   placeholder={t('docPathology.clinicalDiagnosisPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
@@ -918,7 +824,7 @@ const PathologyPage: React.FC = () => {
               </div>
               <div>
                 <span className="font-medium text-content-secondary">{t('docPathology.collectedColLabel')}</span>
-                <p className="text-content">{selectedSpecimen.collectionDate} {selectedSpecimen.collectionTime}</p>
+                <p className="text-content">{selectedSpecimen.collectionDate} {selectedSpecimen.collectionTime || t('docPathology.notRecorded')}</p>
               </div>
               <div>
                 <span className="font-medium text-content-secondary">{t('docPathology.clinicianColLabel')}</span>
@@ -983,6 +889,8 @@ const PathologyPage: React.FC = () => {
               <p className="text-sm text-content-muted py-6 text-center">
                 {t('docPathology.slidesLoading')}
               </p>
+            ) : slideImagesError ? (
+              <p role="alert" className="text-sm text-critical-subtle-fg py-6 text-center">{slideImagesError}</p>
             ) : slideImages.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {slideImages.map(image => (
@@ -1022,6 +930,11 @@ const PathologyPage: React.FC = () => {
             )}
           </div>
 
+          {selectedSpecimen.status === 'final' && (
+            <p role="status" className="text-sm text-content-secondary">{t('docPathology.finalReadOnly')}</p>
+          )}
+          <fieldset disabled={selectedSpecimen.status === 'final'} className="min-w-0 space-y-6"
+            aria-label={t('docPathology.reportObservations')}>
           {/* Gross Examination */}
           <div className="bg-surface rounded-lg shadow p-6">
             <h3 id="path-gross-examination-heading" className="text-lg font-bold mb-3">{t('docPathology.grossExaminationHeading')}</h3>
@@ -1029,7 +942,7 @@ const PathologyPage: React.FC = () => {
               id="path-gross-description"
               aria-labelledby="path-gross-examination-heading"
               value={grossDescription}
-              onChange={(e) => setGrossDescription(e.target.value)}
+              onChange={(e) => setReportField('grossDescription', e.target.value)}
               rows={6}
               placeholder={t('docPathology.grossDescriptionPh')}
               className="w-full px-3 py-2 border rounded-md"
@@ -1048,13 +961,14 @@ const PathologyPage: React.FC = () => {
                     id="path-new-block"
                     type="text"
                     value={newBlock}
-                    onChange={(e) => setNewBlock(e.target.value)}
+                    onChange={(e) => setReportField('newBlock', e.target.value)}
                     placeholder={t('docPathology.tissueBlockPh')}
                     className="flex-1 px-3 py-2 border rounded-md"
                   />
                   <button
                     type="button"
                     onClick={addBlock}
+                    aria-label={`${t('common.add')} ${t('docPathology.tissueBlocksLabel')}`}
                     className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
@@ -1077,13 +991,14 @@ const PathologyPage: React.FC = () => {
                     id="path-new-slide"
                     type="text"
                     value={newSlide}
-                    onChange={(e) => setNewSlide(e.target.value)}
+                    onChange={(e) => setReportField('newSlide', e.target.value)}
                     placeholder={t('docPathology.slidePh')}
                     className="flex-1 px-3 py-2 border rounded-md"
                   />
                   <button
                     type="button"
                     onClick={addSlide}
+                    aria-label={`${t('common.add')} ${t('docPathology.slidesLabel')}`}
                     className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90"
                   >
                     <Plus className="h-4 w-4" />
@@ -1149,7 +1064,7 @@ const PathologyPage: React.FC = () => {
               id="path-microscopic-description"
               aria-labelledby="path-microscopic-examination-heading"
               value={microscopicDescription}
-              onChange={(e) => setMicroscopicDescription(e.target.value)}
+              onChange={(e) => setReportField('microscopicDescription', e.target.value)}
               rows={8}
               placeholder={t('docPathology.microscopicDescriptionPh')}
               className="w-full px-3 py-2 border rounded-md"
@@ -1163,7 +1078,7 @@ const PathologyPage: React.FC = () => {
               id="path-diagnosis"
               aria-labelledby="path-diagnosis-heading"
               value={diagnosis}
-              onChange={(e) => setDiagnosis(e.target.value)}
+              onChange={(e) => setReportField('diagnosis', e.target.value)}
               rows={4}
               placeholder={t('docPathology.diagnosisPh')}
               className="w-full px-3 py-2 border rounded-md mb-3"
@@ -1176,7 +1091,7 @@ const PathologyPage: React.FC = () => {
                   id="path-snomed-code"
                   type="text"
                   value={snomedCode}
-                  onChange={(e) => setSnomedCode(e.target.value)}
+                  onChange={(e) => setReportField('snomedCode', e.target.value)}
                   placeholder={t('docPathology.snomedCodePh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
@@ -1191,7 +1106,7 @@ const PathologyPage: React.FC = () => {
                 type="checkbox"
                 id="critical"
                 checked={isCritical}
-                onChange={(e) => setIsCritical(e.target.checked)}
+                onChange={(e) => setReportField('isCritical', e.target.checked)}
                 className="mr-2"
               />
               <label htmlFor="critical" className="text-lg font-bold text-critical-subtle-fg">
@@ -1208,7 +1123,7 @@ const PathologyPage: React.FC = () => {
                   id="path-communicated-to"
                   type="text"
                   value={communicatedTo}
-                  onChange={(e) => setCommunicatedTo(e.target.value)}
+                  onChange={(e) => setReportField('communicatedTo', e.target.value)}
                   placeholder={t('docPathology.communicatedToPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
@@ -1219,6 +1134,7 @@ const PathologyPage: React.FC = () => {
             )}
           </div>
 
+          </fieldset>
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3">
             <button
@@ -1234,6 +1150,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(false)}
+              disabled={submitPending || (selectedSpecimen.status === 'final')}
               className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-caution/90 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
@@ -1242,6 +1159,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(true)}
+              disabled={submitPending || (selectedSpecimen.status === 'final')}
               className="px-4 py-2 bg-ok text-ok-fg rounded-md hover:bg-ok flex items-center"
             >
               <CheckCircle className="h-4 w-4 mr-2" />

@@ -1,0 +1,39 @@
+{
+  "inventory": {
+    "page_components": 116,
+    "route_declaration_lines": 126,
+    "capability_families": 19
+  },
+  "pdfs": [
+    {
+      "file": "01_MediChain_Product_Submission.pdf",
+      "pages": 7,
+      "bytes": 86422,
+      "characters": 9987
+    },
+    {
+      "file": "02_MediChain_Capability_Evidence.pdf",
+      "pages": 9,
+      "bytes": 89239,
+      "characters": 12448
+    },
+    {
+      "file": "03_MediChain_Judge_Guide.pdf",
+      "pages": 3,
+      "bytes": 78427,
+      "characters": 3948
+    },
+    {
+      "file": "04_MediChain_Pitch_and_Video_Script.pdf",
+      "pages": 6,
+      "bytes": 81265,
+      "characters": 4402
+    },
+    {
+      "file": "05_FNB_Research_and_Requirements.pdf",
+      "pages": 9,
+      "bytes": 94472,
+      "characters": 13895
+    }
+  ]
+}

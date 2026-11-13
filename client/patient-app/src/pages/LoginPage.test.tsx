@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
 import { LoginPage } from './LoginPage';
@@ -35,66 +35,93 @@ describe('LoginPage (Patient)', () => {
     });
   });
 
-  it('renders login form correctly', () => {
-    render(
+  function renderPage() {
+    return render(
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <LoginPage />
       </BrowserRouter>
     );
+  }
+
+  it('renders the username and password form', () => {
+    renderPage();
 
     expect(screen.getByText(/Welcome to MediChain/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/5ABC...XYZ/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Connect Wallet/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Username$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Password$/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Sign in$/i })).toBeInTheDocument();
   });
 
-  it('shows error message if wallet address is empty', async () => {
-    render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <LoginPage />
-      </BrowserRouter>
-    );
+  it('asks for no address or key anywhere on the page', () => {
+    renderPage();
 
-    const loginButton = screen.getByRole('button', { name: /Connect Wallet/i });
-    fireEvent.click(loginButton);
-
-    expect(await screen.findByText(/Please enter your wallet address/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/address/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/twelve words|phrase/i)).not.toBeInTheDocument();
   });
 
-  it('shows error message if wallet address format is invalid', async () => {
-    render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <LoginPage />
-      </BrowserRouter>
-    );
+  it('links to activation for a patient who has just been registered', () => {
+    renderPage();
 
-    const input = screen.getByPlaceholderText(/5ABC...XYZ/i);
-    fireEvent.change(input, { target: { value: 'invalid-address' } });
-
-    const loginButton = screen.getByRole('button', { name: /Connect Wallet/i });
-    fireEvent.click(loginButton);
-
-    expect(await screen.findByText(/Invalid wallet address format/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /activation code/i })).toHaveAttribute('href', '/activate');
   });
 
-  it('calls login when valid wallet address is provided', async () => {
+  it('shows an error and sends nothing when the form is empty', async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    expect(await screen.findByText(/Enter your username and password/i)).toBeInTheDocument();
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
+
+  it('signs in with the username and password, then goes to the dashboard', async () => {
     mockLogin.mockResolvedValue(true);
-    
-    render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <LoginPage />
-      </BrowserRouter>
-    );
+    renderPage();
 
-    const validAddress = '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z';
-    const input = screen.getByPlaceholderText(/5ABC...XYZ/i);
-    fireEvent.change(input, { target: { value: validAddress } });
-
-    const loginButton = screen.getByRole('button', { name: /Connect Wallet/i });
-    fireEvent.click(loginButton);
+    fireEvent.change(screen.getByLabelText(/^Username$/i), { target: { value: 'thandi.n' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a long enough password' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
 
     await waitFor(() => {
-      expect(mockLogin).toHaveBeenCalledWith(validAddress);
-      expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+      expect(mockLogin).toHaveBeenCalledWith('thandi.n', 'a long enough password', undefined);
+      expect(mockNavigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+    });
+  });
+
+  it('returns to the page a deep link asked for before sign-in', async () => {
+    mockLogin.mockResolvedValue(true);
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: { pathname: '/medications' } } }]}>
+        <LoginPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText(/^Username$/i), { target: { value: 'thandi.n' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a long enough password' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/medications', { replace: true }));
+  });
+
+  it('asks for the authenticator code when the account requires it', async () => {
+    (usePatientAuthStore as unknown as Mock).mockReturnValue({
+      login: mockLogin,
+      isAuthenticated: false,
+      isLoading: false,
+      error: null,
+      mfaRequired: true,
+      clearError: mockClearError,
+    });
+    mockLogin.mockResolvedValue(true);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText(/^Username$/i), { target: { value: 'thandi.n' } });
+    fireEvent.change(screen.getByLabelText(/^Password$/i), { target: { value: 'a long enough password' } });
+    fireEvent.change(screen.getByLabelText(/Authentication code/i), { target: { value: '654321' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => {
+      expect(mockLogin).toHaveBeenCalledWith('thandi.n', 'a long enough password', '654321');
     });
   });
 
@@ -102,8 +129,8 @@ describe('LoginPage (Patient)', () => {
    * Inverted on 2026-08-26. This asserted that clicking a hardcoded "Thabo"
    * button logged a patient in and navigated to the dashboard — and it passed
    * only because `login` was mocked to resolve true. The real control could
-   * never work: it called `login(walletAddress)` with no signer against an
-   * invented address, so it died at `signMessage` every time.
+   * never work: it called `login(userId)` with no signer against an
+   * invented identity, so it died at sign-in every time.
    *
    * A test that mocks away the thing that is broken will report a broken
    * feature as working for as long as it exists. The identities are gone; this
@@ -121,5 +148,16 @@ describe('LoginPage (Patient)', () => {
     }
     // And no invitation to use one.
     expect(screen.queryByText(/instantly login/i)).toBeNull();
+  });
+
+  it('carries the company copyright and no hackathon branding', () => {
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText('© 2026 Lukau Invasion (Pty) Ltd')).toBeInTheDocument();
+    expect(screen.queryByText(/Hackathon|All rights reserved/i)).not.toBeInTheDocument();
   });
 });

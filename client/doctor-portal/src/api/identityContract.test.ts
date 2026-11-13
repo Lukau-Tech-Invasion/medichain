@@ -1,21 +1,18 @@
 /**
  * The request identity contract.
  *
- * MediChain has two ways to say who is calling: a verified JWT session, and the
- * legacy `X-User-Id` wallet header that only demo mode accepts unsigned. The
- * rule is that exactly one module decides between them -- `ApiClient` --
- * because the defects this suite exists to prevent all came from a second
- * copy of that decision drifting away from the first (`exportDocumentToPdf`
- * sent both a Bearer token and the wallet header; `useSSE` sent only the
- * header even when a session existed).
+ * MediChain has exactly one way to say who is calling: a verified bearer token.
+ * There is no identity header of any kind, so the property these tests hold
+ * down is negative as much as positive: a client with no session sends no
+ * identity, an ended session never falls back to a weaker one, and a caller
+ * cannot smuggle an identity in beside the token.
  *
  * These tests pin the decision itself, not any one caller.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ApiClient } from '@medichain/shared';
 
-const WALLET_A = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-const WALLET_B = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
+const USER_A = '3f9b1c1e-6f0e-4c53-9b7e-0d7f6f5a1a11';
 
 function client(): ApiClient {
   return new ApiClient({ baseUrl: 'http://localhost' });
@@ -32,43 +29,36 @@ describe('request identity contract', () => {
     expect(api.getSessionHeaders()).toEqual({});
   });
 
-  it('sends the legacy header only on the tokenless demo path', () => {
-    api.setUserId(WALLET_A);
+  it('never turns a remembered user id into a header', () => {
+    // The id is display and routing state; only the token authenticates.
+    api.setUserId(USER_A);
 
-    expect(api.getSessionHeaders()).toEqual({ 'X-User-Id': WALLET_A });
+    expect(api.getSessionHeaders()).toEqual({});
   });
 
-  it('sends Bearer and never accompanies it with the wallet header', () => {
-    api.setUserId(WALLET_A);
+  it('sends Bearer and nothing else once a session exists', () => {
+    api.setUserId(USER_A);
     api.setTokens('access-token', 'refresh-token');
 
-    const headers = api.getSessionHeaders();
-
-    expect(headers['Authorization']).toBe('Bearer access-token');
-    expect(headers).not.toHaveProperty('X-User-Id');
+    expect(api.getSessionHeaders()).toEqual({ Authorization: 'Bearer access-token' });
   });
 
-  it('does not let a caller-supplied wallet override an active session', () => {
-    api.setUserId(WALLET_A);
-    api.setTokens('access-token', 'refresh-token');
+  it('never carries an identity header in mutation headers either', () => {
+    api.setUserId(USER_A);
+    api.setTokens('access-token');
 
-    // A page passing its own idea of the identity must not be able to swap it.
-    const headers = api.getSessionHeaders(WALLET_B);
+    const headers = api.getMutationHeaders();
 
     expect(headers['Authorization']).toBe('Bearer access-token');
-    expect(headers).not.toHaveProperty('X-User-Id');
+    expect(Object.keys(headers).filter((key) => /user-?id/i.test(key))).toEqual([]);
+    expect(headers['Idempotency-Key']).toBeTruthy();
   });
 
-  // --- the downgrade this suite exists for --------------------------------
-  //
-  // Before the session-end latch, `clearTokens()` left `userId` set, so the
-  // very next call fell back to `X-User-Id`. In production the server accepts
-  // a signed wallet header with no session at all, which meant a *revoked*
-  // session kept working for any client still holding a signer. Session
-  // revocation has to be enforceable, so an ended session yields no identity.
+  // An ended session yields no identity at all: session revocation has to be
+  // enforceable, so nothing may quietly stand in for the token that went away.
 
-  it('does not downgrade to the legacy header when a session is revoked', () => {
-    api.setUserId(WALLET_A);
+  it('yields no identity when a session is revoked', () => {
+    api.setUserId(USER_A);
     api.setTokens('access-token', 'refresh-token');
 
     api.clearTokens();
@@ -76,28 +66,17 @@ describe('request identity contract', () => {
     expect(api.getSessionHeaders()).toEqual({});
   });
 
-  it('does not downgrade even when a caller offers a wallet explicitly', () => {
-    api.setUserId(WALLET_A);
-    api.setTokens('access-token', 'refresh-token');
-
-    api.clearTokens();
-
-    expect(api.getSessionHeaders(WALLET_A)).toEqual({});
-  });
-
-  it('keeps refusing the legacy header after logout', () => {
-    api.setUserId(WALLET_A);
+  it('does not come back from the dead by re-asserting the user id', () => {
+    api.setUserId(USER_A);
     api.setTokens('access-token', 'refresh-token');
     api.clearTokens();
 
-    // Re-asserting the wallet address is not a way back in.
-    api.setUserId(WALLET_A);
+    api.setUserId(USER_A);
 
     expect(api.getSessionHeaders()).toEqual({});
   });
 
   it('restores a normal session on a genuine re-login', () => {
-    api.setUserId(WALLET_A);
     api.setTokens('access-token', 'refresh-token');
     api.clearTokens();
 
@@ -106,14 +85,5 @@ describe('request identity contract', () => {
     expect(api.getSessionHeaders()).toEqual({
       Authorization: 'Bearer fresh-access-token',
     });
-  });
-
-  it('leaves a client that never had a session on the demo path', () => {
-    // `clearTokens()` on a client that never signed in must not latch: demo
-    // mode legitimately has no token and still needs the legacy header.
-    api.setUserId(WALLET_A);
-    api.clearTokens();
-
-    expect(api.getSessionHeaders()).toEqual({ 'X-User-Id': WALLET_A });
   });
 });

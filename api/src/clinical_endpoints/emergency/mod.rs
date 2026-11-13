@@ -5,6 +5,7 @@ use serde_json::Value;
 mod assessments;
 mod crisis;
 mod management;
+mod wound_photos;
 
 pub use assessments::*;
 pub use crisis::*;
@@ -120,8 +121,14 @@ pub(crate) struct FluidEvent<'a> {
     /// totals had to bucket it as "other": "wound drain" and "chest drain" are
     /// both drainage to the arithmetic and different things to the reader.
     pub label: Option<&'a str>,
+    /// What the fluid was, as the nurse described it ("NS @ 100 mL/hr",
+    /// "Foley catheter"). The entry form collected it and this function had
+    /// no field for it, so it was dropped without a word.
+    pub source: Option<&'a str>,
     pub notes: Option<&'a str>,
     pub amount_ml: i32,
+    /// When the fluid was given or measured (`support::clinical_time`).
+    pub recorded_at: chrono::DateTime<Utc>,
 }
 
 /// Which column a fluid belongs in, and whether it is an output.
@@ -161,8 +168,10 @@ pub(crate) async fn append_io_event(
         category,
         direction,
         label,
+        source,
         notes,
         amount_ml,
+        recorded_at,
     } = fluid;
 
     // Strip a legacy `intake:`/`output:` prefix rather than failing to match it.
@@ -174,15 +183,18 @@ pub(crate) async fn append_io_event(
     };
     let stated = direction.or(prefix);
 
-    let today = Utc::now().date_naive();
+    // The day the fluid belongs to is the day it was given, which for a
+    // record sent late from a device without signal is not the day it arrived.
+    let today = recorded_at.date_naive();
     let now = Utc::now();
     let event = serde_json::json!({
         "category": bare,
         "label": label,
+        "source": source,
         "notes": notes,
         "amount_ml": amount_ml,
         "recorded_by": recorded_by,
-        "recorded_at": now.to_rfc3339(),
+        "recorded_at": recorded_at.to_rfc3339(),
     });
 
     let existing = data
@@ -358,9 +370,10 @@ fn access_log_entity(
         is_emergency_access: true,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     }
 }
 
@@ -680,5 +693,199 @@ fn ems_handoff_entity(
         created_at: now,
         updated_at: now,
         data,
+    }
+}
+
+#[cfg(test)]
+mod list_scope_tests {
+    //! The trauma, stroke, sepsis, cardiac and code-blue lists answer only to
+    //! someone with authority over the chart. The handlers' own check is the
+    //! role ("any healthcare provider"); the chart gate in
+    //! `PhiAccessAuditMiddleware` is what narrows it, so it is tested through
+    //! that middleware, as the app serves these routes.
+    use crate::middleware::phi_access_audit::PhiAccessAuditMiddleware;
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+
+    const PATIENT: &str = "PAT-EMERG-SCOPE";
+    const TREATING: &str = "emerg-treating-doctor";
+    const STRANGER: &str = "emerg-stranger-pharmacist";
+
+    #[actix_web::test]
+    async fn a_stranger_is_refused_every_emergency_list_and_the_treating_doctor_is_not() {
+        let state = AppState::new();
+        test_fixtures::register(&state, TREATING, Role::Doctor);
+        test_fixtures::register(&state, STRANGER, Role::Pharmacist);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        crate::care_access::record_encounter(&state, PATIENT, TREATING, "APT-EMERG-1", Utc::now())
+            .await;
+        let app = test::init_service(
+            App::new()
+                .wrap(PhiAccessAuditMiddleware)
+                .app_data(web::Data::new(state))
+                .service(super::list_patient_trauma)
+                .service(super::list_patient_stroke)
+                .service(super::list_patient_sepsis)
+                .service(super::list_patient_cardiac)
+                .service(super::list_patient_code_blues),
+        )
+        .await;
+        for kind in ["trauma", "stroke", "sepsis", "cardiac", "code-blue"] {
+            let uri = format!("/api/emergency/{kind}/patient/{PATIENT}");
+            let stranger = test::TestRequest::get()
+                .uri(&uri)
+                .insert_header(test_fixtures::as_user(STRANGER))
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, stranger).await.status().as_u16(),
+                403,
+                "{kind}: a pharmacist with no relationship is refused"
+            );
+            let treating = test::TestRequest::get()
+                .uri(&uri)
+                .insert_header(test_fixtures::as_user(TREATING))
+                .to_request();
+            assert_eq!(
+                test::call_service(&app, treating).await.status().as_u16(),
+                200,
+                "{kind}: the treating doctor reads the list"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod handoff_scope_tests {
+    //! A shift handoff names patients. Only the clinician who gave it and the
+    //! one who received it may read it, by batch, by row or in a list.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+
+    const PATIENT: &str = "PAT-HANDOFF-SCOPE";
+    const GIVER: &str = "handoff-giver-nurse";
+    const RECEIVER: &str = "handoff-receiver-nurse";
+    const COLLEAGUE: &str = "handoff-colleague-nurse";
+
+    #[actix_web::test]
+    async fn only_the_giver_and_receiver_read_a_handoff() {
+        let state = AppState::new();
+        for id in [GIVER, RECEIVER, COLLEAGUE] {
+            test_fixtures::register(&state, id, Role::Nurse);
+        }
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_shift_handoff)
+                .service(super::get_shift_handoff)
+                .service(super::list_provider_handoffs),
+        )
+        .await;
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/emergency/handoff")
+                .insert_header(test_fixtures::as_user(GIVER))
+                .set_json(serde_json::json!({
+                    "incoming_nurse": RECEIVER,
+                    "patients": [{ "patientId": PATIENT }],
+                }))
+                .to_request(),
+        )
+        .await;
+        let batch = created["id"]
+            .as_str()
+            .expect("the create answer names the batch")
+            .to_string();
+        let row = format!("{batch}-{PATIENT}");
+
+        let status = |uri: String, who: &'static str| {
+            test::TestRequest::get()
+                .uri(&uri)
+                .insert_header(test_fixtures::as_user(who))
+                .to_request()
+        };
+        for id in [&batch, &row] {
+            for (who, expected) in [(GIVER, 200), (RECEIVER, 200), (COLLEAGUE, 404)] {
+                let resp =
+                    test::call_service(&app, status(format!("/api/emergency/handoff/{id}"), who))
+                        .await;
+                assert_eq!(resp.status().as_u16(), expected, "{who} reading {id}");
+            }
+        }
+        let own = test::call_service(
+            &app,
+            status(format!("/api/clinical/shift-handoff/{GIVER}"), GIVER),
+        )
+        .await;
+        assert_eq!(own.status().as_u16(), 200);
+        let theirs = test::call_service(
+            &app,
+            status(format!("/api/clinical/shift-handoff/{GIVER}"), COLLEAGUE),
+        )
+        .await;
+        assert_eq!(
+            theirs.status().as_u16(),
+            403,
+            "a colleague cannot list another's handoffs"
+        );
+    }
+}
+
+#[cfg(test)]
+mod administer_med_scope_tests {
+    //! An emergency dose is written to the chart of a patient the clinician is
+    //! linked to. A clinician with no link is told to break the glass.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+
+    const PATIENT: &str = "PAT-EMERG-MED";
+    const TREATING: &str = "emerg-med-treating-doctor";
+    const STRANGER: &str = "emerg-med-stranger-doctor";
+
+    #[actix_web::test]
+    async fn only_a_linked_clinician_records_an_emergency_dose() {
+        let state = AppState::new();
+        test_fixtures::register(&state, TREATING, Role::Doctor);
+        test_fixtures::register(&state, STRANGER, Role::Doctor);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        crate::care_access::record_encounter(
+            &state,
+            PATIENT,
+            TREATING,
+            "APT-EMERG-MED",
+            Utc::now(),
+        )
+        .await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::administer_medication),
+        )
+        .await;
+        let dose = |who: &'static str| {
+            test::TestRequest::post()
+                .uri("/api/emergency/administer-med")
+                .insert_header(test_fixtures::as_user(who))
+                .set_json(serde_json::json!({
+                    "patient_id": PATIENT, "medication_name": "Adrenaline",
+                    "dose": "1 mg", "route": "IV",
+                }))
+                .to_request()
+        };
+        let refused = test::call_service(&app, dose(STRANGER)).await;
+        assert_eq!(refused.status().as_u16(), 403);
+        let body: serde_json::Value = test::read_body_json(refused).await;
+        assert_eq!(body["code"], "CARE_RELATIONSHIP_REQUIRED");
+        assert_eq!(body["break_glass_available"], true);
+
+        let recorded = test::call_service(&app, dose(TREATING)).await;
+        assert_eq!(
+            recorded.status().as_u16(),
+            200,
+            "the treating doctor records the dose"
+        );
     }
 }

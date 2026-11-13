@@ -19,6 +19,6 @@ labels: enhancement
 ## Constraints this must respect
 
 - [ ] Works offline / on constrained connectivity
-- [ ] No personal health information on-chain
+- [ ] No personal health information in audit events or checkpoints
 - [ ] Access is auditable
 - [ ] Does not require a hospital to surrender data custody

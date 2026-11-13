@@ -76,7 +76,7 @@ pub async fn list_sync_devices(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -102,7 +102,7 @@ pub async fn get_sync_status(
     path: web::Path<String>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let device_id = path.into_inner();
@@ -130,7 +130,7 @@ pub async fn register_sync_device(
     req: web::Json<RegisterDeviceRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -261,7 +261,7 @@ pub async fn perform_sync(
     req: web::Json<SyncRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -360,7 +360,7 @@ pub async fn get_sync_conflicts(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -396,7 +396,7 @@ pub async fn resolve_sync_conflict(
     req: web::Json<ResolveConflictRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let conflict_id = path.into_inner();
@@ -467,7 +467,7 @@ pub async fn get_sync_queue(
     path: web::Path<String>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -490,13 +490,13 @@ pub async fn download_offline_data(
 ) -> impl Responder {
     let patient_id = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
     // Auth check
     // Horizon HZ-024: this used to accept any caller whose id merely *began*
-    // with "0xPROV". Wallet addresses are opaque, caller-supplied identifiers,
+    // with "0xPROV". User id addresses are opaque, caller-supplied identifiers,
     // so that let an unauthenticated request forge provider status with a
     // header and read any patient. Resolve the role from the user store, as
     // `get_symptom_checker_history` already does.
@@ -526,7 +526,7 @@ pub async fn download_offline_data(
     let records = data
         .repositories
         .medical_records
-        .get_by_patient(&patient_id, pagination.clone())
+        .get_by_patient(&patient_id, pagination)
         .await;
     let records = match records {
         Ok(result) => result.items,

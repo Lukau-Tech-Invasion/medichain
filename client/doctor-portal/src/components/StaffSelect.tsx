@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../store';
-import { clickable, getProviders } from '@medichain/shared';
+import { clickable, getProviders, useTranslation } from '@medichain/shared';
 import { Search, ChevronDown, Loader2, X, UserCircle } from 'lucide-react';
 
+// ux-allow(no-form): rendered inside other pages' forms, where a nested <form> is invalid; Enter is handled on the control itself.
+
 export interface StaffMember {
-  wallet_address: string;
+  user_id: string;
   name: string;
   role: string;
   username?: string;
@@ -22,7 +24,7 @@ interface StaffSelectProps {
   id?: string;
   /** Filter by role: 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist', 'Admin' */
   roleFilter?: string;
-  /** If true, returns the staff name instead of wallet address */
+  /** If true, returns the staff name instead of the user id */
   returnName?: boolean;
 }
 
@@ -49,6 +51,7 @@ export default function StaffSelect({
   returnName = false,
 }: StaffSelectProps) {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -97,13 +100,13 @@ export default function StaffSelect({
     (s.username?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  // Get selected staff details for display (check by wallet address or name)
+  // Get selected staff details for display (check by user id or name)
   const selectedStaff = staff.find(s => 
-    s.wallet_address === value || s.name === value
+    s.user_id === value || s.name === value
   );
 
   const handleSelect = (member: StaffMember) => {
-    const returnValue = returnName ? member.name : member.wallet_address;
+    const returnValue = returnName ? member.name : member.user_id;
     onChange(returnValue, member);
     setSearchTerm('');
     setIsOpen(false);
@@ -140,18 +143,38 @@ export default function StaffSelect({
     }
   };
 
+  // Most staff fields name the person filling in the form: one tap, not a search.
+  const me = user ? staff.find(s => s.user_id === user.userId) : undefined;
+  const meSelected = me && (value === me.user_id || value === me.name);
+
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
-      {label && (
-        <label htmlFor={id} className="block text-sm font-medium text-content-secondary mb-2">
-          {label} {required && <span className="text-critical">*</span>}
-        </label>
+      {(label || (me && !disabled)) && (
+        <div className="mb-2 flex items-end justify-between gap-2">
+          {label ? (
+            <label htmlFor={id} className="block text-sm font-medium text-content-secondary">
+              {label} {required && <span className="text-critical">*</span>}
+            </label>
+          ) : <span />}
+          {me && !disabled && !meSelected && (
+            <button
+              type="button"
+              onClick={() => handleSelect(me)}
+              aria-label={t('kit.meFor', { field: label ?? placeholder })}
+              className="mc-press min-h-[36px] rounded-lg border border-border-interactive px-3 text-sm font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            >
+              {t('kit.me')}
+            </button>
+          )}
+        </div>
       )}
       
       <div className="relative">
         {/* Selected staff display or search input */}
         {selectedStaff && !isOpen ? (
-          <div 
+          <div
+            id={id}
+            aria-label={label ? `${label}: ${selectedStaff.name}` : selectedStaff.name}
             className={`
               w-full flex items-center justify-between px-4 py-2.5 
               border border-border-strong rounded-lg 
@@ -179,6 +202,7 @@ export default function StaffSelect({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); handleClear(); }}
+                  aria-label="Clear selected staff"
                   className="p-1 hover:bg-surface-sunken rounded"
                 >
                   <X size={16} className="text-content-muted" />
@@ -238,13 +262,13 @@ export default function StaffSelect({
             ) : (
               filteredStaff.map((member) => (
                 <button
-                  key={member.wallet_address}
+                  key={member.user_id}
                   type="button"
                   onClick={() => handleSelect(member)}
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
                     hover:bg-surface-sunken transition-colors
-                    ${value === member.wallet_address || value === member.name ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
+                    ${value === member.user_id || value === member.name ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
                   `}
                 >
                   <div className="w-8 h-8 bg-notice-subtle dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
@@ -256,6 +280,7 @@ export default function StaffSelect({
                     <p className="font-medium text-content truncate">
                       {member.name}
                     </p>
+                    <p className="break-all text-xs text-content-muted">{member.username || member.user_id}</p>
                     <div className="flex items-center gap-2 text-xs text-content-muted">
                       <span className={`inline-block px-1.5 py-0.5 rounded ${getRoleColor(member.role)}`}>
                         {member.role}

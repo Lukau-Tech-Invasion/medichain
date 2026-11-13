@@ -1,5 +1,6 @@
 //! In-memory I/O record repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     DateRange, IORecordEntity, IORecordRepository, PaginatedResult, Pagination, RepositoryError,
     RepositoryResult,
@@ -25,7 +26,7 @@ impl MemoryIORecordRepository {
 #[async_trait]
 impl IORecordRepository for MemoryIORecordRepository {
     async fn create(&self, mut record: IORecordEntity) -> RepositoryResult<IORecordEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&record.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -71,7 +72,7 @@ impl IORecordRepository for MemoryIORecordRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<IORecordEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("I/O record with ID {} not found", id))
         })
@@ -83,7 +84,7 @@ impl IORecordRepository for MemoryIORecordRepository {
         date: NaiveDate,
         shift: &str,
     ) -> RepositoryResult<Option<IORecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let record = storage
             .values()
@@ -99,7 +100,7 @@ impl IORecordRepository for MemoryIORecordRepository {
         date_range: Option<DateRange>,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<IORecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<IORecordEntity> = storage
             .values()
@@ -143,7 +144,7 @@ impl IORecordRepository for MemoryIORecordRepository {
     }
 
     async fn update(&self, mut record: IORecordEntity) -> RepositoryResult<IORecordEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&record.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -172,7 +173,7 @@ impl IORecordRepository for MemoryIORecordRepository {
     }
 
     async fn get_negative_balance_patients(&self) -> RepositoryResult<Vec<IORecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let negative_balance: Vec<IORecordEntity> = storage
             .values()
@@ -187,7 +188,7 @@ impl IORecordRepository for MemoryIORecordRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<IORecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<IORecordEntity> = storage.values().cloned().collect();
 
@@ -195,6 +196,7 @@ impl IORecordRepository for MemoryIORecordRepository {
             b.record_date
                 .cmp(&a.record_date)
                 .then_with(|| a.shift.cmp(&b.shift))
+                .then_with(|| a.id.cmp(&b.id))
         });
 
         let total = records.len() as u64;
