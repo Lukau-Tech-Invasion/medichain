@@ -18,7 +18,7 @@
 # redeem_as, act_code, provision_patient, code, body, jget.
 
 ACTORS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SYN_PASSWORD="${SYN_PASSWORD:-SyntheticE2E!2026}"
+SYN_PASSWORD="${SYN_PASSWORD:-Riverbed!Lantern-2026}"
 
 actors_init() {
   ACTOR_DIR=$(mktemp -d)

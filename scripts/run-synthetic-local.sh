@@ -37,6 +37,11 @@ export CLINIC_UTC_OFFSET_MINUTES=${CLINIC_UTC_OFFSET_MINUTES:-120}
 
 export RUST_LOG=info
 
+# Metrics are read with a bearer token, as production reads them. Set here
+# explicitly: the API loads the repository's .env, and a METRICS_TOKEN there
+# would otherwise decide what this run asserts.
+export METRICS_TOKEN=${METRICS_TOKEN:-synthetic-metrics-token-2026}
+
 # 8090 is the API's default (see api/src/main.rs): 8080 belongs to the IPFS
 # (kubo) gateway, and an API bound there steals it — every record download then
 # resolves IPFS_GATEWAY_URL back to the API itself and 404s as a misleading

@@ -42,7 +42,9 @@ RESULTS=()
 # password below, and keeps the bearer token under this key. `code ... "$DOCTOR"`
 # then sends that account's token. The account's user id (`users.id`, what every
 # actor column holds) is `$(uid "$DOCTOR")`.
-SYN_PASSWORD='SyntheticE2E!2026'
+# It contains no account's name or login: the server refuses one that does
+# (PASSWORD_CONTAINS_IDENTITY), and the first admin is "Synthetic Admin".
+SYN_PASSWORD='Riverbed!Lantern-2026'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/actors.sh
 . "$SCRIPT_DIR/lib/actors.sh"
@@ -198,7 +200,11 @@ check "metrics REFUSE an unauthenticated caller" 401 "$(code GET /api/metrics)"
 # ---------------------------------------------------------------------------
 say "1. Bootstrap + accounts (synthetic)"
 ADMIN_LOGIN=synadmin
-c=$(code POST /api/auth/bootstrap "{\"login_id\":\"$ADMIN_LOGIN\",\"name\":\"Synthetic Admin\",\"auth_proof\":\"$(proof "$ADMIN_LOGIN" "$SYN_PASSWORD")\",\"secret_key\":\"$BOOTSTRAP_KEY\"}")
+# Bootstrap takes no password. It answers with a one-time credential code, and
+# the administrator sets a password by redeeming it, as every other account
+# does. This harness still sent an `auth_proof` the server ignored, then signed
+# in with a password that had never been set, so it aborted on a fresh database.
+c=$(code POST /api/auth/bootstrap "{\"login_id\":\"$ADMIN_LOGIN\",\"name\":\"Synthetic Admin\",\"secret_key\":\"$BOOTSTRAP_KEY\"}")
 # A rejected key means this is not the server this suite starts — almost always
 # a stale process on :8090, or the Docker stack answering by accident. Say so
 # and stop, rather than emitting 200 confusing failures against the wrong build.
@@ -209,6 +215,10 @@ if [ "$c" = "403" ]; then
   exit 2
 fi
 check_any "bootstrap first admin" "200 201 409" "$c" "$(body)"
+if [ "$c" != "409" ]; then
+  ADMIN_CODE=$(jget credential_code)
+  check "the bootstrapped administrator redeems the one-time code" 200     "$(redeem_as "$ADMIN" "$ADMIN_LOGIN" "$ADMIN_CODE" "$ADMIN_LOGIN")" "$(body)"
+fi
 c=$(login_as "$ADMIN" "$ADMIN_LOGIN")
 if [ "$c" != "200" ]; then
   printf '\033[31mABORT\033[0m the administrator cannot sign in (%s): %s\n' "$c" "$(body | head -c 300)"
@@ -261,9 +271,15 @@ check "doctor CANNOT register users (privilege escalation)" 403 "$c" "$(body)"
 c=$(code POST /api/auth/register '{"name":"Anon","role":"Admin","login_id":"syn.anon"}')
 check "anonymous CANNOT register users" 401 "$c" "$(body)"
 
-# The positive half of the metrics control: a registered caller still gets them,
-# so the endpoint is authenticated rather than simply broken.
-check "metrics readable by a known user" 200 "$(code GET /api/metrics '' "$ADMIN")"
+# The positive half of the metrics control: the scrape token still reads them,
+# so the endpoint is authenticated rather than simply broken. A signed-in
+# session is not what authorises a scrape (api/src/middleware/metrics.rs); this
+# used to assert the demo-only fallback that accepts one, and the API reads the
+# repository's .env, whose METRICS_TOKEN turns that fallback off.
+METRICS_TOKEN=${METRICS_TOKEN:-synthetic-metrics-token-2026}
+check "metrics readable with the scrape token" 200 \
+  "$(curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -H "Authorization: Bearer $METRICS_TOKEN" "$BASE/api/metrics")"
+check "metrics REFUSE an administrator's session token" 401 "$(code GET /api/metrics '' "$ADMIN")"
 # A forged credential must NOT satisfy it — a string that is not a token is not identity.
 check "metrics REFUSE a forged credential" 401 "$(code GET /api/metrics '' 0xPROVforged)"
 
@@ -326,6 +342,20 @@ c=$(code POST /api/register "$(mkpatient 'Unauthorized Reg' '1990-01-01' 'SYN-X'
 check "anonymous CANNOT register a patient" 401 "$c" "$(body)"
 
 # ---------------------------------------------------------------------------
+# Reading or charting on a patient now needs a care relationship (a patient
+# grant, an encounter, a ward assignment, or break-glass). This harness predates
+# that gate, so the access-log read and the dose below were refused with
+# CARE_RELATIONSHIP_REQUIRED. The adult patient authorises the doctor and the
+# nurse who treat them, as the role journeys do; section 6 still exercises the
+# request/approve/revoke cycle on a grant of its own.
+CARE_EXPIRY=$(python -c 'from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) + timedelta(days=1)).isoformat().replace("+00:00", "Z"))')
+for provider in "$DOCTOR" "$PARAMEDIC"; do
+  code POST "/api/access/patient/$PAT_ADULT/requests" '{"reason":"Treating this patient during the synthetic run"}' "$provider" >/dev/null
+  CARE_REQ=$(jget request id)
+  check "the adult patient authorises $provider" 200 \
+    "$(code POST "/api/access/requests/$CARE_REQ/approve" "{\"expires_at\":\"$CARE_EXPIRY\"}" "$ACT_ADULT")" "$(body)"
+done
+
 say "3. Emergency capsule (HZ-003) — publish / revoke / access log"
 c=$(code POST "/api/patients/$PAT_ADULT/emergency-capsule" '' "$DOCTOR")
 check "doctor publishes capsule v2" 200 "$c" "$(body)"
@@ -1006,12 +1036,15 @@ check "a typo'd status is refused rather than applied" 400 "$(st complete)"
 check "  the completed status persisted" 200 "$(code GET "/api/appointments/$APT_ID" '' "$DOCTOR")"
 check "  status reads back as Completed" "Completed" "$(jget status)"
 
-# WF-006: the portal's Cancel button sends no body at all, and the handler
-# used to require one, so every cancellation 400'd before reaching the code.
+# WF-006: the portal's Cancel button used to 400 before reaching the code.
+# Cancellation is now a status transition (`/cancel` was folded into
+# `/status`), and it carries a reason, which is recorded on the appointment.
 book_appointment "$DOCTOR_ID" "$T2" follow-up "Cancellation path" "$DOCTOR" >/dev/null
 CANCEL_ID=$(jget appointment_id)
-check "cancel works with no request body (the dead button)" 200 \
-  "$(code POST "/api/appointments/$CANCEL_ID/cancel" '' "$DOCTOR")" "$(body)"
+check "cancelling without a reason is refused" 400 \
+  "$(code POST "/api/appointments/$CANCEL_ID/status" '{"status":"cancelled"}' "$DOCTOR")" "$(body)"
+check "cancel works through the status transition, with a reason" 200 \
+  "$(code POST "/api/appointments/$CANCEL_ID/status" '{"status":"cancelled","reason":"Patient asked to rebook"}' "$DOCTOR")" "$(body)"
 
 # ---------------------------------------------------------------------------
 say "21. Booking telehealth creates a real, gated session (WF-014)"

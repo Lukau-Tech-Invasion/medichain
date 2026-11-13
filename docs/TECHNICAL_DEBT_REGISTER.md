@@ -4835,3 +4835,48 @@ beside Save now, and a refusal moves focus to the field at fault: the patient
 search, or the ASA group, which is marked `aria-invalid` and points at the
 message until a class is chosen (`PreOpPage.test.tsx`, "refuses to save
 without an ASA class").
+
+## 2026-11-13 — Synthetic e2e harness on a fresh database: brought current; four product findings
+
+The harness had not been run since 2026-10-04 and aborted at step 1 on a fresh
+PostgreSQL database. Seven things had moved under it; all are fixed in the
+harness, not the product:
+
+  * Bootstrap takes no password: it returns a one-time credential code, which
+    the administrator redeems. The harness sent an `auth_proof` the server
+    ignored, then signed in with a password that was never set.
+  * Its password, `SyntheticE2E!2026`, contained the first admin's name and was
+    refused (`PASSWORD_CONTAINS_IDENTITY`), correctly.
+  * Metrics are read with `METRICS_TOKEN`; a session token is refused. The API
+    loads the repository's `.env`, whose token turned off the demo fallback the
+    harness asserted. `run-synthetic-local.sh` now sets its own token, and the
+    harness asserts the token reads metrics and an admin's session does not.
+  * Reading a chart or charting a dose needs a care relationship. The adult
+    patient now grants the doctor and the nurse actor access, as the journeys do.
+  * Appointment cancellation is a status transition with a required reason.
+
+Result: 263/10 -> **272 passed, 5 failed**. The five are product findings, left
+failing on purpose:
+
+**OPEN — needs a product change:**
+
+  * **A patient cannot read their own IV sites.** The patient surface
+    (`middleware/patient_surface.rs`, 08184ab) closed `/api/clinical/iv-sites`
+    to patients and nothing replaced it; nothing patient-facing reads
+    `iv_assessments`. Rule 10. `docs/PATIENT_VISIBILITY_WORKFLOWS.md` still
+    lists IV sites as reachable from the patient app.
+  * **A pharmacist can dispense a prescription their own dashboard never
+    lists.** Dispensing needs only a staff role; `/api/dashboard/pharmacist`
+    keeps only prescriptions whose patient the pharmacist has chart authority
+    over, so a new prescription is invisible to the queue it is meant for.
+  * **An unauthenticated mutation is answered 409 `IDEMPOTENCY_AUTH_REQUIRED`,
+    not 401** (no token, or a forged one). The idempotency middleware answers
+    before authentication does.
+
+**OPEN — needs an owner decision:**
+
+  * **No patient can set up the lockscreen medical ID** (two assertions).
+    `POST /api/mobile/devices/register` and `.../lockscreen-token` are not on
+    the patient surface, because no patient app calls them. Either a patient
+    app enrols a device and the two routes are opened, or the feature is
+    retired.
