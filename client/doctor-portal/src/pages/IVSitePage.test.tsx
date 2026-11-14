@@ -30,6 +30,13 @@ const selectPatient = async () => {
   await pickPatient('', 'Test Patient', 'ivsite-patient-search');
 };
 
+/** Nothing is pre-chosen (rule 9): location, catheter type and gauge are entered. */
+function chooseSite() {
+  fireEvent.change(document.getElementById('iv-location')!, { target: { value: 'right-hand' } });
+  fireEvent.change(document.getElementById('iv-catheter-type')!, { target: { value: 'peripheral' } });
+  fireEvent.click(screen.getByRole('button', { name: '20G' }));
+}
+
 describe('IVSitePage', () => {
   const mockUser = {
     userId: '5GrwvaEF...mock',
@@ -53,6 +60,7 @@ describe('IVSitePage', () => {
     render(<IVSitePage />);
     await selectPatient();
     fireEvent.click(screen.getByRole('button', { name: 'Add New Site' }));
+    chooseSite();
     fireEvent.click(screen.getByRole('button', { name: 'Add IV Site' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save All IV Records' }));
     await waitFor(() => expect(shared.createIvSite).toHaveBeenCalledTimes(1));
@@ -61,6 +69,17 @@ describe('IVSitePage', () => {
     expect(site.id).toBeUndefined();
     expect(site).not.toHaveProperty('draft');
     expect(site.location).toBe('right-hand');
+  });
+
+  it('refuses a site nobody described instead of charting a right-hand 20G cannula', async () => {
+    render(<IVSitePage />);
+    await selectPatient();
+    fireEvent.click(screen.getByRole('button', { name: 'Add New Site' }));
+    expect(document.getElementById('iv-location')!).toHaveValue('');
+    expect(screen.getByRole('button', { name: '20G' })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Add IV Site' }));
+    expect(screen.getByText(/Choose the site location, catheter type and gauge/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Assess Site' })).not.toBeInTheDocument();
   });
 
   it('renders IV site page', () => {
@@ -124,6 +143,7 @@ describe('IVSitePage', () => {
     render(<IVSitePage />);
     await selectPatient();
     fireEvent.click(screen.getByRole('button', { name: 'Add New Site' }));
+    chooseSite();
     fireEvent.click(screen.getByRole('button', { name: 'Add IV Site' }));
     fireEvent.click(screen.getByRole('button', { name: 'Discontinue' }));
     expect(screen.getByRole('button', { name: 'Confirm discontinuation' })).toBeDisabled();
@@ -140,6 +160,7 @@ describe('IVSitePage', () => {
     render(<IVSitePage />);
     await selectPatient();
     fireEvent.click(screen.getByRole('button', { name: 'Add New Site' }));
+    chooseSite();
     fireEvent.click(screen.getByRole('button', { name: 'Add IV Site' }));
     fireEvent.click(screen.getByRole('button', { name: 'Assess Site' }));
     // Nothing chosen for the dressing: no chip is selected.

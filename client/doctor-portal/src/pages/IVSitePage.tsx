@@ -188,13 +188,10 @@ export default function IVSitePage() {
   const [discontinuingSiteId, setDiscontinuingSiteId] = useState<string | null>(null);
   const [discontinuationReason, setDiscontinuationReason] = useState('');
 
-  // New site form
-  const [newSite, setNewSite] = useState<Partial<IVSite>>({
-    location: 'right-hand',
-    locationDetail: '',
-    catheterType: 'peripheral',
-    gauge: '20G'
-  });
+  // New site form. Nothing is pre-chosen (rule 9): it opened on a 20G
+  // peripheral cannula in the right hand, and a site added without touching
+  // the form was charted as exactly that.
+  const [newSite, setNewSite] = useState<Partial<IVSite>>({ locationDetail: '' });
 
   // New assessment form
   const [newAssessment, setNewAssessment] = useState<Partial<IVAssessment>>({
@@ -336,7 +333,13 @@ export default function IVSitePage() {
   };
 
   const addNewSite = () => {
-    if (!selectedPatient || !newSite.location) return;
+    if (!selectedPatient) return;
+    // Where the line is, what it is and its gauge are the site itself.
+    if (!newSite.location || !newSite.catheterType || !newSite.gauge) {
+      setError(t('docIVSite.errorChooseSite'));
+      return;
+    }
+    setError('');
 
     const site: IVSite = {
       // A local key only. The page used to send `IV-${Date.now()}` as the
@@ -346,17 +349,17 @@ export default function IVSitePage() {
       patientId: selectedPatient.patient_id,
       location: newSite.location,
       locationDetail: newSite.locationDetail || '',
-      catheterType: newSite.catheterType || 'peripheral',
-      gauge: newSite.gauge || '20G',
+      catheterType: newSite.catheterType,
+      gauge: newSite.gauge,
       insertedBy: user?.userId || 'Unknown',
       insertedAt: new Date().toISOString(),
-      expiresAt: calculateExpiration(newSite.catheterType || 'peripheral'),
+      expiresAt: calculateExpiration(newSite.catheterType),
       isActive: true,
       assessments: []
     };
 
     setIvSites(prev => [...prev, site]);
-    setNewSite({ location: 'right-hand', locationDetail: '', catheterType: 'peripheral', gauge: '20G' });
+    setNewSite({ locationDetail: '' });
     setActiveTab('sites');
     setSuccess(t('docIVSite.successSiteAdded'));
     setTimeout(() => setSuccess(''), 3000);
@@ -833,10 +836,11 @@ export default function IVSitePage() {
                             <label htmlFor="iv-location" className="block text-sm font-medium text-content-secondary mb-2">{t('docIVSite.locationLabel')}</label>
                             <select
                               id="iv-location"
-                              value={newSite.location}
-                              onChange={(e) => setNewSite({ ...newSite, location: e.target.value as SiteLocation })}
+                              value={newSite.location ?? ''}
+                              onChange={(e) => setNewSite({ ...newSite, location: (e.target.value || undefined) as SiteLocation | undefined })}
                               className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-blue-500"
                             >
+                              <option value="">{t('docIVSite.locationNotChosen')}</option>
                               {Object.entries(locationLabels).map(([value, label]) => (
                                 <option key={value} value={value}>{label}</option>
                               ))}
@@ -860,10 +864,11 @@ export default function IVSitePage() {
                             <label htmlFor="iv-catheter-type" className="block text-sm font-medium text-content-secondary mb-2">{t('docIVSite.catheterTypeLabel')}</label>
                             <select
                               id="iv-catheter-type"
-                              value={newSite.catheterType}
-                              onChange={(e) => setNewSite({ ...newSite, catheterType: e.target.value as CatheterType })}
+                              value={newSite.catheterType ?? ''}
+                              onChange={(e) => setNewSite({ ...newSite, catheterType: (e.target.value || undefined) as CatheterType | undefined })}
                               className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-blue-500"
                             >
+                              <option value="">{t('docIVSite.catheterTypeNotChosen')}</option>
                               {Object.entries(catheterTypes).map(([value, label]) => (
                                 <option key={value} value={value}>{label}</option>
                               ))}
@@ -876,7 +881,8 @@ export default function IVSitePage() {
                                 <button
                                   key={g}
                                   type="button"
-                                  onClick={() => setNewSite({ ...newSite, gauge: g })}
+                                  aria-pressed={newSite.gauge === g}
+                                  onClick={() => setNewSite({ ...newSite, gauge: newSite.gauge === g ? undefined : g })}
                                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                                     newSite.gauge === g
                                       ? 'bg-blue-600 text-white'

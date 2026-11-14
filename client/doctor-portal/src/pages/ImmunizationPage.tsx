@@ -177,19 +177,22 @@ const ImmunizationPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<VaccinationStatus | 'all'>('all');
 
+  // Nothing is pre-chosen (rule 9): the form opened on dose 1 of 1 of a
+  // COVID-19 vaccine given intramuscularly into the left deltoid, and filed
+  // that for whatever was actually given.
   const [newVaccine, setNewVaccine] = useState({
     patientId: '',
-    vaccineType: 'covid-19' as VaccineType,
+    vaccineType: '' as VaccineType | '',
     vaccineName: '',
     manufacturer: '',
     lotNumber: '',
     expiryDate: '',
     administrationDate: '',
     dose: '',
-    route: 'intramuscular' as AdministrationRoute,
-    site: 'left-deltoid' as AdministrationSite,
-    doseNumber: 1,
-    totalDoses: 1,
+    route: '' as AdministrationRoute | '',
+    site: '' as AdministrationSite | '',
+    doseNumber: null as number | null,
+    totalDoses: null as number | null,
     nextDueDate: '',
     consentObtained: false,
     consentBy: '',
@@ -298,6 +301,12 @@ const ImmunizationPage: React.FC = () => {
     if (!validate(newVaccine)) {
       return;
     }
+    // Which vaccine, how and where it went in, and which dose it was are the
+    // administration itself; the API requires route, site and dose number.
+    if (!newVaccine.vaccineType || !newVaccine.route || !newVaccine.site || !newVaccine.doseNumber) {
+      setError(t('docImmunization.chooseAdministration'));
+      return;
+    }
 
     // Resolved on the server: the first page of the directory held nobody past the fiftieth.
     // Usually already resolved when the patient was chosen; awaiting only when it
@@ -310,21 +319,21 @@ const ImmunizationPage: React.FC = () => {
       administrationId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
-      vaccineType: newVaccine.vaccineType,
+      vaccineType: newVaccine.vaccineType as VaccineType,
       vaccineName: newVaccine.vaccineName,
       manufacturer: newVaccine.manufacturer,
       lotNumber: newVaccine.lotNumber,
       expiryDate: newVaccine.expiryDate,
       dose: newVaccine.dose,
-      route: newVaccine.route,
-      site: newVaccine.site,
+      route: newVaccine.route as AdministrationRoute,
+      site: newVaccine.site as AdministrationSite,
       // Display only: the server records the authenticated caller as the
       // administering clinician, whatever this says.
       administeredBy: user?.userId ?? '',
       administeredAt: newVaccine.administrationDate,
       status: 'administered',
-      doseNumber: newVaccine.doseNumber,
-      totalDoses: newVaccine.totalDoses,
+      doseNumber: newVaccine.doseNumber ?? undefined,
+      totalDoses: newVaccine.totalDoses ?? undefined,
       nextDueDate: newVaccine.nextDueDate || undefined,
       consentObtained: newVaccine.consentObtained,
       consentBy: newVaccine.consentBy || undefined,
@@ -353,11 +362,11 @@ const ImmunizationPage: React.FC = () => {
         administration_date: newAdmin.administeredAt,
         dose_number: newVaccine.doseNumber,
         dose_amount: newAdmin.dose || undefined,
-        total_doses: newAdmin.totalDoses,
+        total_doses: newAdmin.totalDoses ?? undefined,
         next_dose_due: newAdmin.nextDueDate,
-        patient_consent: newAdmin.consentObtained,
+        patient_consent: newAdmin.consentObtained || undefined,
         consent_by: newAdmin.consentBy,
-        vfc_eligible: newAdmin.vfcEligible,
+        vfc_eligible: newAdmin.vfcEligible || undefined,
         route: API_ROUTES[newAdmin.route],
         site: newAdmin.site,
         adverse_reaction: newAdmin.adverseReactions,
@@ -368,17 +377,17 @@ const ImmunizationPage: React.FC = () => {
         void fetchImmunizations();
         setNewVaccine({
           patientId: '',
-          vaccineType: 'covid-19',
+          vaccineType: '',
           vaccineName: '',
           manufacturer: '',
           lotNumber: '',
           expiryDate: '',
           administrationDate: '',
           dose: '',
-          route: 'intramuscular',
-          site: 'left-deltoid',
-          doseNumber: 1,
-          totalDoses: 1,
+          route: '',
+          site: '',
+          doseNumber: null,
+          totalDoses: null,
           nextDueDate: '',
           consentObtained: false,
           consentBy: '',
@@ -682,9 +691,10 @@ const ImmunizationPage: React.FC = () => {
                 <select
                   id="imm-vaccine-type"
                   value={newVaccine.vaccineType}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, vaccineType: e.target.value as VaccineType })}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, vaccineType: e.target.value as VaccineType | '' })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
+                  <option value="">{t('docImmunization.vaccineTypeNotChosen')}</option>
                   <option value="covid-19">{t('docImmunization.vaccineType_covid-19')}</option>
                   <option value="influenza">{t('docImmunization.vaccineType_influenza')}</option>
                   <option value="hepatitis-b">{t('docImmunization.vaccineType_hepatitis-b')}</option>
@@ -791,8 +801,8 @@ const ImmunizationPage: React.FC = () => {
                 <ChoiceChips
                   id="imm-route"
                   label={t('docImmunization.routeRequired')}
-                  value={newVaccine.route}
-                  onChange={(next) => { if (next === undefined) return; setNewVaccine({ ...newVaccine, route: next as AdministrationRoute }); }}
+                  value={newVaccine.route || undefined}
+                  onChange={(next) => setNewVaccine({ ...newVaccine, route: (next ?? '') as AdministrationRoute | '' })}
                   options={[
                     { value: 'intramuscular', label: t('docImmunization.route_intramuscular') },
                     { value: 'subcutaneous', label: t('docImmunization.route_subcutaneous') },
@@ -807,8 +817,8 @@ const ImmunizationPage: React.FC = () => {
                 <ChoiceChips
                   id="imm-site"
                   label={t('docImmunization.siteRequired')}
-                  value={newVaccine.site}
-                  onChange={(next) => { if (next === undefined) return; setNewVaccine({ ...newVaccine, site: next as AdministrationSite }); }}
+                  value={newVaccine.site || undefined}
+                  onChange={(next) => setNewVaccine({ ...newVaccine, site: (next ?? '') as AdministrationSite | '' })}
                   options={[
                     { value: 'left-deltoid', label: t('docImmunization.site_left-deltoid') },
                     { value: 'right-deltoid', label: t('docImmunization.site_right-deltoid') },
@@ -826,8 +836,8 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-dose-number"
                   type="number"
                   min="1"
-                  value={newVaccine.doseNumber}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, doseNumber: parseInt(e.target.value) })}
+                  value={newVaccine.doseNumber ?? ''}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, doseNumber: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
@@ -838,8 +848,8 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-total-doses"
                   type="number"
                   min="1"
-                  value={newVaccine.totalDoses}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, totalDoses: parseInt(e.target.value) })}
+                  value={newVaccine.totalDoses ?? ''}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, totalDoses: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>

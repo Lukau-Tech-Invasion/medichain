@@ -6460,6 +6460,9 @@ const en_US: TranslationRecord = {
     planHeading: 'Plan',
   },
   docIVSite: {
+    errorChooseSite: 'Choose the site location, catheter type and gauge.',
+    locationNotChosen: 'Choose the location',
+    catheterTypeNotChosen: 'Choose the catheter type',
     errorLoadSites: 'The IV sites for this patient could not be loaded. Reload to try again; do not assume there are none.',
     notRecorded: 'Not recorded',
     discontinuationReason: 'Reason for discontinuation',
@@ -6591,6 +6594,8 @@ const en_US: TranslationRecord = {
     notRecorded: 'Not recorded',
     administrationDate: 'Administration date',
     actualDateRequired: 'Enter the actual administration date.',
+    chooseAdministration: 'Choose the vaccine type, route, site and dose number.',
+    vaccineTypeNotChosen: 'Choose the vaccine type',
     title: 'Immunization Management',
     subtitle: 'Vaccine administration, tracking, and registry integration',
     errorLoad: 'Failed to load immunizations',
