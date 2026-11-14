@@ -113,6 +113,9 @@ pub const PATIENT_SURFACE: &[(&str, &str)] = &[
     // medical-id
     ("GET", "/api/medical-id/{patient_id}"),
     ("GET", "/api/medical-id/{patient_id}/qr"),
+    // Read with the device capability the phone holds, never a session; the
+    // handler refuses anything else (DEVICE_BINDING_REQUIRED).
+    ("GET", "/api/medical-id/{patient_id}/lockscreen"),
     // messages
     ("GET", "/api/messages"),
     ("GET", "/api/messages/attachments/{attachment_id}"),
@@ -209,7 +212,10 @@ pub const PATIENT_SURFACE: &[(&str, &str)] = &[
     ("POST", "/api/messages/send"),
     ("POST", "/api/messages/{message_id}/attachments"),
     ("POST", "/api/messages/{message_id}/read"),
-    // mobile
+    // mobile -- the Expo app enrols the patient's own phone and fetches the
+    // short-lived capability its lock-screen medical ID is read with.
+    ("POST", "/api/mobile/devices/register"),
+    ("POST", "/api/mobile/devices/{id}/lockscreen-token"),
     ("POST", "/api/mobile/devices/{id}/revoke"),
     // nfc
     ("POST", "/api/nfc/verify-mine"),

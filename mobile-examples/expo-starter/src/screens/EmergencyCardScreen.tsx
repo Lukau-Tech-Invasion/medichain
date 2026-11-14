@@ -8,9 +8,11 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, ActivityIndicator, Switch } from 'react-native';
 import { apiClient } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { forgetPhone, isPhoneEnrolled, refreshPhoneCard, type SavedCard } from '../lockscreen/phoneCard';
+import { PhoneCardView } from '../lockscreen/PhoneCardView';
 
 interface EmergencyInfo {
   blood_type?: string;
@@ -76,6 +78,8 @@ export function EmergencyCardScreen() {
       <ListField label="Chronic Conditions" values={info.chronic_conditions} empty="None recorded" />
       <ListField label="Current Medications" values={info.current_medications} empty="None recorded" />
 
+      {user?.healthId ? <PhoneLockscreenSection patientId={user.healthId} /> : null}
+
       <View style={styles.card}>
         <Text style={styles.cardLabel}>Emergency Contact</Text>
         <Text style={styles.cardValue}>
@@ -87,6 +91,74 @@ export function EmergencyCardScreen() {
         ) : null}
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * Whether this phone shows the medical ID while locked. Turning it on records
+ * the patient's choice, enrols the phone and saves the card; turning it off
+ * revokes the phone and deletes the card from it. While on, opening this
+ * screen refreshes the saved card.
+ */
+function PhoneLockscreenSection({ patientId }: { patientId: string }) {
+  const [enabled, setEnabled] = useState(false);
+  const [saved, setSaved] = useState<SavedCard | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!(await isPhoneEnrolled(patientId))) return;
+      if (active) setEnabled(true);
+      try {
+        const fresh = await refreshPhoneCard(patientId);
+        if (active) setSaved(fresh);
+      } catch {
+        if (active) setMessage('Could not refresh the card; the copy on this phone is unchanged.');
+      }
+    })();
+    return () => { active = false; };
+  }, [patientId]);
+
+  const toggle = async (next: boolean) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (next) {
+        await apiClient.post(`/api/medical-id/${encodeURIComponent(patientId)}/preferences`, { show_when_locked: true });
+        setSaved(await refreshPhoneCard(patientId));
+        setEnabled(true);
+      } else {
+        await forgetPhone('Patient turned off the lock-screen medical ID');
+        await apiClient.post(`/api/medical-id/${encodeURIComponent(patientId)}/preferences`, { show_when_locked: false });
+        setSaved(null);
+        setEnabled(false);
+      }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'That did not work. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.row}>
+        <Text style={[styles.cardLabel, styles.flex]}>Show on this phone when locked</Text>
+        <Switch
+          value={enabled}
+          onValueChange={toggle}
+          disabled={busy}
+          accessibilityLabel="Show my medical ID on this phone when it is locked"
+        />
+      </View>
+      <Text style={styles.muted}>
+        A responder can read your blood type, allergies and contact without unlocking the app.
+      </Text>
+      {message ? <Text style={styles.error}>{message}</Text> : null}
+      {saved ? <View style={styles.preview}><PhoneCardView saved={saved} /></View> : null}
+    </View>
   );
 }
 
@@ -129,4 +201,7 @@ const styles = StyleSheet.create({
   highlight: { fontSize: 28, fontWeight: '800', color: '#b91c1c' },
   muted: { fontSize: 15, color: '#94a3b8', marginTop: 4 },
   error: { color: '#dc2626', margin: 12 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  flex: { flex: 1 },
+  preview: { marginTop: 12 },
 });

@@ -16,6 +16,22 @@ import NetInfo from '@react-native-community/netinfo';
 import { getOfflineQueue, OfflineQueue } from '../../services/offlineQueue';
 import { deriveAuthProof } from '../auth/proof';
 
+/** Cryptographically random bytes (`react-native-get-random-values`, loaded in index.js). */
+export function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytes;
+}
+
+/** A version-4 UUID for the Idempotency-Key header. */
+export function newIdempotencyKey(): string {
+  const b = randomBytes(16);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 /** Resolve the API base URL from env / emulator defaults. */
 export function getApiBaseUrl(): string {
   const envUrl =
@@ -165,6 +181,19 @@ export class MobileApiClient {
     return resp.json() as Promise<T>;
   }
 
+  /**
+   * A read authorised by a capability rather than the session: the lock-screen
+   * medical ID is fetched with a short-lived device token and the device id,
+   * never with the patient's access token.
+   */
+  async getWithCapability<T>(path: string, headers: Record<string, string>): Promise<T> {
+    const resp = await fetch(`${this.baseUrl}${path}`, {
+      headers: { Accept: 'application/json', ...headers },
+    });
+    if (!resp.ok) throw new Error(`GET ${path} failed: ${resp.status}`);
+    return resp.json() as Promise<T>;
+  }
+
   async post<T>(path: string, body: unknown, opts?: { description?: string }): Promise<T> {
     const netState = await NetInfo.fetch();
     if (netState.isConnected === false) {
@@ -172,9 +201,12 @@ export class MobileApiClient {
     }
 
     try {
+      // The API refuses an authenticated write without an Idempotency-Key
+      // (409 IDEMPOTENCY_KEY_REQUIRED). This client never sent one, so every
+      // write it made was refused. One key per call: each is its own intent.
       const resp = await fetch(`${this.baseUrl}${path}`, {
         method: 'POST',
-        headers: this.headers(),
+        headers: this.headers({ 'Idempotency-Key': newIdempotencyKey() }),
         body: JSON.stringify(body),
       });
       if (!resp.ok) throw new Error(`POST ${path} failed: ${resp.status}`);

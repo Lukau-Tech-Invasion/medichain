@@ -13,6 +13,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { apiClient, MfaRequiredError } from '../api/client';
+import { forgetPhone } from '../lockscreen/phoneCard';
 
 export interface MobileUser {
   userId: string;
@@ -94,6 +95,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // The lock-screen card leaves the phone with the session: revoked on the
+    // account while the session can still do it, deleted locally regardless.
+    await forgetPhone('Signed out').catch(() => undefined);
     apiClient.clear();
     setUser(null);
     setUnlocked(false);

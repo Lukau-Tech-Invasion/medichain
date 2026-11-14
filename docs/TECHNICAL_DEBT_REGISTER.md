@@ -4890,10 +4890,29 @@ failing on purpose:
     Verified on fresh databases: harness 276/2 (the two left are the lockscreen
     decision below), cross-role 163/163, API suite 1125 passed.
 
-**OPEN — needs an owner decision:**
+**DECIDED and DONE (2026-11-14, owner: open it to patients) — the lockscreen
+medical ID.** `POST /api/mobile/devices/register`,
+`POST /api/mobile/devices/{id}/lockscreen-token` and the capability-read
+`GET /api/medical-id/{patient_id}/lockscreen` are on the patient surface, and
+the Expo app uses them: "Show on this phone when locked" on its Emergency
+screen records the choice, enrols the phone (a P-256 key pair kept in secure
+storage), reads the card with a fresh capability and saves it on the phone;
+the app's locked screen shows the saved card with the time it was saved;
+turning it off or signing out revokes the phone and deletes the card. The
+capability lives five minutes and needs a session to issue, which is why the
+card is cached rather than fetched while locked. Harness on a fresh database:
+**278 passed, 0 failed**.
 
-  * **No patient can set up the lockscreen medical ID** (two assertions).
-    `POST /api/mobile/devices/register` and `.../lockscreen-token` are not on
-    the patient surface, because no patient app calls them. Either a patient
-    app enrols a device and the two routes are opened, or the feature is
-    retired.
+Found on the way: the Expo client sent no `Idempotency-Key`, so every write it
+made had been refused since the idempotency middleware landed; it sends one
+per write now. Its typecheck had also failed since 2026-09-30 on an error code
+missing from its own union.
+
+**OPEN, recorded as follow-ups:**
+
+  * A native lock-screen surface (iOS widget or Android lock-screen
+    notification). The Expo starter shows the card on the app's own locked
+    screen; drawing on the phone's lock screen needs native code.
+  * The server stores the device's public key and does not yet verify a
+    signature with it. The binding today is the server-signed, device-scoped
+    capability plus the device being active.

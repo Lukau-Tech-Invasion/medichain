@@ -17,6 +17,7 @@
     "buffer": "^6.0.3",
     "events": "^3.3.0",
     "expo": "~48.0.0",
+    "elliptic": "^6.6.1",
     "expo-barcode-scanner": "^12.3.0",
     "expo-constants": "~14.2.0",
     "expo-linking": "~4.0.0",
