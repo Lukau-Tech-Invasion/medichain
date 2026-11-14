@@ -98,7 +98,7 @@ interface AutopsyReport {
   autopsyId: string;
   patientId: string;
   patientName: string;
-  autopsyType: AutopsyType;
+  autopsyType?: AutopsyType;
   dateOfDeath: string;
   dateOfAutopsy: string;
   timeOfAutopsy: string;
@@ -111,7 +111,8 @@ interface AutopsyReport {
   externalExam: ExternalExamination;
   internalExam: InternalExamination;
   causeOfDeath: string;
-  mannerOfDeath: MannerOfDeath;
+  /** A legal determination: absent until the pathologist records one. */
+  mannerOfDeath?: MannerOfDeath;
   contributingFactors?: string;
   toxicology?: ToxicologyResult[];
   histology?: HistologyResult[];
@@ -150,7 +151,9 @@ const AutopsyPage: React.FC = () => {
 
   const [newAutopsy, setNewAutopsy] = useState({
     patientId: '',
-    autopsyType: 'hospital' as AutopsyType,
+    // Nothing is pre-chosen (rule 9): a report opened as a hospital autopsy
+    // with a natural manner of death, a legal finding nobody had made.
+    autopsyType: '' as AutopsyType | '',
     dateOfDeath: '',
     dateOfAutopsy: '',
     timeOfAutopsy: '',
@@ -175,7 +178,7 @@ const AutopsyPage: React.FC = () => {
     musculoskeletal: '',
     nervous: '',
     causeOfDeath: '',
-    mannerOfDeath: 'natural' as MannerOfDeath,
+    mannerOfDeath: '' as MannerOfDeath | '',
     contributingFactors: '',
     microbiologyFindings: '',
     radiologyFindings: '',
@@ -224,7 +227,7 @@ const AutopsyPage: React.FC = () => {
       autopsyId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
-      autopsyType: newAutopsy.autopsyType,
+      autopsyType: newAutopsy.autopsyType || undefined,
       dateOfDeath: newAutopsy.dateOfDeath,
       dateOfAutopsy: newAutopsy.dateOfAutopsy,
       timeOfAutopsy: newAutopsy.timeOfAutopsy,
@@ -255,7 +258,7 @@ const AutopsyPage: React.FC = () => {
         nervous: newAutopsy.nervous,
       },
       causeOfDeath: newAutopsy.causeOfDeath,
-      mannerOfDeath: newAutopsy.mannerOfDeath,
+      mannerOfDeath: newAutopsy.mannerOfDeath || undefined,
       contributingFactors: newAutopsy.contributingFactors || undefined,
       microbiologyFindings: newAutopsy.microbiologyFindings || undefined,
       radiologyFindings: newAutopsy.radiologyFindings || undefined,
@@ -276,7 +279,7 @@ const AutopsyPage: React.FC = () => {
         void fetchAutopsies();
         setNewAutopsy({
           patientId: '',
-          autopsyType: 'hospital',
+          autopsyType: '',
           dateOfDeath: '',
           dateOfAutopsy: '',
           timeOfAutopsy: '',
@@ -301,7 +304,7 @@ const AutopsyPage: React.FC = () => {
           musculoskeletal: '',
           nervous: '',
           causeOfDeath: '',
-          mannerOfDeath: 'natural',
+          mannerOfDeath: '',
           contributingFactors: '',
           microbiologyFindings: '',
           radiologyFindings: '',
@@ -465,9 +468,11 @@ const AutopsyPage: React.FC = () => {
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(autopsy.status)}`}>
                         {t(`docAutopsy.status_${autopsy.status}`).toUpperCase()}
                       </span>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getMannerBadge(autopsy.mannerOfDeath)}`}>
-                        {t(`docAutopsy.manner_${autopsy.mannerOfDeath}`).toUpperCase()}
-                      </span>
+                      {autopsy.mannerOfDeath && (
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getMannerBadge(autopsy.mannerOfDeath)}`}>
+                          {t(`docAutopsy.manner_${autopsy.mannerOfDeath}`).toUpperCase()}
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-content-muted">{t('docAutopsy.caseLabel', { value: autopsy.caseNumber || t('docAutopsy.caseNotAssigned') })}</p>
                   </div>
@@ -650,8 +655,8 @@ const AutopsyPage: React.FC = () => {
                 <ChoiceChips
                   id="autopsy-autopsy-type"
                   label={t('docAutopsy.autopsyTypeLabel')}
-                  value={newAutopsy.autopsyType}
-                  onChange={(next) => { if (next === undefined) return; setNewAutopsy({ ...newAutopsy, autopsyType: next as AutopsyType }); }}
+                  value={newAutopsy.autopsyType || undefined}
+                  onChange={(next) => setNewAutopsy({ ...newAutopsy, autopsyType: (next ?? '') as AutopsyType | '' })}
                   options={[
                     { value: 'hospital', label: t('docAutopsy.type_hospital') },
                     { value: 'forensic', label: t('docAutopsy.type_forensic') },
@@ -968,8 +973,8 @@ const AutopsyPage: React.FC = () => {
                   <ChoiceChips
                     id="autopsy-manner-of-death"
                     label={t('docAutopsy.mannerOfDeathLabel')}
-                    value={newAutopsy.mannerOfDeath}
-                    onChange={(next) => { if (next === undefined) return; setNewAutopsy({ ...newAutopsy, mannerOfDeath: next as MannerOfDeath }); }}
+                    value={newAutopsy.mannerOfDeath || undefined}
+                    onChange={(next) => setNewAutopsy({ ...newAutopsy, mannerOfDeath: (next ?? '') as MannerOfDeath | '' })}
                     options={[
                       { value: 'natural', label: t('docAutopsy.manner_natural') },
                       { value: 'accident', label: t('docAutopsy.manner_accident') },
