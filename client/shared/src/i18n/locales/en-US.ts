@@ -3643,7 +3643,7 @@ const en_US: TranslationRecord = {
     allReviewed: 'All lab results have been reviewed',
     adjustFilters: 'Try adjusting your filters',
     submittedAt: 'Submitted {{date}} at {{time}}',
-    byUser: 'by {{name}}',
+    byLabel: 'by',
     testResults: 'Test Results',
     colParameter: 'Parameter',
     colValue: 'Value',

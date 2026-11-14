@@ -32,6 +32,7 @@ import PatientSelect from '../components/PatientSelect';
 import { workspacePath } from '../workspace/forms';
 import { usePatientWorkspace } from '../workspace/PatientWorkspaceContext';
 import { PatientName } from '../components/PatientName';
+import StaffName from '../components/StaffName';
 
 interface LabTestResult {
   parameter: string;
@@ -661,7 +662,8 @@ function LabResultsPage() {
                           <Clock size={12} />
                           <span>{t('docLabResults.submittedAt', { date, time })}</span>
                           <span className="text-content-muted" aria-hidden="true">•</span>
-                          <span>{t('docLabResults.byUser', { name: submission.submitted_by })}</span>
+                          {/* The submitter by name: the review queue showed the account's UUID. */}
+                          <span>{t('docLabResults.byLabel')} <StaffName id={submission.submitted_by} /></span>
                         </div>
                       </div>
                     </div>
