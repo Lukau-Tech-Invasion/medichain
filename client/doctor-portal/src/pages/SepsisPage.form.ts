@@ -53,6 +53,8 @@ export interface SepsisForm {
   antibioticsGiven: string[];
   /** Millilitres, kept as typed. An empty box is "not recorded", not 0 mL. */
   fluidVolume: string;
+  /** Kilograms, kept as typed. Without one there is no 30 mL/kg target. */
+  weightKg: string;
   vasopressorType: string;
   narrative: string;
 }
@@ -81,7 +83,7 @@ export function emptySepsisForm(): SepsisForm {
       { id: 'perfusion_check', label: 'Reassess Tissue Perfusion', description: 'Check cap refill, skin mottling', completed: false },
     ],
     infectionSource: '', suspectedOrganism: '', antibioticsGiven: [],
-    fluidVolume: '', vasopressorType: '', narrative: '',
+    fluidVolume: '', weightKg: '', vasopressorType: '', narrative: '',
   };
 }
 
@@ -186,6 +188,7 @@ export function toSepsisRequest(
       fluid_volume_ml: measured(form.fluidVolume),
       vasopressor: form.vasopressorType,
     },
+    weight_kg: measured(form.weightKg),
     vasopressors_required: Boolean(form.vasopressorType),
     protocol_start_time: filing.protocolStartTime,
     elapsed_minutes: filing.elapsedMinutes,

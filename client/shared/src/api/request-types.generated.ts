@@ -326,6 +326,7 @@ export interface CreateSepsisRequest {
   infection?: unknown;
   bundle_completion?: unknown;
   treatment?: unknown;
+  weight_kg?: number | null;
   vasopressors_required?: boolean;
   icu_admission?: boolean;
   protocol_start_time?: string | null;

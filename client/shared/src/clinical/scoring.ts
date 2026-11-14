@@ -165,6 +165,12 @@ export interface ScoringCatalog {
     /** Minutes after the scheduled time before a dose counts as overdue. */
     overdue_after_minutes: number;
   };
+  /** Sepsis fluid dose and lactate cut-points; absent on an older server. */
+  sepsis?: {
+    fluid_ml_per_kg: number;
+    lactate_caution_at_or_above: number;
+    lactate_critical_at_or_above: number;
+  };
   /** The qSOFA screen's cut-points; absent on an older server. */
   qsofa?: {
     respiratory_rate_at_or_above: number;
@@ -511,6 +517,28 @@ export function isDoseOverdue(
  * the screen was done. Returns `null` until the catalog has supplied the
  * cut-points -- the page shows a dash rather than a score from its own numbers.
  */
+/**
+ * The 30 mL/kg crystalloid target, as a live preview of what the server
+ * stores. Null without a usable weight or before the catalog loads: there is
+ * no target for a patient nobody weighed, and never a 70 kg one.
+ */
+export function sepsisFluidTargetPreview(weightKg: number | null, catalog: ScoringCatalog | null): number | null {
+  const perKg = catalog?.sepsis?.fluid_ml_per_kg;
+  if (perKg === undefined || weightKg === null || !Number.isFinite(weightKg) || weightKg <= 0 || weightKg > 500) {
+    return null;
+  }
+  return Math.round(weightKg * perKg);
+}
+
+/** A lactate reading's band from the catalog's cut-points; null until it loads. */
+export function lactateBand(mmolL: number, catalog: ScoringCatalog | null): 'normal' | 'caution' | 'critical' | null {
+  const cut = catalog?.sepsis;
+  if (!cut || !Number.isFinite(mmolL) || mmolL < 0) return null;
+  if (mmolL >= cut.lactate_critical_at_or_above) return 'critical';
+  if (mmolL >= cut.lactate_caution_at_or_above) return 'caution';
+  return 'normal';
+}
+
 export function qsofaPreview(
   observations: { respiratoryRate: number | null; systolicBP: number | null; gcs: number | null },
   catalog: ScoringCatalog | null,

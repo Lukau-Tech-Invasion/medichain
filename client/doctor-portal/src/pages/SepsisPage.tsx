@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useReducer } from 'react';
 import {
-  emptySepsisForm, sepsisFormReducer, toSepsisRequest,
+  emptySepsisForm, sepsisFormReducer, toSepsisRequest, measured,
   type SepsisClassification, type SepsisForm, type SepsisFormAction, type SofaField,
 } from './SepsisPage.form';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest, useScoringCatalog, qsofaPreview } from '@medichain/shared';
+import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest, useScoringCatalog, qsofaPreview, sepsisFluidTargetPreview, lactateBand } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
 import {
   Thermometer,
@@ -64,7 +64,7 @@ export default function SepsisPage() {
     respiratoryRate, systolicBP, gcsScore, pao2fio2, respiratorySupport, platelets,
     bilirubin, map, creatinine, urineOutput, noradrenaline, lactateReadings,
     newLactate, classification, hour1Bundle, hour3Bundle, infectionSource, suspectedOrganism,
-    antibioticsGiven, fluidVolume, vasopressorType, narrative,
+    antibioticsGiven, fluidVolume, weightKg, vasopressorType, narrative,
   } = form;
   const setField = <K extends keyof SepsisForm>(field: K, value: SepsisForm[K]) =>
     dispatch({ type: 'set', field, value } as SepsisFormAction);
@@ -76,6 +76,13 @@ export default function SepsisPage() {
   // the page holds none of its own, and shows a dash until they arrive. Once
   // filed it is the server's score.
   const { catalog } = useScoringCatalog();
+  // 30 mL/kg for this patient's weight; null until a weight is entered.
+  const fluidTarget = sepsisFluidTargetPreview(measured(weightKg) ?? null, catalog);
+  const LACTATE_TONE = {
+    critical: { surface: 'bg-critical-subtle', text: 'text-critical-subtle-fg' },
+    caution: { surface: 'bg-caution-subtle', text: 'text-caution-subtle-fg' },
+    normal: { surface: 'bg-ok-subtle', text: 'text-ok-subtle-fg' },
+  } as const;
   const qsofa = savedScores?.qsofa
     ?? qsofaPreview({ respiratoryRate, systolicBP, gcs: gcsScore }, catalog);
   // The total is only shown for a complete screen: 1/3 from one observation
@@ -592,17 +599,17 @@ export default function SepsisPage() {
                   {lactateReadings.length === 0 ? (
                     <p className="text-sm text-content-muted text-center py-4">{t('docSepsis.noLactateReadings')}</p>
                   ) : (
-                    lactateReadings.map((reading, index) => (
-                      <div key={index} className={`p-3 rounded-lg flex justify-between items-center ${
-                        reading.value >= 4 ? 'bg-critical-subtle' : reading.value >= 2 ? 'bg-caution-subtle' : 'bg-ok-subtle'
-                      }`}>
+                    lactateReadings.map((reading, index) => {
+                      // Bands from the scoring catalog (rule 8); uncoloured until it loads.
+                      const band = lactateBand(reading.value, catalog);
+                      const tone = band ? LACTATE_TONE[band] : { surface: 'bg-surface-sunken', text: 'text-content' };
+                      return (
+                      <div key={index} className={`p-3 rounded-lg flex justify-between items-center ${tone.surface}`}>
                         <div>
-                          <span className={`text-lg font-bold ${
-                            reading.value >= 4 ? 'text-critical-subtle-fg' : reading.value >= 2 ? 'text-caution-subtle-fg' : 'text-ok-subtle-fg'
-                          }`}>
+                          <span className={`text-lg font-bold ${tone.text}`}>
                             {reading.value} mmol/L
                           </span>
-                          {reading.value >= 4 && (
+                          {band === 'critical' && (
                             <span className="ml-2 text-xs bg-critical-subtle text-critical-subtle-fg px-2 py-0.5 rounded">{t('docSepsis.critical')}</span>
                           )}
                         </div>
@@ -610,7 +617,8 @@ export default function SepsisPage() {
                           {formatTimestamp(reading.timestamp, { timeStyle: 'short' })}
                         </span>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
                 {lactateReadings.length >= 2 && (
@@ -693,6 +701,19 @@ export default function SepsisPage() {
                 </h2>
                 <div className="space-y-4">
                   <div>
+                    <label htmlFor="sepsis-weight" className="block text-sm font-medium text-content-secondary mb-1">
+                      {t('docSepsis.weightLabel')}
+                    </label>
+                    <input
+                      id="sepsis-weight"
+                      type="number"
+                      inputMode="decimal"
+                      value={weightKg}
+                      onChange={(e) => setField('weightKg', e.target.value)}
+                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                  <div>
                     <label htmlFor="sepsis-fluid-volume" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docSepsis.crystalloidVolume')}
                     </label>
@@ -702,16 +723,20 @@ export default function SepsisPage() {
                       value={fluidVolume}
                       onChange={(e) => {
                         setField('fluidVolume', e.target.value);
-                        if (Number(e.target.value) >= 2000) {
+                        // Ticked only against this patient's own target. With no
+                        // weight there is no target, and the clinician ticks it.
+                        if (fluidTarget !== null && Number(e.target.value) >= fluidTarget) {
                           completeBundleItem('hour1', 'fluids');
                         }
                       }}
                       placeholder={t('docSepsis.fluidVolumePlaceholder')}
                       className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
-                    {selectedPatientData && Number(fluidVolume) > 0 && (
+                    {selectedPatientData && (
                       <p className="text-xs text-content-muted mt-1">
-                        {t('docSepsis.fluidTarget', { volume: Math.round(70 * 30) })}
+                        {fluidTarget !== null
+                          ? t('docSepsis.fluidTarget', { volume: fluidTarget, weight: weightKg })
+                          : t('docSepsis.fluidTargetNeedsWeight')}
                       </p>
                     )}
                   </div>

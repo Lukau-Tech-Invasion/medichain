@@ -4709,7 +4709,7 @@ when `resolve_chart_access` grants a treating authority now, and filters the
 other three panels to those patients (`nurse_list_tests`). The page labels the
 list "My Patients" and says why it is empty when it is.
 
-## 2026-11-12 — OPEN: the sepsis fluid hint assumes every patient weighs 70 kg
+## 2026-11-12 — CLOSED 2026-11-14: the sepsis fluid hint assumed every patient weighs 70 kg
 
 `SepsisPage.tsx` shows the 30 mL/kg crystalloid target as `Math.round(70 * 30)`
 (2,100 mL) for every patient. A 45 kg woman is told to give 2,100 mL instead of
@@ -4719,13 +4719,22 @@ target is not computed by the server. Fix: take the patient's recorded weight
 `api/src/clinical_scoring.rs`, and show nothing when no weight is known (rule
 12). The same hint ticks the "30 mL/kg" bundle item at a flat 2,000 mL.
 
-## 2026-11-12 — OPEN: the sepsis lactate colour bands are literals in the page
+## 2026-11-12 — CLOSED 2026-11-14: the sepsis lactate colour bands were literals in the page
 
 `SepsisPage.tsx` colours each lactate reading critical at `>= 4` and caution at
 `>= 2` mmol/L, written into the component. Rule 8 says thresholds a page needs
 come from `GET /api/clinical/scoring/catalog`; the qSOFA preview on the same
 page was moved there on 2026-11-12. Fix: add the two cut-points to the catalog
 and read them, as the qSOFA preview does.
+
+**Closed 2026-11-14, with the fluid hint above.** The catalog serves
+`sepsis.fluid_ml_per_kg` and the two lactate cut-points
+(`api/src/clinical_scoring.rs`). The page has a weight field; the target is
+`sepsisFluidTargetPreview` (30 mL/kg of that weight) and is absent, with "Enter
+the weight", when none is entered. The bundle's fluids item ticks itself only
+against that target. The server computes `fluid_target_ml` from `weight_kg`
+and stores and returns it. Lactate readings are banded by `lactateBand` from
+the catalog and stay uncoloured until it loads.
 
 ## 2026-11-12 — OPEN: two API wrappers with no screen, which look unfinished rather than dead
 

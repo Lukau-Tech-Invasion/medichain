@@ -333,6 +333,10 @@ pub struct CreateSepsisRequest {
     pub bundle_completion: serde_json::Value,
     #[serde(default)]
     pub treatment: serde_json::Value,
+    /// The weight the 30 mL/kg fluid target is computed from. Absent, there is
+    /// no target, never a 70 kg one.
+    #[serde(default)]
+    pub weight_kg: Option<f64>,
     #[serde(default)]
     pub vasopressors_required: bool,
     #[serde(default)]
@@ -400,6 +404,9 @@ pub async fn create_sepsis(
         return response;
     }
 
+    let fluid_target_ml = body
+        .weight_kg
+        .and_then(crate::clinical_scoring::sepsis_fluid_target_ml);
     let mut record = serde_json::to_value(&body).unwrap_or_default();
     if let Some(obj) = record.as_object_mut() {
         obj.insert("assessment_id".to_string(), serde_json::json!(id));
@@ -415,6 +422,10 @@ pub async fn create_sepsis(
         obj.insert(
             "documented_by".to_string(),
             serde_json::json!(current_user_id),
+        );
+        obj.insert(
+            "fluid_target_ml".to_string(),
+            serde_json::json!(fluid_target_ml),
         );
     }
 
@@ -450,6 +461,7 @@ pub async fn create_sepsis(
             "success": true,
             "qsofa": qsofa,
             "sofa": sofa,
+            "fluid_target_ml": fluid_target_ml,
         })),
         Err(e) => {
             log::error!("sepsis assessment persistence failed: {e}");

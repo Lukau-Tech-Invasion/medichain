@@ -595,6 +595,39 @@ pub const QSOFA_GCS_BELOW: i32 = 15;
 /// A qSOFA of 2 or more is a positive screen.
 pub const QSOFA_POSITIVE_THRESHOLD: u8 = 2;
 
+/// Initial crystalloid for sepsis-induced hypoperfusion: 30 mL per kg.
+pub const SEPSIS_FLUID_ML_PER_KG: f64 = 30.0;
+/// Lactate at or above this (mmol/L) is raised: a caution.
+pub const LACTATE_CAUTION_MMOL_L: f64 = 2.0;
+/// Lactate at or above this (mmol/L) is critical (septic shock range).
+pub const LACTATE_CRITICAL_MMOL_L: f64 = 4.0;
+
+/// The 30 mL/kg crystalloid target for this patient, in whole millilitres.
+///
+/// `None` without a usable weight. The page used to show 70 kg x 30 = 2,100 mL
+/// for everyone: a 45 kg woman was told 2,100 mL instead of 1,350, a 110 kg
+/// man 2,100 instead of 3,300. With no weight there is no target (rule 12).
+pub fn sepsis_fluid_target_ml(weight_kg: f64) -> Option<i32> {
+    if !weight_kg.is_finite() || weight_kg <= 0.0 || weight_kg > 500.0 {
+        return None;
+    }
+    Some((weight_kg * SEPSIS_FLUID_ML_PER_KG).round() as i32)
+}
+
+/// Band a lactate reading: `normal`, `caution` or `critical`.
+pub fn lactate_band(mmol_l: f64) -> Option<&'static str> {
+    if !mmol_l.is_finite() || mmol_l < 0.0 {
+        return None;
+    }
+    Some(if mmol_l >= LACTATE_CRITICAL_MMOL_L {
+        "critical"
+    } else if mmol_l >= LACTATE_CAUTION_MMOL_L {
+        "caution"
+    } else {
+        "normal"
+    })
+}
+
 /// qSOFA result, with the working shown.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct QsofaResult {
@@ -1728,6 +1761,11 @@ pub fn catalog() -> serde_json::Value {
                 { "level": fluid_balance_band(FLUID_BALANCE_POSITIVE_HIGH_ML + 1), "min_ml": FLUID_BALANCE_POSITIVE_HIGH_ML },
             ],
         },
+        "sepsis": {
+            "fluid_ml_per_kg": SEPSIS_FLUID_ML_PER_KG,
+            "lactate_caution_at_or_above": LACTATE_CAUTION_MMOL_L,
+            "lactate_critical_at_or_above": LACTATE_CRITICAL_MMOL_L,
+        },
         "qsofa": {
             "respiratory_rate_at_or_above": QSOFA_RESPIRATORY_RATE,
             "systolic_bp_at_or_below": QSOFA_SYSTOLIC_BP,
@@ -1954,6 +1992,27 @@ mod tests {
             relationship: relationship.to_string(),
             age_of_onset: onset,
         }
+    }
+
+    #[test]
+    fn sepsis_fluid_target_follows_the_weight_and_needs_one() {
+        assert_eq!(sepsis_fluid_target_ml(45.0), Some(1350));
+        assert_eq!(sepsis_fluid_target_ml(110.0), Some(3300));
+        assert_eq!(sepsis_fluid_target_ml(0.0), None);
+        assert_eq!(sepsis_fluid_target_ml(-3.0), None);
+        assert_eq!(sepsis_fluid_target_ml(f64::NAN), None);
+        assert_eq!(sepsis_fluid_target_ml(900.0), None, "not a human weight");
+    }
+
+    #[test]
+    fn lactate_bands_at_the_catalog_cut_points() {
+        assert_eq!(lactate_band(1.9), Some("normal"));
+        assert_eq!(lactate_band(2.0), Some("caution"));
+        assert_eq!(lactate_band(3.9), Some("caution"));
+        assert_eq!(lactate_band(4.0), Some("critical"));
+        assert_eq!(lactate_band(f64::NAN), None);
+        assert_eq!(catalog()["sepsis"]["lactate_critical_at_or_above"], 4.0);
+        assert_eq!(catalog()["sepsis"]["fluid_ml_per_kg"], 30.0);
     }
 
     #[test]
