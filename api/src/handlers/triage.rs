@@ -450,7 +450,10 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
         }
     };
 
-    let users = data.users.read().unwrap();
+    let users = data
+        .users
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let current_user = match users.get(&current_user_id) {
         Some(user) => user,
         None => {

@@ -34,7 +34,10 @@ pub(crate) fn require_known_user(
     data: &web::Data<AppState>,
     user_id: &str,
 ) -> Result<User, HttpResponse> {
-    let users = data.users.read().unwrap();
+    let users = data
+        .users
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     match users.get(user_id) {
         Some(u) => Ok(u.clone()),
         None => Err(HttpResponse::Unauthorized().json(ErrorResponse {

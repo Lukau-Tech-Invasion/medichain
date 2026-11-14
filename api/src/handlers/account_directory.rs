@@ -33,7 +33,11 @@ pub async fn get_providers(
         }
     };
 
-    let users = data.users.read().unwrap();
+    // The user cache stays readable after a panic elsewhere poisoned its lock.
+    let users = data
+        .users
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let role_filter = query.get("role").map(|s| s.as_str());
 
     let providers: Vec<serde_json::Value> = users
@@ -259,7 +263,13 @@ pub async fn list_users(
         // active users, so a deactivated account is genuinely unrecoverable in
         // this mode — which is a property of running without persistence, not
         // something this handler can paper over.
-        None => data.users.read().unwrap().values().cloned().collect(),
+        None => data
+            .users
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect(),
     };
 
     let (paginated_users, pagination) = paginate(&user_list, query.page, query.limit);

@@ -79,14 +79,22 @@ impl WsSessionManager {
     /// Subscribe to the broadcast channel, recording the user id.
     /// Returns a `Receiver` that the SSE stream will poll.
     pub fn subscribe(&self, user_id: &str) -> broadcast::Receiver<PushEvent> {
-        let mut subs = self.subscribers.write().unwrap();
+        // A poisoned lock still guards a usable count map; unwrapping it made
+        // every later SSE connection panic until restart.
+        let mut subs = self
+            .subscribers
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *subs.entry(user_id.to_string()).or_insert(0) += 1;
         self.sender.subscribe()
     }
 
     /// Decrement the subscriber count for a user id when a connection closes.
     pub fn unsubscribe(&self, user_id: &str) {
-        let mut subs = self.subscribers.write().unwrap();
+        let mut subs = self
+            .subscribers
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(count) = subs.get_mut(user_id) {
             if *count > 0 {
                 *count -= 1;
