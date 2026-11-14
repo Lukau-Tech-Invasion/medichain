@@ -8848,6 +8848,20 @@ const en_US: TranslationRecord = {
     backToSignIn: 'Back to sign in',
   },
 
+  docReissueActivation: {
+    heading: 'Patient account activation',
+    explain: 'A patient who lost their activation code, or let it expire, cannot sign in. Issue a new code and give it to them in person.',
+    issue: 'Issue a new activation code',
+    issuing: 'Issuing…',
+    confirmTitle: 'Issue a new activation code?',
+    confirmBody: 'The new code replaces any earlier one, which will stop working. Give it only to the patient, in person.',
+    confirmLabel: 'Issue code',
+    issuedBody: 'The patient uses this one-time code to activate their account and choose their own password. It is shown only now; any earlier code no longer works.',
+    alreadyActive: 'This patient has already activated their account. They can reset their password from the sign-in screen.',
+    noAccount: 'This patient has no account to activate.',
+    notYours: 'Only an administrator, or the clinician who registered this patient, can issue a new code.',
+    failed: 'The code could not be issued. Try again.',
+  },
   docActivationCode: {
     copy: 'Copy',
     copied: 'Copied',

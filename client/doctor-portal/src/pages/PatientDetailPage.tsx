@@ -1,5 +1,6 @@
 import { PatientRecordDocuments } from '../components/PatientRecordDocuments';
 import { LatestPediatricAssessment } from '../components/LatestPediatricAssessment';
+import { ReissueActivationCode } from '../components/ReissueActivationCode';
 import { PatientAdministrativeDetails, type PatientAdministrativeData } from '../components/PatientAdministrativeDetails';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
@@ -702,6 +703,8 @@ function PatientDetailPage() {
           {/* Children only: an adult's chart is no place for a paediatric panel. An
               unknown age is not taken to mean adult. */}
           {(ageInYears(patient.dateOfBirth) ?? 0) < 18 && <LatestPediatricAssessment patientId={patientId!} />}
+          {/* Who may issue is decided by the server; these roles may ask. */}
+          {['Admin', 'Doctor', 'Nurse'].includes(String(user?.role)) && <ReissueActivationCode patientId={patientId!} />}
           {/* Dedicated vital-sign chart: separate encounters retain their own observations. */}
           <div className="bg-surface rounded-lg border border-border p-4">
             <div className="flex items-center gap-2 mb-2">
