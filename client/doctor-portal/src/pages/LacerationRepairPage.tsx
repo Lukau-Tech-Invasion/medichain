@@ -45,10 +45,10 @@ interface LacerationRepair {
   injuryDate?: Date;
   repairDate: Date;
   location: string;
-  woundType: WoundType;
+  woundType: WoundType | '';
   length: number;
   depth: string;
-  closureMethod: ClosureMethod;
+  closureMethod: ClosureMethod | '';
   sutureType?: string;
   sutureCount?: number;
   anesthesia: string;
@@ -129,10 +129,10 @@ function toLacerationRepair(raw: Record<string, unknown>): LacerationRepair {
     injuryDate: injuryAt && Number.isFinite(Date.parse(injuryAt)) ? new Date(injuryAt) : undefined,
     repairDate: new Date(performedAt),
     location: str('location'),
-    woundType: (str('wound_type') || 'laceration') as WoundType,
+    woundType: str('wound_type') as WoundType | '',
     length: num('length_cm'),
     depth: str('depth_category'),
-    closureMethod: (str('closure_technique') || 'sutures') as ClosureMethod,
+    closureMethod: str('closure_technique') as ClosureMethod | '',
     sutureType: [str('suture_size'), str('suture_material')].filter(Boolean).join(' ') || undefined,
     sutureCount: (pick('number_of_sutures') as number | undefined) ?? undefined,
     anesthesia: str('anesthetic_agent', 'anesthesia_type'),
@@ -174,13 +174,16 @@ const LacerationRepairPage: React.FC = () => {
   const [newRepair, setNewRepair] = useState({
     patientId: '',
     location: '',
-    woundType: 'laceration' as WoundType,
+    // Nothing is pre-chosen (rule 9): the form opened on a superficial
+    // laceration closed with 4-0 nylon sutures under 1% lidocaine, and filed
+    // that for a wound nobody had described.
+    woundType: '' as WoundType | '',
     length: 0,
-    depth: 'superficial',
-    closureMethod: 'sutures' as ClosureMethod,
-    sutureType: '4-0 Nylon',
+    depth: '',
+    closureMethod: '' as ClosureMethod | '',
+    sutureType: '',
     sutureCount: 0,
-    anesthesia: '1% Lidocaine',
+    anesthesia: '',
     tetanusGiven: false,
     antibioticsPrescribed: false,
     notes: ''
@@ -277,6 +280,11 @@ const LacerationRepairPage: React.FC = () => {
       setSaveError(t('docLaceration.errLengthRequired'));
       return;
     }
+    // How the wound was closed is the repair.
+    if (!newRepair.closureMethod) {
+      setSaveError(t('docLaceration.errClosureRequired'));
+      return;
+    }
 
     // '4-0 Nylon' -> size '4-0', material 'Nylon'.
     const usesSutures =
@@ -289,10 +297,11 @@ const LacerationRepairPage: React.FC = () => {
       location: newRepair.location.trim(),
       length_cm: newRepair.length,
       closure_technique: newRepair.closureMethod,
-      wound_type: newRepair.woundType,
-      depth_category: newRepair.depth,
-      tetanus_given: newRepair.tetanusGiven,
-      antibiotics_prescribed: newRepair.antibioticsPrescribed,
+      wound_type: newRepair.woundType || undefined,
+      depth_category: newRepair.depth || undefined,
+      // A tick is a record; an unticked box is not "not given".
+      tetanus_given: newRepair.tetanusGiven || undefined,
+      antibiotics_prescribed: newRepair.antibioticsPrescribed || undefined,
       performed_at: new Date().toISOString(),
     };
     if (usesSutures && sutureSize && sutureMaterial) {
@@ -316,13 +325,13 @@ const LacerationRepairPage: React.FC = () => {
       setNewRepair({
         patientId: '',
         location: '',
-        woundType: 'laceration',
+        woundType: '',
         length: 0,
-        depth: 'superficial',
-        closureMethod: 'sutures',
-        sutureType: '4-0 Nylon',
+        depth: '',
+        closureMethod: '',
+        sutureType: '',
         sutureCount: 0,
-        anesthesia: '1% Lidocaine',
+        anesthesia: '',
         tetanusGiven: false,
         antibioticsPrescribed: false,
         notes: '',
@@ -493,7 +502,7 @@ const LacerationRepairPage: React.FC = () => {
                     <span className="font-medium">{repair.location}</span>
                   </div>
                   <p className="text-xs text-content-muted">
-                    {getWoundTypeLabel(repair.woundType)} • {repair.length} cm • {repair.closureMethod}
+                    {repair.woundType ? getWoundTypeLabel(repair.woundType) : t('docLaceration.notRecorded')} • {repair.length} cm • {repair.closureMethod || t('docLaceration.notRecorded')}
                     {repair.sutureCount ? ` ${t('docLaceration.countUnit', { count: repair.sutureCount, unit: repair.closureMethod === 'staples' ? t('docLaceration.unitStaples') : t('docLaceration.unitSutures') })}` : ''}
                   </p>
                 </div>
@@ -544,8 +553,8 @@ const LacerationRepairPage: React.FC = () => {
                   <ChoiceChips
                     id="laceration-wound-type"
                     label={t('docLaceration.woundTypeReq')}
-                    value={newRepair.woundType}
-                    onChange={(next) => { if (next === undefined) return; setNewRepair({ ...newRepair, woundType: next as WoundType }); }}
+                    value={newRepair.woundType || undefined}
+                    onChange={(next) => setNewRepair({ ...newRepair, woundType: (next ?? '') as WoundType | '' })}
                     options={[
                       { value: 'laceration', label: t('docLaceration.wtLaceration') },
                       { value: 'abrasion', label: t('docLaceration.wtAbrasion') },
@@ -584,8 +593,8 @@ const LacerationRepairPage: React.FC = () => {
                 <ChoiceChips
                   id="laceration-depth"
                   label={t('docLaceration.depth')}
-                  value={newRepair.depth}
-                  onChange={(next) => { if (next === undefined) return; setNewRepair({ ...newRepair, depth: next }); }}
+                  value={newRepair.depth || undefined}
+                  onChange={(next) => setNewRepair({ ...newRepair, depth: next ?? '' })}
                   options={[
                     { value: 'superficial', label: t('docLaceration.depthSuperficial') },
                     { value: 'partial thickness', label: t('docLaceration.depthPartial') },
@@ -600,8 +609,8 @@ const LacerationRepairPage: React.FC = () => {
                   <ChoiceChips
                     id="laceration-closure-method"
                     label={t('docLaceration.closureReq')}
-                    value={newRepair.closureMethod}
-                    onChange={(next) => { if (next === undefined) return; setNewRepair({ ...newRepair, closureMethod: next as ClosureMethod }); }}
+                    value={newRepair.closureMethod || undefined}
+                    onChange={(next) => setNewRepair({ ...newRepair, closureMethod: (next ?? '') as ClosureMethod | '' })}
                     options={[
                       { value: 'sutures', label: t('docLaceration.clSutures') },
                       { value: 'staples', label: t('docLaceration.clStaples') },
@@ -626,6 +635,7 @@ const LacerationRepairPage: React.FC = () => {
                       onChange={(e) => setNewRepair({ ...newRepair, sutureType: e.target.value })}
                       className="w-full border rounded-lg px-3 py-2"
                     >
+                      <option value="">{t('docLaceration.sutureNotChosen')}</option>
                       {SUTURE_TYPES.map(s => (
                         <option key={s} value={s}>{s}</option>
                       ))}
@@ -772,9 +782,9 @@ const LacerationRepairPage: React.FC = () => {
                 <h4 className="font-medium mb-2">{t('docLaceration.woundDetails')}</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><span className="text-content-muted">{t('docLaceration.lblLocation')}</span> {selectedRepair.location}</div>
-                  <div><span className="text-content-muted">{t('docLaceration.lblType')}</span> {getWoundTypeLabel(selectedRepair.woundType)}</div>
+                  <div><span className="text-content-muted">{t('docLaceration.lblType')}</span> {selectedRepair.woundType ? getWoundTypeLabel(selectedRepair.woundType) : t('docLaceration.notRecorded')}</div>
                   <div><span className="text-content-muted">{t('docLaceration.lblLength')}</span> {selectedRepair.length} cm</div>
-                  <div><span className="text-content-muted">{t('docLaceration.lblDepth')}</span> {selectedRepair.depth}</div>
+                  <div><span className="text-content-muted">{t('docLaceration.lblDepth')}</span> {selectedRepair.depth || t('docLaceration.notRecorded')}</div>
                 </div>
               </div>
 

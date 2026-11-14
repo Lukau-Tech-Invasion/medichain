@@ -20,6 +20,10 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   uploadMedicalRecord: vi.fn(),
 }));
 
+/** Closed with sutures: nothing is pre-chosen any more (rule 9). */
+const chooseSutures = () =>
+  fireEvent.click(document.querySelector('#laceration-closure-method input[value="sutures"]')!);
+
 describe('LacerationRepairPage', () => {
   const mockGet = vi.fn();
 
@@ -79,6 +83,7 @@ describe('LacerationRepairPage', () => {
 
     // The entry form is its own tab; the page opens on the list.
     fireEvent.click(await screen.findByRole('button', { name: /New Repair/i }));
+    chooseSutures();
     const sutureSelect = screen.getByLabelText(/Suture Type/i);
     fireEvent.change(sutureSelect, { target: { value: '5-0 Nylon' } });
     expect(sutureSelect).toHaveValue('5-0 Nylon');
@@ -108,6 +113,8 @@ describe('LacerationRepairPage', () => {
     await selectPatient(/Patient/i, 'Test Patient');
     fillField(/^Location/i, 'Left forearm');
     fireEvent.change(screen.getByLabelText(/Length \(cm\)/i), { target: { value: '3.5' } });
+    chooseSutures();
+    fireEvent.change(screen.getByLabelText(/Suture Type/i), { target: { value: '4-0 Nylon' } });
     fillField(/^Count/i, '4');
     vi.mocked(shared.uploadMedicalRecord).mockResolvedValue({ success: true, ipfs_hash: 'repair-photo' } as never);
     const photo = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'QA.png', { type: 'image/png' });
@@ -140,6 +147,7 @@ describe('LacerationRepairPage', () => {
     await selectPatient(/Patient/i, 'Test Patient');
     fillField(/^Location/i, 'Fictional QA site');
     fireEvent.change(screen.getByLabelText(/Length \(cm\)/i), { target: { value: '2.5' } });
+    chooseSutures();
     fillField(/^Notes/i, 'No treatment occurred');
   }
 

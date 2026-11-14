@@ -4110,6 +4110,8 @@ const en_US: TranslationRecord = {
   },
 
   docLaceration: {
+    errClosureRequired: 'Choose how the wound was closed.',
+    sutureNotChosen: 'Choose the suture',
     savedRefreshFailed: 'The repair was saved, but the list could not be refreshed. Retry the list refresh; do not submit the repair again.',
     retryListRefresh: 'Retry list refresh',
     title: 'Laceration Repair',
