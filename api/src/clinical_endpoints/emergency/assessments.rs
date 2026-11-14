@@ -427,6 +427,27 @@ pub async fn create_sepsis(
             "fluid_target_ml".to_string(),
             serde_json::json!(fluid_target_ml),
         );
+        // Each lactate reading's band, derived here from the catalog cut-points
+        // (rule 8); the page's colours are only a preview of these.
+        let lactate_bands: Vec<Option<&str>> = body
+            .labs
+            .get("lactate_readings")
+            .and_then(|readings| readings.as_array())
+            .map(|readings| {
+                readings
+                    .iter()
+                    .map(|r| {
+                        r.get("value")
+                            .and_then(|v| v.as_f64())
+                            .and_then(crate::clinical_scoring::lactate_band)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        obj.insert(
+            "lactate_bands".to_string(),
+            serde_json::json!(lactate_bands),
+        );
     }
 
     let entity = SepsisAssessmentEntity {
@@ -799,6 +820,63 @@ mod attribution_tests {
 
 /// A crew's handover is recorded with what was entered; the id, the receiver
 /// and the time are the server's.
+#[cfg(test)]
+mod sepsis_derivation_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    /// The fluid target is the server's, from the weight sent, and absent
+    /// without one; each lactate reading is banded at the catalog cut-points.
+    #[actix_web::test]
+    async fn the_fluid_target_and_lactate_bands_are_derived_on_the_server() {
+        let state = AppState::new();
+        crate::test_fixtures::register(&state, "sepsis-doctor", crate::Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-SEPSIS").await;
+        crate::care_access::record_encounter(
+            &state,
+            "PAT-SEPSIS",
+            "sepsis-doctor",
+            "APT-SEPSIS",
+            chrono::Utc::now(),
+        )
+        .await;
+        let data = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(create_sepsis)).await;
+        for (weight, expected) in [
+            (Some(45.0), serde_json::json!(1350)),
+            (None, serde_json::Value::Null),
+        ] {
+            let created: serde_json::Value = test::call_and_read_body_json(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/emergency/sepsis")
+                    .insert_header(crate::test_fixtures::as_user("sepsis-doctor"))
+                    .set_json(serde_json::json!({
+                        "patient_id": "PAT-SEPSIS",
+                        "weight_kg": weight,
+                        "labs": { "lactate_readings": [{ "value": 1.5 }, { "value": 2.4 }, { "value": 5.1 }] },
+                    }))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(created["fluid_target_ml"], expected, "{created}");
+            let id = created["id"].as_str().expect("an id");
+            let stored = data
+                .repositories
+                .sepsis_assessments_repo
+                .get_by_id(id)
+                .await
+                .unwrap();
+            assert_eq!(stored.data["fluid_target_ml"], expected);
+            assert_eq!(
+                stored.data["lactate_bands"],
+                serde_json::json!(["normal", "caution", "critical"])
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod ems_handoff_tests {
     use crate::test_fixtures::{register, seed_patient};
