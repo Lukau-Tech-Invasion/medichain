@@ -26,6 +26,12 @@ describe('handoff model', () => {
     expect(p.stability).toBeUndefined();
   });
 
+  it('keeps a discharge that happened this shift, and nothing for a patient still in a bed', () => {
+    expect(fromDraft({ ...drafted, discharged_at: '2026-11-14T11:20:00Z' }, 'Unknown').dischargedAt)
+      .toBe('2026-11-14T11:20:00Z');
+    expect(fromDraft(drafted, 'Unknown').dischargedAt).toBeUndefined();
+  });
+
   it('starts empty for a patient whose content was not released', () => {
     const p = fromDraft({ ...drafted, content: 'not_permitted', sbar: null }, 'Unknown');
     expect(p.lines.situation).toEqual([]);

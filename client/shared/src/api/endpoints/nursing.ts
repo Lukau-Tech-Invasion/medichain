@@ -308,6 +308,8 @@ export interface HandoffDraftPatient {
    */
   content: 'included' | 'not_permitted' | 'unavailable';
   sbar: HandoffDraftSbar | null;
+  /** When the patient was discharged during this shift; null otherwise. */
+  discharged_at?: string | null;
 }
 
 /** Where a drafted handoff line came from (mockup c2's source chips). */

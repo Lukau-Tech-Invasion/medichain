@@ -8305,6 +8305,7 @@ const en_US: TranslationRecord = {
     selectAll: 'Select all ({{n}} of {{total}})',
     handOverPatient: 'Hand over {{name}}',
     entries: '{{n}} entries',
+    dischargedAt: 'Discharged {{time}}',
     entriesOne: '1 entry',
     listStatus_toReview: 'To review',
     listStatus_reviewed: 'Reviewed',

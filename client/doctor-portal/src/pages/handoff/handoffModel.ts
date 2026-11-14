@@ -36,6 +36,8 @@ export interface PatientHandoff {
   stability?: Stability;
   /** Opened and moved past with "Next patient". */
   reviewed: boolean;
+  /** Discharged during this shift (ISO time); absent while still admitted. */
+  dischargedAt?: string;
   /** How many records the nurse wrote this shift, for the list. */
   entries: number;
   ivAccess: string;
@@ -89,6 +91,7 @@ export function blankPatient(patientId: string, patientName: string, room = ''):
 export function fromDraft(d: HandoffDraftPatient, unreadableName: string): PatientHandoff {
   const patient = blankPatient(d.patient_id, d.full_name ?? unreadableName, d.bed_label ?? '');
   patient.entries = d.recorded.reduce((n, r) => n + r.count, 0);
+  if (d.discharged_at) patient.dischargedAt = d.discharged_at;
   if (d.sbar) {
     patient.lines = {
       situation: linesOf(d.sbar.situation),

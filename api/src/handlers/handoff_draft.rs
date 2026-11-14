@@ -49,6 +49,21 @@ pub struct DraftPatient {
     /// `unavailable` (a record or the audit row could not be written or read).
     pub content: &'static str,
     pub sbar: Option<Sbar>,
+    /// When the patient left during this shift; `None` while still admitted
+    /// or when the discharge was before the shift began.
+    pub discharged_at: Option<chrono::DateTime<Utc>>,
+}
+
+/// The latest admission's discharge time, when it falls within the shift.
+fn discharged_this_shift(
+    admissions: &[crate::repositories::wards::AdmissionEntity],
+    since: chrono::DateTime<Utc>,
+) -> Option<chrono::DateTime<Utc>> {
+    admissions
+        .iter()
+        .max_by_key(|a| a.admitted_at)
+        .and_then(|a| a.discharged_at)
+        .filter(|at| *at >= since)
 }
 
 /// Why the draft read the chart, as the patient sees it in their access history.
@@ -226,9 +241,19 @@ pub async fn shift_handoff_draft(
         let mut recorded: Vec<RecordedKind> = kinds.into_values().collect();
         recorded.sort_by_key(|r| std::cmp::Reverse(r.last_at));
         let (content, sbar) = draft_content(&data, &caller, &req, profile.as_ref(), since).await;
+        // The draft listed a patient discharged mid-shift exactly like one
+        // still in a bed (mockup c2 marks "discharged 11:20").
+        let discharged_at = data
+            .repositories
+            .wards
+            .admissions_of_patient(&patient_id)
+            .await
+            .ok()
+            .and_then(|admissions| discharged_this_shift(&admissions, since));
         patients.push(DraftPatient {
             content,
             sbar,
+            discharged_at,
             bed_label: beds.get(&patient_id).cloned().flatten(),
             full_name: profile.as_ref().map(|p| p.full_name.clone()),
             date_of_birth: profile.as_ref().map(|p| p.date_of_birth.clone()),
@@ -255,7 +280,37 @@ pub async fn shift_handoff_draft(
 
 #[cfg(test)]
 mod tests {
-    use super::is_write;
+    use super::{discharged_this_shift, is_write};
+    use crate::repositories::wards::AdmissionEntity;
+    use chrono::{Duration, Utc};
+
+    fn admission(admitted_hours_ago: i64, discharged_hours_ago: Option<i64>) -> AdmissionEntity {
+        let now = Utc::now();
+        AdmissionEntity {
+            id: format!("ADM-{admitted_hours_ago}"),
+            patient_id: "PAT-1".into(),
+            ward_id: "W-1".into(),
+            bed_label: Some("12".into()),
+            admitted_at: now - Duration::hours(admitted_hours_ago),
+            admitted_by: "nurse".into(),
+            discharged_at: discharged_hours_ago.map(|h| now - Duration::hours(h)),
+            discharged_by: discharged_hours_ago.map(|_| "nurse".into()),
+        }
+    }
+
+    /// Discharged during the shift is marked; still admitted, or discharged
+    /// before the shift and since readmitted, is not.
+    #[test]
+    fn a_discharge_is_marked_only_when_it_happened_this_shift() {
+        let since = Utc::now() - Duration::hours(12);
+        assert!(discharged_this_shift(&[admission(30, Some(3))], since).is_some());
+        assert!(discharged_this_shift(&[admission(30, None)], since).is_none());
+        assert!(discharged_this_shift(&[admission(80, Some(40))], since).is_none());
+        assert!(
+            discharged_this_shift(&[admission(80, Some(40)), admission(5, None)], since).is_none(),
+            "readmitted after an earlier discharge"
+        );
+    }
 
     #[test]
     fn reads_are_not_counted_as_work_done() {

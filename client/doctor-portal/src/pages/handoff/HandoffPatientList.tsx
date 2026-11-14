@@ -5,7 +5,7 @@
  */
 // ux-allow(no-form): rendered inside the shift handoff page form, where a nested <form> is invalid.
 import { Plus } from 'lucide-react';
-import { useTranslation } from '@medichain/shared';
+import { formatTimestamp, useTranslation } from '@medichain/shared';
 import { listStatus, type ListStatus, type PatientHandoff } from './handoffModel';
 
 const STATUS_STYLE: Record<ListStatus, string> = {
@@ -54,7 +54,11 @@ export function HandoffPatientList(props: {
                 <span className={`block truncate font-semibold ${open ? 'text-selected-fg' : 'text-content'}`}>{p.patientName}</span>
                 {/* On the selected row's background, the muted grey measured 4.08:1 in dark mode. */}
                 <span className={`block text-xs ${open ? 'text-selected-fg' : 'text-content-muted'}`}>
-                  {[p.room ? t('myWard.bed', { bed: p.room }) : null, (p.entries === 1 ? t('docShiftHandoff.entriesOne') : t('docShiftHandoff.entries', { n: p.entries }))].filter(Boolean).join(' · ')}
+                  {[
+                    p.room ? t('myWard.bed', { bed: p.room }) : null,
+                    p.dischargedAt ? t('docShiftHandoff.dischargedAt', { time: formatTimestamp(p.dischargedAt, { timeStyle: 'short' }) }) : null,
+                    (p.entries === 1 ? t('docShiftHandoff.entriesOne') : t('docShiftHandoff.entries', { n: p.entries })),
+                  ].filter(Boolean).join(' · ')}
                 </span>
               </button>
               <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[status]}`}>
