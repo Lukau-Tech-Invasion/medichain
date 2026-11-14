@@ -1,4 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { patientProfile } from '../test/fixtures';
+import { selectPatient } from '../test/selectPatient';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TraumaPage from './TraumaPage';
 import { useAuthStore } from '../store/authStore';
@@ -19,6 +21,9 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  createTrauma: vi.fn(),
+  getPatientTraumas: vi.fn().mockResolvedValue([]),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   apiUrl: (path: string) => path,
 }));
 
@@ -42,6 +47,23 @@ describe('TraumaPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
+  });
+
+  it('files no finding nobody recorded: no GCS, no ISS, no primary survey', async () => {
+    vi.mocked(shared.getPatients).mockResolvedValue([patientProfile()]);
+    vi.mocked(shared.createTrauma).mockResolvedValue({ success: true } as never);
+    render(<TraumaPage />);
+    await selectPatient('', 'Test Patient', 'trauma-patient');
+    // The mechanism is the one thing this form requires.
+    fireEvent.change(screen.getByLabelText(/Mechanism of Injury/i), { target: { value: 'Fall from standing height' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(shared.createTrauma).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(shared.createTrauma).mock.calls[0][0];
+    // It used to open on blunt, GCS 15, ISS 0 and a normal survey, and file them.
+    expect(sent.trauma_type).toBeUndefined();
+    expect(sent.gcs_score).toBeUndefined();
+    expect(sent.injury_severity_score).toBeUndefined();
+    expect(sent.notes).toBeUndefined();
   });
 
   it('renders the trauma assessment header', () => {

@@ -30,18 +30,22 @@ export default function TraumaPage() {
   const [historyError, setHistoryError] = useState('');
   const submission = useSubmission('trauma');
   
-  // Trauma Form State
-  const [traumaType, setTraumaType] = useState('blunt');
+  // Trauma Form State. Nothing is pre-chosen (rule 9): the form opened on a
+  // blunt injury, GCS 15, ISS 0 and a primary survey of patent / spontaneous /
+  // stable / alert / nothing found, and filed all of it for a patient nobody
+  // had examined -- an unexamined trauma patient read as an intact one. A
+  // score nobody measured is absent, not 15 or 0 (rule 12).
+  const [traumaType, setTraumaType] = useState('');
   const [mechanism, setMechanism] = useState('');
-  const [gcsScore, setGcsScore] = useState(15);
-  const [issScore, setIssScore] = useState(0);
-  
+  const [gcsScore, setGcsScore] = useState<number | null>(null);
+  const [issScore, setIssScore] = useState<number | null>(null);
+
   // Primary Survey
-  const [airway, setAirway] = useState('patent');
-  const [breathing, setBreathing] = useState('spontaneous');
-  const [circulation, setCirculation] = useState('stable');
-  const [disability, setDisability] = useState('alert');
-  const [exposure, setExposure] = useState('none');
+  const [airway, setAirway] = useState('');
+  const [breathing, setBreathing] = useState('');
+  const [circulation, setCirculation] = useState('');
+  const [disability, setDisability] = useState('');
+  const [exposure, setExposure] = useState('');
 
   const [notes, setNotes] = useState('');
 
@@ -84,12 +88,15 @@ export default function TraumaPage() {
     // Said in words; the button is no longer greyed out to mean "choose a patient".
     if (!selectedPatient) { showError(t('docTrauma.errorSelectPatient')); return; }
 
+    const surveyLines = ([['A', airway], ['B', breathing], ['C', circulation], ['D', disability], ['E', exposure]] as const)
+      .filter(([, finding]) => finding)
+      .map(([letter, finding]) => `${letter}: ${finding}`);
     try {
       const traumaData = {
         patient_id: selectedPatient,
-        trauma_type: traumaType,
-        injury_severity_score: issScore,
-        gcs_score: gcsScore,
+        trauma_type: traumaType || undefined,
+        injury_severity_score: issScore ?? undefined,
+        gcs_score: gcsScore ?? undefined,
         mechanism_of_injury: mechanism,
         injuries: [], // Injuries added via injury documentation form
         interventions: [],
@@ -104,7 +111,12 @@ export default function TraumaPage() {
         // answer, and an absent set reads as "not recorded here" rather than as
         // a stable patient.
 
-        notes: `Primary Survey:\nA: ${airway}\nB: ${breathing}\nC: ${circulation}\nD: ${disability}\nE: ${exposure}\n\nNotes: ${notes}`,
+        // Only the survey findings someone recorded; an unassessed letter is
+        // left out rather than written as normal.
+        notes: [
+          surveyLines.length ? `Primary Survey:\n${surveyLines.join('\n')}` : null,
+          notes ? `Notes: ${notes}` : null,
+        ].filter(Boolean).join('\n\n') || undefined,
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
@@ -201,8 +213,8 @@ export default function TraumaPage() {
               <ChoiceChips
                 id="trauma-type"
                 label={t('docTrauma.traumaType')}
-                value={traumaType}
-                onChange={(next) => { if (next === undefined) return; setTraumaType(next); }}
+                value={traumaType || undefined}
+                onChange={(next) => setTraumaType(next ?? '')}
                 options={[
                   { value: 'blunt', label: t('docTrauma.typeBlunt') },
                   { value: 'penetrating', label: t('docTrauma.typePenetrating') },
@@ -231,8 +243,8 @@ export default function TraumaPage() {
                 min="3"
                 max="15"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={gcsScore}
-                onChange={(e) => setGcsScore(parseInt(e.target.value))}
+                value={gcsScore ?? ''}
+                onChange={(e) => setGcsScore(e.target.value === '' ? null : parseInt(e.target.value, 10))}
               />
             </div>
             <div>
@@ -243,8 +255,8 @@ export default function TraumaPage() {
                 min="0"
                 max="75"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={issScore}
-                onChange={(e) => setIssScore(parseInt(e.target.value))}
+                value={issScore ?? ''}
+                onChange={(e) => setIssScore(e.target.value === '' ? null : parseInt(e.target.value, 10))}
               />
             </div>
           </div>
@@ -261,8 +273,8 @@ export default function TraumaPage() {
               <ChoiceChips
                 id="trauma-airway"
                 label={t('docTrauma.airway')}
-                value={airway}
-                onChange={(next) => { if (next === undefined) return; setAirway(next); }}
+                value={airway || undefined}
+                onChange={(next) => setAirway(next ?? '')}
                 options={[
                   { value: 'patent', label: t('docTrauma.airwayPatent') },
                   { value: 'obstructed', label: t('docTrauma.airwayObstructed') },
@@ -275,8 +287,8 @@ export default function TraumaPage() {
               <ChoiceChips
                 id="trauma-breathing"
                 label={t('docTrauma.breathing')}
-                value={breathing}
-                onChange={(next) => { if (next === undefined) return; setBreathing(next); }}
+                value={breathing || undefined}
+                onChange={(next) => setBreathing(next ?? '')}
                 options={[
                   { value: 'spontaneous', label: t('docTrauma.breathingSpontaneous') },
                   { value: 'labored', label: t('docTrauma.breathingLabored') },
@@ -289,8 +301,8 @@ export default function TraumaPage() {
               <ChoiceChips
                 id="trauma-circulation"
                 label={t('docTrauma.circulation')}
-                value={circulation}
-                onChange={(next) => { if (next === undefined) return; setCirculation(next); }}
+                value={circulation || undefined}
+                onChange={(next) => setCirculation(next ?? '')}
                 options={[
                   { value: 'stable', label: t('docTrauma.circStable') },
                   { value: 'tachycardic', label: t('docTrauma.circTachycardic') },
@@ -304,8 +316,8 @@ export default function TraumaPage() {
               <ChoiceChips
                 id="trauma-disability"
                 label={t('docTrauma.disability')}
-                value={disability}
-                onChange={(next) => { if (next === undefined) return; setDisability(next); }}
+                value={disability || undefined}
+                onChange={(next) => setDisability(next ?? '')}
                 options={[
                   { value: 'alert', label: t('docTrauma.disAlert') },
                   { value: 'voice', label: t('docTrauma.disVoice') },
@@ -321,8 +333,8 @@ export default function TraumaPage() {
               <ChoiceChips
                 id="trauma-exposure"
                 label={t('docTrauma.exposure')}
-                value={exposure}
-                onChange={(next) => { if (next === undefined) return; setExposure(next); }}
+                value={exposure || undefined}
+                onChange={(next) => setExposure(next ?? '')}
                 options={[
                   { value: 'none', label: t('docTrauma.expNone') },
                   { value: 'log-rolled', label: t('docTrauma.expLogRolled') },
