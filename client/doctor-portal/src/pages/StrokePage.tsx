@@ -35,17 +35,21 @@ export default function StrokePage() {
   // Stroke Assessment State
   const [lastKnownWell, setLastKnownWell] = useState('');
   const [symptomOnset, setSymptomOnset] = useState('');
-  const [nihssScore, setNihssScore] = useState<number>(0);
+  // Nothing is pre-chosen (rule 9). NIHSS opened on 0 -- "no deficit" -- and
+  // filed it for a patient nobody had scored (rule 12); FAST opened on all
+  // three signs absent, CT on "pending" and tPA on "evaluating".
+  const [nihssScore, setNihssScore] = useState<number | null>(null);
   
   // FAST Assessment
-  const [faceDroop, setFaceDroop] = useState(false);
-  const [armDrift, setArmDrift] = useState(false);
-  const [speechDifficulty, setSpeechDifficulty] = useState(false);
+  // `null` until assessed: an unchecked sign is not an absent one.
+  const [faceDroop, setFaceDroop] = useState<boolean | null>(null);
+  const [armDrift, setArmDrift] = useState<boolean | null>(null);
+  const [speechDifficulty, setSpeechDifficulty] = useState<boolean | null>(null);
   
   // Clinical Data
   const [bloodGlucose, setBloodGlucose] = useState('');
-  const [ctHeadResult, setCtHeadResult] = useState('pending');
-  const [tpaCandidate, setTpaCandidate] = useState('evaluating');
+  const [ctHeadResult, setCtHeadResult] = useState('');
+  const [tpaCandidate, setTpaCandidate] = useState('');
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
@@ -90,18 +94,18 @@ export default function StrokePage() {
     try {
       const strokeData = {
         patient_id: selectedPatient,
-        last_known_well: new Date(lastKnownWell).getTime() / 1000,
-        symptom_onset: new Date(symptomOnset).getTime() / 1000,
+        last_known_well: lastKnownWell ? new Date(lastKnownWell).getTime() / 1000 : undefined,
+        symptom_onset: symptomOnset ? new Date(symptomOnset).getTime() / 1000 : undefined,
         fast_exam: {
-          face: faceDroop,
-          arms: armDrift,
-          speech: speechDifficulty,
+          face: faceDroop ?? undefined,
+          arms: armDrift ?? undefined,
+          speech: speechDifficulty ?? undefined,
           time: true // Implied by filling the form
         },
-        nihss_score: nihssScore,
-        blood_glucose: parseFloat(bloodGlucose),
-        ct_head_interpretation: ctHeadResult,
-        tpa_eligibility: tpaCandidate,
+        nihss_score: nihssScore ?? undefined,
+        blood_glucose: bloodGlucose ? parseFloat(bloodGlucose) : undefined,
+        ct_head_interpretation: ctHeadResult || undefined,
+        tpa_eligibility: tpaCandidate || undefined,
         notes,
         assessed_at: Math.floor(Date.now() / 1000)
       };
@@ -231,36 +235,36 @@ export default function StrokePage() {
               {t('docStroke.fastAssessment')}
             </h3>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-content-secondary">{t('docStroke.faceDrooping')}</span>
-                <button
-                  type="button"
-                  onClick={() => setFaceDroop(!faceDroop)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${faceDroop ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-secondary'}`}
-                >
-                  {faceDroop ? t('docStroke.present') : t('docStroke.absent')}
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-content-secondary">{t('docStroke.armWeakness')}</span>
-                <button
-                  type="button"
-                  onClick={() => setArmDrift(!armDrift)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${armDrift ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-secondary'}`}
-                >
-                  {armDrift ? t('docStroke.present') : t('docStroke.absent')}
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-content-secondary">{t('docStroke.speechDifficulty')}</span>
-                <button
-                  type="button"
-                  onClick={() => setSpeechDifficulty(!speechDifficulty)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${speechDifficulty ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-secondary'}`}
-                >
-                  {speechDifficulty ? t('docStroke.present') : t('docStroke.absent')}
-                </button>
-              </div>
+              <ChoiceChips
+                id="stroke-fast-face"
+                label={t('docStroke.faceDrooping')}
+                value={faceDroop === null ? undefined : faceDroop ? 'present' : 'absent'}
+                onChange={(next) => setFaceDroop(next === undefined ? null : next === 'present')}
+                options={[
+                  { value: 'present', label: t('docStroke.present') },
+                  { value: 'absent', label: t('docStroke.absent') },
+                ]}
+              />
+              <ChoiceChips
+                id="stroke-fast-arm"
+                label={t('docStroke.armWeakness')}
+                value={armDrift === null ? undefined : armDrift ? 'present' : 'absent'}
+                onChange={(next) => setArmDrift(next === undefined ? null : next === 'present')}
+                options={[
+                  { value: 'present', label: t('docStroke.present') },
+                  { value: 'absent', label: t('docStroke.absent') },
+                ]}
+              />
+              <ChoiceChips
+                id="stroke-fast-speech"
+                label={t('docStroke.speechDifficulty')}
+                value={speechDifficulty === null ? undefined : speechDifficulty ? 'present' : 'absent'}
+                onChange={(next) => setSpeechDifficulty(next === undefined ? null : next === 'present')}
+                options={[
+                  { value: 'present', label: t('docStroke.present') },
+                  { value: 'absent', label: t('docStroke.absent') },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -280,8 +284,8 @@ export default function StrokePage() {
                 min="0"
                 max="42"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                value={nihssScore}
-                onChange={(e) => setNihssScore(parseInt(e.target.value))}
+                value={nihssScore ?? ''}
+                onChange={(e) => setNihssScore(e.target.value === '' ? null : parseInt(e.target.value, 10))}
               />
             </div>
             <div>
@@ -299,8 +303,8 @@ export default function StrokePage() {
               <ChoiceChips
                 id="stroke-ct-head-result"
                 label={t('docStroke.ctHeadResult')}
-                value={ctHeadResult}
-                onChange={(next) => { if (next === undefined) return; setCtHeadResult(next); }}
+                value={ctHeadResult || undefined}
+                onChange={(next) => setCtHeadResult(next ?? '')}
                 options={[
                   { value: 'pending', label: t('docStroke.ctPending') },
                   { value: 'negative', label: t('docStroke.ctNegative') },
@@ -314,8 +318,8 @@ export default function StrokePage() {
               <ChoiceChips
                 id="stroke-tpa-eligibility"
                 label={t('docStroke.tpaEligibility')}
-                value={tpaCandidate}
-                onChange={(next) => { if (next === undefined) return; setTpaCandidate(next); }}
+                value={tpaCandidate || undefined}
+                onChange={(next) => setTpaCandidate(next ?? '')}
                 options={[
                   { value: 'evaluating', label: t('docStroke.tpaEvaluating') },
                   { value: 'eligible', label: t('docStroke.tpaEligible') },
