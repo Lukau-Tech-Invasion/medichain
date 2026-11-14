@@ -4966,6 +4966,8 @@ const en_US: TranslationRecord = {
     successTransfusionStarted: 'Transfusion record started successfully',
   },
   docBurn: {
+    mechanismNotChosen: 'Choose the mechanism',
+    painScoreLabel: 'Pain score (0-10)',
     title: 'Burn Assessment',
     subtitle: 'Lund-Browder Chart & Parkland Formula',
     errorSelectPatient: 'Please select a patient',

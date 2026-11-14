@@ -82,7 +82,9 @@ export default function CardiacPage() {
   const [bloodPressure, setBloodPressure] = useState('');
   const [troponinLevel, setTroponinLevel] = useState('');
   const [bnpLevel, setBnpLevel] = useState('');
-  const [killipClass, setKillipClass] = useState('1');
+  // Unchosen until assessed (rule 9): it opened on Killip I -- no heart
+  // failure -- and filed that for a patient nobody had examined.
+  const [killipClass, setKillipClass] = useState('');
   // The five TIMI criteria that are clinical judgements. Age and the cardiac
   // marker are not here: the server reads age from the patient's date of birth
   // and derives the marker from the troponin value below.
@@ -208,7 +210,7 @@ export default function CardiacPage() {
           troponin: troponinLevel === '' ? null : Number(troponinLevel),
           bnp: bnpLevel === '' ? null : Number(bnpLevel)
         },
-        killip_class: parseInt(killipClass),
+        killip_class: killipClass ? parseInt(killipClass, 10) : undefined,
         timi_criteria: timiCriteria,
         ecg_readings: ecgReadings,
         treatments: treatment,

@@ -69,7 +69,9 @@ export default function BurnPage() {
   const [savedBurn, setSavedBurn] = useState<BurnCreateResult | null>(null);
 
   // Form state
-  const [mechanism, setMechanism] = useState<BurnMechanism>('thermal');
+  // Unchosen until recorded (rule 9): the form opened on a thermal burn with
+  // pain 5/10 and filed both for a patient nobody had assessed.
+  const [mechanism, setMechanism] = useState<BurnMechanism | ''>('');
   const [agentSource, setAgentSource] = useState('');
   const [injuryTime, setInjuryTime] = useState('');
   // Empty, not 70. This drives the Parkland volume, and a default adult weight
@@ -77,7 +79,7 @@ export default function BurnPage() {
   // weight now means no fluid order, on this page and on the server.
   const [weight, setWeight] = useState<number | undefined>(undefined);
   const [burnAreas, setBurnAreas] = useState<BurnArea[]>([]);
-  const [painLevel, setPainLevel] = useState(5);
+  const [painLevel, setPainLevel] = useState<number | null>(null);
   const [tetanusStatus, setTetanusStatus] = useState('unknown');
   const [notes, setNotes] = useState('');
   const [fluidStartTime, setFluidStartTime] = useState('');
@@ -282,7 +284,7 @@ export default function BurnPage() {
       // authenticated.
       const assessmentData = {
         patient_id: selectedPatient.patient_id,
-        mechanism,
+        mechanism: mechanism || undefined,
         agent_source: agentSource,
         injury_time: injuryTime,
         weight,
@@ -297,7 +299,7 @@ export default function BurnPage() {
         circumferential,
         associated_injuries: associatedInjuries,
         tetanus_status: tetanusStatus,
-        pain_level: painLevel,
+        pain_level: painLevel ?? undefined,
         interventions,
         fluid_start_time: fluidStartTime,
         urine_output: urineOutput,
@@ -461,9 +463,10 @@ export default function BurnPage() {
                     <select
                       id="burn-mechanism"
                       value={mechanism}
-                      onChange={(e) => setMechanism(e.target.value as BurnMechanism)}
+                      onChange={(e) => setMechanism(e.target.value as BurnMechanism | '')}
                       className="w-full p-2 border border-border-interactive rounded"
                     >
+                      <option value="">{t('docBurn.mechanismNotChosen')}</option>
                       {mechanismOptions.map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
@@ -545,23 +548,21 @@ export default function BurnPage() {
                     />
                   </div>
                   <div>
+                    {/* A number field, not a slider: a slider always holds a value,
+                        so it could not say "not recorded". */}
                     <label htmlFor="burn-pain-level" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docBurn.painLevelLabel', { value: painLevel })}
+                      {t('docBurn.painScoreLabel')}
                     </label>
                     <input
                       id="burn-pain-level"
-                      type="range"
+                      type="number"
                       min="0"
                       max="10"
-                      value={painLevel}
-                      onChange={(e) => setPainLevel(Number(e.target.value))}
-                      className="w-full h-6"
+                      inputMode="numeric"
+                      value={painLevel ?? ''}
+                      onChange={(e) => setPainLevel(e.target.value === '' ? null : Math.min(10, Math.max(0, Number(e.target.value))))}
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
-                    <div className="flex justify-between text-xs text-content-muted">
-                      <span>{t('docBurn.painNone')}</span>
-                      <span>{t('docBurn.painModerate')}</span>
-                      <span>{t('docBurn.painSevere')}</span>
-                    </div>
                   </div>
                 </div>
               </div>
