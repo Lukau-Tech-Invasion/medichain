@@ -825,7 +825,7 @@ impl ObstetricEmergencyRepository for PgObstetricEmergencyRepository {
                 rom_time, fluid_color, vaginal_bleeding, bleeding_amount,
                 cervical_exam_performed, dilation_cm, effacement_percent, station,
                 presentation, fetal_heart_rate, fetal_heart_variability, fetal_decelerations,
-                uterine_tenderness, fundal_height_cm, fetal_movement, emergency_type,
+                fetal_accelerations, fhr_category, uterine_tenderness, fundal_height_cm, fetal_movement, emergency_type,
                 placenta_previa, placental_abruption, cord_prolapse, eclampsia,
                 preeclampsia_severe, blood_pressure_systolic, blood_pressure_diastolic,
                 proteinuria, magnesium_sulfate_given, delivery_imminent, ob_notified,
@@ -867,6 +867,8 @@ impl ObstetricEmergencyRepository for PgObstetricEmergencyRepository {
                 .push_bind(e.fetal_heart_rate)
                 .push_bind(&e.fetal_heart_variability)
                 .push_bind(&e.fetal_decelerations)
+                .push_bind(e.fetal_accelerations)
+                .push_bind(&e.fhr_category)
                 .push_bind(e.uterine_tenderness)
                 .push_bind(e.fundal_height_cm)
                 .push_bind(&e.fetal_movement)

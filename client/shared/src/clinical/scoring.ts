@@ -165,6 +165,8 @@ export interface ScoringCatalog {
     /** Minutes after the scheduled time before a dose counts as overdue. */
     overdue_after_minutes: number;
   };
+  /** Fetal heart rate baseline range for a Category I tracing; absent on an older server. */
+  fhr?: { baseline_normal_low: number; baseline_normal_high: number };
   /** Sepsis fluid dose and lactate cut-points; absent on an older server. */
   sepsis?: {
     fluid_ml_per_kg: number;
@@ -528,6 +530,26 @@ export function sepsisFluidTargetPreview(weightKg: number | null, catalog: Scori
     return null;
   }
   return Math.round(weightKg * perKg);
+}
+
+/**
+ * The NICHD fetal heart rate category, as a live preview of what the server
+ * stores (`clinical_scoring::fhr_category`). Null until all four findings are
+ * recorded and the catalog has loaded: a partial tracing has no category.
+ */
+export function fhrCategoryPreview(
+  tracing: { baseline: number | null; variability: string; accelerations: boolean | null; decelerations: string },
+  catalog: ScoringCatalog | null,
+): 'I' | 'II' | 'III' | null {
+  const range = catalog?.fhr;
+  const { baseline, variability, accelerations, decelerations } = tracing;
+  if (!range || baseline === null || !variability || accelerations === null || !decelerations) return null;
+  const inRange = baseline >= range.baseline_normal_low && baseline <= range.baseline_normal_high;
+  if (inRange && variability === 'moderate' && accelerations && (decelerations === 'none' || decelerations === 'early')) {
+    return 'I';
+  }
+  if (variability === 'absent' && (decelerations === 'late' || decelerations === 'variable')) return 'III';
+  return 'II';
 }
 
 /** A lactate reading's band from the catalog's cut-points; null until it loads. */

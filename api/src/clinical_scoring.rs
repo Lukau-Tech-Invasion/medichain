@@ -595,6 +595,45 @@ pub const QSOFA_GCS_BELOW: i32 = 15;
 /// A qSOFA of 2 or more is a positive screen.
 pub const QSOFA_POSITIVE_THRESHOLD: u8 = 2;
 
+/// Fetal heart rate baseline range (bpm) a Category I tracing sits within.
+pub const FHR_BASELINE_NORMAL_LOW: i32 = 110;
+/// Upper bound of the normal FHR baseline (bpm).
+pub const FHR_BASELINE_NORMAL_HIGH: i32 = 160;
+
+/// NICHD three-tier fetal heart rate category from the four tracing findings.
+///
+/// `None` until all four are recorded: a category from a partial tracing
+/// would read as an interpretation nobody made. This was computed in the
+/// obstetric page, and the result was never stored (rule 8).
+///
+/// * I: baseline in range, moderate variability, accelerations present, and
+///   no decelerations or early ones only.
+/// * III: absent variability with late or variable decelerations.
+/// * II: everything else.
+pub fn fhr_category(
+    baseline_bpm: Option<i32>,
+    variability: Option<&str>,
+    accelerations: Option<bool>,
+    decelerations: Option<&str>,
+) -> Option<&'static str> {
+    let (baseline, variability, accelerations, decelerations) =
+        (baseline_bpm?, variability?, accelerations?, decelerations?);
+    let in_range = (FHR_BASELINE_NORMAL_LOW..=FHR_BASELINE_NORMAL_HIGH).contains(&baseline);
+    Some(
+        if in_range
+            && variability == "moderate"
+            && accelerations
+            && matches!(decelerations, "none" | "early")
+        {
+            "I"
+        } else if variability == "absent" && matches!(decelerations, "late" | "variable") {
+            "III"
+        } else {
+            "II"
+        },
+    )
+}
+
 /// Initial crystalloid for sepsis-induced hypoperfusion: 30 mL per kg.
 pub const SEPSIS_FLUID_ML_PER_KG: f64 = 30.0;
 /// Lactate at or above this (mmol/L) is raised: a caution.
@@ -1761,6 +1800,10 @@ pub fn catalog() -> serde_json::Value {
                 { "level": fluid_balance_band(FLUID_BALANCE_POSITIVE_HIGH_ML + 1), "min_ml": FLUID_BALANCE_POSITIVE_HIGH_ML },
             ],
         },
+        "fhr": {
+            "baseline_normal_low": FHR_BASELINE_NORMAL_LOW,
+            "baseline_normal_high": FHR_BASELINE_NORMAL_HIGH,
+        },
         "sepsis": {
             "fluid_ml_per_kg": SEPSIS_FLUID_ML_PER_KG,
             "lactate_caution_at_or_above": LACTATE_CAUTION_MMOL_L,
@@ -1992,6 +2035,38 @@ mod tests {
             relationship: relationship.to_string(),
             age_of_onset: onset,
         }
+    }
+
+    #[test]
+    fn fhr_category_needs_all_four_findings_and_follows_nichd() {
+        assert_eq!(
+            fhr_category(Some(140), Some("moderate"), Some(true), Some("none")),
+            Some("I")
+        );
+        assert_eq!(
+            fhr_category(Some(140), Some("moderate"), Some(true), Some("early")),
+            Some("I")
+        );
+        assert_eq!(
+            fhr_category(Some(170), Some("moderate"), Some(true), Some("none")),
+            Some("II")
+        );
+        assert_eq!(
+            fhr_category(Some(140), Some("absent"), Some(false), Some("late")),
+            Some("III")
+        );
+        assert_eq!(
+            fhr_category(Some(140), Some("minimal"), Some(false), Some("variable")),
+            Some("II")
+        );
+        assert_eq!(
+            fhr_category(None, Some("moderate"), Some(true), Some("none")),
+            None
+        );
+        assert_eq!(
+            fhr_category(Some(140), Some("moderate"), None, Some("none")),
+            None
+        );
     }
 
     #[test]

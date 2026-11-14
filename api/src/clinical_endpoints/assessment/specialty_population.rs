@@ -9,6 +9,72 @@
 use super::*;
 
 #[cfg(test)]
+mod obstetric_unrecorded_tests {
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    /// An obstetric record stores what was recorded and nothing else: no
+    /// 0 weeks, no G0 P0, no "membranes intact" for an unexamined patient.
+    /// The FHR category is the server's, from all four tracing findings.
+    #[actix_web::test]
+    async fn unrecorded_obstetric_findings_are_null_and_the_category_is_derived() {
+        let state = AppState::new();
+        crate::test_fixtures::register(&state, "ob-doctor", Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-OB").await;
+        let data = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(super::create_ob)).await;
+        let post = |body: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/clinical/ob")
+                .insert_header(crate::test_fixtures::as_user("ob-doctor"))
+                .set_json(body)
+                .to_request()
+        };
+        let bare: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            post(serde_json::json!({ "patient_id": "PAT-OB" })),
+        )
+        .await;
+        let stored = data
+            .repositories
+            .obstetric_emergencies
+            .get_by_id(bare["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(stored.gestational_age_weeks, None);
+        assert_eq!(stored.gravida, None);
+        assert_eq!(stored.para, None);
+        assert_eq!(stored.prenatal_care, None);
+        assert_eq!(stored.contractions, None);
+        assert_eq!(stored.rupture_of_membranes, None);
+        assert_eq!(stored.fhr_category, None);
+
+        let traced: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            post(serde_json::json!({
+                "patient_id": "PAT-OB", "gestational_age_weeks": 38, "gravida": 2, "para": 1,
+                "fetal_heart_rate": 140, "fetal_heart_variability": "moderate",
+                "fetal_accelerations": true, "fetal_decelerations": "none"
+            })),
+        )
+        .await;
+        assert_eq!(traced["fhr_category"], "I");
+        let stored = data
+            .repositories
+            .obstetric_emergencies
+            .get_by_id(traced["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            (stored.gestational_age_weeks, stored.gravida, stored.para),
+            (Some(38), Some(2), Some(1))
+        );
+        assert_eq!(stored.fhr_category.as_deref(), Some("I"));
+    }
+}
+
+#[cfg(test)]
 mod pediatric_unknown_tests {
     use crate::test_fixtures::register;
     use crate::{AppState, Role};
@@ -573,13 +639,16 @@ pub async fn create_ob(
         gestational_age_weeks: body
             .get("gestational_age_weeks")
             .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32,
+            .map(|v| v as i32),
         gestational_age_days: body
             .get("gestational_age_days")
             .and_then(|v| v.as_i64())
             .map(|v| v as i32),
-        gravida: body.get("gravida").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        para: body.get("para").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+        gravida: body
+            .get("gravida")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32),
+        para: body.get("para").and_then(|v| v.as_i64()).map(|v| v as i32),
         abortions: body
             .get("abortions")
             .and_then(|v| v.as_i64())
@@ -596,10 +665,7 @@ pub async fn create_ob(
             .get("edd_date")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()),
-        prenatal_care: body
-            .get("prenatal_care")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        prenatal_care: body.get("prenatal_care").and_then(|v| v.as_bool()),
         prenatal_care_provider: body
             .get("prenatal_care_provider")
             .and_then(|v| v.as_str())
@@ -614,10 +680,7 @@ pub async fn create_ob(
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string(),
-        contractions: body
-            .get("contractions")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        contractions: body.get("contractions").and_then(|v| v.as_bool()),
         contraction_frequency_min: body
             .get("contraction_frequency_min")
             .and_then(|v| v.as_i64())
@@ -626,10 +689,7 @@ pub async fn create_ob(
             .get("contraction_duration_sec")
             .and_then(|v| v.as_i64())
             .map(|v| v as i32),
-        rupture_of_membranes: body
-            .get("rupture_of_membranes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        rupture_of_membranes: body.get("rupture_of_membranes").and_then(|v| v.as_bool()),
         rom_time: body
             .get("rom_time")
             .and_then(|v| v.as_str())
@@ -679,6 +739,16 @@ pub async fn create_ob(
             .get("fetal_decelerations")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        fetal_accelerations: body.get("fetal_accelerations").and_then(|v| v.as_bool()),
+        fhr_category: crate::clinical_scoring::fhr_category(
+            body.get("fetal_heart_rate")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32),
+            body.get("fetal_heart_variability").and_then(|v| v.as_str()),
+            body.get("fetal_accelerations").and_then(|v| v.as_bool()),
+            body.get("fetal_decelerations").and_then(|v| v.as_str()),
+        )
+        .map(str::to_string),
         uterine_tenderness: body
             .get("uterine_tenderness")
             .and_then(|v| v.as_bool())
@@ -760,10 +830,12 @@ pub async fn create_ob(
         data: body.clone(),
     };
 
+    let fhr_category = entity.fhr_category.clone();
     match data.repositories.obstetric_emergencies.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "success": true,
-            "assessment_id": assessment_id
+            "assessment_id": assessment_id,
+            "fhr_category": fhr_category,
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
             error: msg,

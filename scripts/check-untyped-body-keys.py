@@ -370,8 +370,15 @@ def main() -> int:
         # A bare `id` is the record's own identifier and never means
         # `assistant_id` or `ob_physician_id`; it matches every key ending in
         # `_id` and says nothing.
+        # A key the handler already reads is accounted for: it cannot also be
+        # the lost spelling of a different field. Without this, the obstetric
+        # page's `prenatal_care` (read) was reported as a dropped
+        # `prenatal_care_provider` (a field no form collects).
+        read = set().union(*entry["keys"]) if entry["keys"] else set()
         sent_tokens = {
-            k: to_snake(k).split("_") for k in sent if to_snake(k) not in {"id", "__spread__"}
+            k: to_snake(k).split("_")
+            for k in sent
+            if to_snake(k) not in {"id", "__spread__"} and k not in read and to_snake(k) not in read
         }
 
         def related(a: list[str], b: list[str]) -> bool:
