@@ -1029,14 +1029,56 @@ pub struct CreateIvSiteRequest {
     pub sites: Vec<IvSiteInput>,
 }
 
-/// Persist removal attribution from the authenticated save, retaining it on re-save.
+/// Persist attribution from the authenticated save, retaining it on re-save.
+///
+/// Who placed the cannula (`insertedBy`) and who assessed it (each
+/// assessment's `assessedBy`) were stored exactly as the browser sent them,
+/// so a save could name any colleague. A site or assessment new in this save
+/// is the caller's; one already on the record keeps who it was.
 fn persisted_iv_site_data(
     site: &IvSiteInput,
+    previous_data: Option<&serde_json::Value>,
     previous_removal: Option<&serde_json::Value>,
     caller_id: &str,
     now: chrono::DateTime<Utc>,
 ) -> serde_json::Value {
     let mut detail = serde_json::to_value(site).unwrap_or_default();
+    if let Some(object) = detail.as_object_mut() {
+        let inserted_by = previous_data
+            .and_then(|previous| previous.get("insertedBy"))
+            .filter(|value| value.as_str().is_some_and(|s| !s.is_empty()))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!(caller_id));
+        object.insert("insertedBy".to_string(), inserted_by);
+        let previous_assessors: std::collections::HashMap<String, serde_json::Value> =
+            previous_data
+                .and_then(|previous| previous.get("assessments"))
+                .and_then(|list| list.as_array())
+                .map(|list| {
+                    list.iter()
+                        .filter_map(|a| {
+                            Some((
+                                a.get("id")?.as_str()?.to_string(),
+                                a.get("assessedBy")?.clone(),
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+        if let Some(assessments) = object.get_mut("assessments").and_then(|a| a.as_array_mut()) {
+            for assessment in assessments.iter_mut().filter_map(|a| a.as_object_mut()) {
+                let known = assessment
+                    .get("id")
+                    .and_then(|id| id.as_str())
+                    .and_then(|id| previous_assessors.get(id))
+                    .cloned();
+                assessment.insert(
+                    "assessedBy".to_string(),
+                    known.unwrap_or_else(|| serde_json::json!(caller_id)),
+                );
+            }
+        }
+    }
     if !site.is_active {
         if let Some(object) = detail.as_object_mut() {
             // Old discontinued rows with missing metadata remain unknown.
@@ -1199,6 +1241,42 @@ mod iv_removal_tests {
         assert!(row.len() <= 64, "{} characters: {row}", row.len());
     }
 
+    /// Who placed and who assessed a cannula is the session's, not the
+    /// browser's; a later save by a colleague keeps the original names.
+    #[test]
+    fn placement_and_assessment_are_attributed_to_the_caller() {
+        let site: IvSiteInput = serde_json::from_value(serde_json::json!({
+            "id": "SITE-1", "isActive": true, "insertedBy": "forged-colleague",
+            "assessments": [{ "id": "A-1", "assessedBy": "forged-colleague", "conditions": [] }]
+        }))
+        .unwrap();
+        let first = persisted_iv_site_data(&site, None, None, "nurse-1", Utc::now());
+        assert_eq!(first["insertedBy"], "nurse-1");
+        assert_eq!(first["assessments"][0]["assessedBy"], "nurse-1");
+
+        let resaved: IvSiteInput = serde_json::from_value(serde_json::json!({
+            "id": "SITE-1", "isActive": true, "insertedBy": "nurse-2",
+            "assessments": [
+                { "id": "A-1", "assessedBy": "nurse-2", "conditions": [] },
+                { "id": "A-2", "assessedBy": "forged-colleague", "conditions": [] }
+            ]
+        }))
+        .unwrap();
+        let second = persisted_iv_site_data(&resaved, Some(&first), None, "nurse-2", Utc::now());
+        assert_eq!(
+            second["insertedBy"], "nurse-1",
+            "placement keeps who placed it"
+        );
+        assert_eq!(
+            second["assessments"][0]["assessedBy"], "nurse-1",
+            "an existing assessment keeps its assessor"
+        );
+        assert_eq!(
+            second["assessments"][1]["assessedBy"], "nurse-2",
+            "a new one is the caller's"
+        );
+    }
+
     #[test]
     fn removal_uses_authenticated_author_and_server_time() {
         let site: IvSiteInput = serde_json::from_value(serde_json::json!({
@@ -1209,12 +1287,13 @@ mod iv_removal_tests {
         let now = "2026-10-08T05:00:00Z"
             .parse::<chrono::DateTime<Utc>>()
             .unwrap();
-        let detail = persisted_iv_site_data(&site, None, "nurse-1", now);
+        let detail = persisted_iv_site_data(&site, None, None, "nurse-1", now);
         assert_eq!(detail["discontinuedAt"], "2026-10-08T05:00:00+00:00");
         assert_eq!(detail["discontinuedBy"], "nurse-1");
         assert_eq!(detail["discontinuedReason"], "Routine change");
         let later = now + chrono::Duration::hours(2);
-        let saved_again = persisted_iv_site_data(&site, Some(&detail), "nurse-2", later);
+        let saved_again =
+            persisted_iv_site_data(&site, Some(&detail), Some(&detail), "nurse-2", later);
         assert_eq!(saved_again["discontinuedAt"], detail["discontinuedAt"]);
         assert_eq!(saved_again["discontinuedBy"], "nurse-1");
     }
@@ -1225,8 +1304,13 @@ mod iv_removal_tests {
             "id": "SITE-1", "isActive": false
         }))
         .unwrap();
-        let detail =
-            persisted_iv_site_data(&site, Some(&serde_json::json!({})), "nurse-2", Utc::now());
+        let detail = persisted_iv_site_data(
+            &site,
+            None,
+            Some(&serde_json::json!({})),
+            "nurse-2",
+            Utc::now(),
+        );
         assert!(detail["discontinuedAt"].is_null());
         assert!(detail["discontinuedBy"].is_null());
     }
@@ -1381,7 +1465,13 @@ pub async fn create_iv_site(
             created_at: now,
             updated_at: now,
             facility_id: None,
-            data: persisted_iv_site_data(site, previous_removal, &caller.id, now),
+            data: persisted_iv_site_data(
+                site,
+                existing.as_ref().map(|row| &row.data),
+                previous_removal,
+                &caller.id,
+                now,
+            ),
         };
 
         let outcome = if existing.is_some() {
