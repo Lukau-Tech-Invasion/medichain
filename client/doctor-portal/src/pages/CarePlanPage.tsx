@@ -101,7 +101,8 @@ export default function CarePlanPage() {
     diagnosis: '',
     relatedTo: '',
     evidencedBy: '',
-    priority: 'medium'
+    // Unchosen until the nurse sets it (rule 9); it used to open on medium.
+    priority: undefined
   });
 
   const [newGoal, setNewGoal] = useState<Partial<Goal>>({
@@ -192,18 +193,23 @@ export default function CarePlanPage() {
 
   const addDiagnosis = () => {
     if (!newDiagnosis.diagnosis) return;
+    if (!newDiagnosis.priority) {
+      setError(t('docCarePlan.errorChoosePriority'));
+      return;
+    }
+    setError('');
     
     const diagnosis: NursingDiagnosis = {
       id: `DX-${Date.now()}`,
       diagnosis: newDiagnosis.diagnosis,
       relatedTo: newDiagnosis.relatedTo || '',
       evidencedBy: newDiagnosis.evidencedBy || '',
-      priority: newDiagnosis.priority || 'medium',
+      priority: newDiagnosis.priority,
       dateIdentified: new Date().toISOString().split('T')[0]
     };
 
     setDiagnoses(prev => [...prev, diagnosis]);
-    setNewDiagnosis({ diagnosis: '', relatedTo: '', evidencedBy: '', priority: 'medium' });
+    setNewDiagnosis({ diagnosis: '', relatedTo: '', evidencedBy: '', priority: undefined });
     setShowAddDiagnosis(false);
   };
 

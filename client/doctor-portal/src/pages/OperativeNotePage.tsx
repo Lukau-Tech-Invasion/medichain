@@ -102,7 +102,9 @@ const OperativeNotePage: React.FC = () => {
   const eblFlagMl = catalog?.operative?.ebl_significant_ml;
   const eblFlagged = eblFlagMl != null && (measured(ebl) ?? 0) > eblFlagMl;
 
-  const [newSpecimen, setNewSpecimen] = useState({ description: '', disposition: 'pathology' as Specimen['disposition'] });
+  // Where a specimen went is chosen, not assumed (rule 9): every specimen
+  // used to be recorded as sent to pathology unless someone changed it.
+  const [newSpecimen, setNewSpecimen] = useState({ description: '', disposition: '' as Specimen['disposition'] | '' });
 
 
   useEffect(() => {
@@ -130,9 +132,9 @@ const OperativeNotePage: React.FC = () => {
   }, [activeTab, selectedPatient, user, t]);
 
   const addSpecimen = () => {
-    if (!newSpecimen.description) return;
-    dispatch({ type: 'addSpecimen', specimen: { id: `SPEC-${Date.now()}`, ...newSpecimen } });
-    setNewSpecimen({ description: '', disposition: 'pathology' });
+    if (!newSpecimen.description || !newSpecimen.disposition) return;
+    dispatch({ type: 'addSpecimen', specimen: { id: `SPEC-${Date.now()}`, description: newSpecimen.description, disposition: newSpecimen.disposition } });
+    setNewSpecimen({ description: '', disposition: '' });
   };
 
   const removeSpecimen = (id: string) => {
@@ -147,7 +149,7 @@ const OperativeNotePage: React.FC = () => {
   /** Clear completed documentation while retaining the selected patient's history context. */
   const resetCompletedDraft = () => {
     dispatch({ type: 'reset', ...newNoteDefaults() });
-    setNewSpecimen({ description: '', disposition: 'pathology' });
+    setNewSpecimen({ description: '', disposition: '' });
   };
 
   /** Submit one draft at a time; failed writes keep the entered documentation. */
@@ -502,8 +504,8 @@ const OperativeNotePage: React.FC = () => {
                 <ChoiceChips
                   id="opnote-specimen-disposition"
                   label={t('docOperativeNote.specimenDispositionAriaLabel')}
-                  value={newSpecimen.disposition}
-                  onChange={(next) => { if (next === undefined) return; setNewSpecimen({ ...newSpecimen, disposition: next as Specimen['disposition'] }); }}
+                  value={newSpecimen.disposition || undefined}
+                  onChange={(next) => setNewSpecimen({ ...newSpecimen, disposition: (next ?? '') as Specimen['disposition'] | '' })}
                   options={[
                     { value: 'pathology', label: t('docOperativeNote.disposition_pathology') },
                     { value: 'culture', label: t('docOperativeNote.disposition_culture') },
@@ -513,7 +515,8 @@ const OperativeNotePage: React.FC = () => {
                 />
                 <button type="button"
                   onClick={addSpecimen}
-                  className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok"
+                  disabled={!newSpecimen.description || !newSpecimen.disposition}
+                  className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok disabled:opacity-50"
                 >
                   {t('docOperativeNote.addButton')}
                 </button>

@@ -28,9 +28,11 @@ interface ECGReading {
   id: string;
   timestamp: string;
   rhythm: string;
-  rate: number;
+  /** Absent when nobody counted it: never 72. */
+  rate: number | null;
   interpretation: string;
-  stElevation: boolean;
+  /** Only a tick is a record; an unticked box is not "no ST elevation". */
+  stElevation?: boolean;
   leads: string[];
 }
 
@@ -119,9 +121,11 @@ export default function CardiacPage() {
   // ECG Readings
   const [ecgReadings, setEcgReadings] = useState<ECGReading[]>([]);
   const [showECGForm, setShowECGForm] = useState(false);
+  // Nothing is pre-chosen (rule 9): a reading added untouched used to be
+  // charted as normal sinus rhythm at 72.
   const [newECG, setNewECG] = useState<Partial<ECGReading>>({
-    rhythm: 'normal_sinus',
-    rate: 72,
+    rhythm: '',
+    rate: null,
     interpretation: '',
     stElevation: false,
     leads: []
@@ -163,16 +167,16 @@ export default function CardiacPage() {
     const reading: ECGReading = {
       id: `ECG-${Date.now()}`,
       timestamp: new Date().toISOString(),
-      rhythm: newECG.rhythm || 'normal_sinus',
-      rate: newECG.rate || 72,
+      rhythm: newECG.rhythm,
+      rate: newECG.rate ?? null,
       interpretation: newECG.interpretation || '',
-      stElevation: newECG.stElevation || false,
+      stElevation: newECG.stElevation || undefined,
       leads: newECG.leads || []
     };
     setEcgReadings(prev => [...prev, reading]);
-    addEvent('ECG', `${reading.rhythm} - Rate: ${reading.rate}`);
+    addEvent('ECG', reading.rate === null ? reading.rhythm : `${reading.rhythm} - Rate: ${reading.rate}`);
     setShowECGForm(false);
-    setNewECG({ rhythm: 'normal_sinus', rate: 72, interpretation: '', stElevation: false, leads: [] });
+    setNewECG({ rhythm: '', rate: null, interpretation: '', stElevation: false, leads: [] });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -644,6 +648,7 @@ export default function CardiacPage() {
                         onChange={(e) => setNewECG({ ...newECG, rhythm: e.target.value })}
                         className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       >
+                        <option value="">{t('docCardiac.rhythmNotChosen')}</option>
                         {rhythmTypes.map(r => (
                           <option key={r} value={r}>{r.replace(/_/g, ' ').toUpperCase()}</option>
                         ))}
@@ -654,8 +659,8 @@ export default function CardiacPage() {
                       <input
                         id="cardiac-ecg-rate"
                         type="number"
-                        value={newECG.rate}
-                        onChange={(e) => setNewECG({ ...newECG, rate: parseInt(e.target.value) })}
+                        value={newECG.rate ?? ''}
+                        onChange={(e) => setNewECG({ ...newECG, rate: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                         className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       />
                     </div>
@@ -725,7 +730,9 @@ export default function CardiacPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium text-sm">{ecg.rhythm.replace(/_/g, ' ').toUpperCase()}</p>
-                            <p className="text-xs text-content-muted">{t('docCardiac.rateLine', { value: ecg.rate })}</p>
+                            <p className="text-xs text-content-muted">
+                              {ecg.rate === null ? t('docCardiac.rateNotRecorded') : t('docCardiac.rateLine', { value: ecg.rate })}
+                            </p>
                             {ecg.stElevation && (
                               <p className="text-xs text-critical-subtle-fg font-medium">
                                 {t('docCardiac.stElevationLine', { leads: ecg.leads.join(', ') })}

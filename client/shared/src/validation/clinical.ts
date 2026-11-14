@@ -272,7 +272,8 @@ export const prescriptionSchema = z.object({
 export const carePlanSchema = z.object({
   patientId: requiredText('a patient', 64),
   diagnosis: requiredText('the nursing diagnosis', 500),
-  priority: z.enum(['high', 'medium', 'low']),
+  // Chosen by the nurse: the form used to open on 'medium'.
+  priority: z.enum(['high', 'medium', 'low'], { message: 'Choose a priority' }),
 });
 
 /**

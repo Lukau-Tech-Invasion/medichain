@@ -174,10 +174,12 @@ const ConsultPage: React.FC = () => {
   const [printConsult, setPrintConsult] = useState<unknown>(null);
   const [isRespondingBusy, setIsRespondingBusy] = useState(false);
 
+  // Unchosen until the requester chooses (rule 9): every consult used to go
+  // to cardiology as routine unless someone changed it.
   const [newConsult, setNewConsult] = useState({
     patientId: '',
-    specialty: 'cardiology' as ConsultSpecialty,
-    urgency: 'routine' as ConsultUrgency,
+    specialty: '' as ConsultSpecialty | '',
+    urgency: '' as ConsultUrgency | '',
     reason: '',
     clinicalQuestion: '',
     relevantHistory: '',
@@ -225,6 +227,11 @@ const ConsultPage: React.FC = () => {
     if (!validate(newConsult)) {
       return;
     }
+    // Who is asked and how soon are the request itself.
+    if (!newConsult.specialty || !newConsult.urgency) {
+      showError(t('docConsult.errorChooseSpecialtyUrgency'));
+      return;
+    }
 
     // Resolved on the server: the first page of the directory held nobody past the fiftieth.
     // Usually already resolved when the patient was chosen; awaiting only when it
@@ -269,8 +276,8 @@ const ConsultPage: React.FC = () => {
 
     setNewConsult({
       patientId: '',
-      specialty: 'cardiology',
-      urgency: 'routine',
+      specialty: '',
+      urgency: '',
       reason: '',
       clinicalQuestion: '',
       relevantHistory: '',
@@ -813,9 +820,10 @@ const ConsultPage: React.FC = () => {
                 <select
                   id="consult-specialty"
                   value={newConsult.specialty}
-                  onChange={(e) => setNewConsult({ ...newConsult, specialty: e.target.value as ConsultSpecialty })}
+                  onChange={(e) => setNewConsult({ ...newConsult, specialty: e.target.value as ConsultSpecialty | '' })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
+                  <option value="">{t('docConsult.specialtyNotChosen')}</option>
                   <option value="cardiology">{t('docConsult.specialty_cardiology')}</option>
                   <option value="neurology">{t('docConsult.specialty_neurology')}</option>
                   <option value="orthopedics">{t('docConsult.specialty_orthopedics')}</option>
@@ -846,8 +854,8 @@ const ConsultPage: React.FC = () => {
                 <ChoiceChips
                   id="consult-urgency"
                   label={t('docConsult.urgencyLabel')}
-                  value={newConsult.urgency}
-                  onChange={(next) => { if (next === undefined) return; setNewConsult({ ...newConsult, urgency: next as ConsultUrgency }); }}
+                  value={newConsult.urgency || undefined}
+                  onChange={(next) => setNewConsult({ ...newConsult, urgency: (next ?? '') as ConsultUrgency | '' })}
                   options={[
                     { value: 'routine', label: t('docConsult.urgency_routine') },
                     { value: 'urgent', label: t('docConsult.urgency_urgent') },

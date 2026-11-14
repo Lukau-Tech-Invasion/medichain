@@ -116,7 +116,8 @@ export const mapNursingCarePlan = (plan: CarePlanApiRecord): CarePlan => ({
   mrn: plan.patient_id,
   room: '',
   diagnosis: plan.plan_name,
-  priority: (plan.care_level === 'high' || plan.care_level === 'low' ? plan.care_level : 'medium'),
+  // A plan filed without a priority reads as unset (priorityLabel says so), not medium.
+  priority: (plan.care_level ?? '') as Priority,
   status: (plan.status === 'on-hold' || plan.status === 'completed' || plan.status === 'discontinued' ? plan.status : 'active'),
   goals: planItems(plan.goals, 'goal') as Goal[],
   interventions: planItems(plan.interventions, 'intervention') as Intervention[],
@@ -142,7 +143,8 @@ const NursingCarePlanPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [form, setForm] = useState({
-    patientId: '', diagnosis: '', priority: 'medium' as Priority, goals: '', interventions: '',
+    // Unchosen until the nurse sets it (rule 9).
+    patientId: '', diagnosis: '', priority: '' as Priority | '', goals: '', interventions: '',
   });
   const { user } = useAuthStore();
 
@@ -163,14 +165,14 @@ const NursingCarePlanPage: React.FC = () => {
       await createCarePlan({
         patientId: form.patientId,
         diagnosis: form.diagnosis.trim(),
-        priority: form.priority,
+        priority: form.priority as Priority,
         goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
           .map((description, index) => ({ id: `goal-${index + 1}`, description })),
         interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
           .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
       });
       setSaveMessage(t('docNursingCarePlan.savedOk'));
-      setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
+      setForm({ patientId: '', diagnosis: '', priority: '', goals: '', interventions: '' });
       notifySuccess('Care plan saved.');
     } catch (err) {
       console.error('Failed to create care plan:', err);
@@ -513,13 +515,16 @@ const NursingCarePlanPage: React.FC = () => {
                   {(['high', 'medium', 'low'] as const).map(p => (
                     <button type="button"
                       key={p}
-                      onClick={() => setForm(f => ({ ...f, priority: p }))}
+                      onClick={() => { clearField('priority'); setForm(f => ({ ...f, priority: f.priority === p ? '' : p })); }}
                       aria-pressed={form.priority === p}
                       className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-critical-subtle border-critical text-critical-subtle-fg' : p === 'medium' ? 'bg-surface-sunken border-orange-300 text-content-secondary' : 'bg-surface-sunken border-border-strong'}`}>
                       {priorityLabel(p)}
                     </button>
                   ))}
                 </div>
+                {errors.priority && (
+                  <p className="mt-1 text-sm text-critical-subtle-fg" role="alert">{errors.priority}</p>
+                )}
               </div>
               {saveMessage && (
                 <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>

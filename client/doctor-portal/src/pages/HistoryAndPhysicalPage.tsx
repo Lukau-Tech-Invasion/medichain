@@ -202,7 +202,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
     patientId: '',
     patientName: '',
     mrn: '',
-    examType: 'admission' as HistoryAndPhysical['examType'],
+    // Unchosen (rule 9): every H&P used to be filed as an admission exam.
+    examType: '' as HistoryAndPhysical['examType'] | '',
     chiefComplaint: '',
     hpi: '',
     // Free text in the form, split into one entry per line on submit.
@@ -338,12 +339,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
     setIsSubmitting(true);
     try {
       const payload = {
-        hp_id: `HP-${Date.now()}`,
         patient_id: formData.patientId,
         patient_name: formData.patientName,
         mrn: formData.mrn,
         dateOfExam: new Date().toISOString(),
-        exam_type: formData.examType,
+        exam_type: formData.examType || undefined,
         chief_complaint: formData.chiefComplaint,
         history_of_present_illness: formData.hpi,
         past_medical_history: toLines(formData.pmh),
@@ -421,7 +421,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
     );
   };
 
-  const getExamTypeBadge = (type: HistoryAndPhysical['examType']) => {
+  const getExamTypeBadge = (type: HistoryAndPhysical['examType'] | '') => {
+    if (!type) return <span className={`px-2 py-1 rounded-full text-xs font-medium ${NEUTRAL_BADGE}`}>{t('docHistoryPhysical.examTypeNotRecorded')}</span>;
     const styles: Record<string, string> = {
       'admission': 'bg-critical-subtle text-critical-subtle-fg',
       'annual': 'bg-ok-subtle text-ok-subtle-fg',

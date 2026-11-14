@@ -5247,6 +5247,8 @@ const en_US: TranslationRecord = {
     errorLoadFailed: 'Failed to load CDS rules',
   },
   docCardiac: {
+    rhythmNotChosen: 'Choose the rhythm',
+    rateNotRecorded: 'Rate not recorded',
     errorLoadHistory: 'Past cardiac events could not be loaded. Reload to try again; do not assume there were none.',
     title: 'Cardiac Event Documentation',
     subtitle: 'Document and manage acute cardiac events',
@@ -5348,6 +5350,7 @@ const en_US: TranslationRecord = {
     saveCardiacEventBtn: 'Save Cardiac Event',
   },
   docCarePlan: {
+    errorChoosePriority: 'Choose a priority for the diagnosis.',
     formLabel: 'Care plan',
     errorLoadPlans: 'Recent care plans could not be loaded. Reload the page to try again.',
     colPatient: 'Patient',
@@ -5559,6 +5562,8 @@ const en_US: TranslationRecord = {
     transfersCountLabel: 'Transfers: {{count}}',
   },
   docConsult: {
+    errorChooseSpecialtyUrgency: 'Choose the specialty and how urgent the consult is.',
+    specialtyNotChosen: 'Choose the specialty',
     printConsult: 'Print consultation',
     errorPatientNotLoaded: 'That patient is not in the loaded list. Refresh and select the patient again.',
     title: 'Specialty Consultations',
@@ -6314,6 +6319,7 @@ const en_US: TranslationRecord = {
     patientFallback: 'Patient',
   },
   docHistoryPhysical: {
+    examTypeNotRecorded: 'Exam type not recorded',
     title: 'History & Physical',
     subtitle: 'Document comprehensive patient evaluations',
     loading: 'Loading H&P records...',
