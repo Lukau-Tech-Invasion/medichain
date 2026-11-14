@@ -1591,8 +1591,8 @@ pub async fn get_esignature_prescription(
 ) -> impl Responder {
     let prescription_id = path.into_inner();
 
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.id,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
 
@@ -1601,8 +1601,27 @@ pub async fn get_esignature_prescription(
         Err(response) => return response,
     };
 
-    // Patient or prescriber can view
-    if prescription.patient_id != current_user_id && prescription.prescriber_id != current_user_id {
+    // This said "patient or prescriber" and compared the patient id with the
+    // caller's account id, which never match, behind a gate that refuses
+    // patients anyway; a patient reads their prescriptions through
+    // `/api/e-prescriptions/patient/{patient_id}`. Who may read one: the
+    // prescriber; a pharmacist once it has reached the pharmacy, as the
+    // pharmacy queue lists it; and a clinician with authority over the chart.
+    let reached_pharmacy = matches!(
+        prescription.status,
+        crate::clinical::PrescriptionStatus::Transmitted
+            | crate::clinical::PrescriptionStatus::Received
+            | crate::clinical::PrescriptionStatus::InProgress
+            | crate::clinical::PrescriptionStatus::Dispensed
+            | crate::clinical::PrescriptionStatus::PartialFill
+    );
+    let allowed = prescription.prescriber_id == caller.id
+        || (caller.role == crate::Role::Pharmacist && reached_pharmacy)
+        || crate::care_access::resolve_chart_access(&data, &caller, &prescription.patient_id)
+            .await
+            .map(|authority| authority.is_permitted())
+            .unwrap_or(false);
+    if !allowed {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Access denied".to_string(),
             code: "FORBIDDEN".to_string(),
@@ -2125,6 +2144,57 @@ mod lifecycle_tests {
             )
         );
         assert_ne!(left.is_ok(), right.is_ok());
+    }
+
+    /// Who may read one prescription: the prescriber; a pharmacist once it
+    /// has reached the pharmacy; nobody else without chart authority. The
+    /// patient branch compared the patient id with an account id and never
+    /// matched.
+    #[actix_web::test]
+    async fn a_prescription_is_read_by_its_prescriber_and_by_the_pharmacy_it_reached() {
+        use crate::clinical::PrescriptionStatus;
+        for (status, pharmacist_may_read) in [
+            (PrescriptionStatus::Signed, false),
+            (PrescriptionStatus::Transmitted, true),
+        ] {
+            let state = state_with("RX-READ", status).await;
+            let pharm = pharmacist("pharm_read");
+            state.users.write().unwrap().insert(pharm.id.clone(), pharm);
+            crate::test_fixtures::register(&state, "nurse_unrelated", crate::Role::Nurse);
+            let app = test::init_service(
+                App::new()
+                    .app_data(web::Data::new(state))
+                    .service(get_esignature_prescription),
+            )
+            .await;
+            let read = |user: &str| {
+                test::TestRequest::get()
+                    .uri("/api/e-prescriptions/RX-READ")
+                    .insert_header(crate::test_fixtures::as_user(user))
+                    .to_request()
+            };
+            assert_eq!(
+                test::call_service(&app, read("doctor_rx"))
+                    .await
+                    .status()
+                    .as_u16(),
+                200
+            );
+            assert_eq!(
+                test::call_service(&app, read("pharm_read"))
+                    .await
+                    .status()
+                    .as_u16(),
+                if pharmacist_may_read { 200 } else { 403 }
+            );
+            assert_eq!(
+                test::call_service(&app, read("nurse_unrelated"))
+                    .await
+                    .status()
+                    .as_u16(),
+                403
+            );
+        }
     }
 }
 
