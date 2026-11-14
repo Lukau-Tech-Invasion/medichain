@@ -96,12 +96,24 @@ describe('ImagingPage', () => {
     const readsBeforeSubmit = vi.mocked(listRadiologyOrders).mock.calls.length;
     await selectPatient(/Patient/i, 'Test Patient');
     fireEvent.change(screen.getByLabelText(/Clinical Indication/i), { target: { value: 'Persistent abdominal pain' } });
+    // Nothing is pre-chosen: it opened as a routine chest X-ray, and an order
+    // nobody finished went out as one.
+    fireEvent.click(screen.getByRole('button', { name: /Submit Imaging Order/i }));
+    expect(createRadiologyOrder).not.toHaveBeenCalled();
+    fireEvent.change(document.getElementById('imaging-modality')!, { target: { value: 'ct' } });
+    fireEvent.change(document.getElementById('imaging-body-part')!, { target: { value: 'Abdomen' } });
+    fireEvent.click(document.querySelector('#imaging-laterality input[value="na"]')!);
+    fireEvent.click(document.querySelector('#imaging-priority input[value="urgent"]')!);
     fireEvent.click(screen.getByRole('button', { name: /Submit Imaging Order/i }));
 
     await waitFor(() => expect(createRadiologyOrder).toHaveBeenCalledWith(expect.objectContaining({
       patient_id: 'PAT-001',
       indication: 'Persistent abdominal pain',
       ordering_provider: mockUser.userId,
+      study_type: 'CT',
+      body_part: 'Abdomen',
+      laterality: 'NA',
+      priority: 'Urgent',
     })));
     expect(vi.mocked(listRadiologyOrders).mock.calls.length).toBeGreaterThan(readsBeforeSubmit);
   });

@@ -3223,6 +3223,9 @@ const en_US: TranslationRecord = {
   },
 
   docImaging: {
+    chooseStudy: 'Choose the modality, body part, laterality and priority before placing the order.',
+    chooseModality: 'Choose a modality',
+    chooseBodyPart: 'Choose a body part',
     title: 'Imaging Studies',
     subtitle: 'Order and view diagnostic imaging',
     fillRequired: 'Please fill required fields',

@@ -137,12 +137,14 @@ const ImagingPage: React.FC = () => {
 
   // New order form
   const [selectedPatient, setSelectedPatient] = useState('');
-  const [modality, setModality] = useState<ImagingModality>('xray');
+  // Nothing is pre-chosen (rule 9): the order opened as a routine chest X-ray
+  // with no laterality, so an order nobody finished went out as one.
+  const [modality, setModality] = useState<ImagingModality | ''>('');
   const [study, setStudy] = useState('');
-  const [bodyPart, setBodyPart] = useState('Chest');
-  const [laterality, setLaterality] = useState<'left' | 'right' | 'bilateral' | 'na'>('na');
+  const [bodyPart, setBodyPart] = useState('');
+  const [laterality, setLaterality] = useState<'left' | 'right' | 'bilateral' | 'na' | ''>('');
   const [indication, setIndication] = useState('');
-  const [priority, setPriority] = useState<ImagingPriority>('routine');
+  const [priority, setPriority] = useState<ImagingPriority | ''>('');
   const [contrast, setContrast] = useState(false);
   const [allergies, setAllergies] = useState('');
   const [creatinine, setCreatinine] = useState<number | undefined>();
@@ -205,6 +207,11 @@ const ImagingPage: React.FC = () => {
     if (!validate({ selectedPatient, indication })) {
       return;
     }
+    // What is imaged, where, which side and how soon are the order itself.
+    if (!modality || !bodyPart || !laterality || !priority) {
+      showError(t('docImaging.chooseStudy'));
+      return;
+    }
     if (!user) return;
     type OrderBody = Parameters<typeof createRadiologyOrder>[0];
     const studyTypes: Record<ImagingModality, OrderBody['study_type']> = {
@@ -217,10 +224,10 @@ const ImagingPage: React.FC = () => {
     try {
       await createRadiologyOrder({
           patient_id: selectedPatient,
-          study_type: studyTypes[modality], body_part: bodyPart,
-          laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
+          study_type: studyTypes[modality as ImagingModality], body_part: bodyPart,
+          laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality as 'left' | 'right' | 'bilateral' | 'na'],
           indication,
-          priority: ({ stat: 'Stat', urgent: 'Urgent', routine: 'Routine' } as const)[priority],
+          priority: ({ stat: 'Stat', urgent: 'Urgent', routine: 'Routine' } as const)[priority as ImagingPriority],
           ordering_provider: user.userId,
           order_time: Math.floor(Date.now() / 1000), contrast,
           allergies_reviewed: Boolean(allergies.trim()),
@@ -406,9 +413,10 @@ const ImagingPage: React.FC = () => {
                   <select
                     id="imaging-modality"
                     value={modality}
-                    onChange={e => setModality(e.target.value as ImagingModality)}
+                    onChange={e => setModality(e.target.value as ImagingModality | '')}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docImaging.chooseModality')}</option>
                     {Object.keys(modalityLabels).map((k) => (
                       <option key={k} value={k}>{modalityLabel(k as ImagingModality)}</option>
                     ))}
@@ -422,6 +430,7 @@ const ImagingPage: React.FC = () => {
                     onChange={e => setBodyPart(e.target.value)}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docImaging.chooseBodyPart')}</option>
                     {bodyParts.map(bp => <option key={bp} value={bp}>{bp}</option>)}
                   </select>
                 </div>
@@ -429,8 +438,8 @@ const ImagingPage: React.FC = () => {
                   <ChoiceChips
                     id="imaging-laterality"
                     label={t('docImaging.laterality')}
-                    value={laterality}
-                    onChange={(next) => { if (next === undefined) return; setLaterality(next as 'left' | 'right' | 'bilateral' | 'na'); }}
+                    value={laterality || undefined}
+                    onChange={(next) => setLaterality((next ?? '') as 'left' | 'right' | 'bilateral' | 'na' | '')}
                     options={[
                       { value: 'na', label: t('docImaging.latNa') },
                       { value: 'left', label: t('docImaging.latLeft') },
@@ -443,8 +452,8 @@ const ImagingPage: React.FC = () => {
                   <ChoiceChips
                     id="imaging-priority"
                     label={t('docImaging.priority')}
-                    value={priority}
-                    onChange={(next) => { if (next === undefined) return; setPriority(next as ImagingPriority); }}
+                    value={priority || undefined}
+                    onChange={(next) => setPriority((next ?? '') as ImagingPriority | '')}
                     options={[
                       { value: 'routine', label: t('docImaging.optRoutine') },
                       { value: 'urgent', label: t('docImaging.optUrgent') },
