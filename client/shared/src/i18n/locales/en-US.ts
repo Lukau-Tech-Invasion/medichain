@@ -3549,6 +3549,9 @@ const en_US: TranslationRecord = {
   },
 
   docSplint: {
+    errorType: 'Choose what was applied before saving.',
+    nvStatus: 'Neurovascular status',
+    nvCompromised: 'Compromised',
     title: 'Splint & Cast Documentation',
     subtitle: 'Immobilization and orthopedic care',
     nvWarning: 'Neurovascular compromise detected - reassess immediately!',

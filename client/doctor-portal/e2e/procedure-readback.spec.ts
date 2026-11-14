@@ -95,6 +95,8 @@ test('a splint survives leaving the page and coming back', async ({ browser }) =
     expect(value, `no options offered by ${id}`).toBeTruthy();
     await choose(page.locator(id), value as string);
   }
+  // What was applied is chosen, not pre-selected (rule 9).
+  await choose(page.locator('#splint-type'), 'splint');
   await page.getByRole('button', { name: /save splint\/cast record/i }).click();
 
   await openHistory(page);

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Bone, AlertTriangle, User, CheckCircle } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
-import { useAuthStore } from '../store/authStore';
 import {
   createSplint,
   fromStoredRecord,
@@ -40,12 +39,13 @@ interface SplintRecord {
   notes: string;
 }
 
-/** Shared existing form defaults; resetting a saved draft does not change clinical policy. */
-const splintDefaults = {
-  type: 'splint' as ImmobilizationType, material: 'fiberglass' as Material,
-  side: 'right' as SplintRecord['side'], weightBearing: 'non' as SplintRecord['weightBearing'],
-  intact: true, checklist: true,
-};
+/**
+ * What a new splint record starts with: nothing (rule 9). It used to open on a
+ * right-sided fibreglass splint, non-weight-bearing, neurovascular status
+ * intact before and after, padding adequate, edges smooth and every
+ * instruction given -- and filed all of it for a limb nobody had checked.
+ */
+const UNRECORDED_NV = { intact: null as boolean | null, notes: '' };
 
 /** Display actual stored draft fields, including unknown checks, without assuming normal findings. */
 const SplintRecordDetails: React.FC<{ record: SplintRecord }> = ({ record }) => {
@@ -96,7 +96,6 @@ const returnPrecautionsList = [
 
 const SplintPage: React.FC = () => {
   const { t } = useTranslation();
-  const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const typeLabel = (v: string): string => ({
     splint: t('docSplint.typeSplint'), cast: t('docSplint.typeCast'), sling: t('docSplint.typeSling'),
@@ -142,36 +141,39 @@ const SplintPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionPending = useRef(false);
 
-  const [type, setType] = useState<ImmobilizationType>(splintDefaults.type);
-  const [material, setMaterial] = useState<Material>(splintDefaults.material);
+  const [type, setType] = useState<ImmobilizationType | ''>('');
+  const [material, setMaterial] = useState<Material | ''>('');
   const [bodyPart, setBodyPart] = useState('');
-  const [side, setSide] = useState<'left' | 'right' | 'bilateral'>(splintDefaults.side);
+  const [side, setSide] = useState<'left' | 'right' | 'bilateral' | ''>('');
   const [indication, setIndication] = useState('');
   const [fractureSite, setFractureSite] = useState('');
-  const [preNV, setPreNV] = useState({ intact: splintDefaults.intact, notes: '' });
-  const [postNV, setPostNV] = useState({ intact: splintDefaults.intact, notes: '' });
-  const [paddingAdequate, setPaddingAdequate] = useState(splintDefaults.checklist);
-  const [edgesSmooth, setEdgesSmooth] = useState(splintDefaults.checklist);
-  const [patientInstructions, setPatientInstructions] = useState(splintDefaults.checklist);
-  const [weightBearing, setWeightBearing] = useState<'non' | 'touch' | 'partial' | 'full'>(splintDefaults.weightBearing);
-  const [elevationInstructed, setElevationInstructed] = useState(splintDefaults.checklist);
-  const [iceInstructed, setIceInstructed] = useState(splintDefaults.checklist);
+  const [preNV, setPreNV] = useState(UNRECORDED_NV);
+  const [postNV, setPostNV] = useState(UNRECORDED_NV);
+  // Checks a clinician ticks: unticked means "not confirmed", and only a tick
+  // is sent.
+  const [paddingAdequate, setPaddingAdequate] = useState(false);
+  const [edgesSmooth, setEdgesSmooth] = useState(false);
+  const [patientInstructions, setPatientInstructions] = useState(false);
+  const [weightBearing, setWeightBearing] = useState<'non' | 'touch' | 'partial' | 'full' | ''>('');
+  const [elevationInstructed, setElevationInstructed] = useState(false);
+  const [iceInstructed, setIceInstructed] = useState(false);
   const [selectedPrecautions, setSelectedPrecautions] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState('');
   const [notes, setNotes] = useState('');
 
 
   // NV check warning
-  const nvWarning = !preNV.intact || !postNV.intact;
+  // Only a status someone recorded as compromised warns; unrecorded is not.
+  const nvWarning = preNV.intact === false || postNV.intact === false;
 
   /** Clear only a confirmed saved draft and show its durable history. */
   const resetCompletedDraft = () => {
-    setSelectedPatient(''); setType(splintDefaults.type); setMaterial(splintDefaults.material);
-    setBodyPart(''); setSide(splintDefaults.side); setIndication(''); setFractureSite('');
-    setPreNV({ intact: splintDefaults.intact, notes: '' }); setPostNV({ intact: splintDefaults.intact, notes: '' });
-    setPaddingAdequate(splintDefaults.checklist); setEdgesSmooth(splintDefaults.checklist);
-    setPatientInstructions(splintDefaults.checklist); setWeightBearing(splintDefaults.weightBearing);
-    setElevationInstructed(splintDefaults.checklist); setIceInstructed(splintDefaults.checklist);
+    setSelectedPatient(''); setType(''); setMaterial('');
+    setBodyPart(''); setSide(''); setIndication(''); setFractureSite('');
+    setPreNV(UNRECORDED_NV); setPostNV(UNRECORDED_NV);
+    setPaddingAdequate(false); setEdgesSmooth(false);
+    setPatientInstructions(false); setWeightBearing('');
+    setElevationInstructed(false); setIceInstructed(false);
     setSelectedPrecautions([]); setFollowUp(''); setNotes(''); setActiveTab('history');
   };
 
@@ -183,22 +185,32 @@ const SplintPage: React.FC = () => {
       showError(t('docSplint.errorSelect'));
       return;
     }
+    // What was applied is the record; the server would otherwise call it a splint.
+    if (!type) {
+      showError(t('docSplint.errorType'));
+      return;
+    }
     submissionPending.current = true;
     setIsSubmitting(true);
     // Resolved on the server when the patient was chosen (the first page of the
     // directory held nobody past the fiftieth). Read synchronously: awaiting here,
     // before the pending-save guard is set, let a double press submit twice.
     const patient = selectedPatientEntry;
-    const record: SplintRecord = {
-      id: `SPL-${Date.now()}`,
+    // Only what was recorded: an unchosen field is absent, an unticked check
+    // is not sent, and the id and author are the server's.
+    const record = {
       patientId: selectedPatient,
       patientName: patient ? patient.full_name : '',
-      appliedBy: user?.username || 'Unknown',
       appliedAt: new Date().toISOString(),
-      type, material, bodyPart, side, indication, fractureSite,
-      preApplicationNV: preNV, postApplicationNV: postNV,
-      paddingAdequate, edgesSmooth, patientInstructions,
-      weightBearing, elevationInstructed, iceInstructed,
+      type, material: material || undefined, bodyPart, side: side || undefined, indication, fractureSite,
+      preApplicationNV: preNV.intact === null && !preNV.notes ? undefined : preNV,
+      postApplicationNV: postNV.intact === null && !postNV.notes ? undefined : postNV,
+      paddingAdequate: paddingAdequate || undefined,
+      edgesSmooth: edgesSmooth || undefined,
+      patientInstructions: patientInstructions || undefined,
+      weightBearing: weightBearing || undefined,
+      elevationInstructed: elevationInstructed || undefined,
+      iceInstructed: iceInstructed || undefined,
       returnPrecautions: selectedPrecautions, followUp, notes
     };
     try {
@@ -278,8 +290,8 @@ const SplintPage: React.FC = () => {
                   <ChoiceChips
                     id="splint-type"
                     label={t('docSplint.type')}
-                    value={type}
-                    onChange={(next) => { if (next === undefined) return; setType(next as ImmobilizationType); }}
+                    value={type || undefined}
+                    onChange={(next) => setType((next ?? '') as ImmobilizationType | '')}
                     options={[
                       { value: 'splint', label: t('docSplint.typeSplint') },
                       { value: 'cast', label: t('docSplint.typeCast') },
@@ -293,8 +305,8 @@ const SplintPage: React.FC = () => {
                   <ChoiceChips
                     id="splint-material"
                     label={t('docSplint.material')}
-                    value={material}
-                    onChange={(next) => { if (next === undefined) return; setMaterial(next as Material); }}
+                    value={material || undefined}
+                    onChange={(next) => setMaterial((next ?? '') as Material | '')}
                     options={[
                       { value: 'fiberglass', label: t('docSplint.matFiberglass') },
                       { value: 'plaster', label: t('docSplint.matPlaster') },
@@ -308,8 +320,8 @@ const SplintPage: React.FC = () => {
                   <ChoiceChips
                     id="splint-side"
                     label={t('docSplint.side')}
-                    value={side}
-                    onChange={(next) => { if (next === undefined) return; setSide(next as 'left' | 'right' | 'bilateral'); }}
+                    value={side || undefined}
+                    onChange={(next) => setSide((next ?? '') as 'left' | 'right' | 'bilateral' | '')}
                     options={[
                       { value: 'left', label: t('docSplint.sideLeft') },
                       { value: 'right', label: t('docSplint.sideRight') },
@@ -374,17 +386,16 @@ const SplintPage: React.FC = () => {
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="p-3 bg-surface-sunken rounded">
                   <h3 className="font-medium mb-2">{t('docSplint.preApplication')}</h3>
-                  <label htmlFor="splint-pre-nv-intact" className="flex items-center gap-2 mb-2">
-                    <input
-                      id="splint-pre-nv-intact"
-                      type="checkbox"
-                      checked={preNV.intact}
-                      onChange={e => setPreNV({ ...preNV, intact: e.target.checked })}
-                    />
-                    <span className={preNV.intact ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg font-semibold'}>
-                      {t('docSplint.nvStatusIntact')}
-                    </span>
-                  </label>
+                  <ChoiceChips
+                    id="splint-pre-nv-intact"
+                    label={t('docSplint.nvStatus')}
+                    value={preNV.intact === null ? undefined : preNV.intact ? 'intact' : 'compromised'}
+                    onChange={(next) => setPreNV({ ...preNV, intact: next === undefined ? null : next === 'intact' })}
+                    options={[
+                      { value: 'intact', label: t('docSplint.nvStatusIntact') },
+                      { value: 'compromised', label: t('docSplint.nvCompromised') },
+                    ]}
+                  />
                   <input aria-label={t('docSplint.nvNotesPh')}
                     type="text"
                     value={preNV.notes}
@@ -395,17 +406,16 @@ const SplintPage: React.FC = () => {
                 </div>
                 <div className="p-3 bg-surface-sunken rounded">
                   <h3 className="font-medium mb-2">{t('docSplint.postApplication')}</h3>
-                  <label htmlFor="splint-post-nv-intact" className="flex items-center gap-2 mb-2">
-                    <input
-                      id="splint-post-nv-intact"
-                      type="checkbox"
-                      checked={postNV.intact}
-                      onChange={e => setPostNV({ ...postNV, intact: e.target.checked })}
-                    />
-                    <span className={postNV.intact ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg font-semibold'}>
-                      {t('docSplint.nvStatusIntact')}
-                    </span>
-                  </label>
+                  <ChoiceChips
+                    id="splint-post-nv-intact"
+                    label={t('docSplint.nvStatus')}
+                    value={postNV.intact === null ? undefined : postNV.intact ? 'intact' : 'compromised'}
+                    onChange={(next) => setPostNV({ ...postNV, intact: next === undefined ? null : next === 'intact' })}
+                    options={[
+                      { value: 'intact', label: t('docSplint.nvStatusIntact') },
+                      { value: 'compromised', label: t('docSplint.nvCompromised') },
+                    ]}
+                  />
                   <input aria-label={t('docSplint.nvNotesPh')}
                     type="text"
                     value={postNV.notes}
@@ -459,8 +469,8 @@ const SplintPage: React.FC = () => {
                   <ChoiceChips
                     id="splint-weight-bearing"
                     label={t('docSplint.weightBearing')}
-                    value={weightBearing}
-                    onChange={(next) => { if (next === undefined) return; setWeightBearing(next as 'non' | 'touch' | 'partial' | 'full'); }}
+                    value={weightBearing || undefined}
+                    onChange={(next) => setWeightBearing((next ?? '') as 'non' | 'touch' | 'partial' | 'full' | '')}
                     options={[
                       { value: 'non', label: t('docSplint.wbNon') },
                       { value: 'touch', label: t('docSplint.wbTouch') },

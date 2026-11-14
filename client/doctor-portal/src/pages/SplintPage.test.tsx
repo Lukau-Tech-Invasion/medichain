@@ -37,6 +37,8 @@ describe('SplintPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select synthetic patient' }));
     fireEvent.change(screen.getByLabelText('Body Part / Splint Type'), { target: { value: 'Long arm' } });
     fireEvent.change(screen.getByPlaceholderText('Additional notes...'), { target: { value: 'Synthetic saved draft' } });
+    // What was applied is required: nothing is pre-chosen any more.
+    fireEvent.click(document.querySelector('#splint-type input[value="splint"]')!);
     const submit = screen.getByRole('button', { name: 'Save Splint/Cast Record' });
     fireEvent.click(submit); fireEvent.click(submit);
     expect(submit).toBeDisabled();
@@ -84,7 +86,8 @@ describe('SplintPage', () => {
   });
   it('keeps an unsaved neurovascular warning out of the history tab', () => {
     render(<SplintPage />);
-    fireEvent.click(screen.getAllByRole('checkbox', { name: 'NV status intact' })[0]);
+    // The status starts unrecorded; compromise is recorded, not unticked from a default.
+    fireEvent.click(document.querySelector('#splint-pre-nv-intact input[value="compromised"]')!);
     expect(screen.getByText('Neurovascular compromise detected - reassess immediately!')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'History' }));
     expect(screen.queryByText('Neurovascular compromise detected - reassess immediately!')).not.toBeInTheDocument();
