@@ -10,7 +10,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
 }));
 
 describe('ReissueActivationCode', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); });
 
   it('issues a new code after confirmation and shows it once', async () => {
     vi.mocked(shared.reissuePatientActivationCode).mockResolvedValue({
