@@ -60,6 +60,16 @@ export function getStaffFixture(role: RoleName, index?: number): StaffFixture {
 }
 
 /** The seeded patient's record id, for the routes that show one patient. */
+/** The child record the seed creates for paediatric specs (no account). */
+export function fixtureChildPatientId(): string {
+  const fixtures = JSON.parse(readFileSync(findFixtureFile(), 'utf8')) as {
+    child?: { linked_patient_id?: string };
+  };
+  const id = fixtures.child?.linked_patient_id;
+  if (!id) throw new Error('The browser fixtures name no child; rerun the browser fixture seed.');
+  return id;
+}
+
 export function fixturePatientId(): string {
   const fixtures = JSON.parse(readFileSync(findFixtureFile(), 'utf8')) as {
     patient?: { linked_patient_id?: string };

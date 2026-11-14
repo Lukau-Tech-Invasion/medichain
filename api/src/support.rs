@@ -530,6 +530,9 @@ pub fn age_in_years(date_of_birth: &str, today: chrono::NaiveDate) -> Option<u32
     u32::try_from(years).ok()
 }
 
+/// Paediatrics covers birth to the eighteenth birthday: 216 months.
+pub const PAEDIATRIC_AGE_LIMIT_MONTHS: u32 = 216;
+
 /// Whole months between a `YYYY-MM-DD` date of birth and `today`; `None` for a
 /// date that does not parse or lies in the future. A month counts only once the
 /// day of birth has come round in it, matching `age_in_years` at every birthday.

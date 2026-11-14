@@ -187,6 +187,76 @@ const PATIENT_B = {
   languages: ['en'],
 };
 
+/**
+ * A child's record, with no account: a four-year-old does not sign in.
+ *
+ * The paediatric spec used to file a 14.2 kg paediatric assessment for the
+ * adult fixture patient, which the API now refuses (an adult is not a
+ * paediatric patient) and which put "Latest pediatric assessment" on a
+ * 38-year-old's chart. Born four years before the run, so it stays a child.
+ */
+function childRecord(): Json {
+  const born = new Date();
+  born.setFullYear(born.getFullYear() - 4);
+  return {
+    full_name: 'Lindiwe Ndlovu',
+    date_of_birth: born.toISOString().slice(0, 10),
+    national_id: sfx(`BT-CHILD-${Date.now()}`),
+    phone: '+27000000300',
+    blood_type: 'O+',
+    allergies: [],
+    current_medications: [],
+    chronic_conditions: [],
+    emergency_contact_name: 'Thandiwe Ndlovu',
+    emergency_contact_phone: '+27000000100',
+    emergency_contact_relationship: 'parent',
+    organ_donor: false,
+    dnr_status: false,
+    languages: ['en'],
+  };
+}
+
+/** The child record an earlier run created, reused while it still exists. */
+async function provisionChild(doctor: Account): Promise<string> {
+  if (existsSync(manifestPath())) {
+    try {
+      const previous = JSON.parse(readFileSync(manifestPath(), 'utf8')) as { child?: { linked_patient_id?: string } };
+      const id = previous.child?.linked_patient_id;
+      if (id && ok((await call('GET', `/patients/${id}`, undefined, doctor.token)).status)) return id;
+    } catch {
+      // An unreadable manifest is regenerated; register a new child below.
+    }
+  }
+  const created = await call('POST', '/register', childRecord(), doctor.token);
+  if (!ok(created.status)) fail('register the synthetic child', created.status, created.json);
+  const id = String(created.json.patient_id ?? '');
+  if (!id) fail('register the synthetic child returned no patient_id', created.status, created.json);
+  await bookChildVisit(doctor, id);
+  return id;
+}
+
+/**
+ * Book the child in with the doctor, which is what lets a clinician open a
+ * chart in the ordinary way (WP9). A child has no account to grant access
+ * from, and without a visit the chart offers only emergency break-glass.
+ */
+async function bookChildVisit(doctor: Account, childId: string): Promise<void> {
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const day = new Date(Date.now() + (1 + Math.floor(attempt / 8)) * 86400000).toISOString().slice(0, 10);
+    const time = `${String(9 + (attempt % 8)).padStart(2, '0')}:00`;
+    const booked = await call('POST', '/appointments', {
+      patient_id: childId,
+      appointment_type: 'consultation',
+      preferred_date: day,
+      preferred_time: time,
+      reason: 'Synthetic paediatric review (browser fixtures)',
+    }, doctor.token);
+    if (ok(booked.status)) return;
+    if (booked.status !== 409) fail('book the synthetic child in with the doctor', booked.status, booked.json);
+  }
+  fail('book the synthetic child in with the doctor: no free slot', 409, {});
+}
+
 export type Json = Record<string, unknown>;
 
 export async function call(
@@ -747,6 +817,9 @@ async function main(): Promise<void> {
   }
   console.log('  ✓ primary patient approved browser clinicians for seven days');
 
+  const childId = await provisionChild(doctor);
+  console.log(`  ✓ child record ${childId} for paediatric specs`);
+
   const workflows = await seedClinicalWorkflows(patientId, doctor, lab, pharmacist);
   console.log('  ✓ seeded lab recollection and dual-pharmacist browser workflows');
 
@@ -783,6 +856,10 @@ async function main(): Promise<void> {
       adminEntry,
     ],
     workflows,
+    child: {
+      linked_patient_id: childId,
+      purpose: 'a paediatric patient (four years old); has no account',
+    },
     patient_b: {
       role: 'Patient',
       user_id: b.account.userId,

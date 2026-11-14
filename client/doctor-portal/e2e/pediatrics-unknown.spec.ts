@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { signIn, settle, selectPatient, fixturePatientId } from './support';
+import { signIn, settle, selectPatient, fixtureChildPatientId } from './support';
 import { api, fixtureStaff, fixtureToken, readFixtures, FIXTURE_PASSWORD } from './identity';
 import { fixtureArtifactPath } from './fixture-manifest';
 
@@ -95,7 +95,8 @@ test.describe.serial('paediatric assessment readback', () => {
     await expect(page.getByText('Enter the heart rate')).toBeVisible();
     if (shots) await page.screenshot({ path: `${shots}/doctor-pediatrics-required-named.png`, fullPage: true });
 
-    await selectPatient(page, '#peds-patient');
+    // A child: the API refuses a paediatric assessment for an adult.
+    await selectPatient(page, '#peds-patient', fixtureChildPatientId());
     await page.locator('#peds-weight').fill('14.2');
     await page.locator('#peds-hr').fill('104');
     await page.locator('#peds-notes').fill(`Fictional synthetic QA record, no care given. ${marker}`);
@@ -132,7 +133,7 @@ test.describe.serial('paediatric assessment readback', () => {
     const saved: SavedAssessment = {
       assessment_id: assessmentId,
       marker,
-      patient_id: fixturePatientId(),
+      patient_id: fixtureChildPatientId(),
       assessed_by: doctor.user_id,
       saved_at: new Date().toISOString(),
     };

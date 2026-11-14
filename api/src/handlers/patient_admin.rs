@@ -336,7 +336,7 @@ pub async fn list_patients(
 /// The longest directory scan one caseload read performs.
 const PAEDIATRIC_SCAN_CAP: usize = 20_000;
 /// Paediatrics covers birth to the eighteenth birthday.
-const PAEDIATRIC_AGE_LIMIT_MONTHS: u32 = 216;
+const PAEDIATRIC_AGE_LIMIT_MONTHS: u32 = crate::support::PAEDIATRIC_AGE_LIMIT_MONTHS;
 
 /// What one caseload scan found.
 struct PaediatricScan {

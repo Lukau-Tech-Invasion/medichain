@@ -14,12 +14,60 @@ mod pediatric_unknown_tests {
     use crate::{AppState, Role};
     use actix_web::{http::StatusCode, test, web, App};
 
+    /// A patient born `years_old` years ago, stored as the product stores one.
+    async fn seed_aged(state: &AppState, id: &str, years_old: i32) {
+        use chrono::Datelike;
+        let today = chrono::Utc::now().date_naive();
+        let mut profile = crate::test_fixtures::patient_profile(id, "Synthetic Child");
+        profile.date_of_birth = format!("{:04}-01-01", today.year() - years_old);
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+    }
+
+    /// A paediatric assessment for an adult is refused; for a child it is filed.
+    #[actix_web::test]
+    async fn a_paediatric_assessment_is_refused_for_an_adult() {
+        let state = AppState::new();
+        register(&state, "peds-age-doctor", Role::Doctor);
+        seed_aged(&state, "PAT-PEDS-ADULT", 38).await;
+        seed_aged(&state, "PAT-PEDS-CHILD", 4).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_peds),
+        )
+        .await;
+        for (patient, expected) in [
+            ("PAT-PEDS-ADULT", StatusCode::BAD_REQUEST),
+            ("PAT-PEDS-CHILD", StatusCode::CREATED),
+        ] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/peds")
+                    .insert_header(crate::test_fixtures::as_user("peds-age-doctor"))
+                    .insert_header(("Idempotency-Key", format!("peds-age-{patient}")))
+                    .set_json(serde_json::json!({ "patient_id": patient }))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), expected, "{patient}");
+        }
+    }
+
     /// Missing observations and age remain distinct from documented false and newborn age zero.
     #[actix_web::test]
     async fn pediatric_unknown_observations_round_trip() {
         let state = AppState::new();
         register(&state, "peds-qa-doctor", Role::Doctor);
-        crate::test_fixtures::seed_patient(&state, "PAT-PEDS-QA").await;
+        seed_aged(&state, "PAT-PEDS-QA", 3).await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -112,7 +160,7 @@ mod pediatric_unknown_tests {
     async fn pediatric_invalid_observations_do_not_create_records() {
         let state = AppState::new();
         register(&state, "peds-validation-doctor", Role::Doctor);
-        crate::test_fixtures::seed_patient(&state, "PAT-PEDS-VALIDATION").await;
+        seed_aged(&state, "PAT-PEDS-VALIDATION", 5).await;
         let state = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -186,6 +234,19 @@ fn pediatric_input_error(body: &serde_json::Value) -> Option<&'static str> {
     None
 }
 
+/// The patient's age in whole months from their recorded date of birth, or
+/// `None` when it is not on file or cannot be read.
+async fn patient_age_months(data: &web::Data<AppState>, patient_id: &str) -> Option<u32> {
+    let entity = data
+        .repositories
+        .patients
+        .get_by_id(patient_id)
+        .await
+        .ok()?;
+    let profile = crate::patient_entity_to_profile(&entity, &data.encryption_keyring)?;
+    crate::support::age_in_months(&profile.date_of_birth, chrono::Utc::now().date_naive())
+}
+
 /// Create pediatric assessment
 #[post("/api/clinical/peds")]
 pub async fn create_peds(
@@ -221,6 +282,18 @@ pub async fn create_peds(
         .to_string();
     if let Err(resp) = require_known_patient(&data, &patient_id).await {
         return resp;
+    }
+    // A paediatric assessment is for a child. Nothing stopped one being filed
+    // for an adult, and the chart then offered "Latest pediatric assessment"
+    // with a 14 kg weight on a 38-year-old. A patient whose date of birth is
+    // not on file is not refused: an unknown age is not an adult one.
+    if let Some(months) = patient_age_months(&data, &patient_id).await {
+        if months >= crate::support::PAEDIATRIC_AGE_LIMIT_MONTHS {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "A paediatric assessment is for a patient under 18".to_string(),
+                code: "NOT_A_PAEDIATRIC_PATIENT".to_string(),
+            });
+        }
     }
     if let Some(error) = pediatric_input_error(&body) {
         return HttpResponse::BadRequest().json(ErrorResponse {
