@@ -3784,6 +3784,9 @@ const en_US: TranslationRecord = {
   },
 
   docToxicology: {
+    yes: 'Yes',
+    no: 'No',
+    notRecorded: 'Not recorded',
     title: 'Toxicology / Overdose',
     subtitle: 'Poisoning assessment and antidote management',
     poisonControl: 'Poison Control: 1-800-222-1222',

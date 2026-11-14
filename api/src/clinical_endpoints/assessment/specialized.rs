@@ -841,6 +841,18 @@ pub async fn list_tox_for_patient(
     }
 }
 
+/// The exposure type a route of exposure implies, where it implies one.
+fn exposure_type_for_route(route: &str) -> Option<&'static str> {
+    match route {
+        "oral" => Some("ingestion"),
+        "inhalation" => Some("inhalation"),
+        "dermal" => Some("dermal"),
+        "injection" => Some("injection"),
+        "ocular" => Some("ocular"),
+        _ => None,
+    }
+}
+
 /// Create a toxicology assessment from clinician-entered observations.
 #[post("/api/clinical/tox")]
 pub async fn create_tox(
@@ -887,28 +899,34 @@ pub async fn create_tox(
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string(),
-        assessed_by: body
-            .get("assessed_by")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string(),
+        // The caller, not a value the client asserts (the page sent its own).
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .get("assessment_datetime")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .unwrap_or(now),
+        // Both columns are NOT NULL. A missing value is "unknown", never the
+        // plausible guess it used to be ("ingestion", "accidental"): an
+        // unrecorded intent read as an accident (rule 9).
         exposure_type: body
             .get("exposure_type")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or("ingestion")
-            .to_string(),
+            .map(str::to_string)
+            .or_else(|| {
+                body.get("route_of_exposure")
+                    .and_then(|v| v.as_str())
+                    .and_then(exposure_type_for_route)
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "unknown".to_string()),
         intentionality: body
             .get("intentionality")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
-            .unwrap_or("accidental")
+            .unwrap_or("unknown")
             .to_string(),
         substances: body
             .get("substances")
@@ -1854,6 +1872,57 @@ mod paramedic_mci_tests {
         )
         .await;
         assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// The assessor is the caller; an unrecorded route and intent are
+    /// "unknown", never "ingestion" and "accidental"; a route sets the type.
+    #[actix_web::test]
+    async fn toxicology_attribution_and_unrecorded_fields() {
+        let state = AppState::new();
+        register(&state, "tox-attrib", Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-TOX-A").await;
+        let data = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(super::create_tox)).await;
+        let file = |body: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/clinical/tox")
+                .insert_header(crate::test_fixtures::as_user("tox-attrib"))
+                .set_json(body)
+                .to_request()
+        };
+        let bare: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            file(
+                serde_json::json!({ "patient_id": "PAT-TOX-A", "assessed_by": "forged-colleague" }),
+            ),
+        )
+        .await;
+        let stored = data
+            .repositories
+            .toxicology_assessments
+            .get_by_id(bare["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(stored.assessed_by, "tox-attrib");
+        assert_eq!(stored.exposure_type, "unknown");
+        assert_eq!(stored.intentionality, "unknown");
+        assert_eq!(stored.route_of_exposure, None);
+
+        let routed: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            file(serde_json::json!({ "patient_id": "PAT-TOX-A", "route_of_exposure": "inhalation", "intentionality": "intentional" })),
+        )
+        .await;
+        let stored = data
+            .repositories
+            .toxicology_assessments
+            .get_by_id(routed["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(stored.exposure_type, "inhalation");
+        assert_eq!(stored.intentionality, "intentional");
+        assert_eq!(stored.route_of_exposure.as_deref(), Some("inhalation"));
     }
 
     #[actix_web::test]

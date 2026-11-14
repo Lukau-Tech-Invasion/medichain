@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
-import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog, ChoiceChips } from '@medichain/shared';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
@@ -35,9 +34,9 @@ interface ToxCase {
   substance: string;
   amount: string;
   timeOfExposure: string;
-  route: ExposureRoute;
-  intentional: boolean;
-  severity: Severity;
+  route: ExposureRoute | '';
+  intentional: boolean | null;
+  severity: Severity | '';
   symptoms: string[];
   toxScreen: ToxScreen;
   antidotesGiven: { name: string; dose: string; time: string }[];
@@ -92,7 +91,6 @@ const decontaminationMethods = [
 const ToxicologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { catalog } = useScoringCatalog();
-  const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   // One save at a time: a second press while a write is in flight used to send it twice.
   const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
@@ -119,9 +117,11 @@ const ToxicologyPage: React.FC = () => {
   const [substance, setSubstance] = useState('');
   const [amount, setAmount] = useState('');
   const [timeOfExposure, setTimeOfExposure] = useState('');
-  const [route, setRoute] = useState<ExposureRoute>('oral');
-  const [intentional, setIntentional] = useState(false);
-  const [severity, setSeverity] = useState<Severity>('mild');
+  // Nothing is pre-chosen (rule 9): the form opened on an oral, accidental,
+  // mild exposure and filed all three for a patient nobody had assessed.
+  const [route, setRoute] = useState<ExposureRoute | ''>('');
+  const [intentional, setIntentional] = useState<boolean | null>(null);
+  const [severity, setSeverity] = useState<Severity | ''>('');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [selectedDecon, setSelectedDecon] = useState<string[]>([]);
   const [givenAntidotes, setGivenAntidotes] = useState<{ name: string; dose: string; time: string }[]>([]);
@@ -152,13 +152,19 @@ const ToxicologyPage: React.FC = () => {
     // Usually already resolved when the patient was chosen; awaiting only when it
     // is not keeps a double press from slipping past the pending-save guard.
     const patient = selectedPatientEntry ?? await resolveSelectedPatient();
-    const newCase: ToxCase = {
-      id: `TOX-${Date.now()}`,
+    // The id and the assessor are the server's. The typed columns are read
+    // under their own names: `route` and `intentional` alone reached no
+    // column, so every case stored an empty route and "accidental".
+    const newCase = {
       patientId: selectedPatient,
       patientName: patient ? patient.full_name : '',
-      assessedBy: user?.userId || 'Unknown',
       assessedAt: new Date().toISOString(),
-      substance, amount, timeOfExposure, route, intentional, severity,
+      substance, amount, timeOfExposure,
+      route: route || undefined,
+      route_of_exposure: route || undefined,
+      intentional: intentional ?? undefined,
+      intentionality: intentional === null ? undefined : intentional ? 'intentional' : 'accidental',
+      severity: severity || undefined,
       symptoms: selectedSymptoms,
       toxScreen,
       antidotesGiven: givenAntidotes,
@@ -277,8 +283,8 @@ const ToxicologyPage: React.FC = () => {
                   <ChoiceChips
                     id="tox-route"
                     label={t('docToxicology.route')}
-                    value={route}
-                    onChange={(next) => { if (next === undefined) return; setRoute(next as ExposureRoute); }}
+                    value={route || undefined}
+                    onChange={(next) => setRoute((next ?? '') as ExposureRoute | '')}
                     options={[
                       { value: 'oral', label: t('docToxicology.routeOral') },
                       { value: 'inhalation', label: t('docToxicology.routeInhalation') },
@@ -293,8 +299,8 @@ const ToxicologyPage: React.FC = () => {
                   <ChoiceChips
                     id="tox-severity"
                     label={t('docToxicology.severity')}
-                    value={severity}
-                    onChange={(next) => { if (next === undefined) return; setSeverity(next as Severity); }}
+                    value={severity || undefined}
+                    onChange={(next) => setSeverity((next ?? '') as Severity | '')}
                     options={[
                       { value: 'mild', label: t('docToxicology.sevMild') },
                       { value: 'moderate', label: t('docToxicology.sevModerate') },
@@ -305,15 +311,16 @@ const ToxicologyPage: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label htmlFor="tox-intentional" className="flex items-center gap-2">
-                  <input
-                    id="tox-intentional"
-                    type="checkbox"
-                    checked={intentional}
-                    onChange={e => setIntentional(e.target.checked)}
-                  />
-                  <span>{t('docToxicology.intentional')}</span>
-                </label>
+                <ChoiceChips
+                  id="tox-intentional"
+                  label={t('docToxicology.intentional')}
+                  value={intentional === null ? undefined : intentional ? 'yes' : 'no'}
+                  onChange={(next) => setIntentional(next === undefined ? null : next === 'yes')}
+                  options={[
+                    { value: 'yes', label: t('docToxicology.yes') },
+                    { value: 'no', label: t('docToxicology.no') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -518,12 +525,15 @@ const ToxicologyPage: React.FC = () => {
                       <h3 className="font-semibold">{c.patientName}</h3>
                       <p className="text-sm text-content-muted">{formatTimestamp(c.assessedAt)}</p>
                     </div>
-                    <span className={`px-2 py-1 text-xs rounded ${severityColors[c.severity]}`}>
-                      {c.severity.toUpperCase()}
-                    </span>
+                    {/* A case filed without a severity has none to show. */}
+                    {c.severity && (
+                      <span className={`px-2 py-1 text-xs rounded ${severityColors[c.severity]}`}>
+                        {c.severity.toUpperCase()}
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm"><strong>{t('docToxicology.lblSubstance')}</strong> {c.substance} ({c.amount})</p>
-                  <p className="text-sm"><strong>{t('docToxicology.lblRoute')}</strong> {c.route}</p>
+                  <p className="text-sm"><strong>{t('docToxicology.lblRoute')}</strong> {c.route || t('docToxicology.notRecorded')}</p>
                   {c.antidotesGiven.length > 0 && (
                     <p className="text-sm"><strong>{t('docToxicology.lblAntidotes')}</strong> {c.antidotesGiven.map(a => a.name).join(', ')}</p>
                   )}
