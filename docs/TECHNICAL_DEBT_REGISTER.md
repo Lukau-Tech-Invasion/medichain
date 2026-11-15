@@ -244,7 +244,10 @@ database and was removed afterwards by restoring the snapshot taken first.
     `authStore.restoreSession` (no token survives a reload); a persisted refresh
     token or a cookie session is the decision it waits on.
   * `GET /api/e-prescriptions/{id}` admits only the prescriber, though its
-    comment says "patient or prescriber". No screen calls it.
+    comment says "patient or prescriber". No screen calls it. **Closed**
+    (`a4c7a81`): it admits the prescriber, a pharmacist once the prescription
+    has reached the pharmacy, and a clinician with chart authority; a patient
+    reads theirs through `/api/e-prescriptions/patient/{patient_id}`.
 
 ---
 
