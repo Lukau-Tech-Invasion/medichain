@@ -35,7 +35,7 @@ function log(over: Partial<AccessLogEntry>): AccessLogEntry {
 
 function renderHome() {
   render(
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter>
       <DashboardPage />
     </BrowserRouter>
   );

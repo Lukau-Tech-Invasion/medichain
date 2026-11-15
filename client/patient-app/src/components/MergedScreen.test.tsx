@@ -10,7 +10,7 @@ function Where() {
 
 function renderAt(path: string) {
   return render(
-    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/privacy" element={<>
           <MergedScreen title="Who sees my records" sections={[
@@ -51,7 +51,7 @@ describe('MergedScreen', () => {
 describe('MovedTo', () => {
   it('keeps the query of the old address and opens the absorbing section', () => {
     render(
-      <MemoryRouter initialEntries={['/telehealth?session=S1&join=1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter initialEntries={['/telehealth?session=S1&join=1']}>
         <Routes>
           <Route path="/telehealth" element={<MovedTo path="/appointments" view="video" />} />
           <Route path="/appointments" element={<Where />} />

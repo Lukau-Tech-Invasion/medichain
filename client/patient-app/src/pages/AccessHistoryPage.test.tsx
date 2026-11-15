@@ -41,7 +41,7 @@ function row(id: string, minute: number, overrides: Partial<AccessLogEntry> = {}
 
 function renderPage() {
   return render(
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter>
       <I18nProvider>
         <AccessHistoryPage />
       </I18nProvider>

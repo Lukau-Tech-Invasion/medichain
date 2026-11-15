@@ -14,7 +14,7 @@ vi.mock('../store/authStore', () => ({
 describe('MePage', () => {
   it('opens every Me screen from one list, and nothing the plan retired', () => {
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <I18nProvider><MePage /></I18nProvider>
       </MemoryRouter>,
     );

@@ -37,7 +37,7 @@ describe('LoginPage (Patient)', () => {
 
   function renderPage() {
     return render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <BrowserRouter>
         <LoginPage />
       </BrowserRouter>
     );
@@ -138,7 +138,7 @@ describe('LoginPage (Patient)', () => {
    */
   it('offers no hardcoded patient identity on the sign-in page', () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <BrowserRouter>
         <LoginPage />
       </BrowserRouter>
     );

@@ -296,7 +296,7 @@ describe('MyRecordsPage (Patient)', () => {
       return complete!(url, init);
     });
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <MyRecordsPage />
       </MemoryRouter>
     );
@@ -323,7 +323,7 @@ describe('MyRecordsPage (Patient)', () => {
       return complete!(url, init);
     });
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <MyRecordsPage />
       </MemoryRouter>
     );
@@ -335,7 +335,7 @@ describe('MyRecordsPage (Patient)', () => {
 
   it('shows no seal badge for a record the server reported no seal state for', async () => {
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <MyRecordsPage />
       </MemoryRouter>
     );

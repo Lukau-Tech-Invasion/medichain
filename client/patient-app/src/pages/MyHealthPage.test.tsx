@@ -25,7 +25,7 @@ function reading(over: Partial<PatientVitalReading>): PatientVitalReading {
 
 function renderPage() {
   render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <I18nProvider><MyHealthPage /></I18nProvider>
     </MemoryRouter>,
   );

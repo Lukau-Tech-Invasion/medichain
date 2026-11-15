@@ -37,7 +37,7 @@ describe('ActivatePage (Patient)', () => {
 
   function renderPage() {
     return render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <BrowserRouter>
         <ActivatePage />
       </BrowserRouter>
     );

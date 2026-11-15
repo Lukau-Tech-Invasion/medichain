@@ -25,7 +25,7 @@ global.fetch = mockFetch;
 
 function renderPage() {
   return render(
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter>
       <I18nProvider>
         <ToastProvider>
           <EmergencyCardPage />
