@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor, ChoiceChips } from '@medichain/shared';
+import { createPostOp, getApiClient, useTranslation, formatTimestamp, useScoringCatalog, aldreteTotal, bandFor, ChoiceChips, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
 
@@ -139,6 +139,29 @@ const PostOpPage: React.FC = () => {
   const [dischargeTime, setDischargeTime] = useState('');
   const [dischargeDisposition, setDischargeDisposition] = useState('');
   const [complications, setComplications] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const post_opDraft = useDraftFields('post-op', selectedPatient || undefined, t('docPostOp.formLabel'), {
+    procedure: [procedure, setProcedure],
+    surgeon: [surgeon, setSurgeon],
+    anesthesiaType: [anesthesiaType, setAnesthesiaType],
+    arrivalTime: [arrivalTime, setArrivalTime],
+    aldrete: [aldrete, setAldrete],
+    vitals: [vitals, setVitals],
+    painScore: [painScore, setPainScore],
+    nauseaVomiting: [nauseaVomiting, setNauseaVomiting],
+    bleeding: [bleeding, setBleeding],
+    urineOutput: [urineOutput, setUrineOutput],
+    fluidIntake: [fluidIntake, setFluidIntake],
+    oralIntake: [oralIntake, setOralIntake],
+    ivAccess: [ivAccess, setIvAccess],
+    medications: [medications, setMedications],
+    dressingStatus: [dressingStatus, setDressingStatus],
+    drains: [drains, setDrains],
+    selectedCriteria: [selectedCriteria, setSelectedCriteria],
+    dischargeTime: [dischargeTime, setDischargeTime],
+    dischargeDisposition: [dischargeDisposition, setDischargeDisposition],
+    complications: [complications, setComplications],
+  });
   const [notes2, setNotes2] = useState('');
 
 
@@ -218,6 +241,7 @@ const PostOpPage: React.FC = () => {
     try {
       await createPostOp(note);
       resetCompletedDraft();
+      post_opDraft.markSaved();
       showSuccess(t('docPostOp.saved'));
     } catch (err) {
       console.error('Failed to save post-op note:', err);

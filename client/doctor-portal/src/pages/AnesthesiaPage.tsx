@@ -12,8 +12,7 @@ import {
   Input,
   useValidatedForm,
   anesthesiaRecordSchema,
-  formatTimestamp,
-} from '@medichain/shared';
+  formatTimestamp, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'combined';
@@ -157,6 +156,28 @@ const AnesthesiaPage: React.FC = () => {
   const [urineOutput, setUrineOutput] = useState<number | undefined>();
   const [vitals, setVitals] = useState<VitalReading[]>([]);
   const [complications, setComplications] = useState<string[]>([]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const anesthesiaDraft = useDraftFields('anesthesia', selectedPatient || undefined, t('docAnesthesia.formLabel'), {
+    procedure: [procedure, setProcedure],
+    asaClass: [asaClass, setAsaClass],
+    anesthesiaType: [anesthesiaType, setAnesthesiaType],
+    airwayType: [airwayType, setAirwayType],
+    intubationTime: [intubationTime, setIntubationTime],
+    extubationTime: [extubationTime, setExtubationTime],
+    inductionAgents: [inductionAgents, setInductionAgents],
+    maintenanceAgents: [maintenanceAgents, setMaintenanceAgents],
+    analgesics: [analgesics, setAnalgesics],
+    relaxants: [relaxants, setRelaxants],
+    reversals: [reversals, setReversals],
+    vasoactives: [vasoactives, setVasoactives],
+    antiemetics: [antiemetics, setAntiemetics],
+    fluidsGiven: [fluidsGiven, setFluidsGiven],
+    bloodProducts: [bloodProducts, setBloodProducts],
+    ebl: [ebl, setEbl],
+    urineOutput: [urineOutput, setUrineOutput],
+    vitals: [vitals, setVitals],
+    complications: [complications, setComplications],
+  });
   const [notes, setNotes2] = useState('');
 
   // New vital entry
@@ -227,6 +248,7 @@ const AnesthesiaPage: React.FC = () => {
       await createAnesthesia(record);
       resetCompletedDraft();
       setActiveTab('history');
+      anesthesiaDraft.markSaved();
       showSuccess(t('docAnesthesia.saved'));
       await loadAnesthesiaRecords();
     } catch (err) {

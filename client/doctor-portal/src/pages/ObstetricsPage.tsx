@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
-import { createOb, useTranslation, formatTimestamp, ChoiceChips, useScoringCatalog, fhrCategoryPreview } from '@medichain/shared';
+import { createOb, useTranslation, formatTimestamp, ChoiceChips, useScoringCatalog, fhrCategoryPreview, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
@@ -91,6 +91,26 @@ const ObstetricsPage: React.FC = () => {
     accelerations: null,
     decelerations: '',
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const obstetricsDraft = useDraftFields('obstetrics', selectedPatient || undefined, t('docObstetrics.formLabel'), {
+    gravida: [gravida, setGravida],
+    para: [para, setPara],
+    gestationalAge: [gestationalAge, setGestationalAge],
+    edd: [edd, setEdd],
+    prenatalCare: [prenatalCare, setPrenatalCare],
+    chiefComplaint: [chiefComplaint, setChiefComplaint],
+    contractions: [contractions, setContractions],
+    membraneStatus: [membraneStatus, setMembraneStatus],
+    ruptureTime: [ruptureTime, setRuptureTime],
+    fluidColor: [fluidColor, setFluidColor],
+    cervicalExam: [cervicalExam, setCervicalExam],
+    laborStage: [laborStage, setLaborStage],
+    presentation: [presentation, setPresentation],
+    selectedComplications: [selectedComplications, setSelectedComplications],
+    selectedInterventions: [selectedInterventions, setSelectedInterventions],
+    notes: [notes, setNotes],
+    fhr: [fhr, setFhr],
+  });
 
 
   // The NICHD category, as a preview of what the server computes and stores
@@ -163,6 +183,7 @@ const ObstetricsPage: React.FC = () => {
       fhrCategory: saved.fhr_category ?? null,
       complications: selectedComplications,
     }, ...assessments]);
+    obstetricsDraft.markSaved();
     showSuccess(t('docObstetrics.saved'));
   });
 

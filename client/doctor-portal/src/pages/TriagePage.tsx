@@ -1,4 +1,4 @@
-import { MotionLink } from '@medichain/shared';
+import { MotionLink, useDraftFields } from '@medichain/shared';
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
@@ -204,6 +204,13 @@ function TriagePage() {
     blood_glucose: null,
     weight_kg: null,
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const triageDraft = useDraftFields('triage', selectedPatientId || undefined, t('docTriage.formLabel'), {
+    selectedESI: [selectedESI, setSelectedESI],
+    chiefComplaint: [chiefComplaint, setChiefComplaint],
+    notes: [notes, setNotes],
+    vitalSigns: [vitalSigns, setVitalSigns],
+  });
   
   // Triage queue state
   const [triageQueue, setTriageQueue] = useState<TriageAssessment[]>([]);
@@ -332,6 +339,7 @@ function TriagePage() {
       if (outcome.kind === 'busy') return;
       // Only a fresh save carries the id and the wait; an earlier attempt that
       // already wrote this, or one held offline, has neither to show.
+      triageDraft.markSaved();
       setSuccess(outcome.kind === 'saved'
         ? t('docTriage.successMessage', { id: outcome.value.assessment_id, level: outcome.value.esi_level, wait: outcome.value.expected_wait })
         : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));

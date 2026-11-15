@@ -4205,6 +4205,7 @@ const en_US: TranslationRecord = {
   },
 
   docObstetrics: {
+    formLabel: 'Obstetric assessment',
     errorSelectPatient: 'Please select a patient',
     saved: 'OB assessment saved!',
     title: 'Obstetric Emergency',
@@ -4290,6 +4291,7 @@ const en_US: TranslationRecord = {
   },
 
   docAnesthesia: {
+    formLabel: 'Anaesthesia record',
     errorEnterTime: 'Please enter time',
     errorEnterObservation: 'Enter at least one measured observation before adding a vital reading.',
     invalidObservation: 'Use non-negative measurements, percentages from 0 to 100, and blood pressure in systolic/diastolic format.',
@@ -4358,6 +4360,7 @@ const en_US: TranslationRecord = {
     summaryLine: 'EBL: {{ebl}} mL | UO: {{uo}} mL | Vital readings: {{count}}',
   },
   docPostOp: {
+    formLabel: 'Post-operative assessment',
     errorSelectPatient: 'Please select a patient',
     saved: 'Post-Op note saved!',
     title: 'Post-Operative Care',
@@ -4481,6 +4484,7 @@ const en_US: TranslationRecord = {
   },
 
   docPsych: {
+    formLabel: 'Psychiatric assessment',
     errorSelectPatient: 'Please select a patient',
     saved: 'Psychiatric assessment saved!',
     title: 'Psychiatric Assessment',
@@ -5847,6 +5851,7 @@ const en_US: TranslationRecord = {
     noPatientsHint: 'Register a patient or connect to the API',
   },
   docDeathCertificate: {
+    formLabel: 'Death certificate',
     registerUnknown: 'The register could not be read. This is not an empty register - it is an unknown one.',
     registerEmpty: 'No death certificate has been filed.',
     title: 'Death Certificate',
@@ -6130,6 +6135,7 @@ const en_US: TranslationRecord = {
     allergyLabel: '{{value}} allergy',
   },
   docFallRisk: {
+    formLabel: 'Fall risk assessment',
     title: 'Fall Risk Assessment',
     subtitle: 'Morse Fall Scale & Intervention Planning',
     errorSelectPatient: 'Please select a patient',
@@ -6923,6 +6929,7 @@ const en_US: TranslationRecord = {
     typeLabel_output: 'Output',
   },
   docIntubation: {
+    formLabel: 'Intubation record',
     criteriaExamined: '({{n}} of {{of}} findings examined)',
     notExamined: 'Not examined',
     title: 'Intubation & Airway Management',
@@ -7939,6 +7946,7 @@ const en_US: TranslationRecord = {
     overdue: 'Overdue',
   },
   docPreOp: {
+    formLabel: 'Pre-operative assessment',
     errorAsaRequired: 'Choose the ASA class before saving.',
     anesthesiaNotChosen: 'Not yet decided',
     noDraftAllergies: 'No allergies recorded in this draft',
@@ -8519,6 +8527,7 @@ const en_US: TranslationRecord = {
   },
 
   docTriage: {
+    formLabel: 'Triage',
     fromAmbulance: 'From ambulance',
     ambulanceAt: 'Ambulance {{time}}',
     ambulanceValuesHint: 'Values from the ambulance are labelled — check and change before saving',

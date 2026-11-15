@@ -8,7 +8,7 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
-  formatTimestamp, ChoiceChips, useScoringCatalog, airwayDifficultyPreview } from '@medichain/shared';
+  formatTimestamp, ChoiceChips, useScoringCatalog, airwayDifficultyPreview, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
@@ -169,6 +169,14 @@ const IntubationPage: React.FC = () => {
   const [verification, setVerification] = useState({
     etco2: false, chestRise: false, breathSounds: false, xray: false
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const intubationDraft = useDraftFields('intubation', selectedPatient || undefined, t('docIntubation.formLabel'), {
+    formData: [formData, setFormData],
+    airway: [airway, setAirway],
+    medications: [medications, setMedications],
+    selectedComplications: [selectedComplications, setSelectedComplications],
+    verification: [verification, setVerification],
+  });
 
 
   // The airway score is the server's (clinical_scoring::airway_difficulty);
@@ -233,6 +241,7 @@ const IntubationPage: React.FC = () => {
       await createIntubation(newRecord);
       await loadIntubationRecords();
       resetCompletedDraft();
+      intubationDraft.markSaved();
       showSuccess(t('docIntubation.successDocumented'));
     } catch (err) {
       console.error('Failed to save intubation record:', err);

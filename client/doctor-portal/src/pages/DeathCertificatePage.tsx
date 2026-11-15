@@ -25,8 +25,7 @@ import {
   Input,
   useValidatedForm,
   deathCertificateSchema,
-  formatDateOnly, ChoiceChips
-} from '@medichain/shared';
+  formatDateOnly, ChoiceChips, useDraftFields } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 
 /**
@@ -201,6 +200,14 @@ const DeathCertificatePage: React.FC = () => {
   // not a register, and registrars, coroners and families all arrive without
   // one.
   const [registerUnknown, setRegisterUnknown] = useState(false);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const death_certificateDraft = useDraftFields('death-certificate', patientId || undefined, t('docDeathCertificate.formLabel'), {
+    deceasedInfo: [deceasedInfo, setDeceasedInfo],
+    deathInfo: [deathInfo, setDeathInfo],
+    causeInfo: [causeInfo, setCauseInfo],
+    certifierInfo: [certifierInfo, setCertifierInfo],
+    registerUnknown: [registerUnknown, setRegisterUnknown],
+  });
   const [registerLoaded, setRegisterLoaded] = useState(false);
   // The draft being revised, when the clinician reopened one. Null means the
   // form is composing a new certificate.
@@ -328,6 +335,7 @@ const DeathCertificatePage: React.FC = () => {
         const created = await draftDeathCertificate(draftPayload());
         setEditingDraftId(created.id);
       }
+      death_certificateDraft.markSaved();
       showSuccess(t('docDeathCertificate.draftSaved'));
       await loadCertificates();
     } catch (err) {
@@ -436,6 +444,7 @@ const DeathCertificatePage: React.FC = () => {
         await createDeathCertificate({ ...draftPayload(), signature: certifierInfo.signature });
       }
 
+      death_certificateDraft.markSaved();
       showSuccess(t('docDeathCertificate.successSubmitted'));
       setActiveTab('certificates');
       setCurrentStep(1);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getApiClient, useTranslation, formatDateOnly, ChoiceChips } from '@medichain/shared';
+import { createPreOp, getApiClient, useTranslation, formatDateOnly, ChoiceChips, useDraftFields } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import { StoredValue } from '../components/StoredSoapDetails';
@@ -133,6 +133,26 @@ export default function PreOpPage() {
     'vteProphy': false,
     'familyNotified': false,
     'anesthesiaSeen': false
+  });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const pre_opDraft = useDraftFields('pre-op', selectedPatient?.patient_id, t('docPreOp.formLabel'), {
+    scheduledSurgery: [scheduledSurgery, setScheduledSurgery],
+    surgeon: [surgeon, setSurgeon],
+    scheduledDate: [scheduledDate, setScheduledDate],
+    scheduledTime: [scheduledTime, setScheduledTime],
+    asaClass: [asaClass, setAsaClass],
+    asaEmergency: [asaEmergency, setAsaEmergency],
+    anesthesiaType: [anesthesiaType, setAnesthesiaType],
+    airwayAssessment: [airwayAssessment, setAirwayAssessment],
+    npoStatus: [npoStatus, setNpoStatus],
+    consents: [consents, setConsents],
+    labsReviewed: [labsReviewed, setLabsReviewed],
+    allergies: [allergies, setAllergies],
+    currentMedications: [currentMedications, setCurrentMedications],
+    holdMedications: [holdMedications, setHoldMedications],
+    medicalHistory: [medicalHistory, setMedicalHistory],
+    notes: [notes, setNotes],
+    preOpChecklist: [preOpChecklist, setPreOpChecklist],
   });
 
   const asaClassifications: { value: ASAClass; label: string; description: string }[] = [
@@ -347,6 +367,7 @@ export default function PreOpPage() {
 
       await createPreOp(assessmentData);
       resetCompletedDraft();
+      pre_opDraft.markSaved();
       setSuccess(t('docPreOp.savedSuccess'));
       setActiveTab('history');
     } catch (err) {

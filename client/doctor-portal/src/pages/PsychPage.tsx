@@ -3,7 +3,7 @@ import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError, ChoiceChips, useLatestRequest } from '@medichain/shared';
+import { createPsych, getPsychForPatient, useTranslation, formatTimestamp, ApiClientError, ChoiceChips, useLatestRequest, useDraftFields } from '@medichain/shared';
 
 type RiskLevel = 'unknown' | 'none' | 'low' | 'moderate' | 'high' | 'imminent';
 type LegalStatus = '' | 'voluntary' | 'involuntary' | '5150' | '5250' | 'conservatorship';
@@ -335,6 +335,20 @@ const PsychPage: React.FC = () => {
   });
 
   const [safetyPlan, setSafetyPlan] = useState<string[]>([]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const psychDraft = useDraftFields('psych', selectedPatient || undefined, t('docPsych.formLabel'), {
+    chiefComplaint: [chiefComplaint, setChiefComplaint],
+    hpi: [hpi, setHpi],
+    substances: [substances, setSubstances],
+    selectedDiagnoses: [selectedDiagnoses, setSelectedDiagnoses],
+    legalStatus: [legalStatus, setLegalStatus],
+    disposition: [disposition, setDisposition],
+    notes: [notes, setNotes],
+    mse: [mse, setMse],
+    suicideRisk: [suicideRisk, setSuicideRisk],
+    homicideRisk: [homicideRisk, setHomicideRisk],
+    safetyPlan: [safetyPlan, setSafetyPlan],
+  });
 
   const beginHistoryRead = useLatestRequest();
   const refreshAssessments = useCallback(async () => {
@@ -422,6 +436,7 @@ const PsychPage: React.FC = () => {
       setAssessments(records.map(toStoredAssessment()));
       setHistoryError(''); setSaveError('');
       saveCommitted.current = true; setSaved(true);
+      psychDraft.markSaved();
       showSuccess(t('docPsych.saved'));
       return true;
     } catch (error) {
@@ -564,6 +579,7 @@ const PsychPage: React.FC = () => {
       // history the form does not collect -- looked stored until the next
       // reload, by which time nobody connects the loss to the save.
       if (await refreshAssessments()) {
+        psychDraft.markSaved();
         showSuccess(t('docPsych.saved'));
       } else {
         setSaveError('The assessment was saved, but history could not be loaded. Open History and retry loading it.');
