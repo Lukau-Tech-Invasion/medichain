@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, notifySuccess, useTranslation, type TraumaListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
+import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, notifySuccess, useTranslation, type TraumaListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   AlertCircle,
@@ -48,6 +48,19 @@ export default function TraumaPage() {
   const [exposure, setExposure] = useState('');
 
   const [notes, setNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const traumaDraft = useDraftFields('trauma', selectedPatient || undefined, t('docTrauma.formLabel'), {
+    traumaType: [traumaType, setTraumaType],
+    mechanism: [mechanism, setMechanism],
+    gcsScore: [gcsScore, setGcsScore],
+    issScore: [issScore, setIssScore],
+    airway: [airway, setAirway],
+    breathing: [breathing, setBreathing],
+    circulation: [circulation, setCirculation],
+    disability: [disability, setDisability],
+    exposure: [exposure, setExposure],
+    notes: [notes, setNotes],
+  });
 
   useEffect(() => {
     loadPatients();
@@ -123,6 +136,7 @@ export default function TraumaPage() {
       // One record per event: a double click or a retry is the same submission.
       const saved = await submitOnce(submission, traumaData, () => createTrauma(traumaData));
       if (saved === 'busy') return;
+      traumaDraft.markSaved();
       notifySuccess(t(saved === 'saved' ? 'forms.saved' : saved === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       returnAfterSave();
     } catch (error) {

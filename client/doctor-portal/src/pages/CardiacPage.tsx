@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp, ChoiceChips, useLatestRequest } from '@medichain/shared';
+import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp, ChoiceChips, useLatestRequest, useDraftFields } from '@medichain/shared';
 import PatientSelect from '../components/PatientSelect';
 import type { TimiCriteriaInput } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
@@ -120,6 +120,25 @@ export default function CardiacPage() {
 
   // ECG Readings
   const [ecgReadings, setEcgReadings] = useState<ECGReading[]>([]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const cardiacDraft = useDraftFields('cardiac', selectedPatient || undefined, t('docCardiac.formLabel'), {
+    eventType: [eventType, setEventType],
+    chiefComplaint: [chiefComplaint, setChiefComplaint],
+    symptomOnset: [symptomOnset, setSymptomOnset],
+    chestPainCharacter: [chestPainCharacter, setChestPainCharacter],
+    painRadiation: [painRadiation, setPainRadiation],
+    associatedSymptoms: [associatedSymptoms, setAssociatedSymptoms],
+    heartRate: [heartRate, setHeartRate],
+    bloodPressure: [bloodPressure, setBloodPressure],
+    troponinLevel: [troponinLevel, setTroponinLevel],
+    bnpLevel: [bnpLevel, setBnpLevel],
+    killipClass: [killipClass, setKillipClass],
+    timiCriteria: [timiCriteria, setTimiCriteria],
+    treatment: [treatment, setTreatment],
+    disposition: [disposition, setDisposition],
+    narrative: [narrative, setNarrative],
+    ecgReadings: [ecgReadings, setEcgReadings],
+  });
   const [showECGForm, setShowECGForm] = useState(false);
   // Nothing is pre-chosen (rule 9): a reading added untouched used to be
   // charted as normal sinus rhythm at 72.
@@ -225,6 +244,7 @@ export default function CardiacPage() {
 
       const saved = await createCardiac(cardiacData);
       setSavedTimi({ timi_score: saved.timi_score, timi_band: saved.timi_band });
+      cardiacDraft.markSaved();
       setSuccess(true);
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {

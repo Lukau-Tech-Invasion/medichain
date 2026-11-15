@@ -12,8 +12,7 @@ import {
   lundBrowderTbsa,
   parklandPreview,
   burnSeverityPreview, ChoiceChips,
-  formatDateOnly
-} from '@medichain/shared';
+  formatDateOnly, useDraftFields } from '@medichain/shared';
 import type { BurnCreateResult, ParklandPreview } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
@@ -103,6 +102,23 @@ export default function BurnPage() {
 
   const [associatedInjuries, setAssociatedInjuries] = useState<string[]>([]);
   const [interventions, setInterventions] = useState<string[]>([]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const burnDraft = useDraftFields('burn', selectedPatient?.patient_id, t('docBurn.formLabel'), {
+    mechanism: [mechanism, setMechanism],
+    agentSource: [agentSource, setAgentSource],
+    injuryTime: [injuryTime, setInjuryTime],
+    weight: [weight, setWeight],
+    burnAreas: [burnAreas, setBurnAreas],
+    painLevel: [painLevel, setPainLevel],
+    tetanusStatus: [tetanusStatus, setTetanusStatus],
+    notes: [notes, setNotes],
+    fluidStartTime: [fluidStartTime, setFluidStartTime],
+    urineOutput: [urineOutput, setUrineOutput],
+    inhalationInjury: [inhalationInjury, setInhalationInjury],
+    circumferential: [circumferential, setCircumferential],
+    associatedInjuries: [associatedInjuries, setAssociatedInjuries],
+    interventions: [interventions, setInterventions],
+  });
 
   const mechanismOptions: { value: BurnMechanism; label: string; icon: React.ReactNode }[] = [
     { value: 'thermal', label: t('docBurn.mechanism_thermal'), icon: <Flame className="h-4 w-4" /> },
@@ -311,6 +327,7 @@ export default function BurnPage() {
       // for a burned patient; the clinician needs to see the number the record
       // holds, not the one this page arrived at.
       setSavedBurn(saved);
+      burnDraft.markSaved();
       setSuccess(t('docBurn.successSaved'));
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {

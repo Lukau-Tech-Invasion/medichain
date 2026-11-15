@@ -7,8 +7,7 @@ import {
   getApiClient,
   rowsOfResponse,
   useTranslation,
-  formatTimestamp, ChoiceChips
-} from '@medichain/shared';
+  formatTimestamp, ChoiceChips, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type ImmobilizationType = 'splint' | 'cast' | 'sling' | 'brace' | 'boot';
@@ -160,6 +159,26 @@ const SplintPage: React.FC = () => {
   const [selectedPrecautions, setSelectedPrecautions] = useState<string[]>([]);
   const [followUp, setFollowUp] = useState('');
   const [notes, setNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const splintDraft = useDraftFields('splint', selectedPatient || undefined, t('docSplint.formLabel'), {
+    type: [type, setType],
+    material: [material, setMaterial],
+    bodyPart: [bodyPart, setBodyPart],
+    side: [side, setSide],
+    indication: [indication, setIndication],
+    fractureSite: [fractureSite, setFractureSite],
+    preNV: [preNV, setPreNV],
+    postNV: [postNV, setPostNV],
+    paddingAdequate: [paddingAdequate, setPaddingAdequate],
+    edgesSmooth: [edgesSmooth, setEdgesSmooth],
+    patientInstructions: [patientInstructions, setPatientInstructions],
+    weightBearing: [weightBearing, setWeightBearing],
+    elevationInstructed: [elevationInstructed, setElevationInstructed],
+    iceInstructed: [iceInstructed, setIceInstructed],
+    selectedPrecautions: [selectedPrecautions, setSelectedPrecautions],
+    followUp: [followUp, setFollowUp],
+    notes: [notes, setNotes],
+  });
 
 
   // NV check warning
@@ -218,6 +237,7 @@ const SplintPage: React.FC = () => {
       // Read durable rows instead of adding the just-submitted draft to local history.
       await loadSplintRecords();
       resetCompletedDraft();
+      splintDraft.markSaved();
       showSuccess(t('docSplint.saved'));
     } catch (err) {
       console.error('Failed to save splint record:', err);

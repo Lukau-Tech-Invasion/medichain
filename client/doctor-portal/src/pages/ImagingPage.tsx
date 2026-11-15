@@ -11,8 +11,7 @@ import {
   Textarea,
   useValidatedForm,
   imagingRequestSchema,
-  formatTimestamp, ChoiceChips
-} from '@medichain/shared';
+  formatTimestamp, ChoiceChips, useDraftFields } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
 type ImagingStatus = 'ordered' | 'scheduled' | 'in-progress' | 'completed' | 'prelim' | 'final';
@@ -149,6 +148,19 @@ const ImagingPage: React.FC = () => {
   const [allergies, setAllergies] = useState('');
   const [creatinine, setCreatinine] = useState<number | undefined>();
   const [pregnant, setPregnant] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const imaging_orderDraft = useDraftFields('imaging-order', selectedPatient || undefined, t('docImaging.formLabel'), {
+    modality: [modality, setModality],
+    study: [study, setStudy],
+    bodyPart: [bodyPart, setBodyPart],
+    laterality: [laterality, setLaterality],
+    indication: [indication, setIndication],
+    priority: [priority, setPriority],
+    contrast: [contrast, setContrast],
+    allergies: [allergies, setAllergies],
+    creatinine: [creatinine, setCreatinine],
+    pregnant: [pregnant, setPregnant],
+  });
   const [submitting, setSubmitting] = useState(false);
 
   const loadOrders = useCallback(async (): Promise<boolean> => {
@@ -236,6 +248,7 @@ const ImagingPage: React.FC = () => {
           special_instructions: study || null, status: 'Ordered',
       });
       await loadOrders();
+      imaging_orderDraft.markSaved();
       showSuccess(t('docImaging.orderPlaced'));
       setActiveTab('orders');
     } catch (err) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, getPatientStrokes, formatTimestamp, notifySuccess, useTranslation, type StrokeListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
+import { createStroke, getPatients, getPatientStrokes, formatTimestamp, notifySuccess, useTranslation, type StrokeListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -51,6 +51,19 @@ export default function StrokePage() {
   const [ctHeadResult, setCtHeadResult] = useState('');
   const [tpaCandidate, setTpaCandidate] = useState('');
   const [notes, setNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const strokeDraft = useDraftFields('stroke', selectedPatient || undefined, t('docStroke.formLabel'), {
+    lastKnownWell: [lastKnownWell, setLastKnownWell],
+    symptomOnset: [symptomOnset, setSymptomOnset],
+    nihssScore: [nihssScore, setNihssScore],
+    faceDroop: [faceDroop, setFaceDroop],
+    armDrift: [armDrift, setArmDrift],
+    speechDifficulty: [speechDifficulty, setSpeechDifficulty],
+    bloodGlucose: [bloodGlucose, setBloodGlucose],
+    ctHeadResult: [ctHeadResult, setCtHeadResult],
+    tpaCandidate: [tpaCandidate, setTpaCandidate],
+    notes: [notes, setNotes],
+  });
 
   useEffect(() => {
     loadPatients();
@@ -113,6 +126,7 @@ export default function StrokePage() {
       // One record per event: a double click or a retry is the same submission.
       const saved = await submitOnce(submission, strokeData, () => createStroke(strokeData));
       if (saved === 'busy') return;
+      strokeDraft.markSaved();
       notifySuccess(t(saved === 'saved' ? 'forms.saved' : saved === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       returnAfterSave();
     } catch (error) {

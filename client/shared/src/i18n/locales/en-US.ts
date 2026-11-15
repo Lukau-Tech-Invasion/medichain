@@ -2409,6 +2409,7 @@ const en_US: TranslationRecord = {
   },
 
   docStroke: {
+    formLabel: 'Stroke assessment',
     errorSelectPatient: 'Choose the patient first.',
     errorLoadHistory: 'Past stroke events could not be loaded. Reload to try again; do not assume there were none.',
     title: 'Stroke Code Management',
@@ -2457,6 +2458,7 @@ const en_US: TranslationRecord = {
   },
 
   docTrauma: {
+    formLabel: 'Trauma assessment',
     errorSelectPatient: 'Choose the patient first.',
     errorLoadHistory: 'Past trauma events could not be loaded. Reload to try again; do not assume there were none.',
     title: 'Trauma Assessment',
@@ -3224,6 +3226,7 @@ const en_US: TranslationRecord = {
   },
 
   docImaging: {
+    formLabel: 'Imaging order',
     chooseStudy: 'Choose the modality, body part, laterality and priority before placing the order.',
     chooseModality: 'Choose a modality',
     chooseBodyPart: 'Choose a body part',
@@ -3550,6 +3553,7 @@ const en_US: TranslationRecord = {
   },
 
   docSplint: {
+    formLabel: 'Splint application',
     errorType: 'Choose what was applied before saving.',
     nvStatus: 'Neurovascular status',
     nvCompromised: 'Compromised',
@@ -3791,6 +3795,7 @@ const en_US: TranslationRecord = {
   },
 
   docToxicology: {
+    formLabel: 'Toxicology assessment',
     yes: 'Yes',
     no: 'No',
     notRecorded: 'Not recorded',
@@ -4974,6 +4979,7 @@ const en_US: TranslationRecord = {
     successTransfusionStarted: 'Transfusion record started successfully',
   },
   docBurn: {
+    formLabel: 'Burn assessment',
     mechanismNotChosen: 'Choose the mechanism',
     painScoreLabel: 'Pain score (0-10)',
     title: 'Burn Assessment',
@@ -5250,6 +5256,7 @@ const en_US: TranslationRecord = {
     errorLoadFailed: 'Failed to load CDS rules',
   },
   docCardiac: {
+    formLabel: 'Cardiac assessment',
     rhythmNotChosen: 'Choose the rhythm',
     rateNotRecorded: 'Rate not recorded',
     errorLoadHistory: 'Past cardiac events could not be loaded. Reload to try again; do not assume there were none.',

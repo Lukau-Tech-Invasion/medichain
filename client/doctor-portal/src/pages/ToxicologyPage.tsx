@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
-import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog, ChoiceChips } from '@medichain/shared';
+import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog, ChoiceChips, useDraftFields } from '@medichain/shared';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
@@ -136,6 +136,23 @@ const ToxicologyPage: React.FC = () => {
     methadone: false, fentanyl: false, ethanol: null, acetaminophen: null,
     salicylate: null, lithium: null, digoxin: null
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const toxicologyDraft = useDraftFields('toxicology', selectedPatient || undefined, t('docToxicology.formLabel'), {
+    substance: [substance, setSubstance],
+    amount: [amount, setAmount],
+    timeOfExposure: [timeOfExposure, setTimeOfExposure],
+    route: [route, setRoute],
+    intentional: [intentional, setIntentional],
+    severity: [severity, setSeverity],
+    selectedSymptoms: [selectedSymptoms, setSelectedSymptoms],
+    selectedDecon: [selectedDecon, setSelectedDecon],
+    givenAntidotes: [givenAntidotes, setGivenAntidotes],
+    disposition: [disposition, setDisposition],
+    poisonControlCalled: [poisonControlCalled, setPoisonControlCalled],
+    caseNumber: [caseNumber, setCaseNumber],
+    notes: [notes, setNotes],
+    toxScreen: [toxScreen, setToxScreen],
+  });
 
 
   const addAntidote = (name: string, dose: string) => {
@@ -186,6 +203,7 @@ const ToxicologyPage: React.FC = () => {
       showError(t('common.saveFailed'));
       return;
     }
+    toxicologyDraft.markSaved();
     showSuccess(t('docToxicology.saved'));
   });
 
