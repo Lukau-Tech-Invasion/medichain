@@ -111,12 +111,19 @@ test('contact details and an emergency contact are saved and read back after a r
 
   await page.reload();
   await page.locator('main').first().waitFor({ state: 'visible', timeout: 30000 });
-  const text = await page.locator('main').innerText();
-  const values = await page
-    .locator('#profile-phone, #emergency-contact-name')
-    .evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
-  expect(`${text}\n${values.join('\n')}`, 'the phone number did not survive a reload').toContain(phone);
-  expect(`${text}\n${values.join('\n')}`, 'the emergency contact did not survive a reload').toContain(contact);
+  // `main` is visible before the profile has loaded, so a single read races the
+  // fetch and sees an empty page; poll until the saved values are back.
+  const shown = async () => {
+    const text = await page.locator('main').innerText();
+    const values = await page
+      .locator('#profile-phone, #emergency-contact-name')
+      .evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
+    return `${text}\n${values.join('\n')}`;
+  };
+  await expect.poll(shown, { message: 'the phone number did not survive a reload', timeout: 30000 }).toContain(phone);
+  await expect
+    .poll(shown, { message: 'the emergency contact did not survive a reload', timeout: 30000 })
+    .toContain(contact);
 });
 
 /** A small, valid PNG: a card photo stands in for the test. */
