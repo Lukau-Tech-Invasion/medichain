@@ -280,7 +280,8 @@ export default function StaffSelect({
                     <p className="font-medium text-content truncate">
                       {member.name}
                     </p>
-                    <p className="break-all text-xs text-content-muted">{member.username || member.user_id}</p>
+                    {/* The login name helps tell two people apart; an account id helps nobody. */}
+                    {member.username && <p className="break-all text-xs text-content-muted">{member.username}</p>}
                     <div className="flex items-center gap-2 text-xs text-content-muted">
                       <span className={`inline-block px-1.5 py-0.5 rounded ${getRoleColor(member.role)}`}>
                         {member.role}
