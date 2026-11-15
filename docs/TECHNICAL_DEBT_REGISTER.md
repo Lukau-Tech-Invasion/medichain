@@ -236,6 +236,10 @@ database and was removed afterwards by restoring the snapshot taken first.
   * **My Records makes 20 API calls per visit**, one per record type. At 120
     requests a minute a patient who opens it six times in a minute is refused
     everywhere. A combined patient-records endpoint is the fix.
+    **Closed** (checked 2026-11-15): `GET /api/patients/{id}/records-summary`
+    (WP11) serves the 17 summary sections in one read, so a visit now makes 7
+    requests: the summary, SOAP notes, lab submissions, document references,
+    e-prescriptions, triage and GCS.
   * **A page reload signs a clinician out.** Deliberate and documented in
     `authStore.restoreSession` (no token survives a reload); a persisted refresh
     token or a cookie session is the decision it waits on.
