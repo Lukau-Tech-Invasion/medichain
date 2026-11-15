@@ -6916,6 +6916,8 @@ const en_US: TranslationRecord = {
     typeLabel_output: 'Output',
   },
   docIntubation: {
+    criteriaExamined: '({{n}} of {{of}} findings examined)',
+    notExamined: 'Not examined',
     title: 'Intubation & Airway Management',
     subtitle: 'RSI documentation and airway assessment',
     errorSelectPatientIndication: 'Please select a patient and indication',

@@ -69,6 +69,8 @@ describe('IntubationPage', () => {
 
   it('removes only the selected unsaved medication entry', () => {
     render(<IntubationPage />);
+    // RSI is not assumed (rule 9): the agents appear once it is ticked.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'RSI used' }));
     fireEvent.click(screen.getByRole('button', { name: '20mg' }));
     fireEvent.click(screen.getByRole('button', { name: '0.3mg/kg' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove Etomidate 20mg' }));
@@ -78,6 +80,8 @@ describe('IntubationPage', () => {
 
   it('keeps selected medications removable when RSI is unchecked', () => {
     render(<IntubationPage />);
+    // RSI is not assumed (rule 9): the agents appear once it is ticked.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'RSI used' }));
     fireEvent.click(screen.getByRole('button', { name: '20mg' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'RSI used' }));
     expect(screen.queryByRole('button', { name: '20mg' })).not.toBeInTheDocument();
@@ -92,6 +96,7 @@ describe('IntubationPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select synthetic patient' }));
     fireEvent.change(screen.getByLabelText('Indication'), { target: { value: 'Airway protection' } });
     fireEvent.change(screen.getByPlaceholderText('Additional notes...'), { target: { value: 'Synthetic completed draft' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'RSI used' }));
     fireEvent.click(screen.getByRole('button', { name: '20mg' }));
     const submit = screen.getByRole('button', { name: 'Document Intubation' });
     fireEvent.click(submit);

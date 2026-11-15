@@ -12,6 +12,25 @@ use super::*;
 // PHASE 5: PROCEDURE ENDPOINTS
 // ============================================================================
 
+/// The bedside airway score for an intubation body, from its
+/// `airwayAssessment` (keys as the page sends them, or snake_case).
+fn intubation_airway_difficulty(
+    body: &serde_json::Value,
+) -> crate::clinical_scoring::AirwayDifficulty {
+    let airway = body
+        .get("airway_assessment")
+        .or_else(|| body.get("airwayAssessment"));
+    let field =
+        |camel: &str, snake: &str| airway.and_then(|a| a.get(camel).or_else(|| a.get(snake)));
+    crate::clinical_scoring::airway_difficulty(&crate::clinical_scoring::AirwayFindings {
+        mallampati: field("mallampati", "mallampati").and_then(|v| v.as_str()),
+        mouth_opening_fingers: field("mouthOpening", "mouth_opening").and_then(|v| v.as_f64()),
+        thyromental_cm: field("thyromental", "thyromental").and_then(|v| v.as_f64()),
+        neck_mobility: field("neckMobility", "neck_mobility").and_then(|v| v.as_str()),
+        obese_neck: field("obeseNeck", "obese_neck").and_then(|v| v.as_bool()),
+    })
+}
+
 /// Create intubation record
 #[post("/api/clinical/intubation")]
 pub async fn create_intubation(
@@ -51,6 +70,11 @@ pub async fn create_intubation(
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let record_id = format!("INT-{}", uuid::Uuid::new_v4().simple());
+    let airway = intubation_airway_difficulty(&body);
+    let mut body = body;
+    if let Some(map) = body.as_object_mut() {
+        map.insert("airway_difficulty".to_string(), serde_json::json!(airway));
+    }
     let entity = IntubationRecordEntity {
         id: record_id.clone(),
         patient_id: body
@@ -136,10 +160,13 @@ pub async fn create_intubation(
             .and_then(|v| v.as_str())
             .map(str::to_string),
         adjuncts_used: body.get("adjuncts_used").cloned(),
-        difficult_airway: body
-            .get("difficult_airway")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        // Derived here from the bedside findings when they predict one; an
+        // explicit flag from an integration still counts.
+        difficult_airway: airway.predicted_difficult == Some(true)
+            || body
+                .get("difficult_airway")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
         difficult_airway_features: body.get("difficult_airway_features").cloned(),
         complications: body.get("complications").cloned(),
         verification_methods: body

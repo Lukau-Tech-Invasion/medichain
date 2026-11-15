@@ -167,6 +167,14 @@ export interface ScoringCatalog {
   };
   /** Fetal heart rate baseline range for a Category I tracing; absent on an older server. */
   fhr?: { baseline_normal_low: number; baseline_normal_high: number };
+  /** The bedside airway score's cut-points; absent on an older server. */
+  airway?: {
+    mouth_opening_min_fingers: number;
+    thyromental_min_cm: number;
+    difficult_at_or_above: number;
+    criteria: number;
+    mallampati_points: Record<string, number>;
+  };
   /** Sepsis fluid dose and lactate cut-points; absent on an older server. */
   sepsis?: {
     fluid_ml_per_kg: number;
@@ -550,6 +558,45 @@ export function fhrCategoryPreview(
   }
   if (variability === 'absent' && (decelerations === 'late' || decelerations === 'variable')) return 'III';
   return 'II';
+}
+
+/** The bedside airway score, as `clinical_scoring::airway_difficulty` stores it. */
+export interface AirwayDifficulty {
+  /** Null when no finding was examined: never 0. */
+  score: number | null;
+  criteria_measured: number;
+  /** True once the examined findings reach the threshold; false only when all were examined. */
+  predicted_difficult: boolean | null;
+}
+
+/**
+ * Live preview of the airway score the server will store with an intubation.
+ * Null until the catalog loads. Unexamined findings count for nothing, and a
+ * partial reassuring exam is not "not difficult".
+ */
+export function airwayDifficultyPreview(
+  findings: {
+    mallampati: string; mouthOpening: number | null; thyromental: number | null;
+    neckMobility: string; obeseNeck: boolean | null;
+  },
+  catalog: ScoringCatalog | null,
+): AirwayDifficulty | null {
+  const cut = catalog?.airway;
+  if (!cut) return null;
+  const finite = (v: number | null) => v !== null && Number.isFinite(v) && v >= 0;
+  const points: (number | null)[] = [
+    findings.mallampati in cut.mallampati_points ? cut.mallampati_points[findings.mallampati] : null,
+    finite(findings.mouthOpening) ? Number(findings.mouthOpening! < cut.mouth_opening_min_fingers) : null,
+    finite(findings.thyromental) ? Number(findings.thyromental! < cut.thyromental_min_cm) : null,
+    findings.neckMobility === 'full' ? 0 : findings.neckMobility === 'limited' || findings.neckMobility === 'immobile' ? 1 : null,
+    findings.obeseNeck === null ? null : Number(findings.obeseNeck),
+  ];
+  const measured = points.filter((p): p is number => p !== null);
+  if (measured.length === 0) return { score: null, criteria_measured: 0, predicted_difficult: null };
+  const score = measured.reduce((a, b) => a + b, 0);
+  const predicted_difficult = score >= cut.difficult_at_or_above ? true
+    : measured.length === cut.criteria ? false : null;
+  return { score, criteria_measured: measured.length, predicted_difficult };
 }
 
 /** A lactate reading's band from the catalog's cut-points; null until it loads. */

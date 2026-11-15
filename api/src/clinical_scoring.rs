@@ -634,6 +634,79 @@ pub fn fhr_category(
     )
 }
 
+/// Mouth opening below this many fingerbreadths scores a point.
+pub const AIRWAY_MOUTH_OPENING_MIN_FINGERS: f64 = 3.0;
+/// Thyromental distance below this many centimetres scores a point.
+pub const AIRWAY_THYROMENTAL_MIN_CM: f64 = 6.0;
+/// A bedside airway score at or above this predicts a difficult airway.
+pub const AIRWAY_DIFFICULT_AT_OR_ABOVE: u8 = 3;
+/// How many findings the bedside airway score is built from.
+pub const AIRWAY_CRITERIA: u8 = 5;
+
+/// The intubation page's bedside airway findings, each `None` until examined.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AirwayFindings<'a> {
+    pub mallampati: Option<&'a str>,
+    pub mouth_opening_fingers: Option<f64>,
+    pub thyromental_cm: Option<f64>,
+    pub neck_mobility: Option<&'a str>,
+    pub obese_neck: Option<bool>,
+}
+
+/// The bedside airway score, with how much of it was examined.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AirwayDifficulty {
+    /// Points from the findings that were examined; `None` when none were.
+    pub score: Option<u8>,
+    pub criteria_measured: u8,
+    /// `Some(true)` once the examined findings reach the threshold; `Some(false)`
+    /// only when every finding was examined and they do not; otherwise unknown.
+    pub predicted_difficult: Option<bool>,
+}
+
+/// Score the bedside airway findings. This used to be computed in the browser
+/// from a form that opened on Mallampati I, four fingers' opening, 6 cm
+/// thyromental distance and a fully mobile neck -- so an airway nobody had
+/// examined was filed as an easy one, score 0 (rules 8, 9 and 12).
+pub fn airway_difficulty(f: &AirwayFindings<'_>) -> AirwayDifficulty {
+    let points = [
+        f.mallampati.and_then(|c| match c {
+            "I" | "II" => Some(0u8),
+            "III" => Some(1),
+            "IV" => Some(2),
+            _ => None,
+        }),
+        f.mouth_opening_fingers
+            .filter(|v| v.is_finite() && *v >= 0.0)
+            .map(|v| u8::from(v < AIRWAY_MOUTH_OPENING_MIN_FINGERS)),
+        f.thyromental_cm
+            .filter(|v| v.is_finite() && *v >= 0.0)
+            .map(|v| u8::from(v < AIRWAY_THYROMENTAL_MIN_CM)),
+        f.neck_mobility.and_then(|m| match m {
+            "full" => Some(0u8),
+            "limited" | "immobile" => Some(1),
+            _ => None,
+        }),
+        f.obese_neck.map(u8::from),
+    ];
+    let measured = points.iter().flatten().count() as u8;
+    let score: u8 = points.iter().flatten().sum();
+    let predicted_difficult = if measured == 0 {
+        None
+    } else if score >= AIRWAY_DIFFICULT_AT_OR_ABOVE {
+        Some(true)
+    } else if measured == AIRWAY_CRITERIA {
+        Some(false)
+    } else {
+        None
+    };
+    AirwayDifficulty {
+        score: (measured > 0).then_some(score),
+        criteria_measured: measured,
+        predicted_difficult,
+    }
+}
+
 /// Initial crystalloid for sepsis-induced hypoperfusion: 30 mL per kg.
 pub const SEPSIS_FLUID_ML_PER_KG: f64 = 30.0;
 /// Lactate at or above this (mmol/L) is raised: a caution.
@@ -1804,6 +1877,13 @@ pub fn catalog() -> serde_json::Value {
             "baseline_normal_low": FHR_BASELINE_NORMAL_LOW,
             "baseline_normal_high": FHR_BASELINE_NORMAL_HIGH,
         },
+        "airway": {
+            "mouth_opening_min_fingers": AIRWAY_MOUTH_OPENING_MIN_FINGERS,
+            "thyromental_min_cm": AIRWAY_THYROMENTAL_MIN_CM,
+            "difficult_at_or_above": AIRWAY_DIFFICULT_AT_OR_ABOVE,
+            "criteria": AIRWAY_CRITERIA,
+            "mallampati_points": { "I": 0, "II": 0, "III": 1, "IV": 2 },
+        },
         "sepsis": {
             "fluid_ml_per_kg": SEPSIS_FLUID_ML_PER_KG,
             "lactate_caution_at_or_above": LACTATE_CAUTION_MMOL_L,
@@ -2077,6 +2157,51 @@ mod tests {
         assert_eq!(sepsis_fluid_target_ml(-3.0), None);
         assert_eq!(sepsis_fluid_target_ml(f64::NAN), None);
         assert_eq!(sepsis_fluid_target_ml(900.0), None, "not a human weight");
+    }
+
+    #[test]
+    fn an_unexamined_airway_has_no_score_and_no_prediction() {
+        let none = airway_difficulty(&AirwayFindings::default());
+        assert_eq!(none.score, None);
+        assert_eq!(none.criteria_measured, 0);
+        assert_eq!(none.predicted_difficult, None);
+    }
+
+    #[test]
+    fn airway_score_counts_only_what_was_examined() {
+        let easy = airway_difficulty(&AirwayFindings {
+            mallampati: Some("I"),
+            mouth_opening_fingers: Some(4.0),
+            thyromental_cm: Some(6.5),
+            neck_mobility: Some("full"),
+            obese_neck: Some(false),
+        });
+        assert_eq!(
+            (easy.score, easy.criteria_measured, easy.predicted_difficult),
+            (Some(0), 5, Some(false))
+        );
+
+        // Three points from two findings is already a difficult airway.
+        let hard = airway_difficulty(&AirwayFindings {
+            mallampati: Some("IV"),
+            neck_mobility: Some("limited"),
+            ..Default::default()
+        });
+        assert_eq!(
+            (hard.score, hard.criteria_measured, hard.predicted_difficult),
+            (Some(3), 2, Some(true))
+        );
+
+        // A partial, reassuring exam is not "not difficult".
+        let partial = airway_difficulty(&AirwayFindings {
+            mallampati: Some("II"),
+            ..Default::default()
+        });
+        assert_eq!(
+            (partial.score, partial.predicted_difficult),
+            (Some(0), None)
+        );
+        assert_eq!(catalog()["airway"]["difficult_at_or_above"], 3);
     }
 
     #[test]
