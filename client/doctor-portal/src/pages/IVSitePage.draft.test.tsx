@@ -113,7 +113,7 @@ describe('applyStaged', () => {
 
   it('changes nothing with nothing staged', () => {
     const stored = [site('A')];
-    expect(applyStaged(stored, noStagedEdits())[0]).toBe(stored[0]);
+    expect(applyStaged(stored, noStagedEdits<ReturnType<typeof site>, string>())[0]).toBe(stored[0]);
   });
 
   it('issues a local key not already staged', () => {
