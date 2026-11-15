@@ -34,6 +34,7 @@ import { HandoffPatientEditor } from './handoff/HandoffPatientEditor';
 import {
   blankPatient,
   fromDraft,
+  lineWriter,
   nextToReview,
   toPayload,
   type PatientHandoff,
@@ -186,7 +187,9 @@ export default function ShiftHandoffPage() {
     setDraftError('');
     getShiftHandoffDraft().then(
       (r) => {
-        const drafted = r.patients.map((d) => fromDraft(d, t('today.unreadablePatient')));
+        // Each drafted line in the ward's language where the portal has its wording.
+        const write = lineWriter(t);
+        const drafted = r.patients.map((d) => fromDraft(d, t('today.unreadablePatient'), write));
         setPatients((now) => mergeNew(now, drafted));
         // Patients with something recorded this shift are handed over unless
         // the nurse says otherwise; a ward patient nobody charted is listed,

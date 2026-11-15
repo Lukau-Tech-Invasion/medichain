@@ -61,10 +61,18 @@ Open:
 * **Medicines due and not given** are not drafted. `scheduled_medications` on
   the MAR record is written empty by every writer, so there is no schedule to
   compare against; the ward medication chart would need one first.
-* **Draft line text is English**, built on the server. It is clinical free text
-  once the nurse edits it, but a non-English ward sees English prefills.
-* **Discharged patients** are not marked in the list (c2 shows "discharged
-  11:20"); the draft reads open admissions only.
+* ~~**Draft line text is English**, built on the server.~~ **Ready to translate
+  (2026-11-15).** Every line now also carries a `code` and the recorded
+  `values`; the portal words it from `docShiftHandoff.line.<code>` and falls
+  back to the server's `text` for a code it has no wording for. English is
+  unchanged. What a non-English ward still lacks is the wording itself: the
+  five other locales hold only a starter set of about 60 strings, so the
+  whole portal, not just these lines, waits on a clinically reviewed
+  translation. Values (medicines, allergies, the nurse's words) are never
+  translated.
+* ~~**Discharged patients** are not marked in the list.~~ **Closed**: the
+  draft marks a discharge that happened this shift (`discharged_this_shift`
+  in `handoff_draft.rs`, with its test) and the page shows it.
 * `pages/ShiftDraftPanel.tsx` and `pages/handoffDraft.ts` (+ its test) lost
   their caller in the rebuild and were deleted with the owner's approval.
 

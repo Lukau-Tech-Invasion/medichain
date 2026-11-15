@@ -8358,6 +8358,29 @@ const en_US: TranslationRecord = {
   },
 
   docShiftHandoff: {
+    // One drafted SBAR line per code from the server (handoff_content.rs).
+    // {{values}} are what was recorded and are never translated; English here
+    // must match the server's own text, which is the fallback.
+    line: {
+      vitals: '{{readings}}',
+      vitals_with_first: '{{readings}} (first this shift: {{first}})',
+      pain: 'Pain {{score}}/10',
+      dose_given: 'Given {{medicine}} {{detail}}',
+      dose_held: 'Held {{medicine}}: {{reason}}',
+      dose_refused: 'Refused {{medicine}}: {{reason}}',
+      dose_not_given: 'Not given {{medicine}}: {{reason}}',
+      dose_held_no_reason: 'Held {{medicine}}: no reason recorded',
+      dose_refused_no_reason: 'Refused {{medicine}}: no reason recorded',
+      dose_not_given_no_reason: 'Not given {{medicine}}: no reason recorded',
+      no_allergies: 'No allergies recorded',
+      allergies: 'Allergies: {{list}}',
+      conditions: 'Conditions: {{list}}',
+      dnr: 'Do not resuscitate',
+      fluid_balance: 'In {{intake}} mL · Out {{output}} mL · balance {{balance}} mL',
+      note: '“{{excerpt}}”',
+      order_pending: '{{order}} — {{type}} order pending',
+      order_on_hold: '{{order}} — {{type}} order pending (on hold)',
+    },
     receiptFailed: 'Receipt could not be confirmed. Retry acknowledgment; the first receipt time will be preserved.',
     receiptAcknowledged: 'Receipt acknowledged: {{time}}',
     receiptExplanation: 'Receipt confirms this handoff was received. It does not confirm clinical read-back or acceptance of care.',

@@ -13,6 +13,13 @@
 //!
 //! The builders here are pure (entities in, lines out) so each rule can be
 //! tested without storage; `patient_sbar` does the reading.
+//!
+//! Each line also carries a `code` and its `values`, so the portal can write it
+//! in the ward's language; `text` is the English and the fallback. A value is
+//! always something recorded (a medicine, an allergy, a nurse's words, a
+//! reading), passed through as it was written and never translated.
+
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -48,15 +55,32 @@ pub enum LineSource {
 /// One line of the draft.
 #[derive(Debug, Serialize, Clone, PartialEq)]
 pub struct DraftLine {
+    /// The line in English: what a portal without a translation shows.
     pub text: String,
+    /// Which sentence this is, for the portal's `docShiftHandoff.line.<code>`.
+    pub code: &'static str,
+    /// What fills the sentence, exactly as recorded.
+    pub values: BTreeMap<&'static str, String>,
     pub source: LineSource,
     /// When the source was recorded; `None` for standing chart facts.
     pub at: Option<DateTime<Utc>>,
 }
 
 impl DraftLine {
-    fn new(text: String, source: LineSource, at: Option<DateTime<Utc>>) -> Self {
-        Self { text, source, at }
+    fn new(
+        code: &'static str,
+        values: &[(&'static str, String)],
+        text: String,
+        source: LineSource,
+        at: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self {
+            text,
+            code,
+            values: values.iter().cloned().collect(),
+            source,
+            at,
+        }
     }
 }
 
@@ -106,21 +130,29 @@ pub fn vitals_lines(readings: &[VitalSignsEntity], since: DateTime<Utc>) -> Vec<
         .filter_map(|v| vitals_summary(v).map(|s| (*v, s)))
         .collect();
     if let Some((latest, text)) = with_values.last() {
-        let text = match with_values.first() {
-            Some((first, earlier)) if first.id != latest.id && earlier != text => {
-                format!("{text} (first this shift: {earlier})")
-            }
-            _ => text.clone(),
+        let line = match with_values.first() {
+            Some((first, earlier)) if first.id != latest.id && earlier != text => DraftLine::new(
+                "vitals_with_first",
+                &[("readings", text.clone()), ("first", earlier.clone())],
+                format!("{text} (first this shift: {earlier})"),
+                LineSource::Vitals,
+                Some(latest.recorded_at),
+            ),
+            _ => DraftLine::new(
+                "vitals",
+                &[("readings", text.clone())],
+                text.clone(),
+                LineSource::Vitals,
+                Some(latest.recorded_at),
+            ),
         };
-        lines.push(DraftLine::new(
-            text,
-            LineSource::Vitals,
-            Some(latest.recorded_at),
-        ));
+        lines.push(line);
     }
     if let Some(pain) = shift.iter().rev().find(|v| v.pain_scale.is_some()) {
         let score = pain.pain_scale.unwrap_or_default();
         lines.push(DraftLine::new(
+            "pain",
+            &[("score", score.to_string())],
             format!("Pain {score}/10"),
             LineSource::Vitals,
             Some(pain.recorded_at),
@@ -151,24 +183,55 @@ fn dose_line(event: &Value, at: DateTime<Utc>) -> Option<(bool, DraftLine)> {
         .unwrap_or("given")
         .to_ascii_lowercase();
     let given = status == "given";
-    let text = if given {
-        let detail: Vec<&str> = ["dose", "route"]
+    let medicine = ("medicine", name.to_string());
+    let line = if given {
+        let detail = ["dose", "route"]
             .iter()
             .filter_map(|k| text_of(event, k))
-            .collect();
-        format!("Given {name} {}", detail.join(" "))
-            .trim_end()
-            .to_string()
+            .collect::<Vec<&str>>()
+            .join(" ");
+        let text = format!("Given {name} {detail}").trim_end().to_string();
+        DraftLine::new(
+            "dose_given",
+            &[medicine, ("detail", detail)],
+            text,
+            LineSource::Mar,
+            Some(at),
+        )
     } else {
-        let reason = text_of(event, "reason_not_given").unwrap_or("no reason recorded");
-        let word = match status.as_str() {
-            "refused" => "Refused",
-            "held" => "Held",
-            _ => "Not given",
+        let (code, word) = match status.as_str() {
+            "refused" => ("dose_refused", "Refused"),
+            "held" => ("dose_held", "Held"),
+            _ => ("dose_not_given", "Not given"),
         };
-        format!("{word} {name}: {reason}")
+        match text_of(event, "reason_not_given") {
+            Some(reason) => DraftLine::new(
+                code,
+                &[medicine, ("reason", reason.to_string())],
+                format!("{word} {name}: {reason}"),
+                LineSource::Mar,
+                Some(at),
+            ),
+            // No reason is its own sentence, not a reason worded in English.
+            None => DraftLine::new(
+                unexplained(code),
+                &[medicine],
+                format!("{word} {name}: no reason recorded"),
+                LineSource::Mar,
+                Some(at),
+            ),
+        }
     };
-    Some((given, DraftLine::new(text, LineSource::Mar, Some(at))))
+    Some((given, line))
+}
+
+/// The code for a dose not given with no reason recorded.
+fn unexplained(code: &'static str) -> &'static str {
+    match code {
+        "dose_refused" => "dose_refused_no_reason",
+        "dose_held" => "dose_held_no_reason",
+        _ => "dose_not_given_no_reason",
+    }
 }
 
 /// Doses this shift: every held or refused one, and the last few given.
@@ -213,24 +276,38 @@ pub fn background_lines(profile: &PatientProfile) -> Vec<DraftLine> {
     let info = &profile.emergency_info;
     let mut lines = Vec::with_capacity(3);
     let allergies: Vec<&str> = info.allergies.iter().map(|a| a.name.as_str()).collect();
-    lines.push(DraftLine::new(
-        if allergies.is_empty() {
-            "No allergies recorded".to_string()
-        } else {
-            format!("Allergies: {}", allergies.join(", "))
-        },
-        LineSource::Chart,
-        None,
-    ));
+    lines.push(if allergies.is_empty() {
+        DraftLine::new(
+            "no_allergies",
+            &[],
+            "No allergies recorded".to_string(),
+            LineSource::Chart,
+            None,
+        )
+    } else {
+        let list = allergies.join(", ");
+        DraftLine::new(
+            "allergies",
+            &[("list", list.clone())],
+            format!("Allergies: {list}"),
+            LineSource::Chart,
+            None,
+        )
+    });
     if !info.chronic_conditions.is_empty() {
+        let list = info.chronic_conditions.join(", ");
         lines.push(DraftLine::new(
-            format!("Conditions: {}", info.chronic_conditions.join(", ")),
+            "conditions",
+            &[("list", list.clone())],
+            format!("Conditions: {list}"),
             LineSource::Chart,
             None,
         ));
     }
     if info.dnr_status {
         lines.push(DraftLine::new(
+            "dnr",
+            &[],
             "Do not resuscitate".to_string(),
             LineSource::Chart,
             None,
@@ -269,6 +346,12 @@ pub fn io_line(records: &[IORecordEntity], since: DateTime<Utc>) -> Option<Draft
     let at = latest?;
     let balance = intake - output;
     Some(DraftLine::new(
+        "fluid_balance",
+        &[
+            ("intake", intake.to_string()),
+            ("output", output.to_string()),
+            ("balance", format!("{balance:+}")),
+        ],
         format!("In {intake} mL · Out {output} mL · balance {balance:+} mL"),
         LineSource::Io,
         Some(at),
@@ -298,8 +381,11 @@ pub fn note_line(notes: &[ProgressNoteEntity], since: DateTime<Utc>) -> Option<D
     ]
     .into_iter()
     .find_map(|t| t.as_deref().map(str::trim).filter(|t| !t.is_empty()))?;
+    let quoted = excerpt(body);
     Some(DraftLine::new(
-        format!("\u{201c}{}\u{201d}", excerpt(body)),
+        "note",
+        &[("excerpt", quoted.clone())],
+        format!("\u{201c}{quoted}\u{201d}"),
         LineSource::Note,
         Some(note.created_at),
     ))
@@ -320,12 +406,14 @@ pub fn order_lines(orders: &[PhysicianOrderEntity]) -> Vec<DraftLine> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|t| !t.is_empty())?;
-            let status = if o.status == "on_hold" {
-                " (on hold)"
+            let (code, status) = if o.status == "on_hold" {
+                ("order_on_hold", " (on hold)")
             } else {
-                ""
+                ("order_pending", "")
             };
             Some(DraftLine::new(
+                code,
+                &[("order", what.to_string()), ("type", o.order_type.clone())],
                 format!("{what} — {} order pending{status}", o.order_type),
                 LineSource::Order,
                 Some(o.order_datetime),
@@ -418,6 +506,55 @@ mod tests {
         assert_eq!(lines[1].text, "Pain 6/10");
         // Nothing measured this shift: no line at all, not a line of blanks.
         assert!(vitals_lines(&readings[..1], since()).is_empty());
+    }
+
+    #[test]
+    fn each_line_names_its_sentence_and_carries_what_was_recorded() {
+        let record = MedicationRecordEntity {
+            data: json!({ "administrations": [
+                { "medication_name": "Paracetamol", "dose": "1 g", "route": "oral", "status": "given", "administered_at": hours_ago(6) },
+                { "medication_name": "Metformin", "status": "held", "reason_not_given": "Nil by mouth", "administered_at": hours_ago(5) },
+                { "medication_name": "Warfarin", "status": "refused", "administered_at": hours_ago(4) },
+            ] }),
+            ..Default::default()
+        };
+        let coded: Vec<(&str, Vec<(&str, String)>)> = mar_lines(&[record], since())
+            .into_iter()
+            .map(|l| (l.code, l.values.into_iter().collect()))
+            .collect();
+        assert_eq!(
+            coded,
+            [
+                (
+                    "dose_given",
+                    vec![
+                        ("detail", "1 g oral".to_string()),
+                        ("medicine", "Paracetamol".to_string())
+                    ]
+                ),
+                (
+                    "dose_held",
+                    vec![
+                        ("medicine", "Metformin".to_string()),
+                        ("reason", "Nil by mouth".to_string())
+                    ]
+                ),
+                // No reason recorded is a sentence of its own, so a translation
+                // never has to carry the English words "no reason recorded".
+                (
+                    "dose_refused_no_reason",
+                    vec![("medicine", "Warfarin".to_string())]
+                ),
+            ]
+        );
+        let fluids = IORecordEntity {
+            intake_items: Some(json!([{ "amount_ml": 1000, "recorded_at": hours_ago(2) }])),
+            output_items: Some(json!([{ "amount_ml": 1200, "recorded_at": hours_ago(1) }])),
+            ..Default::default()
+        };
+        let io = io_line(&[fluids], since()).unwrap();
+        assert_eq!(io.code, "fluid_balance");
+        assert_eq!(io.values["balance"], "-200");
     }
 
     #[test]

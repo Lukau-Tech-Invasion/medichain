@@ -58,8 +58,27 @@ export function lineKey(): string {
   return `line-${serial}`;
 }
 
-function linesOf(drafted: HandoffDraftLine[] | undefined): HandoffLine[] {
-  return (drafted ?? []).map((l) => ({ key: lineKey(), text: l.text, source: l.source, at: l.at }));
+/** How a drafted line is worded on screen; by default, the server's English. */
+export type LineWriter = (line: HandoffDraftLine) => string;
+const asSent: LineWriter = (line) => line.text;
+
+/**
+ * A writer that words each line in the portal's language from
+ * `docShiftHandoff.line.<code>`, filled with what was recorded. A code the
+ * portal has no wording for, or a sentence left with a gap, falls back to the
+ * server's English rather than showing a key or a placeholder.
+ */
+export function lineWriter(t: (key: string, values?: Record<string, string>) => string): LineWriter {
+  return (line) => {
+    const key = `docShiftHandoff.line.${line.code}`;
+    const worded = t(key, line.values ?? {});
+    if (!line.code || worded === key || worded.includes('{{')) return line.text;
+    return worded.trim();
+  };
+}
+
+function linesOf(drafted: HandoffDraftLine[] | undefined, write: LineWriter): HandoffLine[] {
+  return (drafted ?? []).map((l) => ({ key: lineKey(), text: write(l), source: l.source, at: l.at }));
 }
 
 /** A patient as nobody has written anything about them yet. */
@@ -88,16 +107,20 @@ export function blankPatient(patientId: string, patientName: string, room = ''):
 }
 
 /** A patient from the server's shift draft, its lines prefilled. */
-export function fromDraft(d: HandoffDraftPatient, unreadableName: string): PatientHandoff {
+export function fromDraft(
+  d: HandoffDraftPatient,
+  unreadableName: string,
+  write: LineWriter = asSent,
+): PatientHandoff {
   const patient = blankPatient(d.patient_id, d.full_name ?? unreadableName, d.bed_label ?? '');
   patient.entries = d.recorded.reduce((n, r) => n + r.count, 0);
   if (d.discharged_at) patient.dischargedAt = d.discharged_at;
   if (d.sbar) {
     patient.lines = {
-      situation: linesOf(d.sbar.situation),
-      background: linesOf(d.sbar.background),
-      assessment: linesOf(d.sbar.assessment),
-      recommendation: linesOf(d.sbar.recommendation),
+      situation: linesOf(d.sbar.situation, write),
+      background: linesOf(d.sbar.background, write),
+      assessment: linesOf(d.sbar.assessment, write),
+      recommendation: linesOf(d.sbar.recommendation, write),
     };
   }
   return patient;

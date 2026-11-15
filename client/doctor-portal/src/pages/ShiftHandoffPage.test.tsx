@@ -180,9 +180,9 @@ describe('ShiftHandoffPage', () => {
       { patient_id: 'PAT-A', full_name: 'Thandiwe Nkosi', date_of_birth: null, bed_label: '12',
         recorded: [{ resource_type: 'vital_signs', count: 14, last_at: null }], content: 'included',
         sbar: {
-          situation: [{ text: 'BP 148/92 · HR 104', source: 'vitals', at: '2026-11-08T14:00:00Z' }],
-          background: [{ text: 'Allergies: Penicillin', source: 'chart', at: null }],
-          assessment: [], recommendation: [{ text: 'HbA1c — lab order pending', source: 'order', at: null }],
+          situation: [{ text: 'BP 148/92 · HR 104', code: 'vitals', values: { readings: 'BP 148/92 · HR 104' }, source: 'vitals', at: '2026-11-08T14:00:00Z' }],
+          background: [{ text: 'Allergies: Penicillin', code: 'allergies', values: { list: 'Penicillin' }, source: 'chart', at: null }],
+          assessment: [], recommendation: [{ text: 'HbA1c — lab order pending', code: 'order_pending', values: { order: 'HbA1c', type: 'lab' }, source: 'order', at: null }],
         } },
       { patient_id: 'PAT-B', full_name: 'Sipho Mabaso', date_of_birth: null, bed_label: '14',
         recorded: [{ resource_type: 'mar', count: 9, last_at: null }], content: 'included',

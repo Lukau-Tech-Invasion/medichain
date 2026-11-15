@@ -316,7 +316,12 @@ export interface HandoffDraftPatient {
 export type HandoffLineSource = 'vitals' | 'mar' | 'chart' | 'io' | 'note' | 'order';
 
 export interface HandoffDraftLine {
+  /** The line in English; shown when the portal has no wording for `code`. */
   text: string;
+  /** Which sentence this is: `docShiftHandoff.line.<code>`. */
+  code: string;
+  /** What fills the sentence, exactly as recorded (never translated). */
+  values: Record<string, string>;
   source: HandoffLineSource;
   /** When the source was recorded; null for standing chart facts. */
   at: string | null;
