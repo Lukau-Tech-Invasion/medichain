@@ -28,13 +28,13 @@ use crate::types::User;
 ///
 /// ```ignore
 /// pub async fn my_handler(user: AuthorizedUser, ...) -> impl Responder {
-///     if user.wallet_address != requested_id && !user.role().is_admin() { ... }
+///     if user.id != requested_id && !user.role().is_admin() { ... }
 /// }
 /// ```
 #[derive(Debug, Clone)]
 pub struct AuthorizedUser {
     pub user: User,
-    pub wallet_address: String,
+    pub user_id: String,
 }
 
 impl AuthorizedUser {
@@ -51,7 +51,7 @@ impl AuthorizedUser {
 /// its own ownership/role checks on top of the resolved identity.
 #[derive(Debug)]
 pub enum AuthorizedUserError {
-    /// No `X-User-Id` (or valid JWT) on the request at all.
+    /// No valid access token on the request at all.
     MissingIdentity,
     /// An identity was presented but does not match any known server-side user.
     UnknownUser,
@@ -60,7 +60,7 @@ pub enum AuthorizedUserError {
 impl std::fmt::Display for AuthorizedUserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuthorizedUserError::MissingIdentity => write!(f, "Missing X-User-Id header"),
+            AuthorizedUserError::MissingIdentity => write!(f, "Authentication required"),
             AuthorizedUserError::UnknownUser => write!(f, "User not found"),
         }
     }
@@ -86,7 +86,7 @@ impl FromRequest for AuthorizedUser {
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
         let outcome = (|| {
-            let wallet_address = crate::support::get_current_user_id(req)
+            let user_id = crate::support::get_current_user_id(req)
                 .ok_or(AuthorizedUserError::MissingIdentity)?;
 
             // `app_data` absence here would mean the app was built without
@@ -97,13 +97,10 @@ impl FromRequest for AuthorizedUser {
                 .app_data::<web::Data<AppState>>()
                 .ok_or(AuthorizedUserError::UnknownUser)?;
 
-            let user = crate::support::get_user(data, &wallet_address)
-                .ok_or(AuthorizedUserError::UnknownUser)?;
+            let user =
+                crate::support::get_user(data, &user_id).ok_or(AuthorizedUserError::UnknownUser)?;
 
-            Ok(AuthorizedUser {
-                user,
-                wallet_address,
-            })
+            Ok(AuthorizedUser { user, user_id })
         })();
 
         ready(outcome)
@@ -124,10 +121,10 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn unknown_wallet_yields_unknown_user() {
+    async fn unknown_user_id_yields_unknown_user() {
         let state = web::Data::new(AppState::new());
         let req = TestRequest::default()
-            .insert_header(("X-User-Id", "5UnknownWalletAddress"))
+            .insert_header(crate::test_fixtures::as_user("5UnknownUser"))
             .app_data(state)
             .to_http_request();
         let mut payload = Payload::None;

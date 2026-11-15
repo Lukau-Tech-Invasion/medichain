@@ -1,20 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryNames } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import {
   createRadiologyOrder,
   getApiErrorMessage,
-  getPatients,
   listRadiologyOrders,
   useTranslation,
   Textarea,
   useValidatedForm,
   imagingRequestSchema,
-  formatTimestamp,
-} from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+  formatTimestamp, ChoiceChips, useDraftFields } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
 type ImagingStatus = 'ordered' | 'scheduled' | 'in-progress' | 'completed' | 'prelim' | 'final';
@@ -126,8 +123,11 @@ const ImagingPage: React.FC = () => {
       case 'final': return t('docImaging.statusFinal');
     }
   };
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [orders, setOrders] = useState<ImagingOrder[]>([]);
+  const [loadedOrders, setOrders] = useState<ImagingOrder[]>([]);
+  // Names resolved on the server per patient; the first page of the directory
+  // labelled anyone past the fiftieth with a bare id.
+  const orderNames = useDirectoryNames(loadedOrders.map((o) => o.patientId));
+  const orders = loadedOrders.map((o) => ({ ...o, patientName: orderNames.get(o.patientId) ?? o.patientName }));
   const [activeTab, setActiveTab] = useState<'orders' | 'new' | 'results'>('orders');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -136,29 +136,32 @@ const ImagingPage: React.FC = () => {
 
   // New order form
   const [selectedPatient, setSelectedPatient] = useState('');
-  const [modality, setModality] = useState<ImagingModality>('xray');
+  // Nothing is pre-chosen (rule 9): the order opened as a routine chest X-ray
+  // with no laterality, so an order nobody finished went out as one.
+  const [modality, setModality] = useState<ImagingModality | ''>('');
   const [study, setStudy] = useState('');
-  const [bodyPart, setBodyPart] = useState('Chest');
-  const [laterality, setLaterality] = useState<'left' | 'right' | 'bilateral' | 'na'>('na');
+  const [bodyPart, setBodyPart] = useState('');
+  const [laterality, setLaterality] = useState<'left' | 'right' | 'bilateral' | 'na' | ''>('');
   const [indication, setIndication] = useState('');
-  const [priority, setPriority] = useState<ImagingPriority>('routine');
+  const [priority, setPriority] = useState<ImagingPriority | ''>('');
   const [contrast, setContrast] = useState(false);
   const [allergies, setAllergies] = useState('');
   const [creatinine, setCreatinine] = useState<number | undefined>();
   const [pregnant, setPregnant] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const imagingOrderDraft = useDraftFields('imaging-order', selectedPatient || undefined, t('docImaging.formLabel'), {
+    modality: [modality, setModality],
+    study: [study, setStudy],
+    bodyPart: [bodyPart, setBodyPart],
+    laterality: [laterality, setLaterality],
+    indication: [indication, setIndication],
+    priority: [priority, setPriority],
+    contrast: [contrast, setContrast],
+    allergies: [allergies, setAllergies],
+    creatinine: [creatinine, setCreatinine],
+    pregnant: [pregnant, setPregnant],
+  });
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   const loadOrders = useCallback(async (): Promise<boolean> => {
     try {
@@ -171,11 +174,10 @@ const ImagingPage: React.FC = () => {
         const record = entity as RawImagingOrder;
         const raw = (record.data && typeof record.data === 'object' ? record.data : record) as RawImagingOrder;
         const patientId = raw.patient_id || record.patient_id || '';
-        const patient = patients.find(p => p.patient_id === patientId);
         return {
           id: raw.order_id || record.id || '',
           patientId,
-          patientName: patient?.full_name || patientId,
+          patientName: patientId,
           modality: ({ XRay: 'xray', CT: 'ct', CTWithContrast: 'ct', MRI: 'mri', MRIWithContrast: 'mri', Ultrasound: 'ultrasound', Nuclear: 'nuclear', PET: 'pet', Fluoroscopy: 'fluoro', Mammography: 'mammo', Angiography: 'ct' } as Record<string, ImagingModality>)[raw.study_type ?? ''] || 'xray',
           study: raw.special_instructions || raw.study_type || '',
           bodyPart: raw.body_part || '',
@@ -197,7 +199,7 @@ const ImagingPage: React.FC = () => {
       setOrdersError(getApiErrorMessage(err, t('docImaging.loadFailed')));
       return false;
     }
-  }, [patients, t]);
+  }, [t]);
 
   useEffect(() => {
     if (user) void loadOrders();
@@ -206,6 +208,7 @@ const ImagingPage: React.FC = () => {
 
   const { errors, validate, validateField, clearField } = useValidatedForm(imagingRequestSchema);
   const handleSubmit = async () => {
+    if (submitting) return;
     // The indication is what the radiologist reports against: "CT abdomen"
     // with none produces a description of an abdomen, with one it produces an
     // answer. Selecting a patient stays a toast; the indication is a field.
@@ -216,8 +219,14 @@ const ImagingPage: React.FC = () => {
     if (!validate({ selectedPatient, indication })) {
       return;
     }
+    // What is imaged, where, which side and how soon are the order itself.
+    if (!modality || !bodyPart || !laterality || !priority) {
+      showError(t('docImaging.chooseStudy'));
+      return;
+    }
     if (!user) return;
-    const studyTypes: Record<ImagingModality, string> = {
+    type OrderBody = Parameters<typeof createRadiologyOrder>[0];
+    const studyTypes: Record<ImagingModality, OrderBody['study_type']> = {
       xray: 'XRay', ct: contrast ? 'CTWithContrast' : 'CT',
       mri: contrast ? 'MRIWithContrast' : 'MRI', ultrasound: 'Ultrasound',
       fluoro: 'Fluoroscopy', mammo: 'Mammography', dexa: 'XRay',
@@ -227,10 +236,11 @@ const ImagingPage: React.FC = () => {
     try {
       await createRadiologyOrder({
           patient_id: selectedPatient,
-          study_type: studyTypes[modality], body_part: bodyPart,
-          laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
-          indication, priority: priority[0].toUpperCase() + priority.slice(1),
-          ordering_provider: user.walletAddress,
+          study_type: studyTypes[modality as ImagingModality], body_part: bodyPart,
+          laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality as 'left' | 'right' | 'bilateral' | 'na'],
+          indication,
+          priority: ({ stat: 'Stat', urgent: 'Urgent', routine: 'Routine' } as const)[priority as ImagingPriority],
+          ordering_provider: user.userId,
           order_time: Math.floor(Date.now() / 1000), contrast,
           allergies_reviewed: Boolean(allergies.trim()),
           creatinine_checked: contrast ? creatinine !== undefined : null,
@@ -238,6 +248,7 @@ const ImagingPage: React.FC = () => {
           special_instructions: study || null, status: 'Ordered',
       });
       await loadOrders();
+      imagingOrderDraft.markSaved();
       showSuccess(t('docImaging.orderPlaced'));
       setActiveTab('orders');
     } catch (err) {
@@ -318,7 +329,7 @@ const ImagingPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4 flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2 flex-1 min-w-64">
                 <Search className="w-5 h-5 text-content-muted" />
-                <input
+                <input aria-label={t('docImaging.searchPlaceholder')}
                   type="text"
                   placeholder={t('docImaging.searchPlaceholder')}
                   value={searchTerm}
@@ -326,19 +337,20 @@ const ImagingPage: React.FC = () => {
                   className="flex-1 border rounded p-2"
                 />
               </div>
-              <select
+              <ChoiceChips
+                label={t('common.filterByStatus')}
                 value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value)}
-                className="border rounded p-2"
-              >
-                <option value="all">{t('docImaging.allStatus')}</option>
-                <option value="ordered">{t('docImaging.stOrdered')}</option>
-                <option value="scheduled">{t('docImaging.stScheduled')}</option>
-                <option value="in-progress">{t('docImaging.stInProgress')}</option>
-                <option value="prelim">{t('docImaging.stPrelim')}</option>
-                <option value="final">{t('docImaging.stFinal')}</option>
-              </select>
-              <select
+                onChange={(next) => { if (next === undefined) return; setFilterStatus(next); }}
+                options={[
+                  { value: 'all', label: t('docImaging.allStatus') },
+                  { value: 'ordered', label: t('docImaging.stOrdered') },
+                  { value: 'scheduled', label: t('docImaging.stScheduled') },
+                  { value: 'in-progress', label: t('docImaging.stInProgress') },
+                  { value: 'prelim', label: t('docImaging.stPrelim') },
+                  { value: 'final', label: t('docImaging.stFinal') },
+                ]}
+              />
+              <select aria-label={t('common.filterByModality')}
                 value={filterModality}
                 onChange={e => setFilterModality(e.target.value)}
                 className="border rounded p-2"
@@ -394,6 +406,7 @@ const ImagingPage: React.FC = () => {
         )}
 
         {activeTab === 'new' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
@@ -413,9 +426,10 @@ const ImagingPage: React.FC = () => {
                   <select
                     id="imaging-modality"
                     value={modality}
-                    onChange={e => setModality(e.target.value as ImagingModality)}
+                    onChange={e => setModality(e.target.value as ImagingModality | '')}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docImaging.chooseModality')}</option>
                     {Object.keys(modalityLabels).map((k) => (
                       <option key={k} value={k}>{modalityLabel(k as ImagingModality)}</option>
                     ))}
@@ -429,35 +443,36 @@ const ImagingPage: React.FC = () => {
                     onChange={e => setBodyPart(e.target.value)}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docImaging.chooseBodyPart')}</option>
                     {bodyParts.map(bp => <option key={bp} value={bp}>{bp}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-laterality" className="text-sm text-content-muted">{t('docImaging.laterality')}</label>
-                  <select
+                  <ChoiceChips
                     id="imaging-laterality"
-                    value={laterality}
-                    onChange={e => setLaterality(e.target.value as 'left' | 'right' | 'bilateral' | 'na')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="na">{t('docImaging.latNa')}</option>
-                    <option value="left">{t('docImaging.latLeft')}</option>
-                    <option value="right">{t('docImaging.latRight')}</option>
-                    <option value="bilateral">{t('docImaging.latBilateral')}</option>
-                  </select>
+                    label={t('docImaging.laterality')}
+                    value={laterality || undefined}
+                    onChange={(next) => setLaterality((next ?? '') as 'left' | 'right' | 'bilateral' | 'na' | '')}
+                    options={[
+                      { value: 'na', label: t('docImaging.latNa') },
+                      { value: 'left', label: t('docImaging.latLeft') },
+                      { value: 'right', label: t('docImaging.latRight') },
+                      { value: 'bilateral', label: t('docImaging.latBilateral') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="imaging-priority" className="text-sm text-content-muted">{t('docImaging.priority')}</label>
-                  <select
+                  <ChoiceChips
                     id="imaging-priority"
-                    value={priority}
-                    onChange={e => setPriority(e.target.value as ImagingPriority)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="routine">{t('docImaging.optRoutine')}</option>
-                    <option value="urgent">{t('docImaging.optUrgent')}</option>
-                    <option value="stat">{t('docImaging.optStat')}</option>
-                  </select>
+                    label={t('docImaging.priority')}
+                    value={priority || undefined}
+                    onChange={(next) => setPriority((next ?? '') as ImagingPriority | '')}
+                    options={[
+                      { value: 'routine', label: t('docImaging.optRoutine') },
+                      { value: 'urgent', label: t('docImaging.optUrgent') },
+                      { value: 'stat', label: t('docImaging.optStat') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="imaging-study-name" className="text-sm text-content-muted">{t('docImaging.studyName')}</label>
@@ -524,30 +539,29 @@ const ImagingPage: React.FC = () => {
                   </div>
                 )}
                 <div>
-                  <label htmlFor="imaging-pregnancy-status" className="text-sm text-content-muted">{t('docImaging.pregnancyStatus')}</label>
-                  <select
+                  <ChoiceChips
                     id="imaging-pregnancy-status"
-                    value={pregnant}
-                    onChange={e => setPregnant(e.target.value)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="">{t('docImaging.pregNa')}</option>
-                    <option value="no">{t('docImaging.pregNo')}</option>
-                    <option value="yes">{t('docImaging.pregYes')}</option>
-                    <option value="unknown">{t('docImaging.pregUnknown')}</option>
-                  </select>
+                    label={t('docImaging.pregnancyStatus')}
+                    value={(pregnant) || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setPregnant(next); }}
+                    options={[
+                      { value: 'no', label: t('docImaging.pregNo') },
+                      { value: 'yes', label: t('docImaging.pregYes') },
+                      { value: 'unknown', label: t('docImaging.pregUnknown') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800"
+            <button type="submit"
+              aria-disabled={submitting || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800"
             >
               {t('docImaging.submitOrder')}
             </button>
           </div>
+          </form>
         )}
 
         {activeTab === 'results' && (

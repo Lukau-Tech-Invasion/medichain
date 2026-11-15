@@ -1,4 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { PatientNavigation } from './PatientNavigation';
+import { NavigationGuard } from '../forms/unsavedChanges';
+import { confirmSignOutWithUnsent } from '../forms/signOutGuard';
+import { useTranslation } from '../i18n/react';
 import { ErrorBoundary } from './ErrorBoundary';
 import {
   LayoutDashboard,
@@ -20,24 +24,23 @@ import {
   Calendar,
   MessageSquare,
   Activity,
-  Watch,
-  TrendingUp,
   ClipboardList,
-  Globe,
   WifiOff,
-  Star,
-  HelpCircle,
-  Video,
   FlaskConical,
   BookOpen,
+  Home,
+  QrCode,
+  Search,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { refreshNotificationBadges, useUnreadNotifications } from '../hooks/useUnreadNotifications';
 import { useSSE } from '../hooks/useSSE';
 import { useApiStatus } from '../hooks/useApiStatus';
 import { useToastActions } from './Toast';
 
 interface LayoutProps {
   variant?: 'doctor' | 'patient';
+  onLogout?: () => void | Promise<void>;
 }
 
 interface NavItem {
@@ -58,7 +61,16 @@ interface NavSection {
  * 
  * @param variant - 'doctor' for healthcare provider portal, 'patient' for patient portal
  */
-export function Layout({ variant = 'doctor' }: LayoutProps) {
+// The same five places on every screen size (mockups p1 and p6).
+const PATIENT_TABS = [
+  { path: '/dashboard', label: 'patientTabs.home', icon: Home, match: ['/dashboard'] },
+  { path: '/health', label: 'patientTabs.health', icon: Heart, match: ['/health', '/records', '/medications', '/vitals', '/lab-results', '/medical-history', '/symptoms'] },
+  { path: '/appointments', label: 'patientTabs.visits', icon: Calendar, match: ['/appointments', '/survey'] },
+  { path: '/messages', label: 'patientTabs.messages', icon: MessageSquare, match: ['/messages'] },
+  { path: '/me', label: 'patientTabs.me', icon: User, match: ['/me', '/profile', '/settings', '/emergency-card', '/privacy', '/cards'] },
+] as const;
+
+export function Layout({ variant = 'doctor', onLogout }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -70,6 +82,9 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
   const { showInfo, showWarning, showSuccess } = useToastActions();
+  // The bell's number. Its dot used to be the live-connection light, which
+  // read as "a new notification" and never went away.
+  const unreadNotifications = useUnreadNotifications(variant === 'patient');
   const lastProcessedEventRef = useRef<number>(0);
 
   // Handle incoming real-time events
@@ -78,10 +93,22 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       const latestEvent = events[0];
       if (latestEvent.timestamp > lastProcessedEventRef.current) {
         lastProcessedEventRef.current = latestEvent.timestamp;
+        refreshNotificationBadges();
         
         // Customize notifications based on portal variant
         if (variant === 'patient') {
           switch (latestEvent.event_type) {
+            case 'message':
+              // A message for this account arrived: say so, and tell an open
+              // Messages page to reload. It used to appear only on a reload.
+              showInfo(
+                latestEvent.payload.sender_name
+                  ? `From ${latestEvent.payload.sender_name}`
+                  : 'You have a new message',
+                'New message'
+              );
+              window.dispatchEvent(new Event('medichain:messages-refresh'));
+              break;
             case 'reminder_due':
               showInfo(
                 latestEvent.payload.message || 'Time to take your medication',
@@ -157,79 +184,72 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   // Comprehensive patient navigation organized by sections
   const patientNavSections: NavSection[] = [
     {
-      label: 'Main',
+      label: 'My essentials',
       items: [
-        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { path: '/profile', label: 'My Profile', icon: User },
+        { path: '/dashboard', label: 'Home', icon: Home },
+        { path: '/health', label: 'My health', icon: Heart },
+        { path: '/me', label: 'Me', icon: User },
+        { path: '/profile', label: 'My details', icon: User },
         { path: '/records', label: 'My Records', icon: FileText },
-        { path: '/medical-id', label: 'Medical ID', icon: CreditCard },
+        { path: '/emergency-card', label: 'My emergency card', icon: CreditCard },
       ],
     },
     {
-      label: 'Health',
+      label: 'My health',
       items: [
-        { path: '/medications', label: 'Medications', icon: Pill },
-        { path: '/reminders', label: 'Med Reminders', icon: Bell },
-        { path: '/vitals', label: 'Vital Signs', icon: Activity },
-        { path: '/lab-results', label: 'Lab Results', icon: FlaskConical },
-        { path: '/symptoms', label: 'Symptom Tracker', icon: Activity },
-        { path: '/symptom-checker', label: 'Symptom Checker', icon: HelpCircle },
-        { path: '/lab-trends', label: 'Lab Trends', icon: TrendingUp },
-        { path: '/wearables', label: 'Wearables', icon: Watch },
+        { path: '/medications', label: 'Medicines and reminders', icon: Pill },
+        { path: '/lab-results', label: 'Test results and trends', icon: FlaskConical },
+        { path: '/vitals', label: 'Vital signs and devices', icon: Activity },
+        { path: '/symptoms', label: 'Track and check symptoms', icon: Activity },
         { path: '/medical-history', label: 'Medical History', icon: BookOpen },
       ],
     },
     {
-      label: 'Care',
+      label: 'My care team',
       items: [
-        { path: '/appointments', label: 'Appointments', icon: Calendar },
-        { path: '/telehealth', label: 'Telehealth', icon: Video },
-        { path: '/messages', label: 'Messages', icon: MessageSquare },
-        { path: '/family', label: 'Family Group', icon: Users },
+        { path: '/appointments', label: 'Appointments and video visits', icon: Calendar },
+        { path: '/messages', label: 'Messages and notifications', icon: MessageSquare },
       ],
     },
     {
-      label: 'Account',
+      // Patient-app plan, approved 2026-11-04: the survey is offered after a
+      // visit, and offline sync is a section of Settings, not a menu item.
+      label: 'Privacy and account',
       items: [
-        { path: '/consent', label: 'Access Control', icon: Shield },
-        { path: '/emergency-card', label: 'Emergency Card', icon: AlertCircle },
-        { path: '/insurance', label: 'Insurance', icon: ClipboardList },
-        { path: '/notifications', label: 'Notifications', icon: Bell },
-        { path: '/survey', label: 'Satisfaction Survey', icon: Star },
-      ],
-    },
-    {
-      label: 'Settings',
-      items: [
+        { path: '/privacy', label: 'Who sees my records', icon: Shield },
+        { path: '/cards', label: 'My cards and family', icon: ClipboardList },
         { path: '/settings', label: 'Settings', icon: Settings },
-        { path: '/language', label: 'Language', icon: Globe },
-        { path: '/offline-sync', label: 'Offline Sync', icon: WifiOff },
       ],
     },
   ];
 
-  // Primary actions stay in the desktop header. The remaining routes are in a
-  // labelled desktop menu below; hiding them in the mobile-only drawer made
-  // implemented patient workflows undiscoverable on laptops and desktops.
-  const patientMainNav: NavItem[] = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/records', label: 'Records', icon: FileText },
-    { path: '/medications', label: 'Medications', icon: Pill },
-    { path: '/appointments', label: 'Appointments', icon: Calendar },
-    { path: '/messages', label: 'Messages', icon: MessageSquare },
-    { path: '/settings', label: 'Settings', icon: Settings },
-  ];
-
-  const navItems = variant === 'doctor' ? doctorNavItems : patientMainNav;
-  const brandColor = variant === 'doctor' ? 'primary' : 'health';
-
-  const handleLogout = () => {
-    localStorage.clear();
+  const { t } = useTranslation();
+  const isPatientTabActive = (match: readonly string[]) =>
+    match.some((p) => location.pathname === p || location.pathname.startsWith(`${p}/`));
+  // The Messages tab counts what is unread; nothing else on the bar is a badge.
+  const tabBadge = (path: string) =>
+    path === '/messages' && unreadNotifications !== null && unreadNotifications > 0 ? (
+      <span aria-label={t('patientTabs.unread', { n: String(unreadNotifications) })}
+        className="absolute -right-2 -top-1.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-critical px-1 text-xs font-semibold text-critical-fg">
+        {unreadNotifications > 99 ? '99+' : unreadNotifications}
+      </span>
+    ) : null;
+  const handleLogout = async () => {
+    const proceed = await confirmSignOutWithUnsent({
+      title: t('forms.unsentTitle'),
+      message: (n) => t('forms.unsentMessage', { n: String(n) }),
+      confirm: t('forms.unsentConfirm'),
+      cancel: t('forms.unsentCancel'),
+    });
+    if (!proceed) return;
+    if (onLogout) await onLogout();
+    else localStorage.clear();
     navigate('/login');
   };
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      <NavigationGuard />
       {/*
         First focusable element in the document, deliberately. The patient app
         had no skip link at all: a keyboard or switch user reached the page
@@ -248,7 +268,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       </a>
       {/* Offline Banner */}
       {!isOnline && (
-        <div className="bg-caution text-caution-fg px-4 py-2 text-center text-sm font-medium animate-pulse flex items-center justify-center gap-2 sticky top-0 z-50">
+        <div className="bg-caution text-caution-fg px-4 py-2 text-center text-sm font-medium flex items-center justify-center gap-2 sticky top-0 z-50">
           <WifiOff className="w-4 h-4" />
           <span>You are currently offline. Changes will be synced when connection is restored.</span>
           {queueSize > 0 && (
@@ -271,7 +291,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <Link to="/dashboard" className="flex items-center gap-2">
-              <div className={`w-10 h-10 bg-${brandColor}-500 rounded-xl flex items-center justify-center`}>
+              <div className="w-10 h-10 bg-brand rounded-xl flex items-center justify-center">
                 <Heart className="w-6 h-6 text-white" />
               </div>
               <div className="hidden sm:block">
@@ -282,18 +302,38 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               </div>
             </Link>
 
-            {/* Desktop Navigation */}
-            <div className="hidden lg:flex items-center gap-1">
-              {navItems.map((item) => {
+            {/* Patient on a laptop: the five tabs, nothing else (mockup p6). */}
+            {variant === 'patient' && (
+              <div className="hidden lg:flex items-center gap-1">
+                {PATIENT_TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  const active = isPatientTabActive(tab.match);
+                  return (
+                    <Link key={tab.path} to={tab.path} aria-current={active ? 'page' : undefined}
+                      className={`flex min-h-[44px] items-center gap-2 rounded-xl px-4 transition-colors ${
+                        active ? 'bg-selected text-selected-fg font-semibold' : 'text-content-muted hover:bg-surface-sunken'
+                      }`}>
+                      <span className="relative"><Icon className="h-5 w-5" aria-hidden="true" />{tabBadge(tab.path)}</span>
+                      <span className="text-sm">{t(tab.label)}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Doctor desktop navigation */}
+            {variant === 'doctor' && <div className="hidden lg:flex items-center gap-1">
+              {doctorNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-colors ${
                       isActive
-                        ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                        ? 'bg-selected text-selected-fg font-semibold'
                         : 'text-content-muted hover:bg-surface-sunken'
                     }`}
                   >
@@ -302,70 +342,51 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                   </Link>
                 );
               })}
-              {variant === 'patient' && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    aria-expanded={patientDesktopMenuOpen}
-                    aria-controls="patient-desktop-navigation"
-                    onClick={() => setPatientDesktopMenuOpen((open) => !open)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-content-muted hover:bg-surface-sunken transition-colors"
-                  >
-                    <Menu className="w-5 h-5" />
-                    <span className="text-sm">More</span>
-                  </button>
-                  {patientDesktopMenuOpen && (
-                    <div
-                      id="patient-desktop-navigation"
-                      className="absolute right-0 top-full mt-2 z-50 grid w-[44rem] grid-cols-2 gap-x-6 gap-y-4 rounded-xl border border-border bg-surface p-5 shadow-lg"
-                    >
-                      {patientNavSections.map((section) => (
-                        <section key={section.label} aria-label={section.label}>
-                          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-content-muted">
-                            {section.label}
-                          </h2>
-                          <div className="space-y-1">
-                            {section.items.map((item) => {
-                              const Icon = item.icon;
-                              const isActive = location.pathname === item.path;
-                              return (
-                                <Link
-                                  key={item.path}
-                                  to={item.path}
-                                  onClick={() => setPatientDesktopMenuOpen(false)}
-                                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                                    isActive
-                                      ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                                      : 'text-content-muted hover:bg-surface-sunken'
-                                  }`}
-                                >
-                                  <Icon className="w-4 h-4" />
-                                  <span>{item.label}</span>
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </section>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            </div>}
 
-            {/* Right Actions */}
-            <div className="flex items-center gap-3">
-              <button 
+            {/* Patient: connection as words, a page finder, and the emergency
+                card one click away on a laptop. The bell's job is done by the
+                Messages tab's count. */}
+            {variant === 'patient' && (
+              <div className="flex items-center gap-2">
+                <span role="status" className="flex items-center gap-1.5 text-sm text-content-muted">
+                  <span aria-hidden="true" className={`h-2 w-2 rounded-full ${isOnline ? 'bg-ok' : 'bg-caution'}`} />
+                  {!isOnline ? t('patientTabs.offline')
+                    : queueSize > 0 ? t('patientTabs.waiting', { n: String(queueSize) })
+                    : t('patientTabs.upToDate')}
+                </span>
+                <button type="button" onClick={() => setPatientDesktopMenuOpen(true)}
+                  aria-haspopup="dialog" aria-expanded={patientDesktopMenuOpen} aria-label={t('patientTabs.findPage')}
+                  title={t('patientTabs.findPage')}
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-content-muted hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <Search className="h-5 w-5" aria-hidden="true" />
+                </button>
+                <Link to="/emergency-card"
+                  className="hidden lg:flex min-h-[44px] items-center gap-2 rounded-xl border border-critical px-4 font-semibold text-critical-subtle-fg hover:bg-critical-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <QrCode className="h-5 w-5" aria-hidden="true" />
+                  {t('patientTabs.emergencyCard')}
+                </Link>
+              </div>
+            )}
+
+            {/* Doctor right actions */}
+            {variant === 'doctor' && <div className="flex items-center gap-3">
+              <button
+                aria-label={unreadNotifications ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}
                 onClick={() => navigate('/notifications')}
                 className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
                 title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
               >
                 <Bell className={`w-6 h-6 ${isSSEConnected ? 'text-notice-subtle-fg' : 'text-content-muted'}`} />
-                {isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
-                {!isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-red-400 rounded-full" />}
+                {unreadNotifications !== null && unreadNotifications > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[1.25rem] h-5 px-1 bg-critical text-critical-fg text-xs font-semibold rounded-full flex items-center justify-center">
+                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  </span>
+                )}
               </button>
 
               <button
+                aria-label="Sign out"
                 onClick={handleLogout}
                 className="hidden sm:flex items-center gap-2 px-4 py-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
               >
@@ -374,50 +395,22 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
               {/* Mobile Menu Button */}
               <button
+                aria-label="Open navigation"
+                aria-expanded={mobileMenuOpen}
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="lg:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
+                className="lg:hidden min-h-[44px] flex items-center gap-2 p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
-            </div>
+            </div>}
           </div>
         </div>
 
         {/* Mobile Navigation */}
-        {mobileMenuOpen && (
+        {mobileMenuOpen && variant === 'doctor' && (
           <div className="lg:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
             <div className="px-4 py-2">
-              {variant === 'patient' ? (
-                // Sectioned navigation for patient
-                patientNavSections.map((section) => (
-                  <div key={section.label} className="mb-4">
-                    <p className="text-xs font-semibold text-content-muted uppercase tracking-wider px-4 py-2">
-                      {section.label}
-                    </p>
-                    <div className="space-y-1">
-                      {section.items.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = location.pathname === item.path;
-                        return (
-                          <Link
-                            key={item.path}
-                            to={item.path}
-                            onClick={() => setMobileMenuOpen(false)}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                              isActive
-                                ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                                : 'text-content-muted hover:bg-surface-sunken'
-                            }`}
-                          >
-                            <Icon className="w-5 h-5" />
-                            <span>{item.label}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
-              ) : (
+              {(
                 // Simple navigation for doctor
                 <div className="space-y-1">
                   {doctorNavItems.map((item) => {
@@ -430,7 +423,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                         onClick={() => setMobileMenuOpen(false)}
                         className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
                           isActive
-                            ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                            ? 'bg-selected text-selected-fg font-semibold'
                             : 'text-content-muted hover:bg-surface-sunken'
                         }`}
                       >
@@ -442,6 +435,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                 </div>
               )}
               <button
+                aria-label="Sign out"
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 text-critical-subtle-fg hover:bg-critical-subtle rounded-xl transition-colors mt-4"
               >
@@ -453,6 +447,12 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
         )}
       </nav>
 
+      {/* The page finder: every destination, searchable, from the top bar. */}
+      {variant === 'patient' && patientDesktopMenuOpen && (
+        <PatientNavigation sections={patientNavSections} onClose={() => setPatientDesktopMenuOpen(false)}
+          onLogout={handleLogout} />
+      )}
+
       {/* Main Content
           The boundary sits inside the layout, not around it, so a page that
           throws leaves the navigation usable instead of blanking the whole app
@@ -460,11 +460,34 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
           patient portal and took the emergency medical ID down with it.
           Keying it on the path resets the boundary when the user navigates
           away; without that, one crash would latch for the rest of the session. */}
-      <main id="main-content" className="max-w-7xl mx-auto">
+      <main id="main-content" className={`max-w-7xl mx-auto ${variant === 'patient' ? 'pb-20 lg:pb-0' : ''}`}>
         <ErrorBoundary key={location.pathname}>
           <Outlet />
         </ErrorBoundary>
       </main>
+
+      {/* Five tabs on a phone (UX plan Phase 8, mockup p1): the places a patient
+          returns to, always one thumb-tap away. Every other page sits under one
+          of them. Active is shown by the pill, weight AND aria-current. */}
+      {variant === 'patient' && (
+        <nav aria-label={t('patientTabs.label')}
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+          {PATIENT_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = isPatientTabActive(tab.match);
+            return (
+              <Link key={tab.path} to={tab.path} aria-current={active ? 'page' : undefined}
+                className={`flex min-h-[64px] flex-col items-center justify-center gap-1 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus ${active ? 'font-bold text-content' : 'text-content-muted'}`}>
+                <span className={`relative flex h-8 w-14 items-center justify-center rounded-full ${active ? 'bg-selected text-selected-fg' : ''}`}>
+                  <Icon className="h-5 w-5" aria-hidden="true" />
+                  {tabBadge(tab.path)}
+                </span>
+                {t(tab.label)}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

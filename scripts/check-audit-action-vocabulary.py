@@ -60,23 +60,40 @@ MIGRATIONS = ROOT / "api" / "migrations"
 # actually following the value to every caller.
 # ---------------------------------------------------------------------------
 RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
+    # `audit` in the ambulance run record takes the action as a parameter.
+    # Followed to every call site in the same file: creating a run and adding
+    # an event write "create_ems_handoff", the hospital's receipt writes
+    # "Update", and reads by anyone but the crew member write "view".
+    'api/src/handlers/ems_runs.rs::action.to_string()': [
+        "create_ems_handoff",
+        "Update",
+        "view",
+    ],
+    # `audit` in wards.rs takes the action as a parameter. Followed to every
+    # call site in the same file: admitting writes "create", discharging
+    # writes "Update", and listing a nurse's ward writes "view" per patient.
+    'api/src/handlers/wards.rs::action.to_string()': [
+        "create",
+        "Update",
+        "view",
+    ],
     # `action` is validated to exactly "approve" or "reject" before the audit
     # row is built, so the format string has exactly two expansions.
     # `audit_recollection` takes the action as a parameter. Followed to all
     # three call sites in the same file -- request, complete and cancel -- each
     # of which passes a literal. There is no other caller.
-    'api/src/clinical_endpoints/lab.rs::action.to_string()': [
+    'api/src/handlers/lab/specimen_rejections.rs::action.to_string()': [
         "specimen_recollection_requested",
         "specimen_recollection_completed",
         "specimen_recollection_cancelled",
     ],
     # `close_critical_value` takes the action as a parameter; its two call
     # sites in the same file, acknowledge and cancel, each pass a literal.
-    'api/src/clinical_endpoints/lab.rs::audit_action.to_string()': [
+    'api/src/handlers/lab/critical_values.rs::audit_action.to_string()': [
         "critical_value_acknowledged",
         "critical_value_cancelled",
     ],
-    'api/src/handlers/lab.rs::format!("lab_review_{}", action)': [
+    'api/src/handlers/lab/submissions.rs::format!("lab_review_{}", action)': [
         "lab_review_approve",
         "lab_review_reject",
     ],
@@ -97,6 +114,59 @@ RESOLVED_EXPRESSIONS: dict[str, list[str]] = {
         "prescription_verification_rejected",
         "prescription_verification_expired",
         "prescription_verification_revoked",
+        # Refill requests (WP7.1). billing/refill_requests.rs passes
+        # `RefillAuditAction::as_str()`, a closed four-arm match of literals.
+        "refill_requested",
+        "refill_approved",
+        "refill_denied",
+        "refill_cancelled",
+    ],
+    # `attachment_audit` takes the action as a parameter; its two call sites
+    # in the same file pass these literals.
+    "api/src/clinical_endpoints/workflow/message_attachments.rs::action.to_string()": [
+        "message_attachment_uploaded",
+        "message_attachment_downloaded",
+    ],
+    # `eob_audit` takes the action as a parameter; its two call sites in the
+    # same file pass these literals.
+    "api/src/clinical_endpoints/billing/eob_documents.rs::action.to_string()": [
+        "eob_uploaded",
+        "eob_downloaded",
+    ],
+    # `governance_audit` takes the action as a parameter; its call sites in
+    # the same file pass these literals (the per-patient rows reuse it via
+    # struct update syntax with "research_export_included").
+    "api/src/handlers/research_exports.rs::action.to_string()": [
+        "research_export_proposed",
+        "research_export_approved",
+        "research_export_executed",
+        "research_export_included",
+    ],
+    # `unit_audit` takes the action as a parameter; its five call sites in the
+    # same file pass these literals.
+    "api/src/handlers/blood_bank_inventory.rs::action.to_string()": [
+        "blood_unit_received",
+        "blood_unit_reserved",
+        "blood_unit_released",
+        "blood_unit_issued",
+        "blood_unit_discarded",
+    ],
+    # `recording_audit` takes the action as a parameter; its call sites in
+    # the same file pass these literals ("recording-stopped" when a patient's
+    # withdrawal stops a running recording).
+    "api/src/clinical_endpoints/clinical_support/telehealth_recordings.rs::action.to_string()": [
+        "recording_consent_given",
+        "recording_consent_withdrawn",
+        "recording-stopped",
+        "telehealth_recording_stored",
+        "telehealth_recording_viewed",
+    ],
+    # Test-only: the refill `pg_tests` helper `audit(action)` is called with
+    # these three literals, which must be ones the constraint accepts.
+    "api/src/repositories/refill_requests.rs::action.into()": [
+        "refill_requested",
+        "refill_approved",
+        "refill_denied",
     ],
     # The recording handler picks one of two literals immediately above the
     # struct literal.
@@ -183,15 +253,26 @@ def constraint_vocabulary() -> set[str]:
     defining = sorted(
         p
         for p in MIGRATIONS.glob("*.sql")
-        if "ADD CONSTRAINT access_logs_action_check"
+        if "CONSTRAINT access_logs_action_check"
         in p.read_text(encoding="utf-8", errors="replace")
     )
     if not defining:
-        print("No migration adds access_logs_action_check.")
+        print("No migration defines access_logs_action_check.")
         sys.exit(1)
     body = defining[-1].read_text(encoding="utf-8", errors="replace")
-    clause = body[body.index("ADD CONSTRAINT access_logs_action_check") :]
-    clause = clause[: clause.index(");") + 1]
+    # The last definition in the file: an ALTER ... ADD CONSTRAINT, or the
+    # constraint declared inside CREATE TABLE (as the schema baseline does).
+    start = body.rindex("CONSTRAINT access_logs_action_check")
+    open_at = body.index("(", start)
+    depth = 0
+    for end in range(open_at, len(body)):
+        if body[end] == "(":
+            depth += 1
+        elif body[end] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+    clause = body[start : end + 1]
     # Strip SQL comments, so a value named only in prose is not counted as
     # permitted.
     clause = re.sub(r"--.*", "", clause)
@@ -200,13 +281,15 @@ def constraint_vocabulary() -> set[str]:
 
 ACTION_WIDTH_ALTER = re.compile(
     r"ALTER\s+TABLE\s+access_logs\s+ALTER\s+COLUMN\s+action\s+TYPE\s+"
-    r"VARCHAR\s*\(\s*(\d+)\s*\)",
+    r"(?:VARCHAR|character\s+varying)\s*\(\s*(\d+)\s*\)",
     re.IGNORECASE,
 )
 ACTION_WIDTH_CREATE = re.compile(
     r"CREATE\s+TABLE[^;]*?\baccess_logs\b(.*?);", re.IGNORECASE | re.DOTALL
 )
-ACTION_COLUMN = re.compile(r"\baction\s+VARCHAR\s*\(\s*(\d+)\s*\)", re.IGNORECASE)
+ACTION_COLUMN = re.compile(
+    r"\baction\s+(?:VARCHAR|character\s+varying)\s*\(\s*(\d+)\s*\)", re.IGNORECASE
+)
 
 
 def action_column_width() -> int | None:

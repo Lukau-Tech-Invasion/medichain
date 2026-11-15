@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Vitals from chart</title><link rel="stylesheet" href="mock.css">
+<style>.act{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 14px;border-radius:10px;font-size:14px;color:rgb(var(--text-2));border:1px solid rgb(var(--border-strong))}
+.act.on{background:rgb(var(--primary-sub));color:rgb(var(--primary-sub-fg));border-color:rgb(var(--primary));font-weight:700}
+.num{display:flex;align-items:center;gap:8px}.num .input{width:96px;justify-content:flex-end;font-variant-numeric:tabular-nums}.unit{font-size:13px;color:rgb(var(--muted))}</style></head>
+<body><div class="desk" style="display:flex">
+  <aside class="sidebar">
+    <div class="logo" style="padding:4px 12px 12px"><span class="mk"><i data-i="heart" class="sm"></i></span>MediChain</div>
+    <div class="side-h">Favourites</div>
+    <a class="side on"><i data-i="home" class="sm"></i>My patients</a>
+    <a class="side"><i data-i="pulse" class="sm"></i>Vital signs</a>
+    <a class="side"><i data-i="pill" class="sm"></i>Medication round (MAR)</a>
+    <a class="side"><i data-i="swap" class="sm"></i>Shift handoff</a>
+    <div class="side-h">Recent patients</div>
+    <a class="side"><span class="avatar" style="width:26px;height:26px;font-size:11px">TN</span>Thandiwe Nkosi</a>
+    <a class="side"><span class="avatar" style="width:26px;height:26px;font-size:11px">SM</span>Sipho Mabaso</a>
+    <div class="side-h">All tasks <i data-i="chevDown" class="sm"></i></div>
+    <a class="side" style="margin-top:auto"><i data-i="search" class="sm"></i>Find a page…</a>
+  </aside>
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <!-- The patient is chosen once, in the chart; every task opened from here carries them. -->
+    <div class="patientbar"><span class="avatar">TN</span><div><p class="b">Thandiwe Nkosi <span class="muted" style="font-weight:400">· F · 34 · Bed 12</span></p><p class="xs muted">Opened for treatment · 13:58</p></div>
+      <span class="badge danger"><i data-i="alert" class="sm"></i>Penicillin · Latex</span><span class="badge info">O+</span><span class="badge ok">Full code</span></div>
+    <div class="row" style="padding:10px 24px;gap:8px;border-bottom:1px solid rgb(var(--border))">
+      <span class="act">Summary</span><span class="act on"><i data-i="pulse" class="sm"></i>Vitals</span><span class="act"><i data-i="pill" class="sm"></i>Medicines</span><span class="act"><i data-i="drop" class="sm"></i>Fluids in/out</span><span class="act"><i data-i="file" class="sm"></i>Note</span><span class="act"><i data-i="clipboard" class="sm"></i>Wound</span><span class="act">More <i data-i="chevDown" class="sm"></i></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:20px;padding:18px 24px">
+      <section class="card pad col" style="gap:16px">
+        <div class="row between"><h2>Record vital signs</h2><span class="xs muted row" style="gap:6px"><i data-i="save" class="sm"></i>Draft kept on this tab</span></div>
+        <div class="row" style="gap:12px;align-items:flex-end">
+          <div class="field"><span class="label">Time taken</span><div class="input ph" style="width:180px">Not set</div></div>
+          <span class="btn sm"><i data-i="clock" class="sm"></i>Now</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,auto);justify-content:start;gap:16px 36px">
+          <div class="field"><span class="label">Blood pressure</span><div class="num"><div class="input">148</div><span class="unit">/</span><div class="input">92</div><span class="unit">mmHg</span></div></div>
+          <div class="field"><span class="label">Pulse</span><div class="num"><div class="input">104</div><span class="unit">/min</span></div></div>
+          <div class="field"><span class="label">Breathing rate</span><div class="num"><div class="input">20</div><span class="unit">/min</span></div></div>
+          <div class="field"><span class="label">Temperature</span><div class="num"><div class="input ph">—</div><span class="unit">°C</span></div></div>
+          <div class="field"><span class="label">Oxygen saturation</span><div class="num"><div class="input ph">—</div><span class="unit">%</span></div></div>
+        </div>
+        <!-- One tap, and nothing pre-selected: an unanswered question stays unanswered (rule 9). -->
+        <div class="field"><span class="label">Alertness (ACVPU)</span><div class="seg"><span class="on">Alert</span><span>New confusion</span><span>Voice</span><span>Pain</span><span>Unresponsive</span></div></div>
+        <div class="field"><span class="label">Breathing support</span><div class="row" style="gap:8px"><span class="chip">Room air</span><span class="chip">On oxygen</span></div></div>
+        <details class="card pad-sm"><summary class="small b row between" style="list-style:none">More details — pain, blood glucose, weight, note <i data-i="chevDown" class="sm"></i></summary></details>
+        <div class="row" style="justify-content:flex-end;gap:10px"><span class="btn">Cancel</span><span class="btn primary">Save vital signs</span></div>
+      </section>
+      <aside class="col" style="gap:12px">
+        <!-- Rule 8: the score comes back from the server; rule 12: say how much was measured. -->
+        <div class="card pad col" style="gap:6px"><p class="xs muted b">NEWS2 — calculated by the server</p>
+          <p style="font-size:30px;font-weight:800">1 <span class="badge ok" style="vertical-align:middle">Low</span> <span class="xs muted" style="font-weight:400">so far</span></p>
+          <p class="xs muted">4 of 7 measured · temperature, oxygen saturation and breathing support not entered yet</p></div>
+        <div class="card pad col" style="gap:6px"><p class="xs muted b">Last recorded</p>
+          <p class="small">08:00 · BP 128/82 · Pulse 88 · Temp 36.8 °C</p><p class="xs muted">by you</p></div>
+      </aside>
+    </div>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

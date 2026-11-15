@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signIn, settle, selectPatient } from './support';
+import { signIn, settle, selectPatient, choose } from './support';
 
 /**
  * The laceration-repair page files a repair, and the repair comes back.
@@ -22,7 +22,7 @@ import { signIn, settle, selectPatient } from './support';
 test('a doctor documents a laceration repair and it appears on the list', async ({ browser }) => {
   test.setTimeout(180000);
   const page = await browser.newPage();
-  await signIn(page, 'Doctor');
+  await signIn(page, 'Doctor', 0);
   await settle(page, '/laceration-repair');
 
   const site = `Right forearm, dorsal aspect (e2e ${Date.now()})`;
@@ -35,8 +35,8 @@ test('a doctor documents a laceration repair and it appears on the list', async 
 
   await page.locator('#laceration-length').fill('3.5');
   await page.locator('#laceration-location').fill(site);
-  await page.locator('#laceration-depth').selectOption('partial thickness');
-  await page.locator('#laceration-closure-method').selectOption('sutures');
+  await choose(page.locator('#laceration-depth'), 'partial thickness');
+  await choose(page.locator('#laceration-closure-method'), 'sutures');
   await page.locator('#laceration-count').fill('6');
 
   await page.getByRole('button', { name: /save repair documentation/i }).click();
@@ -64,7 +64,7 @@ test('a doctor documents a laceration repair and it appears on the list', async 
 test('a repair with no length is refused before it is sent', async ({ browser }) => {
   test.setTimeout(120000);
   const page = await browser.newPage();
-  await signIn(page, 'Doctor');
+  await signIn(page, 'Doctor', 0);
   await settle(page, '/laceration-repair');
   await page.getByRole('button', { name: /new repair/i }).click();
 

@@ -1,0 +1,79 @@
+# Synthetic browser qualification only. Use a distinct project and private env file:
+# docker compose -p medichain_browserqa_20261017 --env-file <private-env>
+#   -f docker-compose.yml -f docker-compose.browser-qualification.yml up -d postgres api nginx
+# Project isolation and port replacement follow Docker's Compose documentation:
+# https://docs.docker.com/compose/how-tos/project-name/
+# https://docs.docker.com/reference/compose-file/merge/
+services:
+  postgres:
+    container_name: ${MEDICHAIN_QA_PREFIX:?Set a unique QA container prefix}_postgres
+    ports: !override
+      - "127.0.0.1:${MEDICHAIN_QA_DB_PORT:-55433}:5432"
+    environment:
+      POSTGRES_USER: medichain_qa
+      POSTGRES_DB: medichain_qa
+      POSTGRES_PASSWORD: ${MEDICHAIN_QA_DB_PASSWORD:?Supply a generated QA database password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medichain_qa -d medichain_qa"]
+
+  api:
+    container_name: ${MEDICHAIN_QA_PREFIX:?Set a unique QA container prefix}_api
+    environment:
+      DATABASE_URL: postgres://medichain_qa:${MEDICHAIN_QA_DB_PASSWORD:?Supply a generated QA database password}@postgres:5432/medichain_qa
+      MEDICHAIN_STORAGE: postgres
+      APP_ENV: development
+      ENVIRONMENT: development
+      IS_DEMO: "true"
+      REQUIRE_SIGNATURES: "false"
+      MEDICHAIN_DEV_MODE: "1"
+      MEDICHAIN_BOOTSTRAP_KEY: ${MEDICHAIN_QA_BOOTSTRAP_KEY:?Supply a generated QA bootstrap key}
+      SESSION_SECRET: ${MEDICHAIN_QA_SESSION_SECRET:?Supply a generated QA session secret}
+      JWT_SECRET: ${MEDICHAIN_QA_JWT_SECRET:?Supply a generated QA JWT secret}
+      ENCRYPTION_KEYS: ${MEDICHAIN_QA_ENCRYPTION_KEYS:?Supply durable QA encryption keys}
+      PATIENT_SEARCH_INDEX_KEY: ${MEDICHAIN_QA_SEARCH_KEY:?Supply a generated QA search key}
+      NATIONAL_ID_HASH_KEY: ${MEDICHAIN_QA_ID_HASH_KEY:?Supply a generated QA identity hash key}
+      CLINIC_TIMEZONE: Africa/Johannesburg
+      NATIONAL_ID_VERIFICATION_MODE: stub
+      AUDIT_SEAL_SIGNING_KEY: ""
+      AUDIT_CHECKPOINT_SINK: none
+      AUDIT_CHECKPOINT_DIR: ""
+      EMERGENCY_AUDIT_AVAILABILITY_MODE: deny
+      MEDICHAIN_RATE_LIMIT_ANONYMOUS: "60"
+      MEDICHAIN_RATE_LIMIT_AUTHENTICATED: "240"
+      TELEHEALTH_ENABLED: "false"
+      JITSI_DOMAIN: qa-video.invalid
+      JITSI_PUBLIC_URL: https://qa-video.invalid
+      JITSI_INTERNAL_URL: ""
+      JITSI_APP_ID: ""
+      JITSI_APP_SECRET: ""
+      TELEHEALTH_SECRET: ""
+      DAILY_API_KEY: ""
+      SMTP_HOST: ""
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: ""
+      REGULATOR_NOTIFICATION_EMAIL: ""
+      SECURITY_OFFICER_PHONE: ""
+      SMS_ENABLED: "false"
+      SMS_GLOBAL_DISABLE: "true"
+      SMS_INBOUND_WEBHOOK_SECRET: ""
+      AT_API_KEY: ""
+      AT_USERNAME: ""
+      AT_SMS_URL: ""
+      TWILIO_ACCOUNT_SID: ""
+      TWILIO_AUTH_TOKEN: ""
+      FCM_ENABLED: "false"
+      FCM_PROJECT_ID: ""
+      FCM_ACCESS_TOKEN: ""
+      FAYDA_API_KEY: ""
+      GHANA_CARD_API_KEY: ""
+      NIN_API_KEY: ""
+      SMARTID_API_KEY: ""
+      HUDUMA_API_KEY: ""
+      TRANSLATION_PROVIDER: none
+      GOOGLE_TRANSLATE_API_KEY: ""
+
+  nginx:
+    container_name: ${MEDICHAIN_QA_PREFIX:?Set a unique QA container prefix}_nginx
+    ports: !override
+      - "127.0.0.1:${MEDICHAIN_QA_HTTP_PORT:-8889}:80"

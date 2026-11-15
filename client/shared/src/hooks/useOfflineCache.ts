@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cacheData, getCachedData } from '../utils/indexedDB';
-import { getApiClient } from '../api/client';
+import { getApiClient, ApiClientError } from '../api/client';
 import { debugLog } from '../config';
 
 export interface UseOfflineCacheResult<T> {
@@ -21,7 +21,7 @@ export interface UseOfflineCacheResult<T> {
  * is available offline. Offline (or when a fetch fails): serves the last cached
  * copy if present and not expired, flagging `fromCache` so the UI can show an
  * "offline / cached" badge. This is what makes records viewable with no network —
- * the OfflineQueue already covers the write path.
+ * the sync queue (`syncQueue.ts`) covers the write path.
  *
  * `fetcher` is read through a ref, so callers may pass an inline closure without
  * causing a refetch loop; the effect only re-runs when `cacheId` changes.
@@ -43,11 +43,14 @@ export function useOfflineCache<T>(
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const cacheAvailable = typeof indexedDB !== 'undefined';
+    const ownerUserId = getApiClient().getUserId();
+    const cacheAvailable = typeof indexedDB !== 'undefined' && Boolean(ownerUserId);
+    const scopedCacheId = `${ownerUserId}:${cacheId}`;
 
     const serveCached = async (reason: string): Promise<boolean> => {
       if (!cacheAvailable) return false;
-      const cached = await getCachedData<T>(cacheId);
+      const cached = await getCachedData<T>(scopedCacheId);
+      if (getApiClient().getUserId() !== ownerUserId) return false;
       if (cached != null) {
         setData(cached);
         setFromCache(true);
@@ -68,20 +71,24 @@ export function useOfflineCache<T>(
 
     try {
       const fresh = await fetcherRef.current();
+      if (getApiClient().getUserId() !== ownerUserId) return;
       setData(fresh);
       setFromCache(false);
       // Best-effort cache write — never let a cache failure break the read.
       if (cacheAvailable) {
         try {
-          await cacheData(cacheId, category, cacheId, fresh, ttlMs, 'high');
+          await cacheData(scopedCacheId, category, cacheId, fresh, ttlMs, 'high', ownerUserId);
         } catch (e) {
           debugLog('useOfflineCache', `Failed to cache "${cacheId}":`, e);
         }
       }
     } catch (e) {
-      // Network failed despite reporting online — fall back to the cache.
-      if (!(await serveCached('fetch failed'))) {
-        setError(e instanceof Error ? e.message : 'Failed to load data.');
+      // A server refusal must never be bypassed with a previously cached copy.
+      const networkFailure = e instanceof ApiClientError && e.isNetworkError();
+      if (!networkFailure || !(await serveCached('network failed'))) {
+        setData(null);
+        setFromCache(false);
+        setError('The record could not be loaded. Please sign in again or retry.');
       }
     }
     setLoading(false);

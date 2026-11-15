@@ -1,0 +1,15 @@
+# Daily restore rehearsal (installed by deploy.sh): restore the latest backup
+# from each repository into a throwaway container and require the canary the
+# nightly backup wrote. The live database is not touched. A FAIL exits non-zero.
+[Unit]
+Description=MediChain restore rehearsal from both backup repositories
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/medichain
+Environment=PGBR_CANARY_FILE=/opt/medichain/backups/last-canary
+Environment="PGBR_RUN=docker compose -f docker-compose.yml -f docker-compose.backup.yml -f docker-compose.prod.yml -f docker-compose.aws.yml run --rm --no-deps --user postgres --entrypoint medichain-restore-test postgres"
+ExecStart=/bin/sh /opt/medichain/scripts/backup/pgbackrest-restore-test.sh 1
+ExecStart=/bin/sh /opt/medichain/scripts/backup/pgbackrest-restore-test.sh 2

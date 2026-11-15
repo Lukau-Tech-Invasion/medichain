@@ -15,7 +15,7 @@
 //!
 //! **Design invariant confirmed for the pediatric/guardian identity architecture**
 //! (see `guardian_relationships` / `handlers::identity_claim`): keys here are
-//! indexed purely by an integer `version`, never by wallet address or
+//! indexed purely by an integer `version`, never by user id or
 //! `patient_id`. A guardian relationship changing (divorce, adoption, foster
 //! placement ending) or a patient claiming their own identity at adulthood
 //! therefore never requires re-encrypting that patient's history — the

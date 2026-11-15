@@ -62,7 +62,7 @@ pub async fn set_language_preference(
     req: web::Json<SetLanguagePreferenceRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -119,7 +119,7 @@ pub async fn get_language_preference(
 ) -> impl Responder {
     let user_id = path.into_inner();
 
-    if caller.wallet_address != user_id && !caller.role().is_admin() {
+    if caller.user_id != user_id && !caller.role().is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "Cannot view another user's language preference".to_string(),
             code: "FORBIDDEN".to_string(),
@@ -190,7 +190,7 @@ pub async fn translate_content(
     // stored data, so authentication rather than per-resource authorization is
     // the appropriate control -- but it now spends money on a third-party API
     // per call, so leaving it open invites billed resource abuse by anyone.
-    let caller = match require_x_user_id_header(&http_req) {
+    let caller = match require_caller_id(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
     };
@@ -249,9 +249,9 @@ mod hz_009_regression_tests {
     use actix_web::test;
     use chrono::Utc;
 
-    fn test_user(wallet: &str, role: crate::types::Role) -> crate::types::User {
+    fn test_user(user_id: &str, role: crate::types::Role) -> crate::types::User {
         crate::types::User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test User".to_string(),
             role,
@@ -296,8 +296,8 @@ mod hz_009_regression_tests {
         {
             let mut users = state.users.write().unwrap();
             users.insert(
-                "requesting_wallet".to_string(),
-                test_user("requesting_wallet", crate::types::Role::Patient),
+                "requesting_user".to_string(),
+                test_user("requesting_user", crate::types::Role::Patient),
             );
         }
         let app_state = web::Data::new(state);
@@ -308,7 +308,7 @@ mod hz_009_regression_tests {
 
         let req = test::TestRequest::get()
             .uri("/api/platform/languages/preference/some-other-user")
-            .insert_header(("X-User-Id", "requesting_wallet"))
+            .insert_header(crate::test_fixtures::as_user("requesting_user"))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::FORBIDDEN);
@@ -323,8 +323,8 @@ mod hz_009_regression_tests {
         {
             let mut users = state.users.write().unwrap();
             users.insert(
-                "self_wallet".to_string(),
-                test_user("self_wallet", crate::types::Role::Patient),
+                "self_user".to_string(),
+                test_user("self_user", crate::types::Role::Patient),
             );
         }
         let app_state = web::Data::new(state);
@@ -334,8 +334,8 @@ mod hz_009_regression_tests {
         let app = test::init_service(app).await;
 
         let req = test::TestRequest::get()
-            .uri("/api/platform/languages/preference/self_wallet")
-            .insert_header(("X-User-Id", "self_wallet"))
+            .uri("/api/platform/languages/preference/self_user")
+            .insert_header(crate::test_fixtures::as_user("self_user"))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
@@ -353,14 +353,14 @@ mod translation_endpoint_tests {
     /// held across the awaits these tests are made of.
     static TRANSLATION_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    fn caller_state(wallet: &str) -> crate::AppState {
+    fn caller_state(user_id: &str) -> crate::AppState {
         let state = crate::AppState::new();
         {
             let mut users = state.users.write().unwrap();
             users.insert(
-                wallet.to_string(),
+                user_id.to_string(),
                 crate::types::User {
-                    wallet_address: wallet.to_string(),
+                    id: user_id.to_string(),
                     username: None,
                     name: "Test User".to_string(),
                     role: crate::types::Role::Doctor,
@@ -386,15 +386,15 @@ mod translation_endpoint_tests {
         std::env::remove_var("GOOGLE_TRANSLATE_ENDPOINT");
     }
 
-    fn translate_request(wallet: Option<&str>) -> test::TestRequest {
+    fn translate_request(user_id: Option<&str>) -> test::TestRequest {
         let mut req = test::TestRequest::post()
             .uri("/api/platform/translate")
             .set_json(serde_json::json!({
                 "content": "Take one tablet daily",
                 "target_language": "fr"
             }));
-        if let Some(wallet) = wallet {
-            req = req.insert_header(("X-User-Id", wallet));
+        if let Some(user_id) = user_id {
+            req = req.insert_header(crate::test_fixtures::as_user(user_id));
         }
         req
     }
@@ -425,13 +425,13 @@ mod translation_endpoint_tests {
 
         let app = test::init_service(
             actix_web::App::new()
-                .app_data(web::Data::new(caller_state("doctor_wallet")))
+                .app_data(web::Data::new(caller_state("doctor_user")))
                 .service(translate_content),
         )
         .await;
 
         let resp =
-            test::call_service(&app, translate_request(Some("doctor_wallet")).to_request()).await;
+            test::call_service(&app, translate_request(Some("doctor_user")).to_request()).await;
         assert_eq!(
             resp.status(),
             actix_web::http::StatusCode::SERVICE_UNAVAILABLE
@@ -487,13 +487,13 @@ mod translation_endpoint_tests {
 
         let app = test::init_service(
             actix_web::App::new()
-                .app_data(web::Data::new(caller_state("doctor_wallet")))
+                .app_data(web::Data::new(caller_state("doctor_user")))
                 .service(translate_content),
         )
         .await;
 
         let resp =
-            test::call_service(&app, translate_request(Some("doctor_wallet")).to_request()).await;
+            test::call_service(&app, translate_request(Some("doctor_user")).to_request()).await;
         let status = resp.status();
         let body: serde_json::Value = test::read_body_json(resp).await;
 
@@ -523,13 +523,13 @@ mod translation_endpoint_tests {
 
         let app = test::init_service(
             actix_web::App::new()
-                .app_data(web::Data::new(caller_state("doctor_wallet")))
+                .app_data(web::Data::new(caller_state("doctor_user")))
                 .service(translate_content),
         )
         .await;
 
         let resp =
-            test::call_service(&app, translate_request(Some("doctor_wallet")).to_request()).await;
+            test::call_service(&app, translate_request(Some("doctor_user")).to_request()).await;
         let status = resp.status();
         let body: serde_json::Value = test::read_body_json(resp).await;
 

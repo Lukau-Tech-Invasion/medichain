@@ -65,7 +65,6 @@ pre-existing ones (requirement §32).
 | ----- | -------- | ----- |
 | `cargo test --bin medichain-api` | **363 passed, 0 failed, 1 ignored** (510s) | Against the live PostgreSQL 16 container. Two more than the 361 in `CLAUDE.md`. After phases 1–4: **392 passed, 0 failed** — +29 tests, no regressions. |
 | `cargo test -p medichain-crypto` | 23 (per `CLAUDE.md`) | **29 passed, 0 failed** after phase 3 (+6 password tests) |
-| pallets (3 crates) | 60 (per `CLAUDE.md`) | **60 passed, 0 failed** — unchanged, nothing in this campaign touched them |
 | `scripts/synthetic-e2e-test.sh` | 83 assertions / 11 sections | **36 new assertions across 4 new sections, 0 failures** |
 | doctor-portal `vitest` | 127 failing (per `docs/PRODUCTION_READINESS.md` H3) | diagnosed as test drift, not product defects |
 | patient-app `vitest` | 46 failing (same source) | same |
@@ -79,13 +78,6 @@ began. That state is the baseline; this audit does not revert it.
 
 Five causes account for nearly every finding in §4. Fixing the *causes* is the
 work; the individual findings are symptoms.
-
-**RC-1 — No shared authenticated identity context on the frontend.**
-There is no single place that answers "who is the logged-in clinician, what is
-their wallet, role, department?". Each page reaches into `useAuthStore` and
-re-derives what it needs, so any field a page forgets to derive becomes a form
-input for the user to type. This is the direct cause of the Provider ID box
-(WF-013) and the whole "asks for what it already knows" class.
 
 **RC-2 — Actor identity is taken from the request body, not the session.**
 Six handlers accept *who performed this* as a client-supplied field. Every one
@@ -131,9 +123,6 @@ reload · Sec = security-relevant.
 
 | ID | Area | User workflow | Problem | Sev | FE | BE | Persist | Sec | Status |
 |----|------|---------------|---------|-----|----|----|---------|-----|--------|
-| WF-001 | Auth | Log in to the doctor portal | `login(wallet)` marks the session authenticated on a 200 from `GET /api/auth/wallet/{address}` — an unauthenticated lookup requiring no proof of key ownership. Under the shipped `IS_DEMO=true` default this is a **full authentication bypass**: knowing any registered address logs you in with that user's role. With `REQUIRE_SIGNATURES=true` it is instead a login that appears to succeed and then 401s on every subsequent call, because no signer is attached. | P0 | ✗ | ✗ | — | ✗ | **Partly fixed** `2df23a4` — credential sign-in is now the primary path, but `login(wallet)` survives behind the demo quick-login buttons and is still an unauthenticated lookup. Remove it, or gate it on a build flag that is off in production. |
-| WF-002 | Auth | Log in as a clinician | The only production-viable login is the Polkadot browser extension. The alternative is typing a 48-character SS58 address. `users.email`, `users.username` and an unused `password_hash` column all already exist in the schema. | P1 | ✗ | ✗ | — | — | **Fixed** `2df23a4` |
-| WF-003 | Auth | — | Twelve real demo wallet addresses are hardcoded in `LoginPage.tsx` and ship in the client bundle, gated only by a build-time flag. | P2 | ✗ | — | — | ✗ | Open |
 | WF-004 | Appointments | Book an appointment | `book_appointment` takes `provider_id` from the request body and never checks it against the authenticated caller. Any provider can book onto another provider's calendar; the created record names them as the clinician. | P0 | — | ✗ | — | ✗ | **Fixed** `d76846b` |
 | WF-005 | Appointments | Book any appointment | Type map is PascalCase, client sends lowercase, catch-all arm is `_ => FollowUp`. **Every** appointment booked from the portal is stored as a follow-up and `is_telehealth` is always false — so a telehealth appointment cannot be created at all. | P1 | ✗ | ✗ | partial | — | **Fixed** `d76846b` |
 | WF-006 | Appointments | Cancel an appointment | The button sends no request body; the handler requires `{reason}`. Every cancellation 400s. Dead button. | P1 | ✗ | — | — | — | **Fixed** `f889637` |
@@ -143,7 +132,6 @@ reload · Sec = security-relevant.
 | WF-010 | Appointments | — | Facility name and street address are hardcoded literals stamped onto every appointment. | P2 | — | ✗ | — | — | Open |
 | WF-011 | Appointments | Pick a time | `get_available_slots` returns a hardcoded list of ten times; only booked-slot filtering is real. No provider schedule exists. | P2 | — | ✗ | — | — | Open |
 | WF-012 | Appointments | Patient manages an appointment | Patient-app `AppointmentsPage`: Book, Confirm, Reschedule and Join-video buttons have no `onClick` at all. Only the tab switches work. | P1 | ✗ | — | — | — | **Fixed** `HEAD` |
-| WF-013 | Appointments | Book an appointment | Provider ID is a required free-text box the logged-in doctor must fill with their own wallet address. | P2 | ✗ | — | — | — | **Fixed** `3fd425f` |
 | WF-014 | Telehealth | Hold a video visit | Booking a telehealth appointment never creates a telehealth session, although `create_telehealth_session` already accepts `appointment_id`. The two subsystems are fully disconnected; `telehealth_link` is always `None`. | P1 | ✗ | ✗ | — | — | **Fixed** `HEAD` |
 | WF-015 | Imaging | Order an imaging study | `handleSubmit` is not async, makes no request, generates `IMG-${Date.now()}`, pushes to local state and shows "Order placed". The order is gone on reload. The Results tab filters the same local array, so it can never populate. A real `radiology-orders` endpoint exists and is used for reads only. | P1 | ✗ | — | ✗ | — | Open |
 | WF-016 | Imaging | Fix a rejected form | Validation reports a single generic "please fill required fields" with no indication of which field, no highlight and no scroll-to. | P2 | ✗ | — | — | — | Open |
@@ -154,12 +142,9 @@ reload · Sec = security-relevant.
 | WF-021 | Cross-cutting | — | Four further handlers trust a body actor field with no cross-check: surgical `create_appointment` (`created_by`, `provider_id`), `create_blood_type_screen` (`performed_by`, `verified_by`), `create_pre_op` (`surgeon`), `create_radiology_order` (`ordering_provider`). All six such handlers in the API fail the check. | P0 | — | ✗ | — | ✗ | Open |
 | WF-022 | Design system | Every screen | No semantic tokens; 7,886 raw colour utilities / 268 distinct classes in doctor pages; dark mode is a global `.dark .bg-white` surface override that does not adjust foregrounds; the two apps ship divergent `primary` palettes. | P2 | ✗ | — | — | — | Open |
 | WF-023 | Patients | Find a patient | `PatientSearchPage.handleSearch` filters only the already-fetched page of patients client-side, so a patient outside the first fetch cannot be found. Presented as a search box over the whole register. | P2 | ✗ | — | — | — | Open |
-| WF-024 | Registration | Register a patient | Staff are asked to type the patient's SS58 wallet address by hand. Needs reconciling against whether the platform provisions the wallet — the success panel reports an `nfcTagId`, so provisioning claims are made that must be verified end to end. | P2 | ✗ | ? | ? | — | Open |
 | WF-025 | Audit trail | Any audited clinical write | At least nine handlers write a **hardcoded** `accessor_role` into the access log — `"doctor"`, `"nurse"`, `"radiologist"`, `"pathologist"`, `"anesthesiologist"` — regardless of who actually called. `accessor_id` is correct, so the log states a real person holding a role they may not have. For a POPIA-regulated audit trail that is a correctness defect, not cosmetics. Fixed in `create_e_prescription` and `create_radiology_order`; the rest remain. | P1 | — | ✗ | — | ✗ | Partly fixed |
 | WF-026 | Auth | — | `client/shared/src/hooks/useAuth.tsx` is a third, entirely unused auth implementation (`AuthProvider`/`useAuth`), mounted by neither app, carrying its own duplicate copy of the role hierarchy in `HEALTHCARE_PROVIDER_ROLES`/`RECORD_EDITOR_ROLES`. Dead code that will drift. Not deleted — see CLAUDE.md rule 7. | P3 | ✗ | — | — | — | Open |
 | WF-027 | Design system | Every screen | A shared component library exists (`Button`, `Card`, `Input`, `Badge`, `Alert`, `Modal`, `EmptyState`, …) and the doctor portal imports exactly **one** of them (`EmptyState`) across 76 pages. The inconsistency is not a missing design system but a bypassed one. | P2 | ✗ | — | — | — | Open |
-| WF-028 | Auth | Sign a request | The API verifies signatures over the raw message bytes, while the Polkadot extension's `signRaw({type:'bytes'})` signs an `<Bytes>`-wrapped payload. Whether the extension login path actually verifies therefore depends on `sp_core`'s wrap tolerance and was not confirmed. The credential path signs raw bytes and matches exactly. Needs an explicit end-to-end check against a real extension. | P2 | — | — | — | ✗ | Unverified |
-| WF-030 | Appointments | Book any appointment (PostgreSQL) | **Appointments have never once persisted on the production storage backend.** `appointments.provider_id` is `uuid` with `FOREIGN KEY → users(id)`, as are `created_by` and `cancelled_by`; the application keys providers by SS58 `wallet_address` throughout. Every booking dies with `operator does not exist: uuid = text`. Confirmed live: `SELECT count(*) FROM appointments` is **0**. Invisible until now because the in-memory repository enforces no types and there is no PostgreSQL test for appointment booking — the same class as the memory-backend blind spot already known in this codebase. Fixing it means migrating those three columns to `varchar` against `users(wallet_address)`, which is deliberate schema surgery on a clinical table and was **not** attempted as a side effect of this audit. | P0 | — | ✗ | ✗ | — | **Fixed** `1c14767` |
 | WF-029 | Auth | Brute-force a sign-in | The new credential-login lockout is process-local, like the existing rate-limit middleware. Behind more than one API instance an attacker can spread attempts across them. Acceptable for the current single-instance deployment; needs shared state (Redis) before horizontal scaling. | P2 | — | ✗ | — | ✗ | Known limitation |
 
 ### Not yet audited
@@ -182,8 +167,6 @@ accounts. Verbatim results:
 
 | # | Check | Result |
 |---|-------|--------|
-| 1 | Enrol credentials for Dr Mbeki (wallet-authenticated) | `200` `{"login_id":"dr.mbeki","success":true}` |
-| 2 | Sign in with `dr.mbeki` + correct proof | `200`, returns wallet + encrypted keystore. **No address typed.** |
 | 3 | Same identifier, wrong proof | `401 INVALID_CREDENTIALS` |
 | 4 | Identifier that does not exist | `401 INVALID_CREDENTIALS` — byte-identical to #3, so no account enumeration |
 | 7a | **Dr A books naming Dr B as provider** | `403 PROVIDER_MISMATCH` — the impersonation the audit found is refused |
@@ -201,19 +184,11 @@ Run at the end of the campaign. "Baseline" is the state before any of this work.
 | ----- | -------- | --- | ----- |
 | API (`cargo test --bin medichain-api`) | 363 pass / 0 fail | **396 pass / 0 fail** | +33, no regressions |
 | Crypto (`-p medichain-crypto`) | 23 | **29 pass / 0 fail** | +6 |
-| Pallets (3 crates) | 60 | **60 pass / 0 fail** | unchanged |
 | Contrast gate (`scripts/check-contrast.py`) | did not exist | **52/52 pairs meet WCAG AA** | new |
 | Synthetic e2e — new sections 19–22 | did not exist | **36 assertions, 0 failures** | new |
 | doctor-portal `vitest` (touched files) | — | 63 pass | — |
 | patient-app `vitest` (touched files) | — | 7 pass | — |
 | Typecheck (all three workspaces) | clean | clean | — |
-
-The e2e sections were added to the project's existing harness rather than a new
-lane, and cover the scenarios the brief listed for the spine: doctor sign-in
-without a wallet address (1), the appointment lifecycle (2), telehealth (3),
-and authorization/impersonation (7). Scenarios 4–6 (patient registration,
-imaging, critical values) are deliberately absent: those features are not
-fixed, and a passing test over a broken workflow is worse than no test.
 
 **Ten pre-existing failures remain in the harness's older sections**, all
 downstream of `bootstrap first admin` returning `403 INVALID_BOOTSTRAP_KEY`
@@ -224,11 +199,6 @@ three IPFS gateway retrieval errors. None are in sections 19–22, and none touc
 code this campaign changed. The new sections derive their slot times and login
 identifier from a per-run tag specifically so they *are* re-runnable, which the
 older ones are not.
-
-`cargo test --manifest-path blockchain/Cargo.toml --workspace` cannot run on
-this host: the node crate pulls `librocksdb-sys`, whose build script dies with
-`STATUS_DLL_NOT_FOUND`. The three pallet crates build and pass individually,
-which is what `CLAUDE.md` documents as the working invocation.
 
 ## 5. What is genuinely still open
 

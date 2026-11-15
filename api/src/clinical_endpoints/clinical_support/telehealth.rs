@@ -221,6 +221,9 @@ pub(crate) async fn provision_session(
         provider_joined_at: None,
         recording_enabled,
         recording_consent: false,
+        provider_recording_consent_at: None,
+        patient_recording_consent_at: None,
+        recording_started_at: None,
         chat_enabled: true,
         screen_share_enabled: true,
         quality_metrics: None,
@@ -243,6 +246,16 @@ pub(crate) async fn provision_session(
         .await
         .map_err(|e| e.to_string())?;
 
+    // The consultation's clinician may open the patient's chart (WP9).
+    crate::care_access::record_encounter(
+        data,
+        &session.patient_id,
+        &session.provider_id,
+        &session.session_id,
+        scheduled_at,
+    )
+    .await;
+
     Ok(ProvisionedSession { session, platform })
 }
 
@@ -254,7 +267,7 @@ pub async fn create_telehealth_session(
     req: web::Json<CreateTelehealthSessionRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -297,6 +310,19 @@ pub async fn create_telehealth_session(
         });
     }
 
+    // Recording starts in the call, once both the clinician and the patient
+    // have consented (WP7.6). A session that is "recording" from the moment it
+    // is booked would have neither consent, so the request is refused rather
+    // than quietly ignored.
+    if req.recording_enabled == Some(true) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error:
+                "Recording can only start during the call, after both you and the patient consent."
+                    .to_string(),
+            code: "RECORDING_NEEDS_CONSENT".to_string(),
+        });
+    }
+
     // Same provisioning path the appointment booking uses, so a session
     // created here and one created by booking a telehealth appointment are the
     // same object with the same guarantees.
@@ -308,7 +334,7 @@ pub async fn create_telehealth_session(
             appointment_id: req.appointment_id.clone(),
             scheduled_start: req.scheduled_start,
             session_type,
-            recording_enabled: req.recording_enabled.unwrap_or(false),
+            recording_enabled: false,
             duration_minutes,
         },
     )
@@ -352,7 +378,7 @@ pub async fn get_telehealth_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -377,7 +403,7 @@ pub async fn get_telehealth_session(
     // Only patient or provider can view session.
     //
     // `session.patient_id` is a `PAT-…` record id and `current_user_id` is an
-    // SS58 wallet: comparing them directly is never true for a real patient
+    // user id: comparing them directly is never true for a real patient
     // account, so the data subject was denied their own session.
     // `caller_owns_patient_record` bridges the two namespaces.
     let caller_is_patient =
@@ -405,7 +431,7 @@ pub async fn join_telehealth_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -428,7 +454,7 @@ pub async fn join_telehealth_session(
     };
 
     let now = chrono::Utc::now().timestamp();
-    // Same namespace bridge as the view handler above: a wallet address is
+    // Same namespace bridge as the view handler above: a user id is
     // never equal to a `PAT-…` record id, so this used to tell the patient
     // "You are not part of this session" about their own consultation —
     // i.e. a patient could never join their own video call.
@@ -529,9 +555,10 @@ pub async fn join_telehealth_session(
             is_emergency_access: false,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: joined_at,
             facility_id: None,
+            authority_type: None,
+            authority_id: None,
         };
         if let Err(response) = crate::support::require_durable_audit(&data, log).await {
             return response;
@@ -707,7 +734,7 @@ pub async fn telehealth_event(
 ) -> impl Responder {
     let session_id = path.into_inner();
     let actor = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     // Validate before broadcasting: an event that cannot be audited must not be
@@ -724,12 +751,55 @@ pub async fn telehealth_event(
         });
     }
 
+    // Only the consultation's own clinician and patient may report on it, and
+    // only they are told: this went to every connected account, and accepted
+    // events for any session id from anyone signed in.
+    let session: crate::clinical::TelehealthSession = match data
+        .repositories
+        .telehealth_session_records
+        .get_by_id(&session_id)
+        .await
+    {
+        Ok(Some(record)) => match serde_json::from_value(record.data) {
+            Ok(session) => session,
+            Err(error) => {
+                log::error!("telehealth session {session_id} does not decode: {error}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Telehealth is temporarily unavailable".to_string(),
+                    code: "TELEHEALTH_UNAVAILABLE".to_string(),
+                });
+            }
+        },
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                error: "Session not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+        Err(error) => {
+            log::error!("telehealth session {session_id} load failed: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Telehealth is temporarily unavailable".to_string(),
+                code: "TELEHEALTH_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let is_party = actor == session.provider_id
+        || crate::support::caller_owns_patient_record(&data, &actor, &session.patient_id);
+    if !is_party {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            error: "Only the consultation's clinician and patient can report its events"
+                .to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
     let now = chrono::Utc::now();
 
-    // Broadcast to connected SSE clients.
+    // Tell the other participant's screen.
     data.ws_manager.push_event(crate::websocket::PushEvent {
         event_type: "telehealth".to_string(),
-        patient_id: None,
+        patient_id: Some(session.patient_id.clone()),
         payload: serde_json::json!({
             "session_id": session_id,
             "event": body.event_type,
@@ -737,6 +807,7 @@ pub async fn telehealth_event(
             "detail": body.detail,
         }),
         timestamp: now.timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![session.provider_id.clone()]),
     });
 
     // Audit trail (HIPAA): persist the event via the access-log repository.
@@ -752,9 +823,10 @@ pub async fn telehealth_event(
         is_emergency_access: false,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     if let Err(response) = crate::support::require_durable_audit(&data, log).await {
         return response;
@@ -783,6 +855,31 @@ fn is_assigned_recording_provider(actor: &str, provider_id: &str) -> bool {
     actor == provider_id
 }
 
+/// Whether recording may start (WP7.6): the clinic has a recorder, and the
+/// clinician and the patient have each consented for themselves. Otherwise a
+/// 409 the screens turn into plain words. A clinician ticking "the patient
+/// agreed" is not the patient's consent, so it no longer counts on its own.
+fn recording_may_start(
+    data: &crate::AppState,
+    session: &crate::clinical::TelehealthSession,
+) -> Result<(), HttpResponse> {
+    if !super::telehealth_recordings::recording_configured(data) {
+        return Err(HttpResponse::Conflict().json(ErrorResponse {
+            error: "Recording is not set up for this clinic.".to_string(),
+            code: "RECORDING_NOT_CONFIGURED".to_string(),
+        }));
+    }
+    if !super::telehealth_recordings::both_consented(session) {
+        return Err(HttpResponse::Conflict().json(ErrorResponse {
+            error:
+                "Recording starts only after both you and the patient have consented in the app."
+                    .to_string(),
+            code: "CONSENT_REQUIRED".to_string(),
+        }));
+    }
+    Ok(())
+}
+
 /// Start/stop recording for a session (Phase 6). Moderator-only; starting
 /// requires explicit consent. Updates the session, audits, and broadcasts.
 #[post("/api/telehealth/sessions/{session_id}/recording")]
@@ -794,7 +891,7 @@ pub async fn telehealth_recording(
 ) -> impl Responder {
     let session_id = path.into_inner();
     let actor = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -862,12 +959,20 @@ pub async fn telehealth_recording(
             code: "CONSENT_REQUIRED".to_string(),
         });
     }
+    if starting {
+        if let Err(response) = recording_may_start(&data, &session) {
+            return response;
+        }
+    }
+    let now = chrono::Utc::now();
     session.recording_enabled = starting;
     if starting {
+        // Both consents are on the session (checked above); the start time is
+        // what the stored recording's consents must precede.
         session.recording_consent = true;
+        session.recording_started_at = Some(now.timestamp());
     }
 
-    let now = chrono::Utc::now();
     if let Err(response) = persist_session(&data, &session).await {
         return response;
     }
@@ -895,9 +1000,10 @@ pub async fn telehealth_recording(
         is_emergency_access: false,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     if let Err(response) = crate::support::require_durable_audit(&data, log).await {
         return response;
@@ -907,6 +1013,7 @@ pub async fn telehealth_recording(
         patient_id: Some(session.patient_id.clone()),
         payload: serde_json::json!({ "session_id": session_id, "event": action }),
         timestamp: now.timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![session.provider_id.clone()]),
     });
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -926,7 +1033,7 @@ pub async fn end_telehealth_session(
     let session_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1028,33 +1135,56 @@ pub async fn list_my_telehealth_sessions(
     };
 
     // A patient's sessions are stored against their patient id; a provider's
-    // against their wallet. The owner key differs by who is asking, which is
+    // against their user id. The owner key differs by who is asking, which is
     // why this is one endpoint and not two.
     let owner = caller
         .linked_patient_id
         .clone()
-        .unwrap_or_else(|| caller.wallet_address.clone());
+        .unwrap_or_else(|| caller.id.clone());
 
-    let mut records = data
+    // A read that fails says so. `unwrap_or_default()` here turned a database
+    // outage into "no sessions", which a clinician would take as a free day.
+    let unavailable = |e: crate::repositories::traits::RepositoryError| {
+        log::error!("telehealth sessions could not be read: {e}");
+        HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Telehealth sessions could not be read".to_string(),
+            code: "DATABASE_ERROR".to_string(),
+        })
+    };
+    let mut records = match data
         .repositories
         .telehealth_session_records
         .get_by_owner(&owner)
         .await
-        .unwrap_or_default();
+    {
+        Ok(records) => records,
+        Err(e) => return unavailable(e),
+    };
 
-    // A clinician is rarely the owner of the record — the patient is — so also
-    // take the sessions naming them as the provider. Deduplicated by id: a
-    // clinician who is also the owner must not see the session twice.
+    // A session is owned by the patient and names its clinician in
+    // `provider_id`. This used to look the clinician's user id up as an OWNER a
+    // second time, which can never match, so a doctor's list never showed a
+    // session they had booked. Deduplicated by id: a clinician who is also the
+    // owner must not see the session twice.
     if caller.role.is_healthcare_provider() {
-        let as_provider = data
+        let as_provider = match data
             .repositories
             .telehealth_session_records
-            .get_by_owner(&caller.wallet_address)
+            .get_by_data_field("provider_id", &caller.id)
             .await
-            .unwrap_or_default();
+        {
+            Ok(records) => records,
+            Err(e) => return unavailable(e),
+        };
         let known: std::collections::HashSet<String> =
             records.iter().map(|r| r.id.clone()).collect();
         records.extend(as_provider.into_iter().filter(|r| !known.contains(&r.id)));
+        // Merged from two newest-first lists; the cursor needs one order.
+        records.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        });
     }
 
     let (page, next_cursor) =
@@ -1082,7 +1212,7 @@ pub async fn get_patient_telehealth_sessions(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1328,5 +1458,67 @@ mod recording_authority_tests {
     fn a_moderator_cannot_control_another_providers_session() {
         assert!(is_assigned_recording_provider("doctor-a", "doctor-a"));
         assert!(!is_assigned_recording_provider("doctor-b", "doctor-a"));
+    }
+}
+
+/// The clinician who books a session sees it in their own list. It is stored
+/// against the patient and names the clinician only as `provider_id`.
+#[cfg(test)]
+mod provider_session_list_tests {
+    use crate::test_fixtures::{register, seed_patient};
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    #[actix_rt::test]
+    async fn the_booking_clinician_sees_the_session_without_searching_for_the_patient() {
+        let state = AppState::new();
+        register(&state, "5DocTele", Role::Doctor);
+        register(&state, "5OtherDoc", Role::Doctor);
+        seed_patient(&state, "PAT-TELE-1").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_telehealth_session)
+                .service(super::list_my_telehealth_sessions),
+        )
+        .await;
+
+        let created: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            test::TestRequest::post()
+                .uri("/api/telehealth/sessions")
+                .insert_header(crate::test_fixtures::as_user("5DocTele"))
+                .set_json(serde_json::json!({
+                    "patient_id": "PAT-TELE-1",
+                    "session_type": "VideoVisit",
+                    "scheduled_start": chrono::Utc::now().timestamp() + 86_400,
+                }))
+                .to_request(),
+        )
+        .await;
+        let session_id = created["session"]["session_id"]
+            .as_str()
+            .or_else(|| created["session_id"].as_str())
+            .unwrap_or_else(|| panic!("no session id in {created}"))
+            .to_string();
+
+        let list = |who: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/telehealth/sessions")
+                .insert_header(crate::test_fixtures::as_user(who))
+                .to_request()
+        };
+        let mine: serde_json::Value = test::call_and_read_body_json(&app, list("5DocTele")).await;
+        let ids: Vec<&str> = mine["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .filter_map(|s| s["session_id"].as_str())
+            .collect();
+        assert_eq!(ids, vec![session_id.as_str()], "{mine}");
+
+        let theirs: serde_json::Value =
+            test::call_and_read_body_json(&app, list("5OtherDoc")).await;
+        assert_eq!(theirs["count"], 0, "another clinician's list: {theirs}");
     }
 }

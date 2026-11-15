@@ -1,9 +1,10 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import AppointmentSchedulerPage from './AppointmentSchedulerPage';
 import { useAuthStore } from '../store/authStore';
 import * as endpoints from '../../../shared/src/api/endpoints';
+import { answerConfirm } from '../../../shared/src/testing/dialogs';
 
 // Spread the real module: it also exports `isHealthcareProvider`,
 // `canEditMedicalRecords` and `isAdmin`, and replacing the whole module leaves
@@ -40,7 +41,6 @@ describe('AppointmentSchedulerPage', () => {
     // fixed object.
     const state = {
       user: {
-        walletAddress: '5GrwvaEF...mock',
         userId: '5GrwvaEF...mock',
         username: 'Dr. Thabo Mbeki',
         role: 'Doctor',
@@ -105,7 +105,7 @@ describe('AppointmentSchedulerPage', () => {
 
   /**
    * The defect this page was rebuilt for: a signed-in doctor was asked to type
-   * their own 48-character SS58 address into a required "Provider ID" box. The
+   * their own account id into a required "Provider ID" box. The
    * server now derives the provider from the session, so the field must not
    * come back.
    */
@@ -114,7 +114,7 @@ describe('AppointmentSchedulerPage', () => {
     await openForm();
 
     expect(screen.queryByLabelText(/provider id/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/wallet/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/provider id|account id/i)).not.toBeInTheDocument();
   });
 
   it('says whose schedule this is instead of asking', async () => {
@@ -138,7 +138,7 @@ describe('AppointmentSchedulerPage', () => {
     fireEvent.submit(screen.getByRole('button', { name: /^Book/i }).closest('form')!);
 
     await waitFor(() => expect(endpoints.createAppointment).toHaveBeenCalled());
-    const sent = vi.mocked(endpoints.createAppointment).mock.calls[0][0] as Record<string, unknown>;
+    const sent = vi.mocked(endpoints.createAppointment).mock.calls[0][0];
     expect(sent).not.toHaveProperty('provider_id');
     expect(sent.appointment_type).toBe('telehealth');
   });
@@ -193,6 +193,38 @@ describe('AppointmentSchedulerPage', () => {
     expect(screen.queryByRole('button', { name: /^Confirm$/i })).not.toBeInTheDocument();
   });
 
+  it('asks before recording a no-show, and records nothing when the clinician cancels', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () =>
+        Promise.resolve({
+          appointments: [
+            {
+              appointment_id: 'APT-2', patient_id: 'PAT-001-DEMO', patient_name: 'Thabo Mokoena',
+              provider_id: '5GrwvaEF...mock', appointment_type: 'Consultation',
+              scheduled_date: '2099-01-01', start_time: '09:00', status: 'confirmed',
+            },
+          ],
+        }),
+    });
+    vi.mocked(endpoints.setAppointmentStatus).mockResolvedValue(undefined as never);
+    render(<AppointmentSchedulerPage />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Upcoming/i }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /^No show$/i }));
+    // The confirmation mounts its own host on first use; wait for it.
+    await screen.findByRole('alertdialog', {}, { timeout: 5000 });
+    await answerConfirm(false);
+    expect(endpoints.setAppointmentStatus).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
+    fireEvent.click(await screen.findByRole('button', { name: /^No show$/i }));
+    await screen.findByRole('alertdialog', {}, { timeout: 5000 });
+    await answerConfirm(true);
+    await waitFor(() => expect(endpoints.setAppointmentStatus).toHaveBeenCalledWith('APT-2', 'no_show', undefined));
+  });
+
   it('marks a telehealth appointment as virtual', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -220,6 +252,16 @@ describe('AppointmentSchedulerPage', () => {
   });
 
   describe('telehealth', () => {
+    beforeEach(() => {
+      // Freeze only Date: async rendering keeps real timers, and fixtures stay on Today.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 9, 12, 12, 0));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
     const telehealthAppt = (over: Record<string, unknown>) => ({
       appointment_id: 'APT-TH',
       patient_id: 'PAT-001-DEMO',

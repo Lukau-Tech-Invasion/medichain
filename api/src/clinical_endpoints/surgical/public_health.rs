@@ -1,3 +1,4 @@
+use super::certificate_form::{valid_sections, CertificateFormSections};
 use super::*;
 
 // ============================================================================
@@ -9,33 +10,25 @@ use super::*;
 pub async fn create_immunization(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<ImmunizationRecord>,
+    req: web::Json<super::immunization_form::CreateImmunizationRequest>,
 ) -> impl Responder {
     let caller = match crate::support::require_clinical_staff(&data, &http_req) {
         Ok(user) => user,
         Err(resp) => return resp,
     };
 
-    let mut record = req.into_inner();
-    // Who gave the dose is the authenticated caller, not a field the caller
-    // fills in. It was stored as sent, so any clinician could attribute a
-    // vaccination to a colleague -- and the page's own fallback, when it had
-    // no user, was the invented `USER-001`.
-    record.administered_by = caller.wallet_address.clone();
-    // The id is the primary key, so it is the server's to assign. A blank or
-    // absent one used to be stored verbatim, so the second such record
-    // collided and failed with an opaque 500.
-    if record.record_id.trim().is_empty() {
-        record.record_id = crate::middleware::error_handling::secure_tokens::generate_access_id()
-            .replacen("ACC-", "IMM-", 1);
-    }
-    // Persisted through the typed repository, so it survives a restart.
-    match data
-        .repositories
-        .immunization_records
-        .create(record.into())
-        .await
-    {
+    let record = match req.into_inner().into_entity(&caller.id) {
+        Ok(record) => record,
+        Err(message) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: message.to_owned(),
+                code: "VALIDATION_ERROR".to_owned(),
+            })
+        }
+    };
+    // The request assembler binds the author and assigns the identifier;
+    // the typed repository retains submitted observations across restarts.
+    match data.repositories.immunization_records.create(record).await {
         Ok(stored) => {
             HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
@@ -90,15 +83,26 @@ pub async fn create_family_history(
 
     let mut history = req.into_inner();
     let id = history.patient_id.clone();
-    // Persisted through the repository, so it survives a restart. Keyed by
-    // patient: a family history is one evolving record per patient rather than
-    // a series, so a re-post replaces it.
+    // Legacy whole-history submissions may initialize a missing history.
+    // Existing histories use the guarded relative append route; an unversioned
+    // repost must never silently discard previously recorded relatives.
     let now = chrono::Utc::now();
     // Who changed it, and when, are the server's to state. Both were stored as
     // the page sent them -- the author falling back to the invented `USER-001`
     // -- so the history could name anybody as having recorded it.
-    history.updated_by = caller.wallet_address.clone();
+    history.updated_by = caller.id.clone();
     history.last_updated = now.timestamp_millis();
+    if history.family_members.len() > 200 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Family history member limit exceeded".into(),
+            code: "INVALID_FAMILY_HISTORY".into(),
+        });
+    }
+    for member in &mut history.family_members {
+        member.member_id = Some(uuid::Uuid::new_v4().to_string());
+        member.recorded_by = Some(caller.id.clone());
+        member.recorded_at = Some(now.timestamp_millis());
+    }
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
         owner_id: id.clone(),
@@ -109,10 +113,16 @@ pub async fn create_family_history(
     match data
         .repositories
         .family_history_records
-        .create(entity)
+        .create_if_absent(entity)
         .await
     {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Ok(Some(_)) => {
+            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+        }
+        Ok(None) => HttpResponse::Conflict().json(ErrorResponse {
+            error: "Family history already exists. Add a relative instead of replacing it.".into(),
+            code: "FAMILY_HISTORY_CONFLICT".into(),
+        }),
         Err(e) => {
             log::error!("family-history record could not be stored: {e}");
             HttpResponse::InternalServerError().json(ErrorResponse {
@@ -152,7 +162,7 @@ pub async fn get_family_history(
     .await;
     let provider_grant = if caller.role.can_view_medical_records() {
         data.patient_access
-            .provider_has_active_grant(&id, &caller.wallet_address, Utc::now())
+            .provider_has_active_grant(&id, &caller.id, Utc::now())
             .await
             .unwrap_or(false)
     } else {
@@ -210,10 +220,7 @@ pub async fn get_my_family_history(
         Ok(caller) => caller,
         Err(response) => return response,
     };
-    let patient_id = caller
-        .linked_patient_id
-        .clone()
-        .unwrap_or(caller.wallet_address);
+    let patient_id = caller.linked_patient_id.clone().unwrap_or(caller.id);
 
     match data
         .repositories
@@ -429,7 +436,7 @@ pub async fn create_blood_type_screen(
             "order_time": screen.order_time,
             // The orderer is the authenticated caller. A blood product order is
             // signed work, and a client-asserted name is not a signature.
-            "ordered_by": caller.wallet_address,
+            "ordered_by": caller.id,
             "created_at": now.to_rfc3339(),
         }),
         created_at: now,
@@ -569,7 +576,7 @@ pub async fn create_transfusion(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let record = req.into_inner();
     if record.patient_id.trim().is_empty() {
@@ -706,6 +713,8 @@ pub async fn get_transfusion(
 /// worse than refusing it.
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateDeathCertificateRequest {
+    #[serde(default)]
+    pub form_sections: Option<CertificateFormSections>,
     // No `id` and no `status`: the server mints the one and this route only
     // ever produces a filed certificate. Both used to be accepted and copied
     // into the stored record, so the register carried a client-chosen `id`
@@ -746,9 +755,20 @@ pub async fn create_death_certificate(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let certificate = req.into_inner();
+    if certificate
+        .form_sections
+        .as_ref()
+        .is_some_and(|sections| !valid_sections(sections))
+    {
+        return dc_error(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Invalid certificate form details",
+            "VALIDATION_ERROR",
+        );
+    }
 
     // The certificate has to name a real person. The page used to post the
     // literal string "DEMO_PATIENT" here, which is exactly the mistake this
@@ -862,6 +882,8 @@ pub async fn create_death_certificate(
 /// by accident from the filing path.
 #[derive(Debug, serde::Deserialize, serde::Serialize, Default)]
 pub struct DraftDeathCertificateRequest {
+    #[serde(default)]
+    pub form_sections: Option<CertificateFormSections>,
     pub patient_id: String,
     #[serde(default)]
     pub deceased_name: Option<String>,
@@ -925,10 +947,21 @@ pub async fn draft_death_certificate(
     req: web::Json<DraftDeathCertificateRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let draft = req.into_inner();
+    if draft
+        .form_sections
+        .as_ref()
+        .is_some_and(|sections| !valid_sections(sections))
+    {
+        return dc_error(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Invalid certificate form details",
+            "VALIDATION_ERROR",
+        );
+    }
 
     // Even a draft names the person it concerns. Without this a draft is a
     // note about nobody, and it cannot later be filed.
@@ -988,11 +1021,22 @@ pub async fn update_death_certificate_draft(
     req: web::Json<DraftDeathCertificateRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let id = path.into_inner();
-    let draft = req.into_inner();
+    let mut draft = req.into_inner();
+    if draft
+        .form_sections
+        .as_ref()
+        .is_some_and(|sections| !valid_sections(sections))
+    {
+        return dc_error(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "Invalid certificate form details",
+            "VALIDATION_ERROR",
+        );
+    }
 
     let existing = match data
         .repositories
@@ -1029,6 +1073,25 @@ pub async fn update_death_certificate_draft(
         );
     }
 
+    // Older clients do not know supplemental sections; retain those fields on update.
+    if draft.form_sections.is_none() {
+        if let Some(sections) = existing
+            .data
+            .get("form_sections")
+            .filter(|value| !value.is_null())
+        {
+            draft.form_sections = match serde_json::from_value(sections.clone()) {
+                Ok(sections) => Some(sections),
+                Err(_) => {
+                    return dc_error(
+                        actix_web::http::StatusCode::CONFLICT,
+                        "Stored draft details could not be restored",
+                        "INVALID_DRAFT_DETAILS",
+                    )
+                }
+            };
+        }
+    }
     let now = chrono::Utc::now();
     let updated = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),
@@ -1079,7 +1142,7 @@ pub async fn file_death_certificate(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
     let id = path.into_inner();
 
     let existing = match data
@@ -1259,7 +1322,7 @@ pub async fn create_autopsy_report(
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = caller.wallet_address.clone();
+    let current_user_id = caller.id.clone();
 
     let mut report = req.into_inner();
     // Server-generated. The page numbered reports from the length of its own
@@ -1492,6 +1555,12 @@ mod death_certificate_lifecycle_tests {
             "manner_of_death": "natural",
             "cause_of_death": "Myocardial infarction",
             "certifier_name": "Dr Naidoo"
+            ,"form_sections": {
+                "decedent": { "middleName": "QA middle", "occupation": "QA educator" },
+                "death": { "facilityName": "QA facility" },
+                "cause": { "underlyingCauses": [{"cause":"QA underlying cause","duration":"QA interval"}] },
+                "certifier": { "certifierAddress": "QA office" }
+            }
         })
     }
 
@@ -1513,7 +1582,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/surgical/death-certificate/draft")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(complete())
                 .to_request(),
         )
@@ -1523,7 +1592,7 @@ mod death_certificate_lifecycle_tests {
         let file = |id: String| {
             test::TestRequest::post()
                 .uri(&format!("/api/surgical/death-certificate/{id}/file"))
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .to_request()
         };
         assert_eq!(
@@ -1544,6 +1613,14 @@ mod death_certificate_lifecycle_tests {
             .expect("stored");
         assert_eq!(stored.data["status"], "filed");
         assert_eq!(stored.data["filed_by"], "5Doctor");
+        assert_eq!(
+            stored.data["form_sections"]["decedent"]["middleName"],
+            "QA middle"
+        );
+        assert_eq!(
+            stored.data["form_sections"]["cause"]["underlyingCauses"][0]["duration"],
+            "QA interval"
+        );
     }
 
     #[actix_rt::test]
@@ -1562,7 +1639,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/surgical/death-certificate/draft")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(serde_json::json!({ "patient_id": "PAT-DC-1" }))
                 .to_request(),
         )
@@ -1572,7 +1649,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/surgical/death-certificate/{id}/file"))
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .to_request(),
         )
         .await;
@@ -1598,7 +1675,7 @@ mod death_certificate_lifecycle_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/surgical/death-certificate")
-                .insert_header(("X-User-Id", "5Doctor"))
+                .insert_header(crate::test_fixtures::as_user("5Doctor"))
                 .set_json(body)
                 .to_request(),
         )

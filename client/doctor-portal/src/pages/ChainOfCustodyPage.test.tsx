@@ -2,6 +2,12 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ChainOfCustodyPage from './ChainOfCustodyPage';
 import { useAuthStore } from '../store/authStore';
+import { listChainOfCustody } from '@medichain/shared';
+
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  listChainOfCustody: vi.fn(),
+}));
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -15,12 +21,13 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 
 describe('ChainOfCustodyPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     username: 'Dr. Forensic',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(listChainOfCustody).mockResolvedValue({ items: [] } as never);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
@@ -31,6 +38,15 @@ describe('ChainOfCustodyPage', () => {
 
     expect(screen.getByText(/Chain of Custody/i)).toBeInTheDocument();
     expect(screen.getByText(/Forensic specimen tracking and custody documentation/i)).toBeInTheDocument();
+  });
+
+  it('retains quantity units when the stored numeric count is also present', async () => {
+    vi.mocked(listChainOfCustody).mockResolvedValue({ items: [{
+      id: 'COC-QA-UNITS', specimen_description: 'Synthetic blood sample',
+      quantity: 5, unit_of_measure: '5 mL', specimen_status: 'collected',
+    }] } as never);
+    render(<ChainOfCustodyPage />);
+    expect(await screen.findByText(/5 mL/)).toBeInTheDocument();
   });
 
   it('allows entering item description', () => {

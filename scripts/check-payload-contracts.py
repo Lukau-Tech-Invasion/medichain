@@ -44,7 +44,18 @@ PAGES = [
     os.path.join(ROOT, 'client', 'doctor-portal', 'src', 'pages'),
     os.path.join(ROOT, 'client', 'patient-app', 'src', 'pages'),
 ]
-ENDPOINTS = os.path.join(ROOT, 'client', 'shared', 'src', 'api', 'endpoints.ts')
+ENDPOINTS = os.path.join(ROOT, 'client', 'shared', 'src', 'api', 'endpoints')
+
+
+def endpoint_sources() -> dict[str, str]:
+    """Every endpoint module, path -> text. One module per domain."""
+    out: dict[str, str] = {}
+    for name in sorted(os.listdir(ENDPOINTS)):
+        if name.endswith('.ts') and '.test.' not in name:
+            path = os.path.join(ENDPOINTS, name)
+            with open(path, encoding='utf-8', errors='replace', newline='') as fh:
+                out[path] = fh.read()
+    return out
 
 # Pages whose payload the gate cannot resolve statically (a spread, a builder
 # function, a variable assembled across branches). Each is probed by hand
@@ -146,7 +157,7 @@ def parse_routes(sources: dict[str, str]) -> dict[str, str]:
 
 
 def parse_wrappers(text: str) -> tuple[dict[str, str], set[str]]:
-    """endpoints.ts function name -> route template, plus the untyped subset.
+    """Endpoint function name -> route template, plus the untyped subset.
 
     The second half is what makes an unreadable payload worth chasing. A
     wrapper declared `createAppointment(data: CreateAppointmentInput)` is
@@ -417,8 +428,7 @@ def main() -> int:
     blob = '\n'.join(sources.values())
     structs = parse_structs(blob)
     routes = parse_routes(sources)
-    with open(ENDPOINTS, encoding='utf-8', errors='replace') as fh:
-        wrappers, untyped_wrappers = parse_wrappers(fh.read())
+    wrappers, untyped_wrappers = parse_wrappers('\n'.join(endpoint_sources().values()))
 
     failures: list[str] = []
     advisory: list[str] = []

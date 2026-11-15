@@ -28,11 +28,16 @@ function renderPage() {
 }
 
 describe('MedicalIdPage (Patient)', () => {
+  it('offers no second code: the one code is on the emergency card', async () => {
+    renderPage();
+    await screen.findAllByText(/Test Patient/i);
+    expect(screen.queryByRole('button', { name: /Download QR Code/i })).not.toBeInTheDocument();
+  });
   const mockPatient = {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -80,6 +85,18 @@ describe('MedicalIdPage (Patient)', () => {
       expect(screen.getByText(/O\+/i)).toBeInTheDocument();
       expect(screen.getByText(/Asthma/i)).toBeInTheDocument();
     });
+  });
+
+  it('warns that an unknown blood type must be cross-matched', async () => {
+    const response = await mockFetch();
+    const medicalId = await response.json();
+    mockFetch.mockResolvedValue({
+      ...response,
+      json: async () => ({ ...medicalId, blood_type: 'Unknown' }),
+    });
+    renderPage();
+    expect(await screen.findByText('Unknown — type and cross-match before transfusion'))
+      .toBeInTheDocument();
   });
 
   it('displays emergency contacts with decision authority', async () => {

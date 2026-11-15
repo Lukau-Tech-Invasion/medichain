@@ -30,7 +30,7 @@ describe('HealthIdCardsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: '5GrwvaEF...mock', role: 'Doctor' },
+      user: { userId: '5GrwvaEF...mock', role: 'Doctor' },
     });
     vi.mocked(shared.listNFCCards).mockResolvedValue({ cards: [], total: 0 });
   });
@@ -53,7 +53,7 @@ describe('HealthIdCardsPage', () => {
 
   it('shows the registry tab to an administrator', () => {
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: '5Admin...mock', role: 'Admin' },
+      user: { userId: '5Admin...mock', role: 'Admin' },
     });
     render(<HealthIdCardsPage />);
     expect(screen.getByRole('button', { name: /^Registry$/i })).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe('HealthIdCardsPage', () => {
 
   it('says the registry could not be read rather than showing it as empty', async () => {
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: '5Admin...mock', role: 'Admin' },
+      user: { userId: '5Admin...mock', role: 'Admin' },
     });
     vi.mocked(shared.listNFCCards).mockRejectedValue(new Error('nope'));
     render(<HealthIdCardsPage />);

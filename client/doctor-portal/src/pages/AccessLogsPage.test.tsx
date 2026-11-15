@@ -25,7 +25,7 @@ global.fetch = mockFetch;
 
 describe('AccessLogsPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -103,5 +103,38 @@ describe('AccessLogsPage', () => {
       expect(screen.getByText(/DOC-001/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Doctor/i).length).toBeGreaterThan(0);
     });
+  });
+
+  it('shows the seal state of each row when the server reports one, and nothing when it does not', async () => {
+    const entry = (id: string, seal?: string) => ({
+      access_id: id,
+      patient_id: `PAT-${id}`,
+      accessor_id: 'DOC-001',
+      accessor_role: 'Doctor',
+      access_type: 'View Record',
+      location: 'Ward A',
+      timestamp: new Date().toISOString(),
+      emergency: false,
+      ...(seal ? { seal_status: seal } : {}),
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({
+          access_logs: [entry('A', 'pending'), entry('B', 'sealed'), entry('C', 'exported'), entry('D')],
+        }),
+      }),
+    );
+    render(
+      <MemoryRouter>
+        <AccessLogsPage />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => expect(screen.getByText(/PAT-A/)).toBeInTheDocument());
+    const badges = screen.getAllByTestId('seal-badge').map((badge) => badge.textContent);
+    expect(badges).toEqual(['Sealing pending', 'Sealed', 'Sealed and exported']);
+    expect(screen.getByText('Access accountability')).toBeInTheDocument();
   });
 });

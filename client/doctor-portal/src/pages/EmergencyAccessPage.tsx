@@ -1,20 +1,32 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@medichain/shared';
 import { NFCTapSimulator, EmergencyPatientCard } from '../components';
-import { usePatientStore } from '../store';
+import { useAuthStore, usePatientStore } from '../store';
 import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
 
 /**
- * EmergencyAccessPage - Core feature for hackathon demo
+ * EmergencyAccessPage - Core emergency-access workflow
  * 
  * Allows healthcare providers to quickly access patient emergency info
  * via NFC tap, QR code scan, or manual ID entry.
  */
+/**
+ * Where to go back to after a card read, from navigation state. Only an
+ * ambulance run of this app: anything else is ignored, so the state cannot be
+ * used to send someone elsewhere.
+ */
+export function runReturnPath(state: unknown): string | null {
+  const to = (state as { returnTo?: unknown } | null)?.returnTo;
+  return typeof to === 'string' && /^\/ems-run(\/(?!\.+$)[A-Za-z0-9._~%-]+)?$/.test(to) ? to : null;
+}
+
 function EmergencyAccessPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const backToRun = runReturnPath(useLocation().state);
   const { currentEmergency, emergencyExpiresAt, clearEmergencyAccess } = usePatientStore();
+  const isParamedic = useAuthStore((state) => state.user?.role === 'Paramedic');
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -76,6 +88,12 @@ function EmergencyAccessPage() {
         <div>
           {currentEmergency ? (
             <div className="space-y-4">
+              {backToRun && (
+                <button type="button" onClick={() => navigate(backToRun)}
+                  className="w-full min-h-[48px] rounded-xl bg-brand px-4 font-semibold text-brand-fg hover:bg-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  {t('ems.backToRun')}
+                </button>
+              )}
               {/* Access Timer */}
               <div className="bg-surface rounded-xl shadow p-4">
                 <div className="flex items-center justify-between">
@@ -103,14 +121,18 @@ function EmergencyAccessPage() {
                 >
                   {t('docEmergencyAccess.endAccess')}
                 </button>
-                <button
+                {isParamedic && <button type="button" onClick={() => navigate('/ems-handoff')}
+                  className="flex-1 py-3 px-4 bg-brand text-brand-fg rounded-lg font-medium">
+                  Start ambulance handover
+                </button>}
+                {!isParamedic && <button
                   type="button"
                   onClick={() => navigate(`/patients/${currentEmergency.patientId}`)}
                   className="flex-1 py-3 px-4 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors font-medium flex items-center justify-center gap-2"
                 >
                   <FileText size={18} />
                   {t('docEmergencyAccess.viewRecords')}
-                </button>
+                </button>}
               </div>
             </div>
           ) : (
@@ -152,7 +174,7 @@ function EmergencyAccessPage() {
                   <div>
                     <p className="font-medium text-content">{t('docEmergencyAccess.step3Title')}</p>
                     <p className="text-sm text-content-muted">
-                      {t('docEmergencyAccess.step3Body')}
+                      {isParamedic ? 'Manual patient search is unavailable to paramedics. Use NFC or QR with an approved hospital device.' : t('docEmergencyAccess.step3Body')}
                     </p>
                   </div>
                 </div>

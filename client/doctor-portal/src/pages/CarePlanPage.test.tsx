@@ -26,7 +26,7 @@ global.fetch = mockFetch;
  */
 describe('CarePlanPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -78,7 +78,8 @@ describe('CarePlanPage', () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText(/Recent Care Plans/i)).toBeInTheDocument());
-    expect(screen.getAllByText(/Patient ID/i).length).toBeGreaterThan(0);
+    // The column names the patient, not a record id.
+    expect(screen.getAllByText(/^Patient$/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Status/i).length).toBeGreaterThan(0);
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('/api/emergency/care-plan/list'),

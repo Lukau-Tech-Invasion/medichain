@@ -27,6 +27,7 @@
  */
 
 import { getApiClient } from '../api/client';
+import type { QsofaResult } from '../types/clinicalScoring';
 
 /*
  * Every accessor below treats a missing *section* the same way it treats a
@@ -97,6 +98,10 @@ export interface ScoringCatalog {
   vital_signs?: VitalBand[];
   /** Absent on a server older than the GCS assessment screen. */
   glasgow_coma_scale?: GcsScale;
+  /** The toxicology form's level flags, SI units; absent on an older server. */
+  toxicology?: {
+    levels: Array<{ key: string; name: string; unit: string; flag_above: number }>;
+  };
   /** The critical-value call list; absent on an older server. */
   critical_values?: { thresholds: CriticalValueThresholdEntry[] };
   /** The recovery form's Aldrete preview; absent on an older server. */
@@ -159,6 +164,29 @@ export interface ScoringCatalog {
   medication: {
     /** Minutes after the scheduled time before a dose counts as overdue. */
     overdue_after_minutes: number;
+  };
+  /** Fetal heart rate baseline range for a Category I tracing; absent on an older server. */
+  fhr?: { baseline_normal_low: number; baseline_normal_high: number };
+  /** The bedside airway score's cut-points; absent on an older server. */
+  airway?: {
+    mouth_opening_min_fingers: number;
+    thyromental_min_cm: number;
+    difficult_at_or_above: number;
+    criteria: number;
+    mallampati_points: Record<string, number>;
+  };
+  /** Sepsis fluid dose and lactate cut-points; absent on an older server. */
+  sepsis?: {
+    fluid_ml_per_kg: number;
+    lactate_caution_at_or_above: number;
+    lactate_critical_at_or_above: number;
+  };
+  /** The qSOFA screen's cut-points; absent on an older server. */
+  qsofa?: {
+    respiratory_rate_at_or_above: number;
+    systolic_bp_at_or_below: number;
+    gcs_below: number;
+    positive_threshold: number;
   };
   fluid_balance: {
     positive_high_ml: number;
@@ -490,3 +518,117 @@ export function isDoseOverdue(
  * band thresholds under `family_history` — that is a description of what the
  * server will do, not a second place it is done.
  */
+
+/**
+ * qSOFA as the server will score it, for the sepsis form's live preview.
+ *
+ * Mirrors `qsofa_score` in `api/src/clinical_scoring.rs`: an observation nobody
+ * made is not scored as a normal one, and `criteria_measured` says how much of
+ * the screen was done. Returns `null` until the catalog has supplied the
+ * cut-points -- the page shows a dash rather than a score from its own numbers.
+ */
+/**
+ * The 30 mL/kg crystalloid target, as a live preview of what the server
+ * stores. Null without a usable weight or before the catalog loads: there is
+ * no target for a patient nobody weighed, and never a 70 kg one.
+ */
+export function sepsisFluidTargetPreview(weightKg: number | null, catalog: ScoringCatalog | null): number | null {
+  const perKg = catalog?.sepsis?.fluid_ml_per_kg;
+  if (perKg === undefined || weightKg === null || !Number.isFinite(weightKg) || weightKg <= 0 || weightKg > 500) {
+    return null;
+  }
+  return Math.round(weightKg * perKg);
+}
+
+/**
+ * The NICHD fetal heart rate category, as a live preview of what the server
+ * stores (`clinical_scoring::fhr_category`). Null until all four findings are
+ * recorded and the catalog has loaded: a partial tracing has no category.
+ */
+export function fhrCategoryPreview(
+  tracing: { baseline: number | null; variability: string; accelerations: boolean | null; decelerations: string },
+  catalog: ScoringCatalog | null,
+): 'I' | 'II' | 'III' | null {
+  const range = catalog?.fhr;
+  const { baseline, variability, accelerations, decelerations } = tracing;
+  if (!range || baseline === null || !variability || accelerations === null || !decelerations) return null;
+  const inRange = baseline >= range.baseline_normal_low && baseline <= range.baseline_normal_high;
+  if (inRange && variability === 'moderate' && accelerations && (decelerations === 'none' || decelerations === 'early')) {
+    return 'I';
+  }
+  if (variability === 'absent' && (decelerations === 'late' || decelerations === 'variable')) return 'III';
+  return 'II';
+}
+
+/** The bedside airway score, as `clinical_scoring::airway_difficulty` stores it. */
+export interface AirwayDifficulty {
+  /** Null when no finding was examined: never 0. */
+  score: number | null;
+  criteria_measured: number;
+  /** True once the examined findings reach the threshold; false only when all were examined. */
+  predicted_difficult: boolean | null;
+}
+
+/**
+ * Live preview of the airway score the server will store with an intubation.
+ * Null until the catalog loads. Unexamined findings count for nothing, and a
+ * partial reassuring exam is not "not difficult".
+ */
+export function airwayDifficultyPreview(
+  findings: {
+    mallampati: string; mouthOpening: number | null; thyromental: number | null;
+    neckMobility: string; obeseNeck: boolean | null;
+  },
+  catalog: ScoringCatalog | null,
+): AirwayDifficulty | null {
+  const cut = catalog?.airway;
+  if (!cut) return null;
+  const finite = (v: number | null) => v !== null && Number.isFinite(v) && v >= 0;
+  const points: (number | null)[] = [
+    findings.mallampati in cut.mallampati_points ? cut.mallampati_points[findings.mallampati] : null,
+    finite(findings.mouthOpening) ? Number(findings.mouthOpening! < cut.mouth_opening_min_fingers) : null,
+    finite(findings.thyromental) ? Number(findings.thyromental! < cut.thyromental_min_cm) : null,
+    findings.neckMobility === 'full' ? 0 : findings.neckMobility === 'limited' || findings.neckMobility === 'immobile' ? 1 : null,
+    findings.obeseNeck === null ? null : Number(findings.obeseNeck),
+  ];
+  const measured = points.filter((p): p is number => p !== null);
+  if (measured.length === 0) return { score: null, criteria_measured: 0, predicted_difficult: null };
+  const score = measured.reduce((a, b) => a + b, 0);
+  const predicted_difficult = score >= cut.difficult_at_or_above ? true
+    : measured.length === cut.criteria ? false : null;
+  return { score, criteria_measured: measured.length, predicted_difficult };
+}
+
+/** A lactate reading's band from the catalog's cut-points; null until it loads. */
+export function lactateBand(mmolL: number, catalog: ScoringCatalog | null): 'normal' | 'caution' | 'critical' | null {
+  const cut = catalog?.sepsis;
+  if (!cut || !Number.isFinite(mmolL) || mmolL < 0) return null;
+  if (mmolL >= cut.lactate_critical_at_or_above) return 'critical';
+  if (mmolL >= cut.lactate_caution_at_or_above) return 'caution';
+  return 'normal';
+}
+
+export function qsofaPreview(
+  observations: { respiratoryRate: number | null; systolicBP: number | null; gcs: number | null },
+  catalog: ScoringCatalog | null,
+): QsofaResult | null {
+  const cut = catalog?.qsofa;
+  if (!cut) return null;
+  const { respiratoryRate, systolicBP, gcs } = observations;
+  // The Glasgow Coma Scale runs 3 to 15; a value outside it is not a reading.
+  const gcsValid = gcs !== null && gcs >= 3 && gcs <= 15;
+  const flags = [
+    respiratoryRate === null ? null : respiratoryRate >= cut.respiratory_rate_at_or_above,
+    systolicBP === null ? null : systolicBP <= cut.systolic_bp_at_or_below,
+    gcsValid ? gcs < cut.gcs_below : null,
+  ];
+  const total = flags.filter((flag) => flag === true).length;
+  return {
+    total,
+    respiratory_rate_high: flags[0],
+    systolic_bp_low: flags[1],
+    altered_mentation: flags[2],
+    criteria_measured: flags.filter((flag) => flag !== null).length,
+    positive: total >= cut.positive_threshold,
+  };
+}

@@ -1,5 +1,6 @@
 //! In-memory wound assessment repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     PaginatedResult, Pagination, RepositoryError, RepositoryResult, WoundAssessmentEntity,
     WoundAssessmentRepository,
@@ -28,7 +29,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
         &self,
         mut assessment: WoundAssessmentEntity,
     ) -> RepositoryResult<WoundAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&assessment.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -46,7 +47,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<WoundAssessmentEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("Wound assessment with ID {} not found", id))
         })
@@ -57,7 +58,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<WoundAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<WoundAssessmentEntity> = storage
             .values()
@@ -80,7 +81,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
         wound_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<WoundAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<WoundAssessmentEntity> = storage
             .values()
@@ -102,7 +103,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
         &self,
         mut assessment: WoundAssessmentEntity,
     ) -> RepositoryResult<WoundAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&assessment.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -117,7 +118,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
     }
 
     async fn get_critical_wounds(&self) -> RepositoryResult<Vec<WoundAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let critical_wounds: Vec<WoundAssessmentEntity> = storage
             .values()
@@ -142,7 +143,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<WoundAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<WoundAssessmentEntity> = storage.values().cloned().collect();
 

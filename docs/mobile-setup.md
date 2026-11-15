@@ -26,7 +26,7 @@ patient and doctor `TelehealthPage`s.
 
 - **No friction:** a paramedic at a roadside or a patient on a feature-rich
   Android browser joins in one tap — nothing to install or sign into.
-- **One auth model:** the PWA already holds the wallet/session; the native app
+- **One auth model:** the PWA already holds the bearer session; the native app
   would need a separate token hand-off.
 - **Consistent UX & telemetry:** the same lifecycle events, SSE relay, and audit
   logging apply on every device.

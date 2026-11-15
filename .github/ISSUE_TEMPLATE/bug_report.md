@@ -19,7 +19,7 @@ Steps, or a failing request. Synthetic data only — never paste real patient da
 ## Environment
 
 - Storage backend: in-memory / PostgreSQL
-- `BLOCKCHAIN_ENABLED`:
+- `AUDIT_CHECKPOINT_SINK` (none / filesystem):
 - OS and Rust version:
 
 ## Logs

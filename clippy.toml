@@ -1,1 +1,7 @@
 cognitive-complexity-threshold = 15
+
+# actix-web 4.19 grew `HttpResponse` past clippy's 128-byte default, which made
+# every `Result<_, HttpResponse>` guard here a `result_large_err`. Those helpers
+# return the refusal a handler sends as-is; boxing 100+ signatures to shave a
+# move on the error path would cost more clarity than it buys.
+large-error-threshold = 256

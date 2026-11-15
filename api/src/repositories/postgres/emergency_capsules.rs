@@ -21,9 +21,23 @@ impl PgEmergencyCapsuleRepository {
     }
 }
 
+/// The capsule's own columns; `seal_status` is derived, not stored: the status
+/// of the batch holding this version's `emergency_capsule_published` audit
+/// event, or `pending` when no batch holds it yet.
 const CAPSULE_COLUMNS: &str = "patient_id, version, commitment, capsule_encrypted, key_version, \
-    created_by, created_at, revoked_at, revoked_by, revocation_reason, chain_tx_hash, \
-    chain_finalized";
+    created_by, created_at, revoked_at, revoked_by, revocation_reason, \
+    COALESCE((SELECT b.status FROM audit_events e \
+              JOIN audit_seal_batch_members m ON m.source = 'audit_event' AND m.source_id = e.id \
+              JOIN audit_seal_batches b ON b.id = m.batch_id \
+              WHERE e.event_type = 'emergency_capsule_published' \
+                AND e.aggregate_id = emergency_capsules.patient_id || ':' || emergency_capsules.version::text \
+              LIMIT 1), 'pending') AS seal_status";
+
+/// The same columns for a row that has just been inserted: no batch can hold
+/// it yet.
+const NEW_CAPSULE_COLUMNS: &str = "patient_id, version, commitment, capsule_encrypted, \
+    key_version, created_by, created_at, revoked_at, revoked_by, revocation_reason, \
+    'pending'::text AS seal_status";
 
 const ACCESS_COLUMNS: &str = "id, patient_id, capsule_version, accessed_by, grant_id, \
     reason_code, reason_text, fields_revealed, commitment_verified, accessed_at";
@@ -42,14 +56,13 @@ impl EmergencyCapsuleRepository for PgEmergencyCapsuleRepository {
         let result = sqlx::query_as::<Postgres, EmergencyCapsuleEntity>(&format!(
             "INSERT INTO emergency_capsules
                 (patient_id, version, commitment, capsule_encrypted, key_version,
-                 created_by, created_at, revoked_at, revoked_by, revocation_reason,
-                 chain_tx_hash, chain_finalized)
-             SELECT $1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, $8, $9
+                 created_by, created_at, revoked_at, revoked_by, revocation_reason)
+             SELECT $1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL
              WHERE NOT EXISTS (
                  SELECT 1 FROM emergency_capsules
                  WHERE patient_id = $1 AND version >= $2
              )
-             RETURNING {CAPSULE_COLUMNS}"
+             RETURNING {NEW_CAPSULE_COLUMNS}"
         ))
         .bind(&capsule.patient_id)
         .bind(capsule.version)
@@ -58,8 +71,6 @@ impl EmergencyCapsuleRepository for PgEmergencyCapsuleRepository {
         .bind(capsule.key_version)
         .bind(&capsule.created_by)
         .bind(capsule.created_at)
-        .bind(&capsule.chain_tx_hash)
-        .bind(capsule.chain_finalized)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -142,28 +153,6 @@ impl EmergencyCapsuleRepository for PgEmergencyCapsuleRepository {
                 patient_id, version
             ))
         })
-    }
-
-    async fn record_chain_result(
-        &self,
-        patient_id: &str,
-        version: i32,
-        tx_hash: &str,
-        finalized: bool,
-    ) -> RepositoryResult<()> {
-        sqlx::query(
-            "UPDATE emergency_capsules
-             SET chain_tx_hash = $3, chain_finalized = $4
-             WHERE patient_id = $1 AND version = $2",
-        )
-        .bind(patient_id)
-        .bind(version)
-        .bind(tx_hash)
-        .bind(finalized)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
     }
 
     async fn log_access(

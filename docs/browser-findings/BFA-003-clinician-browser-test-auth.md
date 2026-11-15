@@ -6,14 +6,6 @@ Open. Reproduced on 2026-08-19 against the local synthetic Docker stack.
 
 ## Evidence
 
-The live doctor portal at `/doctor/login` renders only credential and wallet
-extension sign-in paths. It does not render the declared Doctor or Nurse demo
-identity controls. `client/doctor-portal/src/pages/LoginPage.tsx` declares those
-identities, but only renders them when `FEATURES.DEMO_WALLET_GENERATION` is true.
-That flag derives from Vite development mode, so it is false in the baked
-production-style Nginx image. The credential route has no documented synthetic
-staff password fixture, and the test browser has no Polkadot extension.
-
 ## Impact
 
 Doctor and nurse functionality cannot be tested in the browser in the currently

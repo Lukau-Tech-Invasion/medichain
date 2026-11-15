@@ -56,6 +56,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+ENDPOINT_MODULES = ROOT / "client" / "shared" / "src" / "api" / "endpoints"
 API = ROOT / "api" / "src"
 CLIENTS = [
     ROOT / "client" / "doctor-portal" / "src",
@@ -240,8 +241,9 @@ def _wrapper_paths() -> dict[str, str]:
     non-greedy `[\s\S]{0,900}?` spans function boundaries, so the first match
     swallowed sixty later functions and `createConsult` was never seen.
     """
-    src = (ROOT / "client" / "shared" / "src" / "api" / "endpoints.ts").read_text(
-        encoding="utf-8", errors="replace"
+    src = "\n".join(
+        f.read_text(encoding="utf-8", errors="replace")
+        for f in sorted(ENDPOINT_MODULES.glob("*.ts"))
     )
     out: dict[str, str] = {}
     starts = [
@@ -267,7 +269,7 @@ def frontend_payloads() -> dict[str, set[str]]:
 
     for root in CLIENTS:
         for f in list(root.rglob("*.tsx")) + list(root.rglob("*.ts")):
-            if ".test." in f.name or f.name.endswith(".d.ts") or f.name == "endpoints.ts":
+            if ".test." in f.name or f.name.endswith(".d.ts") or f.parent == ENDPOINT_MODULES:
                 continue
             src = f.read_text(encoding="utf-8", errors="replace")
 
@@ -368,8 +370,15 @@ def main() -> int:
         # A bare `id` is the record's own identifier and never means
         # `assistant_id` or `ob_physician_id`; it matches every key ending in
         # `_id` and says nothing.
+        # A key the handler already reads is accounted for: it cannot also be
+        # the lost spelling of a different field. Without this, the obstetric
+        # page's `prenatal_care` (read) was reported as a dropped
+        # `prenatal_care_provider` (a field no form collects).
+        read = set().union(*entry["keys"]) if entry["keys"] else set()
         sent_tokens = {
-            k: to_snake(k).split("_") for k in sent if to_snake(k) not in {"id", "__spread__"}
+            k: to_snake(k).split("_")
+            for k in sent
+            if to_snake(k) not in {"id", "__spread__"} and k not in read and to_snake(k) not in read
         }
 
         def related(a: list[str], b: list[str]) -> bool:

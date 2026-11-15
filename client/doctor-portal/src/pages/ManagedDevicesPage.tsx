@@ -7,7 +7,7 @@ import {
   revokeManagedDevice,
   rotateManagedDevice,
   useTranslation,
-  formatDateOnly,
+  formatDateOnly, ChoiceChips
 } from '@medichain/shared';
 import type { ManagedDevice, OrganizationSummary } from '@medichain/shared';
 import { Laptop, Loader2, RefreshCw, ShieldOff } from 'lucide-react';
@@ -89,6 +89,7 @@ function ManagedDevicesPage() {
 
   const submitEnrollment = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (enrolling) return;
     setError('');
     setNotice('');
     setEnrolling(true);
@@ -243,23 +244,18 @@ function ManagedDevicesPage() {
             />
           </div>
           <div>
-            <label
-              htmlFor="device-type"
-              className="block text-sm font-medium text-content-secondary mb-1"
-            >
-              {t('docDevices.type')}
-            </label>
-            <select
+            <ChoiceChips
               id="device-type"
+              label={t('docDevices.type')}
               value={deviceType}
-              onChange={(e) => setDeviceType(e.target.value)}
-              className="w-full px-3 py-2 border border-border-interactive rounded-lg bg-surface text-content min-h-[44px]"
-            >
-              <option value="tablet">{t('docDevices.typeTablet')}</option>
-              <option value="workstation">{t('docDevices.typeWorkstation')}</option>
-              <option value="handheld">{t('docDevices.typeHandheld')}</option>
-              <option value="ambulance_terminal">{t('docDevices.typeAmbulance')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setDeviceType(next); }}
+              options={[
+                { value: 'tablet', label: t('docDevices.typeTablet') },
+                { value: 'workstation', label: t('docDevices.typeWorkstation') },
+                { value: 'handheld', label: t('docDevices.typeHandheld') },
+                { value: 'ambulance_terminal', label: t('docDevices.typeAmbulance') },
+              ]}
+            />
           </div>
           <div>
             <label
@@ -296,8 +292,8 @@ function ManagedDevicesPage() {
         </div>
         <button
           type="submit"
-          disabled={enrolling}
-          className="mt-4 px-4 py-2 bg-brand text-brand-fg rounded-lg disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 min-h-[44px]"
+          aria-disabled={enrolling || undefined}
+          className="mt-4 px-4 py-2 bg-brand text-brand-fg rounded-lg min-h-[44px]"
         >
           {enrolling ? t('docDevices.enrolling') : t('docDevices.enroll')}
         </button>

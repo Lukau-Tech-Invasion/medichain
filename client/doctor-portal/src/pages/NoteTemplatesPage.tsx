@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { stashNoteDraft, templateAsText } from '../utils/noteDraft';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -6,14 +8,18 @@ import {
   deactivateNoteTemplate,
   getApiErrorMessage,
   getNoteTemplates,
-  useNoteTemplate,
+  useNoteTemplate as renderNoteTemplate,
   useTranslation,
   Alert,
   LoadingSpinner,
   confirmDialog,
   formatTimestamp,
+  notifySuccess,
+  updateNoteTemplate,
+  copyTextToClipboard, ChoiceChips,
+  keepEnterInField
 } from '@medichain/shared';
-import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw } from 'lucide-react';
+import { FileText, Plus, Search, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw, Pencil, ClipboardCopy, FilePlus } from 'lucide-react';
 import { useStaffDirectory } from '../components/StaffName';
 
 type TemplateType = 'history-physical' | 'progress-note' | 'discharge-summary' | 'consult' | 'procedure' | 'soap' | 'op-note';
@@ -94,9 +100,15 @@ export const mapNoteTemplate = (record: NoteTemplateApiRecord): NoteTemplate => 
  * 
  * Page for managing clinical documentation templates.
  */
+/** The note page a template type can start, when it has one. */
+const NOTE_PAGE: Partial<Record<TemplateType, string>> = {
+  soap: '/soap',
+  'progress-note': '/progress-note',
+};
+
 const NoteTemplatesPage: React.FC = () => {
   const { t } = useTranslation();
-  // Who did it, by name: records store the actor's wallet address.
+  // Who did it, by name: records store the actor's user id.
   const staffName = useStaffDirectory();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
@@ -106,7 +118,10 @@ const NoteTemplatesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'all' | 'new' | 'macros'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TemplateType | 'all'>('all');
-  const [renderedTemplate, setRenderedTemplate] = useState<{ name: string; sections: { title: string; content: string }[] } | null>(null);
+  const navigate = useNavigate();
+  const [renderedTemplate, setRenderedTemplate] = useState<{ name: string; type: TemplateType; sections: { title: string; content: string }[] } | null>(null);
+  // The template being edited, or null when the form creates a new one.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newTemplate, setNewTemplate] = useState<Partial<NoteTemplate>>({
     name: '',
     type: 'soap',
@@ -171,12 +186,44 @@ const NoteTemplatesPage: React.FC = () => {
     }
   };
 
+  /** Save the edited template over the original. */
+  const saveEdit = async (templateId: string): Promise<boolean> => {
+    try {
+      await updateNoteTemplate(templateId, {
+        name: newTemplate.name ?? '',
+        type: newTemplate.type ?? 'soap',
+        category: newTemplate.category ?? 'general',
+        description: newTemplate.description ?? '',
+        sections: (newTemplate.sections ?? []).map(({ title, content, required }) => ({ title, content, required })),
+        macros: newTemplate.macros ?? [],
+        tags: newTemplate.tags ?? [],
+      });
+      await fetchTemplates();
+      return true;
+    } catch (err) {
+      showError(getApiErrorMessage(err, t('docNoteTemplates.updateFailed')));
+      return false;
+    }
+  };
+
+  /** Open a template in the form, to change and save it. */
+  const handleEditTemplate = (template: NoteTemplate) => {
+    setEditingId(template.templateId);
+    setNewTemplate({ ...template, sections: [...template.sections] });
+    setActiveTab('new');
+  };
+
   const handleCreateTemplate = async () => {
     if (!newTemplate.name || !newTemplate.description || !newTemplate.sections?.length) {
       showError(t('docNoteTemplates.errorCreateFields'));
       return;
     }
-    if (!(await saveTemplate(newTemplate))) return;
+    if (editingId) {
+      if (!(await saveEdit(editingId))) return;
+      setEditingId(null);
+    } else if (!(await saveTemplate(newTemplate))) {
+      return;
+    }
 
     setNewTemplate({
       name: '',
@@ -189,7 +236,7 @@ const NoteTemplatesPage: React.FC = () => {
       isActive: true,
     });
     setActiveTab('all');
-    showSuccess(t('docNoteTemplates.createdSuccess'));
+    notifySuccess(editingId ? t('docNoteTemplates.updatedSuccess') : t('docNoteTemplates.createdSuccess'));
   };
 
   const handleAddSectionToTemplate = () => {
@@ -239,7 +286,7 @@ const NoteTemplatesPage: React.FC = () => {
 
   /** Its author or an administrator may retire a clinician-authored template. */
   const canDeactivate = (template: NoteTemplate) =>
-    !template.builtIn && (template.createdBy === user?.walletAddress || user?.role === 'Admin');
+    !template.builtIn && (template.createdBy === user?.userId || user?.role === 'Admin');
 
   const handleDeactivateTemplate = async (templateId: string) => {
     if (!(await confirmDialog({ message: t('docNoteTemplates.confirmDelete'), destructive: true }))) return;
@@ -254,10 +301,10 @@ const NoteTemplatesPage: React.FC = () => {
 
   const handleUseTemplate = async (template: NoteTemplate) => {
     try {
-      const result = await useNoteTemplate({ template_id: template.templateId, variables: {} });
+      const result = await renderNoteTemplate({ template_id: template.templateId, variables: {} });
       const sections = result.rendered_sections
         ?? Object.entries(result.rendered_content).map(([title, content]) => ({ title, content: String(content) }));
-      setRenderedTemplate({ name: template.name, sections });
+      setRenderedTemplate({ name: template.name, type: template.type, sections });
     } catch (err) {
       console.error('Failed to render note template:', err);
       showError(t('docNoteTemplates.renderFailed'));
@@ -477,6 +524,16 @@ const NoteTemplatesPage: React.FC = () => {
                       {canDeactivate(template) && (
                         <button
                           type="button"
+                          onClick={() => handleEditTemplate(template)}
+                          className="px-3 py-2 bg-surface-sunken text-content border border-border rounded-lg hover:bg-surface transition-colors flex items-center gap-2 text-sm"
+                        >
+                          <Pencil className="w-4 h-4" />
+                          {t('docNoteTemplates.editButton')}
+                        </button>
+                      )}
+                      {canDeactivate(template) && (
+                        <button
+                          type="button"
                           onClick={() => void handleDeactivateTemplate(template.templateId)}
                           className="px-3 py-2 bg-critical text-critical-fg rounded-lg hover:opacity-90 transition-colors flex items-center gap-2 text-sm"
                         >
@@ -496,6 +553,34 @@ const NoteTemplatesPage: React.FC = () => {
                           <pre className="text-sm text-content-muted whitespace-pre-wrap font-sans">{section.content}</pre>
                         </div>
                       ))}
+                      {/* The rendered text used to stop here: nothing took it into a note. */}
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {NOTE_PAGE[renderedTemplate.type] && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              stashNoteDraft(renderedTemplate.name, renderedTemplate.sections);
+                              navigate(NOTE_PAGE[renderedTemplate.type] as string);
+                            }}
+                            className="px-3 py-2 bg-brand text-brand-fg rounded-lg flex items-center gap-2 text-sm"
+                          >
+                            <FilePlus className="w-4 h-4" aria-hidden="true" />
+                            {renderedTemplate.type === 'soap' ? t('docNoteTemplates.startSoapNote') : t('docNoteTemplates.startProgressNote')}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void copyTextToClipboard(templateAsText(renderedTemplate.sections)).then((copied) =>
+                              copied ? notifySuccess(t('docNoteTemplates.copiedText')) : showError(t('docNoteTemplates.copyFailed'))
+                            );
+                          }}
+                          className="px-3 py-2 bg-surface text-content border border-border rounded-lg flex items-center gap-2 text-sm"
+                        >
+                          <ClipboardCopy className="w-4 h-4" aria-hidden="true" />
+                          {t('docNoteTemplates.copyText')}
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -598,6 +683,7 @@ const NoteTemplatesPage: React.FC = () => {
         <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-2xl font-bold text-content mb-6">{t('docNoteTemplates.createNewTemplateHeading')}</h2>
 
+          <form onSubmit={(event) => { event.preventDefault(); void handleCreateTemplate(); }} onKeyDown={keepEnterInField} noValidate>
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -636,22 +722,20 @@ const NoteTemplatesPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="notetmpl-category" className="block text-sm font-medium text-content-secondary mb-2">
-                  {t('docNoteTemplates.categoryRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="notetmpl-category"
+                  label={t('docNoteTemplates.categoryRequired')}
                   value={newTemplate.category}
-                  onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value as TemplateCategory })}
-                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
-                  <option value="general">{t('docNoteTemplates.category_general')}</option>
-                  <option value="emergency">{t('docNoteTemplates.category_emergency')}</option>
-                  <option value="surgery">{t('docNoteTemplates.category_surgery')}</option>
-                  <option value="medicine">{t('docNoteTemplates.category_medicine')}</option>
-                  <option value="pediatrics">{t('docNoteTemplates.category_pediatrics')}</option>
-                  <option value="psychiatry">{t('docNoteTemplates.category_psychiatry')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewTemplate({ ...newTemplate, category: next as TemplateCategory }); }}
+                  options={[
+                    { value: 'general', label: t('docNoteTemplates.category_general') },
+                    { value: 'emergency', label: t('docNoteTemplates.category_emergency') },
+                    { value: 'surgery', label: t('docNoteTemplates.category_surgery') },
+                    { value: 'medicine', label: t('docNoteTemplates.category_medicine') },
+                    { value: 'pediatrics', label: t('docNoteTemplates.category_pediatrics') },
+                    { value: 'psychiatry', label: t('docNoteTemplates.category_psychiatry') },
+                  ]}
+                />
               </div>
               <div>
                 <label htmlFor="notetmpl-tags" className="block text-sm font-medium text-content-secondary mb-2">{t('docNoteTemplates.tagsFieldLabel')}</label>
@@ -699,6 +783,8 @@ const NoteTemplatesPage: React.FC = () => {
                           )}
                         </div>
                         <button
+                          type="button"
+                          aria-label={`${t('common.remove')} ${section.title}`}
                           onClick={() => handleDeleteSection(section.sectionId)}
                           className="text-critical-subtle-fg hover:text-critical-subtle-fg"
                         >
@@ -750,7 +836,7 @@ const NoteTemplatesPage: React.FC = () => {
                       className="w-full px-3 py-2 border border-border-interactive rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm"
                     />
                   </div>
-                  <button
+                  <button type="button"
                     onClick={handleAddSectionToTemplate}
                     className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2"
                   >
@@ -762,15 +848,15 @@ const NoteTemplatesPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end pt-4 border-t border-border">
-              <button
-                onClick={handleCreateTemplate}
+              <button type="submit"
                 className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-semibold flex items-center gap-2"
               >
                 <Plus className="w-5 h-5" />
-                {t('docNoteTemplates.createTemplateButton')}
+                {editingId ? t('docNoteTemplates.saveChangesButton') : t('docNoteTemplates.createTemplateButton')}
               </button>
             </div>
           </div>
+          </form>
         </div>
       )}
 
@@ -908,7 +994,7 @@ Allergies:
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Laboratory Results:
 CBC: WBC ___, Hgb ___, Plt ___
-BMP: Na ___, K ___, Cl ___, CO2 ___, BUN ___, Cr ___, Glucose ___
+BMP: Na ___, K ___, Cl ___, CO2 ___, Urea ___, Cr ___, Glucose ___
 LFTs: AST ___, ALT ___, Alk Phos ___, Total bili ___
                   </pre>
                 </div>

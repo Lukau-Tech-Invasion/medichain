@@ -10,6 +10,7 @@
 
 import {
   Home,
+  CalendarDays,
   AlertTriangle,
   Users,
   UserPlus,
@@ -56,7 +57,7 @@ import {
 // Types
 // =============================================================================
 
-export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Patient';
+export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Paramedic' | 'Patient';
 
 export interface NavItem {
   id: string;
@@ -174,6 +175,18 @@ export const ROLE_THEMES: Record<Role, RoleTheme> = {
     activeBg: 'bg-surface-sunken',
     activeText: 'text-content-secondary',
   },
+  Paramedic: {
+    primary: 'teal',
+    bg: 'bg-teal-700',
+    bgLight: 'bg-surface-sunken',
+    bgGradient: 'from-teal-700 to-teal-800',
+    text: 'text-content-secondary',
+    textLight: 'text-content-secondary',
+    border: 'border-teal-200',
+    hoverBg: 'hover:bg-surface-sunken',
+    activeBg: 'bg-surface-sunken',
+    activeText: 'text-content-secondary',
+  },
   Patient: {
     primary: 'teal',
     bg: 'bg-teal-700',
@@ -202,7 +215,13 @@ export const ADMIN_NAV: NavSection[] = [
       { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
       { id: 'admin-console', to: '/admin', label: 'Admin Console', icon: Settings, priority: 'high' },
       { id: 'users', to: '/user-management', label: 'User Management', icon: UserCog, priority: 'high' },
+      { id: 'wards', to: '/wards', label: 'Wards and roster', icon: CalendarDays },
       { id: 'patients', to: '/patients', label: 'Patient Search', icon: Search },
+      // Filing payers' explanation-of-benefits documents (WP7.3). The upload
+      // endpoint is administrator-only.
+      { id: 'claims-eob', to: '/claims-eob', label: 'Claims & EOBs', icon: FileText },
+      // De-identified research export under two-administrator approval (WP7.4).
+      { id: 'research-exports', to: '/research-exports', label: 'Research Exports', icon: FileCheck },
     ],
   },
   {
@@ -279,6 +298,7 @@ export const DOCTOR_NAV: NavSection[] = [
     icon: Home,
     defaultExpanded: true,
     items: [
+      { id: 'today', to: '/today', label: 'Today', icon: ListChecks, priority: 'high' },
       { id: 'dashboard', to: '/dashboard', label: 'Dashboard', icon: Home, priority: 'high' },
       { id: 'my-patients', to: '/patients', label: 'My Patients', icon: Users, priority: 'high' },
       { id: 'register', to: '/register', label: 'Register Patient', icon: UserPlus },
@@ -356,6 +376,7 @@ export const DOCTOR_NAV: NavSection[] = [
       { id: 'triage', to: '/triage', label: 'Triage', icon: Thermometer },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
       { id: 'trauma', to: '/trauma', label: 'Trauma', icon: AlertTriangle },
+      { id: 'ems-incoming', to: '/ems-incoming', label: 'Incoming Ambulances', icon: Siren, priority: 'high' },
       { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
       { id: 'stroke', to: '/stroke', label: 'Stroke', icon: Brain },
       { id: 'cardiac', to: '/cardiac', label: 'Cardiac', icon: Heart },
@@ -504,6 +525,7 @@ export const NURSE_NAV: NavSection[] = [
     items: [
       { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle, priority: 'high' },
       { id: 'code-blue', to: '/code-blue', label: 'Code Blue', icon: Heart },
+      { id: 'ems-incoming', to: '/ems-incoming', label: 'Incoming Ambulances', icon: Siren, priority: 'high' },
       { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
       // The protocol set itself — what to do, in order, when one of these is
       // called. Reachable only by typing the URL until now, which is the worst
@@ -661,6 +683,25 @@ export const PHARMACIST_NAV: NavSection[] = [
 // Quick Actions per Role
 // =============================================================================
 
+export const PARAMEDIC_NAV: NavSection[] = [
+  {
+    id: 'emergency',
+    label: 'Emergency',
+    icon: Siren,
+    defaultExpanded: true,
+    items: [
+      { id: 'ems-run', to: '/ems-run', label: 'Ambulance Run', icon: Siren, priority: 'high' },
+      { id: 'emergency-access', to: '/emergency', label: 'Emergency Access', icon: AlertTriangle },
+      { id: 'ems-handoff', to: '/ems-handoff', label: 'Ambulance Handover', icon: Siren },
+      { id: 'mci', to: '/mci', label: 'Mass Casualty', icon: Users },
+    ],
+  },
+  {
+    id: 'settings', label: 'Settings', icon: Settings, collapsible: false,
+    items: [{ id: 'settings', to: '/settings', label: 'Settings', icon: Settings }],
+  },
+];
+
 export const ROLE_QUICK_ACTIONS: Record<Role, QuickAction[]> = {
   Admin: [
     { id: 'add-user', to: '/user-management', label: 'Add User', icon: UserPlus, shortcut: 'U' },
@@ -681,6 +722,9 @@ export const ROLE_QUICK_ACTIONS: Record<Role, QuickAction[]> = {
   Pharmacist: [
     { id: 'verify', to: '/orders', label: 'Verify Rx', icon: FileCheck, shortcut: 'V' },
     { id: 'dispense', to: '/medication-admin', label: 'Dispense', icon: Package, shortcut: 'D' },
+  ],
+  Paramedic: [
+    { id: 'ems-run', to: '/ems-run', label: 'Ambulance run', icon: Siren },
   ],
   Patient: [],
 };
@@ -704,6 +748,8 @@ export function getNavForRole(role: Role): NavSection[] {
       return LAB_TECH_NAV;
     case 'Pharmacist':
       return PHARMACIST_NAV;
+    case 'Paramedic':
+      return PARAMEDIC_NAV;
     default:
       return DOCTOR_NAV; // Fallback
   }
@@ -745,6 +791,7 @@ const NAV_BY_ROLE: ReadonlyArray<readonly [Role, NavSection[]]> = [
   ['Nurse', NURSE_NAV],
   ['LabTechnician', LAB_TECH_NAV],
   ['Pharmacist', PHARMACIST_NAV],
+  ['Paramedic', PARAMEDIC_NAV],
 ];
 
 const pathsOf = (sections: NavSection[]): string[] =>

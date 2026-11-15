@@ -13,6 +13,8 @@ import { clsx } from 'clsx';
 import { useFieldA11y, fieldBorderClass, FIELD_BASE_CLASS } from './field';
 import { FieldLabel, FieldError, FieldHelp } from './FieldParts';
 
+// ux-allow(no-form): a field component; the page that uses it supplies the <form>.
+
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;

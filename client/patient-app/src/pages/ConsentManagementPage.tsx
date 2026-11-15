@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import {
   Shield,
   UserCheck,
@@ -31,9 +31,15 @@ import {
   useTranslation,
   clickable,
   formatTimestamp,
+  ModalPanel,
+  notifySuccess,
+  ChoiceChips,
 } from '@medichain/shared';
 import type { PatientAccessGrant, PatientAccessRequest } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { PageTitle } from '../components/MergedScreen';
+
+// ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
 
 type AccessGrant = PatientAccessGrant;
 type AccessRequest = PatientAccessRequest;
@@ -44,7 +50,7 @@ type AccessRequest = PatientAccessRequest;
  * Manage who can access your medical records.
  * Grant, revoke, and review access permissions.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 interface SignedConsent {
   consent_id: string;
@@ -112,6 +118,7 @@ export function ConsentManagementPage() {
       // simply lost something.
       setWithdrawNotice(t('consent.withdrawDone'));
       setWithdrawReason('');
+      notifySuccess('Consent withdrawn.');
     } catch (err) {
       setWithdrawError(getApiErrorMessage(err, t('consent.withdrawFailed')));
     } finally {
@@ -125,10 +132,15 @@ export function ConsentManagementPage() {
   // opposite answers to the question this screen exists to answer, and an empty
   // array asserts the first one.
   const [loadError, setLoadError] = useState('');
+  const [accessLoadFailed, setAccessLoadFailed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGrant, setSelectedGrant] = useState<AccessGrant | null>(null);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
+  const grantDetailTitleId = useId();
+  const revokeTitleId = useId();
+  const revokeBodyId = useId();
+  const revokeCancelRef = useRef<HTMLButtonElement>(null);
   const [approvalDays, setApprovalDays] = useState<Record<string, number>>({});
 
   // Consent forms state
@@ -161,6 +173,7 @@ export function ConsentManagementPage() {
       setGrants(grantResult.grants);
       setRequests(requestResult.requests);
       setLoadError('');
+      setAccessLoadFailed(false);
 
       // Fetch signed consents and consent types
       try {
@@ -174,18 +187,20 @@ export function ConsentManagementPage() {
           display_name: type.display_name || type.name || type.type_id || '',
           description: type.description,
         })).filter(type => Boolean(type.consent_type)));
-      } catch (err) {
-        console.warn('Could not load consent forms:', err);
+      } catch {
+        setLoadError(t('kit.listLoadFailed'));
       }
     } catch (error) {
       console.error('Failed to load consent data:', error);
       setGrants([]);
       setRequests([]);
+      setLoadError(t('consent.loadFailed'));
+      setAccessLoadFailed(true);
     }
 
     setIsLoading(false);
     // `t` is now read here, for the load-failure message.
-  }, [patient?.healthId, patient?.walletAddress, t]);
+  }, [patient?.healthId, patient?.userId, t]);
 
   useEffect(() => {
     loadData();
@@ -196,10 +211,12 @@ export function ConsentManagementPage() {
     setIsSigning(consentType);
     setConsentError(null);
     try {
-      await signConsent({ patient_id: patient.healthId, consent_type: consentType });
+      // Pressing Sign is the patient giving consent.
+      await signConsent({ patient_id: patient.healthId, consent_type: consentType, consent_given: true });
       // Reload consents
       const result = await getPatientConsents(patient.healthId) as { consents: SignedConsent[] };
       setSignedConsents(result.consents || []);
+      notifySuccess('Consent signed.');
     } catch (err) {
       console.error('Failed to sign consent:', err);
       setConsentError(err instanceof Error ? err.message : 'The consent could not be signed.');
@@ -269,9 +286,11 @@ export function ConsentManagementPage() {
     setIsRevoking(true);
     try {
       await revokePatientAccessGrant(selectedGrant.id);
-      setGrants(grants.map(g => g.id === selectedGrant.id ? { ...g, status: 'revoked' as const } : g));
+      await loadData();
+      notifySuccess('Access withdrawn.');
     } catch (error) {
       console.error('Error revoking access:', error);
+      setLoadError(getApiErrorMessage(error, 'Access could not be withdrawn. Please try again.'));
     } finally {
       setIsRevoking(false);
       setShowRevokeConfirm(false);
@@ -284,9 +303,11 @@ export function ConsentManagementPage() {
     try {
       const days = approvalDays[requestId] ?? 7;
       await approvePatientAccessRequest(requestId, new Date(Date.now() + days * 86_400_000).toISOString());
-      setRequests(requests.map(r => r.id === requestId ? { ...r, status: 'approved' as const } : r));
+      await loadData();
+      notifySuccess('Access approved.');
     } catch (error) {
       console.error('Error approving request:', error);
+      setLoadError(getApiErrorMessage(error, 'The request could not be approved. Please try again.'));
     }
   };
 
@@ -294,9 +315,10 @@ export function ConsentManagementPage() {
     if (!patient) return;
     try {
       await denyPatientAccessRequest(requestId);
-      setRequests(requests.map(r => r.id === requestId ? { ...r, status: 'denied' as const } : r));
+      await loadData();
     } catch (error) {
       console.error('Error denying request:', error);
+      setLoadError(getApiErrorMessage(error, 'The request could not be denied. Please try again.'));
     }
   };
 
@@ -311,7 +333,7 @@ export function ConsentManagementPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 animate-pulse">
+      <div className="p-6 space-y-4">
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="h-12 bg-surface-sunken rounded-xl" />
         {[1, 2, 3].map(i => (
@@ -321,11 +343,26 @@ export function ConsentManagementPage() {
     );
   }
 
+  if (accessLoadFailed) {
+    return (
+      <div className="p-4 md:p-5 space-y-4 pb-6">
+        <PageTitle className="text-2xl font-bold text-content">{t('consent.accessControl')}</PageTitle>
+        <div role="alert" className="p-3 rounded-lg bg-critical-subtle text-critical-subtle-fg text-sm">
+          <p>{loadError}</p>
+          <button type="button" onClick={() => void loadData()}
+            className="mt-3 px-3 py-2 rounded-lg border border-border-interactive focus-visible:ring-2 focus-visible:ring-focus">
+            {t('common.retry')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-content">{t('consent.accessControl')}</h1>
+        <PageTitle className="text-2xl font-bold text-content">{t('consent.accessControl')}</PageTitle>
         <p className="text-content-muted">{t('consent.subtitle')}</p>
       </div>
 
@@ -595,18 +632,18 @@ export function ConsentManagementPage() {
                   </p>
                 </div>
 
+                <ChoiceChips
+                  id={`access-expiry-${request.id}`}
+                  label="Access duration"
+                  value={String(approvalDays[request.id] ?? 7)}
+                  onChange={(next) => { if (next) setApprovalDays((current) => ({ ...current, [request.id]: Number(next) })); }}
+                  options={[
+                    { value: '1', label: '1 day' },
+                    { value: '7', label: '7 days' },
+                    { value: '30', label: '30 days' },
+                  ]}
+                />
                 <div className="flex gap-3">
-                  <label className="sr-only" htmlFor={`access-expiry-${request.id}`}>Access duration</label>
-                  <select
-                    id={`access-expiry-${request.id}`}
-                    value={approvalDays[request.id] ?? 7}
-                    onChange={(event) => setApprovalDays((current) => ({ ...current, [request.id]: Number(event.target.value) }))}
-                    className="rounded-xl border border-border bg-surface px-3 text-sm text-content"
-                  >
-                    <option value={1}>1 day</option>
-                    <option value={7}>7 days</option>
-                    <option value={30}>30 days</option>
-                  </select>
                   <button
                     onClick={() => handleApproveRequest(request.id)}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
@@ -681,15 +718,21 @@ export function ConsentManagementPage() {
 
       {/* Grant Detail Modal */}
       {selectedGrant && !showRevokeConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
+        <ModalPanel
+          labelledBy={grantDetailTitleId}
+          onClose={() => setSelectedGrant(null)}
+          overlayClassName="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center"
+          className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up"
+        >
             <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-content">{t('consent.accessDetails')}</h2>
+              <h2 id={grantDetailTitleId} className="text-xl font-bold text-content">{t('consent.accessDetails')}</h2>
               <button
+                type="button"
                 onClick={() => setSelectedGrant(null)}
+                aria-label={t('common.close')}
                 className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
               >
-                <X className="w-6 h-6 text-content-muted" />
+                <X className="w-6 h-6 text-content-muted" aria-hidden="true" />
               </button>
             </div>
 
@@ -737,7 +780,7 @@ export function ConsentManagementPage() {
                 )}
                 <div className="flex justify-between items-center">
                   <span className="text-content-muted">{t('consent.totalAccesses')}</span>
-                  <span className="text-content">{t('consent.times', { count: selectedGrant.accessCount })}</span>
+                  <span className="text-content shrink-0">{t('consent.times', { count: selectedGrant.accessCount })}</span>
                 </div>
                 {selectedGrant.lastAccessed && (
                   <div className="flex justify-between items-center">
@@ -745,6 +788,7 @@ export function ConsentManagementPage() {
                     <span className="text-content">{formatDateTime(selectedGrant.lastAccessed)}</span>
                   </div>
                 )}
+                <p className="text-sm text-content-muted">{t('consent.grantUsageExplainer')}</p>
               </div>
 
               {/* Actions */}
@@ -758,26 +802,37 @@ export function ConsentManagementPage() {
                 </button>
               )}
             </div>
-          </div>
-        </div>
+        </ModalPanel>
       )}
 
       {/* Revoke Confirmation Modal */}
       {showRevokeConfirm && selectedGrant && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up">
+        <ModalPanel
+          alert
+          labelledBy={revokeTitleId}
+          describedBy={revokeBodyId}
+          initialFocus={revokeCancelRef}
+          onClose={() => { if (!isRevoking) setShowRevokeConfirm(false); }}
+          className="bg-surface w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up"
+        >
             <div className="text-center">
               <div className="w-16 h-16 bg-critical-subtle rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="w-8 h-8 text-critical-subtle-fg" />
               </div>
-              <h3 className="text-xl font-bold text-content mb-2">{t('consent.revokeConfirmTitle')}</h3>
-              <p className="text-content-muted">
+              <h3 id={revokeTitleId} className="text-xl font-bold text-content mb-2">{t('consent.revokeConfirmTitle')}</h3>
+              <p id={revokeBodyId} className="text-content-muted">
                 {t('consent.revokeConfirmBody', { name: selectedGrant.providerName })}
               </p>
+              <dl className="mt-3 space-y-2 text-left text-sm">
+                <div><dt>{t('consent.providerAccountId')}</dt><dd className="break-all font-medium">{selectedGrant.providerId}</dd></div>
+                <div><dt>{t('consent.accessGrantId')}</dt><dd className="break-all font-medium">{selectedGrant.id}</dd></div>
+              </dl>
             </div>
 
             <div className="flex gap-3">
               <button
+                ref={revokeCancelRef}
+                type="button"
                 onClick={() => setShowRevokeConfirm(false)}
                 className="flex-1 px-4 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
@@ -795,8 +850,7 @@ export function ConsentManagementPage() {
                 )}
               </button>
             </div>
-          </div>
-        </div>
+        </ModalPanel>
       )}
     </div>
   );

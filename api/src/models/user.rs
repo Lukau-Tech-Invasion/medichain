@@ -13,25 +13,16 @@ use uuid::Uuid;
 
 /// User stored in PostgreSQL database.
 ///
-/// Horizon HZ-014: the `users` table's schema-level `password_hash` column
-/// (a vestige of the original hackathon schema's "optional email
-/// authentication" design) is deliberately not modeled here — this codebase's
-/// real, sole auth mechanism is wallet + Sr25519 signature (see `CLAUDE.md`),
-/// and no code anywhere reads or writes a password hash (confirmed by grep:
-/// `password_hash` appears nowhere in `api/src` outside this file before this
-/// change, and `AppState::persist_user`'s `INSERT INTO users` column list
-/// never included it). Omitting the field is safe with `SELECT *` — sqlx
-/// simply doesn't map an unmodeled column into the struct.
+/// The legacy `password_hash` column is not used for authentication. Password
+/// proofs are stored as Argon2id verifiers in `credential_verifier` and read
+/// only by the credential handlers, never by this serializable user model.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUser {
     pub id: Uuid,
-    pub wallet_address: String,
     pub email: Option<String>,
     pub role: String,
     pub name: Option<String>,
     pub username: Option<String>,
-    pub blockchain_address: Option<String>,
-    pub blockchain_tx_hash: Option<String>,
     pub is_active: bool,
     /// Account status: `active | inactive | suspended | pending`.
     ///
@@ -88,12 +79,13 @@ pub struct DbUserWithProfile {
 /// The only write path into this table (`services::user_service::UserService`)
 /// was proven dead — never instantiated anywhere in this binary — and has
 /// been removed as part of this finding's resolution, so there is now no code
-/// path anywhere capable of writing to this table at all; it is read-only
-/// (`handlers::auth_challenge`), populated only by whatever a DBA inserts
-/// directly. If a staff-profile write feature is ever built, these fields
+/// path anywhere capable of writing to those plaintext fields. Contact updates
+/// use the encrypted blob instead. If a new staff-profile write feature is
+/// built, these fields
 /// MUST be encrypted the same way patient fields already are before any new
 /// write path is connected. Do not remove this table speculatively (CLAUDE.md:
 /// never delete without asking) — the read path is live.
+#[allow(dead_code)] // Struct is part of the required schema, used via SQLx `FromRow`.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUserProfile {
     pub id: Uuid,

@@ -30,6 +30,8 @@ import { MyRecordsScreen } from './screens/MyRecordsScreen';
 import { FamilyScreen } from './screens/FamilyScreen';
 import { NfcCardScreen } from './screens/NfcCardScreen';
 import { apiClient } from './api/client';
+import { savedPhoneCard, type SavedCard } from './lockscreen/phoneCard';
+import { PhoneCardView } from './lockscreen/PhoneCardView';
 
 type Tab = 'emergency' | 'records' | 'family' | 'nfc';
 
@@ -69,6 +71,13 @@ function OfflineBanner() {
 function Shell() {
   const { user, loading, unlocked, unlockWithBiometrics } = useAuth();
   const [tab, setTab] = useState<Tab>('emergency');
+  const [savedCard, setSavedCard] = useState<SavedCard | null>(null);
+
+  // Read whenever the app locks, so the locked screen shows the latest copy.
+  useEffect(() => {
+    if (!user || unlocked) return;
+    savedPhoneCard().then(setSavedCard).catch(() => setSavedCard(null));
+  }, [user, unlocked]);
 
   // Prompt for biometrics once a session exists but is locked.
   useEffect(() => {
@@ -92,6 +101,9 @@ function Shell() {
   if (!unlocked) {
     return (
       <View style={styles.center}>
+        {/* What the patient chose to show while locked: readable by a
+            responder without unlocking. Absent unless they turned it on. */}
+        {savedCard ? <View style={styles.lockCard}><PhoneCardView saved={savedCard} /></View> : null}
         <Text style={styles.lockTitle}>Locked</Text>
         <Text style={styles.lockHint}>Verify your identity to view medical data.</Text>
         <TouchableOpacity style={styles.unlockBtn} onPress={unlockWithBiometrics}>
@@ -151,6 +163,7 @@ const styles = StyleSheet.create({
   lockHint: { fontSize: 15, color: '#64748b', marginTop: 8, textAlign: 'center' },
   unlockBtn: { backgroundColor: '#0f766e', borderRadius: 10, paddingHorizontal: 32, paddingVertical: 14, marginTop: 24 },
   unlockText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  lockCard: { width: '100%', marginBottom: 24 },
   tabBar: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#e2e8f0', backgroundColor: '#fff' },
   tab: { flex: 1, paddingVertical: 14, alignItems: 'center' },
   tabText: { fontSize: 14, color: '#94a3b8', fontWeight: '600' },

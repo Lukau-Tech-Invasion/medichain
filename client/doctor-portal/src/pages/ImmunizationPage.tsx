@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  getPatients,
   listImmunizations,
   createImmunization,
   useTranslation,
@@ -11,9 +10,8 @@ import {
   immunizationSchema,
   formatDateOnly,
   formatTimestamp,
-} from '@medichain/shared';
+  ChoiceChips, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   Syringe,
@@ -28,9 +26,11 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 
 import StaffName from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 type VaccineType =
   | 'covid-19'
   | 'influenza'
@@ -75,13 +75,14 @@ function slug(value: string): string {
 
 function toAdministration(raw: unknown): VaccineAdministration {
   const r = (raw ?? {}) as Record<string, unknown>;
+  const extras = r.data && typeof r.data === 'object' ? r.data as Record<string, unknown> : {};
   const str = (key: string, fallback = ''): string => {
-    const value = r[key];
+    const value = r[key] ?? extras[key];
     return typeof value === 'string' && value ? value : fallback;
   };
-  const num = (key: string, fallback: number): number => {
-    const value = r[key];
-    return typeof value === 'number' ? value : fallback;
+  const num = (key: string): number | undefined => {
+    const value = r[key] ?? extras[key];
+    return typeof value === 'number' ? value : undefined;
   };
   return {
     administrationId: str('id', str('record_id', '—')),
@@ -102,17 +103,17 @@ function toAdministration(raw: unknown): VaccineAdministration {
     route: slug(str('route')) as VaccineAdministration['route'],
     site: slug(str('administration_site')) as VaccineAdministration['site'],
     administeredBy: str('administered_by_name', str('administered_by')),
-    administeredAt: str('administration_date', str('created_at')),
+    administeredAt: str('administration_date'),
     status: 'administered',
-    doseNumber: num('dose_number', 1),
-    totalDoses: num('total_doses', 1),
+    doseNumber: num('dose_number'),
+    totalDoses: num('total_doses'),
     nextDueDate: str('next_dose_due') || undefined,
     consentObtained: r['patient_consent'] === true,
     consentBy: str('consent_by') || undefined,
     adverseReactions: str('reaction_details') || undefined,
     notes: str('notes') || undefined,
-    vfcEligible: r['vfc_eligibility'] === true,
-    insuranceReported: r['registry_reported'] === true,
+    vfcEligible: extras['vfc_eligible'] === true,
+    insuranceReported: (r['registry_reported'] ?? extras['registry_reported']) === true,
   };
 }
 
@@ -165,7 +166,8 @@ const ImmunizationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [administrations, setAdministrations] = useState<VaccineAdministration[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,18 +176,22 @@ const ImmunizationPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<VaccinationStatus | 'all'>('all');
 
+  // Nothing is pre-chosen (rule 9): the form opened on dose 1 of 1 of a
+  // COVID-19 vaccine given intramuscularly into the left deltoid, and filed
+  // that for whatever was actually given.
   const [newVaccine, setNewVaccine] = useState({
     patientId: '',
-    vaccineType: 'covid-19' as VaccineType,
+    vaccineType: '' as VaccineType | '',
     vaccineName: '',
     manufacturer: '',
     lotNumber: '',
     expiryDate: '',
+    administrationDate: '',
     dose: '',
-    route: 'intramuscular' as AdministrationRoute,
-    site: 'left-deltoid' as AdministrationSite,
-    doseNumber: 1,
-    totalDoses: 1,
+    route: '' as AdministrationRoute | '',
+    site: '' as AdministrationSite | '',
+    doseNumber: null as number | null,
+    totalDoses: null as number | null,
     nextDueDate: '',
     consentObtained: false,
     consentBy: '',
@@ -193,6 +199,9 @@ const ImmunizationPage: React.FC = () => {
     notes: '',
     vfcEligible: false,
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const immunizationDraft = useDraftFields('immunization', newVaccine.patientId || undefined, t('docImmunization.formLabel'),
+    draftFieldsOf(newVaccine, setNewVaccine, ['vaccineType', 'vaccineName', 'manufacturer', 'lotNumber', 'expiryDate', 'administrationDate', 'dose', 'route', 'site', 'doseNumber', 'totalDoses', 'nextDueDate', 'consentObtained', 'consentBy', 'adverseReactions', 'notes', 'vfcEligible']));
 
   const fetchImmunizations = useCallback(async () => {
     try {
@@ -209,14 +218,6 @@ const ImmunizationPage: React.FC = () => {
       setIsLoading(false);
     }
   }, [t]);
-
-  useEffect(() => {
-    const loadData = async () => {
-      const patientData = await getPatients();
-      setPatients(patientData);
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     fetchImmunizations();
@@ -290,15 +291,29 @@ const ImmunizationPage: React.FC = () => {
 
 
   const { errors, validate, validateField, clearField } = useValidatedForm(immunizationSchema);
-  const handleAdminister = async () => {
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(newVaccine.patientId);
+  const handleAdminister = guardSubmit(async () => {
+    if (!newVaccine.administrationDate) {
+      setError(t('docImmunization.actualDateRequired'));
+      return;
+    }
     // The lot number is how a recall reaches the people who received that lot;
     // without it a batch withdrawal cannot identify anybody. Worth naming on
     // the field rather than in a toast listing three.
     if (!validate(newVaccine)) {
       return;
     }
+    // Which vaccine, how and where it went in, and which dose it was are the
+    // administration itself; the API requires route, site and dose number.
+    if (!newVaccine.vaccineType || !newVaccine.route || !newVaccine.site || !newVaccine.doseNumber) {
+      setError(t('docImmunization.chooseAdministration'));
+      return;
+    }
 
-    const patient = patients.find((p) => p.patient_id === newVaccine.patientId);
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
     if (!patient) return;
 
     const newAdmin: VaccineAdministration = {
@@ -306,21 +321,21 @@ const ImmunizationPage: React.FC = () => {
       administrationId: '',
       patientId: patient.patient_id,
       patientName: patient.full_name,
-      vaccineType: newVaccine.vaccineType,
+      vaccineType: newVaccine.vaccineType as VaccineType,
       vaccineName: newVaccine.vaccineName,
       manufacturer: newVaccine.manufacturer,
       lotNumber: newVaccine.lotNumber,
       expiryDate: newVaccine.expiryDate,
       dose: newVaccine.dose,
-      route: newVaccine.route,
-      site: newVaccine.site,
+      route: newVaccine.route as AdministrationRoute,
+      site: newVaccine.site as AdministrationSite,
       // Display only: the server records the authenticated caller as the
       // administering clinician, whatever this says.
       administeredBy: user?.userId ?? '',
-      administeredAt: new Date().toISOString(),
+      administeredAt: newVaccine.administrationDate,
       status: 'administered',
-      doseNumber: newVaccine.doseNumber,
-      totalDoses: newVaccine.totalDoses,
+      doseNumber: newVaccine.doseNumber ?? undefined,
+      totalDoses: newVaccine.totalDoses ?? undefined,
       nextDueDate: newVaccine.nextDueDate || undefined,
       consentObtained: newVaccine.consentObtained,
       consentBy: newVaccine.consentBy || undefined,
@@ -342,18 +357,20 @@ const ImmunizationPage: React.FC = () => {
       const response = await createImmunization({
         patient_id: newAdmin.patientId,
         vaccine_name: newAdmin.vaccineName,
-        cvx_code: newAdmin.vaccineType,
+        vaccine_type: newAdmin.vaccineType,
         manufacturer: newAdmin.manufacturer,
         lot_number: newAdmin.lotNumber,
         expiration_date: newAdmin.expiryDate,
         administration_date: newAdmin.administeredAt,
-        dose_number: newAdmin.doseNumber,
+        dose_number: newVaccine.doseNumber,
+        dose_amount: newAdmin.dose || undefined,
+        total_doses: newAdmin.totalDoses ?? undefined,
+        next_dose_due: newAdmin.nextDueDate,
+        patient_consent: newAdmin.consentObtained || undefined,
+        consent_by: newAdmin.consentBy,
+        vfc_eligible: newAdmin.vfcEligible || undefined,
         route: API_ROUTES[newAdmin.route],
         site: newAdmin.site,
-        administered_by: newAdmin.administeredBy,
-        vis_date: newAdmin.administeredAt,
-        funding_source: newAdmin.vfcEligible ? 'PublicVFC' : 'Private',
-        registry_reported: newAdmin.insuranceReported,
         adverse_reaction: newAdmin.adverseReactions,
         notes: newAdmin.notes,
       }) as { success?: boolean; error?: string; id?: string };
@@ -362,16 +379,17 @@ const ImmunizationPage: React.FC = () => {
         void fetchImmunizations();
         setNewVaccine({
           patientId: '',
-          vaccineType: 'covid-19',
+          vaccineType: '',
           vaccineName: '',
           manufacturer: '',
           lotNumber: '',
           expiryDate: '',
+          administrationDate: '',
           dose: '',
-          route: 'intramuscular',
-          site: 'left-deltoid',
-          doseNumber: 1,
-          totalDoses: 1,
+          route: '',
+          site: '',
+          doseNumber: null,
+          totalDoses: null,
           nextDueDate: '',
           consentObtained: false,
           consentBy: '',
@@ -380,6 +398,7 @@ const ImmunizationPage: React.FC = () => {
           vfcEligible: false,
         });
         setActiveTab('records');
+        immunizationDraft.markSaved();
         showSuccess(t('docImmunization.administeredSuccess', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docImmunization.errorRecord'));
@@ -390,7 +409,7 @@ const ImmunizationPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
   const filteredAdministrations = administrations.filter((a) => {
     // Defensive: a search box must never be able to crash a clinical screen,
@@ -437,7 +456,9 @@ const ImmunizationPage: React.FC = () => {
   };
 
   const formatDateTime = (isoString: string) => {
-    return formatTimestamp(isoString);
+    return /^\d{4}-\d{2}-\d{2}$/.test(isoString)
+      ? `${formatDateOnly(isoString)} — time not recorded`
+      : formatTimestamp(isoString);
   };
 
   return (
@@ -526,20 +547,20 @@ const ImmunizationPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label htmlFor="imm-status-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docImmunization.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="imm-status-filter"
+                  label={t('docImmunization.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as VaccinationStatus | 'all')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="all">{t('docImmunization.allStatuses')}</option>
-                  <option value="scheduled">{t('docImmunization.status_scheduled')}</option>
-                  <option value="administered">{t('docImmunization.status_administered')}</option>
-                  <option value="declined">{t('docImmunization.status_declined')}</option>
-                  <option value="deferred">{t('docImmunization.status_deferred')}</option>
-                  <option value="contraindicated">{t('docImmunization.status_contraindicated')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as VaccinationStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docImmunization.allStatuses') },
+                    { value: 'scheduled', label: t('docImmunization.status_scheduled') },
+                    { value: 'administered', label: t('docImmunization.status_administered') },
+                    { value: 'declined', label: t('docImmunization.status_declined') },
+                    { value: 'deferred', label: t('docImmunization.status_deferred') },
+                    { value: 'contraindicated', label: t('docImmunization.status_contraindicated') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -570,7 +591,7 @@ const ImmunizationPage: React.FC = () => {
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.patientLabel')}</p>
                     <p className="font-semibold text-content">{admin.patientName}</p>
-                    <p className="text-sm text-content-muted">{admin.patientId}</p>
+                    <p className="text-sm"><PatientName id={admin.patientId} dobOnly /></p>
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.vaccineLabel')}</p>
@@ -581,8 +602,8 @@ const ImmunizationPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.administrationLabel')}</p>
-                    <p className="text-sm text-content">{t(`docImmunization.route_${admin.route}`)}</p>
-                    <p className="text-sm text-content-muted">{t(`docImmunization.site_${admin.site}`)}</p>
+                    <p className="text-sm text-content">{admin.route ? t(`docImmunization.route_${admin.route}`) : t('docImmunization.notRecorded')}</p>
+                    <p className="text-sm text-content-muted">{admin.site ? t(`docImmunization.site_${admin.site}`) : t('docImmunization.notRecorded')}</p>
                   </div>
                 </div>
 
@@ -598,7 +619,7 @@ const ImmunizationPage: React.FC = () => {
                   <div>
                     <p className="text-content-muted mb-1">{t('docImmunization.doseSeriesLabel')}</p>
                     <p className="font-semibold text-content">
-                      {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? '', total: admin.totalDoses ?? '' })}
+                      {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? t('docImmunization.notRecorded'), total: admin.totalDoses ?? t('docImmunization.notRecorded') })}
                     </p>
                   </div>
                   <div>
@@ -648,6 +669,7 @@ const ImmunizationPage: React.FC = () => {
       )}
 
       {activeTab === 'administer' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleAdminister(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Syringe className="w-5 h-5" />
@@ -672,9 +694,10 @@ const ImmunizationPage: React.FC = () => {
                 <select
                   id="imm-vaccine-type"
                   value={newVaccine.vaccineType}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, vaccineType: e.target.value as VaccineType })}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, vaccineType: e.target.value as VaccineType | '' })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 >
+                  <option value="">{t('docImmunization.vaccineTypeNotChosen')}</option>
                   <option value="covid-19">{t('docImmunization.vaccineType_covid-19')}</option>
                   <option value="influenza">{t('docImmunization.vaccineType_influenza')}</option>
                   <option value="hepatitis-b">{t('docImmunization.vaccineType_hepatitis-b')}</option>
@@ -741,6 +764,16 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
+                <label htmlFor="imm-administration-date" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docImmunization.administrationDate')} <span className="text-critical-subtle-fg">*</span>
+                </label>
+                <input id="imm-administration-date" type="date" required
+                  value={newVaccine.administrationDate}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, administrationDate: e.target.value })}
+                  className="w-full border border-border-interactive rounded-lg px-3 py-2" />
+              </div>
+
+              <div>
                 <label htmlFor="imm-expiry-date" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docImmunization.expiryDateRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
@@ -768,40 +801,36 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="imm-route" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docImmunization.routeRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="imm-route"
-                  value={newVaccine.route}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, route: e.target.value as AdministrationRoute })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="intramuscular">{t('docImmunization.route_intramuscular')}</option>
-                  <option value="subcutaneous">{t('docImmunization.route_subcutaneous')}</option>
-                  <option value="intradermal">{t('docImmunization.route_intradermal')}</option>
-                  <option value="oral">{t('docImmunization.route_oral')}</option>
-                  <option value="intranasal">{t('docImmunization.route_intranasal')}</option>
-                </select>
+                  label={t('docImmunization.routeRequired')}
+                  value={newVaccine.route || undefined}
+                  onChange={(next) => setNewVaccine({ ...newVaccine, route: (next ?? '') as AdministrationRoute | '' })}
+                  options={[
+                    { value: 'intramuscular', label: t('docImmunization.route_intramuscular') },
+                    { value: 'subcutaneous', label: t('docImmunization.route_subcutaneous') },
+                    { value: 'intradermal', label: t('docImmunization.route_intradermal') },
+                    { value: 'oral', label: t('docImmunization.route_oral') },
+                    { value: 'intranasal', label: t('docImmunization.route_intranasal') },
+                  ]}
+                />
               </div>
 
               <div>
-                <label htmlFor="imm-site" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docImmunization.siteRequired')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="imm-site"
-                  value={newVaccine.site}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, site: e.target.value as AdministrationSite })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="left-deltoid">{t('docImmunization.site_left-deltoid')}</option>
-                  <option value="right-deltoid">{t('docImmunization.site_right-deltoid')}</option>
-                  <option value="left-thigh">{t('docImmunization.site_left-thigh')}</option>
-                  <option value="right-thigh">{t('docImmunization.site_right-thigh')}</option>
-                  <option value="oral">{t('docImmunization.site_oral')}</option>
-                  <option value="nasal">{t('docImmunization.site_nasal')}</option>
-                </select>
+                  label={t('docImmunization.siteRequired')}
+                  value={newVaccine.site || undefined}
+                  onChange={(next) => setNewVaccine({ ...newVaccine, site: (next ?? '') as AdministrationSite | '' })}
+                  options={[
+                    { value: 'left-deltoid', label: t('docImmunization.site_left-deltoid') },
+                    { value: 'right-deltoid', label: t('docImmunization.site_right-deltoid') },
+                    { value: 'left-thigh', label: t('docImmunization.site_left-thigh') },
+                    { value: 'right-thigh', label: t('docImmunization.site_right-thigh') },
+                    { value: 'oral', label: t('docImmunization.site_oral') },
+                    { value: 'nasal', label: t('docImmunization.site_nasal') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -810,8 +839,8 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-dose-number"
                   type="number"
                   min="1"
-                  value={newVaccine.doseNumber}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, doseNumber: parseInt(e.target.value) })}
+                  value={newVaccine.doseNumber ?? ''}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, doseNumber: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
@@ -822,8 +851,8 @@ const ImmunizationPage: React.FC = () => {
                   id="imm-total-doses"
                   type="number"
                   min="1"
-                  value={newVaccine.totalDoses}
-                  onChange={(e) => setNewVaccine({ ...newVaccine, totalDoses: parseInt(e.target.value) })}
+                  value={newVaccine.totalDoses ?? ''}
+                  onChange={(e) => setNewVaccine({ ...newVaccine, totalDoses: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
               </div>
@@ -920,14 +949,14 @@ const ImmunizationPage: React.FC = () => {
             </ul>
           </div>
 
-          <button
-            onClick={handleAdminister}
-            className="w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors font-semibold flex items-center justify-center gap-2"
+          <button type="submit" aria-disabled={submitPending || undefined}
+            className="aria-disabled:cursor-wait w-full bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Syringe className="w-5 h-5" />
             {t('docImmunization.administerButton')}
           </button>
         </div>
+        </form>
       )}
 
       {activeTab === 'schedule' && (
@@ -1024,7 +1053,7 @@ const ImmunizationPage: React.FC = () => {
                         <div>
                           <p className="font-semibold text-content">{admin.vaccineName}</p>
                           <p className="text-sm text-content-muted">
-                            {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? '', total: admin.totalDoses ?? '' })}
+                            {t('docImmunization.doseOfTotal', { dose: admin.doseNumber ?? t('docImmunization.notRecorded'), total: admin.totalDoses ?? t('docImmunization.notRecorded') })}
                           </p>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(admin.status)}`}>
@@ -1042,7 +1071,7 @@ const ImmunizationPage: React.FC = () => {
                         </div>
                         <div>
                           <p className="text-content-muted">{t('docImmunization.historySiteLabel')}</p>
-                          <p className="font-semibold">{t(`docImmunization.site_${admin.site}`)}</p>
+                          <p className="font-semibold">{admin.site ? t(`docImmunization.site_${admin.site}`) : t('docImmunization.notRecorded')}</p>
                         </div>
                       </div>
                       {admin.nextDueDate && (

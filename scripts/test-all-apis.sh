@@ -4,12 +4,19 @@
 # ============================================================================
 
 BASE_URL="${BASE_URL:-http://localhost:8090}"
-ADMIN="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-DOCTOR="5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
-NURSE="5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL"
-LABTECH="5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc"
-PHARMACIST="5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW"
-PATIENT="5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z"
+BASE="$BASE_URL"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/actors.sh
+. "$SCRIPT_DIR/lib/actors.sh"
+actors_init
+# Actor KEYS, not identities: `seed_accounts` registers each account, redeems its
+# one-time code and stores the bearer token under the key (see lib/actors.sh).
+ADMIN=admin
+DOCTOR=doctor
+NURSE=nurse
+LABTECH=labtech
+PHARMACIST=pharmacist
+PATIENT=patient
 
 PASSED=0
 FAILED=0
@@ -34,13 +41,13 @@ test_endpoint() {
     
     if [ -n "$data" ]; then
         response=$(curl -s -o /dev/null -w "%{http_code}" -X "$method" \
-            -H "X-User-Id: $user" \
+            -H "Authorization: Bearer $(tok_of "$user")" \
             -H "Content-Type: application/json" \
             -d "$data" \
             "$BASE_URL$endpoint")
     elif [ -n "$user" ]; then
         response=$(curl -s -o /dev/null -w "%{http_code}" -X "$method" \
-            -H "X-User-Id: $user" \
+            -H "Authorization: Bearer $(tok_of "$user")" \
             "$BASE_URL$endpoint")
     else
         response=$(curl -s -o /dev/null -w "%{http_code}" -X "$method" \
@@ -60,24 +67,32 @@ test_endpoint() {
 # Bootstrap the accounts this suite tests with.
 #
 # Without this the suite is permanently red against a fresh in-memory server:
-# the wallets above were only *declared*, never registered, so every
-# role-scoped call returned 401 (unknown user) and `/api/auth/me` returned 404.
+# the accounts above were only *named*, never registered, so every
+# role-scoped call returned 401 and `/api/auth/me` did too.
 # Those were failures of the fixture, not of the API — which is worse than no
 # test, because a red suite that is *expected* to be red stops being a signal.
 # Idempotent: re-running against an already-seeded server is fine.
 # ---------------------------------------------------------------------------
 seed_accounts() {
-  curl -s -o /dev/null -X POST "$BASE_URL/api/auth/bootstrap" \
-    -H 'Content-Type: application/json' \
-    -d "{\"wallet_address\":\"$ADMIN\",\"name\":\"Suite Admin\",\"username\":\"suiteadmin\",\"secret_key\":\"${MEDICHAIN_BOOTSTRAP_KEY:-synthetic-test-bootstrap-key-2026}\"}"
+  local admin_login=suiteadmin run_id
+  run_id=$RANDOM
+  code POST /api/auth/bootstrap "{\"login_id\":\"$admin_login\",\"name\":\"Suite Admin\",\"auth_proof\":\"$(proof "$admin_login" "$SYN_PASSWORD")\",\"secret_key\":\"${MEDICHAIN_BOOTSTRAP_KEY:-synthetic-test-bootstrap-key-2026}\"}" >/dev/null
+  if [ "$(login_as "$ADMIN" "$admin_login")" != "200" ]; then
+    echo "The administrator cannot sign in; run against a fresh database." >&2
+    exit 2
+  fi
   for pair in "$DOCTOR:Doctor:suitedoc" "$NURSE:Nurse:suitenurse" \
-              "$LABTECH:LabTechnician:suitelab" "$PHARMACIST:Pharmacist:suitepharm" \
-              "$PATIENT:Patient:suitepatient"; do
-    w="${pair%%:*}"; rest="${pair#*:}"; role="${rest%%:*}"; uname="${rest##*:}"
-    curl -s -o /dev/null -X POST "$BASE_URL/api/auth/register" \
-      -H 'Content-Type: application/json' -H "X-User-Id: $ADMIN" \
-      -d "{\"wallet_address\":\"$w\",\"name\":\"Suite $role\",\"username\":\"$uname\",\"role\":\"$role\"}"
+              "$LABTECH:LabTechnician:suitelab" "$PHARMACIST:Pharmacist:suitepharm"; do
+    key="${pair%%:*}"; rest="${pair#*:}"; role="${rest%%:*}"; lid="${rest##*:}$run_id"
+    code POST /api/auth/register "{\"name\":\"Suite $role\",\"role\":\"$role\",\"login_id\":\"$lid\"}" "$ADMIN" >/dev/null
+    uid_new=$(jget user_id); ccode=$(jget credential_code)
+    code PUT "/api/users/$uid_new" '{"status":"active"}' "$ADMIN" >/dev/null
+    redeem_as "$key" "$lid" "$ccode" "$lid" >/dev/null
   done
+  # A patient account comes from a registration: the doctor registers the record
+  # and the patient redeems the activation code, choosing a username.
+  code POST /api/register '{"full_name":"Suite Patient","date_of_birth":"1990-01-01","national_id":"SUITE-'"$run_id"'","phone":"+27000000400","blood_type":"O+","allergies":[],"current_medications":[],"chronic_conditions":[],"emergency_contact_name":"K","emergency_contact_phone":"+27000000401","emergency_contact_relationship":"p","organ_donor":false,"dnr_status":false,"languages":["en"]}' "$DOCTOR" >/dev/null
+  provision_patient "$PATIENT" "$(jget patient_id)" "suitepatient$run_id" "$(act_code)" >/dev/null
 }
 seed_accounts
 

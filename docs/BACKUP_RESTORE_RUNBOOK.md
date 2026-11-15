@@ -11,6 +11,89 @@
 > run once and its output is attached here or in
 > `.horizon/evidence-private/HZ-WP8-RES-005/`.
 
+## Production backups: pgBackRest (WP11)
+
+**Decision (2026-09-26): pgBackRest**, chosen over WAL-G for this codebase:
+
+- the stack runs `postgres:16-alpine`, where pgBackRest is an Alpine package;
+  WAL-G's release binaries are built against glibc and would have to be
+  compiled for Alpine;
+- pgBackRest encrypts every repository file itself (AES-256, per-repository
+  passphrase), writes to more than one repository at once (local and Azure
+  Blob Storage off-site), keeps retention by full-backup count, and has a
+  `verify` command the restore test uses;
+- MediChain is hosted on Azure, and pgBackRest supports Azure Blob Storage
+  natively.
+
+### What runs
+
+| Piece | File | What it does |
+| --- | --- | --- |
+| Image | `docker/postgres/Dockerfile` | `postgres:16-alpine` plus pgBackRest; no secrets baked in |
+| WAL archiving | `docker-compose.backup.yml` | `archive_mode=on`, `archive_command=pgbackrest archive-push`, a WAL segment closed at least every 5 minutes |
+| Repository 1 | `docker-compose.backup.yml` | local volume, AES-256, four weekly fulls kept |
+| Repository 2 (off-site) | `docker-compose.backup-offsite.yml` | Azure Blob Storage, AES-256 with its own passphrase, eight weekly fulls |
+| Nightly backup | `scripts/backup/pgbackrest-nightly.sh` | writes a canary row, `check`s archiving, then a full backup on Sundays (or when none exists) and a differential otherwise, to each repository |
+| Restore test | `scripts/backup/pgbackrest-restore-test.sh` | `verify`s the repository, restores the latest backup into a throwaway copy with archiving off, starts it, and requires that night's canary |
+
+### Setup
+
+```bash
+# .env: the repository passphrase (keep it in your secret store too: without
+# it the backups cannot be read)
+PGBACKREST_REPO1_CIPHER_PASS=$(openssl rand -base64 48)
+
+docker compose -f docker-compose.yml -f docker-compose.backup.yml up -d --build
+
+# Off-site, once the Azure storage account and container exist:
+#   PGBACKREST_REPO2_AZURE_ACCOUNT, _CONTAINER, _KEY and a DIFFERENT
+#   PGBACKREST_REPO2_CIPHER_PASS in .env, then add
+#   -f docker-compose.backup-offsite.yml to the command above.
+```
+
+Host crontab (UTC):
+
+```
+45 1 * * *  cd /srv/medichain && PGBR_REPOS="1 2" scripts/backup/pgbackrest-nightly.sh >> /var/log/medichain-backup.log 2>&1
+30 3 * * *  cd /srv/medichain && scripts/backup/pgbackrest-restore-test.sh 1 >> /var/log/medichain-restore-test.log 2>&1
+45 3 * * 0  cd /srv/medichain && scripts/backup/pgbackrest-restore-test.sh 2 >> /var/log/medichain-restore-test.log 2>&1
+```
+
+A failed night exits non-zero: alert on it. The restore test prints `PASS:`
+or `FAIL:` and exits non-zero on failure.
+
+### Restoring for real
+
+1. Stop the API (`docker compose stop api`) so nothing writes.
+2. Stop PostgreSQL, move its data directory aside (never delete it first).
+3. `docker compose run --rm --user postgres --entrypoint pgbackrest postgres --stanza=medichain restore`
+   (add `--type=time --target="2026-09-26 10:00:00+00"` for a point in time,
+   `--repo=2` to restore from the off-site copy).
+4. Start PostgreSQL, check the application, then start the API.
+
+### Rehearsal record
+
+**2026-09-26, passed** (pgBackRest 2.50, PostgreSQL 16.13, on a throwaway
+cluster with an encrypted local repository, run by the scripts above):
+
+- nightly run 1: stanza created, archiving `check` passed, **full** backup
+  `20260926-142336F`; canary `canary-20260926T142334Z-29481` recorded;
+- restore test: repository `verify` passed, restore into a scratch directory,
+  copy started, canary found: `PASS`;
+- negative control: a canary written *after* the backup was looked for and
+  **not** found (`FAIL`, exit 1), as it must be;
+- nightly run 2: **differential** backup `20260926-142336F_20260926-142600D`;
+  restore test on it: `PASS`.
+
+Not yet rehearsed: the Docker image build (no Docker daemon on that host) and
+the Azure off-site repository (needs the storage account).
+
+## Logical exports: pg_dump (earlier control)
+
+The section below predates WP11. `pg_dump` exports remain useful for moving
+data between environments and for a table-by-table check; the pgBackRest
+setup above is the backup and point-in-time recovery mechanism.
+
 ## What this covers
 
 A `pg_dump`/`pg_restore` based backup and restore procedure for the

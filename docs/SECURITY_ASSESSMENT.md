@@ -20,8 +20,6 @@ claim, never a safety claim.
 - **Isolated environment only** — never a deployed instance. Distinct compose
   project, container names, volume, and credentials from any development stack.
 - **Synthetic data only.** No real personal information at any point.
-- **Third-party services excluded.** National-ID registries, SMS gateway and
-  chain nodes were stubbed or disabled; API keys forced empty.
 - Defined stop conditions, and a rehearsed kill switch.
 
 ## Method
@@ -45,9 +43,6 @@ Top 10, CVSS v4.0, NIST SSDF.
 
 ## Coverage
 
-118 planned rows across the application, API, data, cryptography, blockchain,
-privacy and resilience domains. 18 findings were raised and written up.
-
 Static-tier review (source, configuration, dependencies, CI) is complete.
 Active-tier testing against a live isolated instance is partially complete and
 gated on environment readiness — that gate is enforced mechanically rather than by
@@ -57,8 +52,6 @@ judgement, and it is currently closed.
 
 Representative, without identifying weaknesses in a way that assists an attacker:
 
-- **On-chain plaintext health fields replaced with cryptographic commitments.**
-  The largest change; see [ADR-0004](adr/0004-commitment-not-plaintext-on-chain.md).
 - **National-ID digests keyed**, so a small identifier space is not brute-forceable.
 - **A non-rotating credential replaced with short-lived signed tokens** on the
   emergency path.

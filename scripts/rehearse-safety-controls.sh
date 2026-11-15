@@ -116,7 +116,7 @@ start_api() {
 
     IS_DEMO=true \
     REQUIRE_SIGNATURES=false \
-    BLOCKCHAIN_ENABLED=false \
+    AUDIT_CHECKPOINT_SINK=none \
     MEDICHAIN_BOOTSTRAP_KEY=synthetic-rehearsal-bootstrap-key-2026 \
     METRICS_TOKEN="$METRICS_TOKEN" \
     PORT="$PORT" \

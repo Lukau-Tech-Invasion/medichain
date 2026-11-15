@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
-import { useAuthStore } from '../store/authStore';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createTox, useTranslation, formatTimestamp } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import { createTox, getToxForPatient, useTranslation, formatTimestamp, useScoringCatalog, ChoiceChips, useDraftFields } from '@medichain/shared';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
 type ExposureRoute = 'oral' | 'inhalation' | 'dermal' | 'injection' | 'ocular' | 'unknown';
@@ -35,9 +34,9 @@ interface ToxCase {
   substance: string;
   amount: string;
   timeOfExposure: string;
-  route: ExposureRoute;
-  intentional: boolean;
-  severity: Severity;
+  route: ExposureRoute | '';
+  intentional: boolean | null;
+  severity: Severity | '';
   symptoms: string[];
   toxScreen: ToxScreen;
   antidotesGiven: { name: string; dose: string; time: string }[];
@@ -91,19 +90,38 @@ const decontaminationMethods = [
 
 const ToxicologyPage: React.FC = () => {
   const { t } = useTranslation();
-  const { user } = useAuthStore();
+  const { catalog } = useScoringCatalog();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [cases, setCases] = useState<ToxCase[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
+  const [historyError, setHistoryError] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    setCases([]);
+    setHistoryError(false);
+    if (selectedPatient) {
+      getToxForPatient(selectedPatient).then(({ assessments }) => {
+        if (current) setCases(assessments as ToxCase[]);
+      }).catch((error) => {
+        console.error('Failed to read toxicology history:', error);
+        if (current) setHistoryError(true);
+      });
+    }
+    return () => { current = false; };
+  }, [selectedPatient]);
 
   const [substance, setSubstance] = useState('');
   const [amount, setAmount] = useState('');
   const [timeOfExposure, setTimeOfExposure] = useState('');
-  const [route, setRoute] = useState<ExposureRoute>('oral');
-  const [intentional, setIntentional] = useState(false);
-  const [severity, setSeverity] = useState<Severity>('mild');
+  // Nothing is pre-chosen (rule 9): the form opened on an oral, accidental,
+  // mild exposure and filed all three for a patient nobody had assessed.
+  const [route, setRoute] = useState<ExposureRoute | ''>('');
+  const [intentional, setIntentional] = useState<boolean | null>(null);
+  const [severity, setSeverity] = useState<Severity | ''>('');
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [selectedDecon, setSelectedDecon] = useState<string[]>([]);
   const [givenAntidotes, setGivenAntidotes] = useState<{ name: string; dose: string; time: string }[]>([]);
@@ -118,36 +136,52 @@ const ToxicologyPage: React.FC = () => {
     methadone: false, fentanyl: false, ethanol: null, acetaminophen: null,
     salicylate: null, lithium: null, digoxin: null
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const toxicologyDraft = useDraftFields('toxicology', selectedPatient || undefined, t('docToxicology.formLabel'), {
+    substance: [substance, setSubstance],
+    amount: [amount, setAmount],
+    timeOfExposure: [timeOfExposure, setTimeOfExposure],
+    route: [route, setRoute],
+    intentional: [intentional, setIntentional],
+    severity: [severity, setSeverity],
+    selectedSymptoms: [selectedSymptoms, setSelectedSymptoms],
+    selectedDecon: [selectedDecon, setSelectedDecon],
+    givenAntidotes: [givenAntidotes, setGivenAntidotes],
+    disposition: [disposition, setDisposition],
+    poisonControlCalled: [poisonControlCalled, setPoisonControlCalled],
+    caseNumber: [caseNumber, setCaseNumber],
+    notes: [notes, setNotes],
+    toxScreen: [toxScreen, setToxScreen],
+  });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
   const addAntidote = (name: string, dose: string) => {
     setGivenAntidotes([...givenAntidotes, { name, dose, time: new Date().toLocaleTimeString() }]);
   };
 
-  const handleSubmit = async () => {
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
+  const handleSubmit = guardSubmit(async () => {
     if (!selectedPatient || !substance) {
       showError(t('docToxicology.errorSelect'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
-    const newCase: ToxCase = {
-      id: `TOX-${Date.now()}`,
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
+    // The id and the assessor are the server's. The typed columns are read
+    // under their own names: `route` and `intentional` alone reached no
+    // column, so every case stored an empty route and "accidental".
+    const newCase = {
       patientId: selectedPatient,
       patientName: patient ? patient.full_name : '',
-      assessedBy: user?.userId || 'Unknown',
       assessedAt: new Date().toISOString(),
-      substance, amount, timeOfExposure, route, intentional, severity,
+      substance, amount, timeOfExposure,
+      route: route || undefined,
+      route_of_exposure: route || undefined,
+      intentional: intentional ?? undefined,
+      intentionality: intentional === null ? undefined : intentional ? 'intentional' : 'accidental',
+      severity: severity || undefined,
       symptoms: selectedSymptoms,
       toxScreen,
       antidotesGiven: givenAntidotes,
@@ -160,6 +194,8 @@ const ToxicologyPage: React.FC = () => {
     };
     try {
       await createTox(newCase);
+      const saved = await getToxForPatient(selectedPatient);
+      setCases(saved.assessments as ToxCase[]);
     } catch (err) {
       console.error('Failed to save toxicology case:', err);
       // Stop here. Falling through added the record to the local list
@@ -167,9 +203,9 @@ const ToxicologyPage: React.FC = () => {
       showError(t('common.saveFailed'));
       return;
     }
-    setCases([newCase, ...cases]);
+    toxicologyDraft.markSaved();
     showSuccess(t('docToxicology.saved'));
-  };
+  });
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -210,6 +246,7 @@ const ToxicologyPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             {/* Patient & Exposure */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -261,46 +298,47 @@ const ToxicologyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="tox-route" className="text-sm text-content-muted">{t('docToxicology.route')}</label>
-                  <select
+                  <ChoiceChips
                     id="tox-route"
-                    value={route}
-                    onChange={e => setRoute(e.target.value as ExposureRoute)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="oral">{t('docToxicology.routeOral')}</option>
-                    <option value="inhalation">{t('docToxicology.routeInhalation')}</option>
-                    <option value="dermal">{t('docToxicology.routeDermal')}</option>
-                    <option value="injection">{t('docToxicology.routeInjection')}</option>
-                    <option value="ocular">{t('docToxicology.routeOcular')}</option>
-                    <option value="unknown">{t('docToxicology.routeUnknown')}</option>
-                  </select>
+                    label={t('docToxicology.route')}
+                    value={route || undefined}
+                    onChange={(next) => setRoute((next ?? '') as ExposureRoute | '')}
+                    options={[
+                      { value: 'oral', label: t('docToxicology.routeOral') },
+                      { value: 'inhalation', label: t('docToxicology.routeInhalation') },
+                      { value: 'dermal', label: t('docToxicology.routeDermal') },
+                      { value: 'injection', label: t('docToxicology.routeInjection') },
+                      { value: 'ocular', label: t('docToxicology.routeOcular') },
+                      { value: 'unknown', label: t('docToxicology.routeUnknown') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="tox-severity" className="text-sm text-content-muted">{t('docToxicology.severity')}</label>
-                  <select
+                  <ChoiceChips
                     id="tox-severity"
-                    value={severity}
-                    onChange={e => setSeverity(e.target.value as Severity)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="mild">{t('docToxicology.sevMild')}</option>
-                    <option value="moderate">{t('docToxicology.sevModerate')}</option>
-                    <option value="severe">{t('docToxicology.sevSevere')}</option>
-                    <option value="life-threatening">{t('docToxicology.sevLifeThreatening')}</option>
-                  </select>
+                    label={t('docToxicology.severity')}
+                    value={severity || undefined}
+                    onChange={(next) => setSeverity((next ?? '') as Severity | '')}
+                    options={[
+                      { value: 'mild', label: t('docToxicology.sevMild') },
+                      { value: 'moderate', label: t('docToxicology.sevModerate') },
+                      { value: 'severe', label: t('docToxicology.sevSevere') },
+                      { value: 'life-threatening', label: t('docToxicology.sevLifeThreatening') },
+                    ]}
+                  />
                 </div>
               </div>
               <div className="mt-4">
-                <label htmlFor="tox-intentional" className="flex items-center gap-2">
-                  <input
-                    id="tox-intentional"
-                    type="checkbox"
-                    checked={intentional}
-                    onChange={e => setIntentional(e.target.checked)}
-                  />
-                  <span>{t('docToxicology.intentional')}</span>
-                </label>
+                <ChoiceChips
+                  id="tox-intentional"
+                  label={t('docToxicology.intentional')}
+                  value={intentional === null ? undefined : intentional ? 'yes' : 'no'}
+                  onChange={(next) => setIntentional(next === undefined ? null : next === 'yes')}
+                  options={[
+                    { value: 'yes', label: t('docToxicology.yes') },
+                    { value: 'no', label: t('docToxicology.no') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -323,18 +361,20 @@ const ToxicologyPage: React.FC = () => {
                   ))}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                {[
-                  { key: 'ethanol', label: 'Ethanol (mg/dL)', toxic: 80 },
-                  { key: 'acetaminophen', label: 'APAP (mcg/mL)', toxic: 150 },
-                  { key: 'salicylate', label: 'Salicylate (mg/dL)', toxic: 30 },
-                  { key: 'lithium', label: 'Lithium (mEq/L)', toxic: 1.5 },
-                  { key: 'digoxin', label: 'Digoxin (ng/mL)', toxic: 2.0 }
-                ].map(item => {
+                {/* Units and flag levels come from the scoring catalogue (rule 8),
+                    in SI. They were literals here, in US units -- ethanol and
+                    salicylate in mg/dL -- beside a laboratory reporting mmol/L. */}
+                {(catalog?.toxicology?.levels ?? []).map(level => ({
+                  key: level.key,
+                  label: `${level.name} (${level.unit})`,
+                  toxic: level.flag_above,
+                })).map(item => {
                   const value = toxScreen[item.key as keyof ToxScreen] as number | null;
                   return (
                     <div key={item.key}>
-                      <label className="text-xs text-content-muted">{item.label}</label>
+                      <label htmlFor={`tox-level-${item.key}`} className="text-xs text-content-muted">{item.label}</label>
                       <input
+                        id={`tox-level-${item.key}`}
                         type="number"
                         value={value ?? ''}
                         onChange={e => setToxScreen({ ...toxScreen, [item.key]: e.target.value ? Number(e.target.value) : null })}
@@ -380,7 +420,7 @@ const ToxicologyPage: React.FC = () => {
                     <span className="w-40 font-medium">{a.substance}:</span>
                     <span className="w-40 text-content-muted">{a.antidote}</span>
                     {a.doses.map(d => (
-                      <button
+                      <button type="button"
                         key={d}
                         onClick={() => addAntidote(a.antidote, d)}
                         className="px-2 py-1 bg-ok-subtle text-ok-subtle-fg rounded hover:bg-green-200 text-xs"
@@ -440,7 +480,7 @@ const ToxicologyPage: React.FC = () => {
                   <span className="font-medium">{t('docToxicology.poisonControlContacted')}</span>
                 </label>
                 {poisonControlCalled && (
-                  <input
+                  <input aria-label={t('docToxicology.caseNumberPh')}
                     type="text"
                     value={caseNumber}
                     onChange={e => setCaseNumber(e.target.value)}
@@ -453,8 +493,9 @@ const ToxicologyPage: React.FC = () => {
 
             {/* Disposition */}
             <div className="bg-surface rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">{t('docToxicology.disposition')}</h2>
+              <h2 id="tox-disposition-heading" className="font-semibold mb-3">{t('docToxicology.disposition')}</h2>
               <select
+                aria-labelledby="tox-disposition-heading"
                 value={disposition}
                 onChange={e => setDisposition(e.target.value)}
                 className="w-full border rounded p-2"
@@ -473,7 +514,7 @@ const ToxicologyPage: React.FC = () => {
             {/* Notes */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docToxicology.notes')}</h2>
-              <textarea
+              <textarea aria-label={t('docToxicology.notesPh')}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"
@@ -482,15 +523,16 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
+            <button type="submit" aria-disabled={submitPending || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
             >
               {t('docToxicology.save')}
             </button>
           </div>
+          </form>
         ) : (
           <div className="space-y-4">
+            {historyError && <p role="alert">{t('common.dataUnavailable')}</p>}
             {cases.length === 0 ? (
               <div className="text-center py-8 text-content-muted">{t('docToxicology.noCases')}</div>
             ) : (
@@ -501,16 +543,20 @@ const ToxicologyPage: React.FC = () => {
                       <h3 className="font-semibold">{c.patientName}</h3>
                       <p className="text-sm text-content-muted">{formatTimestamp(c.assessedAt)}</p>
                     </div>
-                    <span className={`px-2 py-1 text-xs rounded ${severityColors[c.severity]}`}>
-                      {c.severity.toUpperCase()}
-                    </span>
+                    {/* A case filed without a severity has none to show. */}
+                    {c.severity && (
+                      <span className={`px-2 py-1 text-xs rounded ${severityColors[c.severity]}`}>
+                        {c.severity.toUpperCase()}
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm"><strong>{t('docToxicology.lblSubstance')}</strong> {c.substance} ({c.amount})</p>
-                  <p className="text-sm"><strong>{t('docToxicology.lblRoute')}</strong> {c.route}</p>
+                  <p className="text-sm"><strong>{t('docToxicology.lblRoute')}</strong> {c.route || t('docToxicology.notRecorded')}</p>
                   {c.antidotesGiven.length > 0 && (
                     <p className="text-sm"><strong>{t('docToxicology.lblAntidotes')}</strong> {c.antidotesGiven.map(a => a.name).join(', ')}</p>
                   )}
                   <p className="text-sm"><strong>{t('docToxicology.lblDisposition')}</strong> {c.disposition}</p>
+                  {c.notes && <p className="text-sm">{c.notes}</p>}
                 </div>
               ))
             )}

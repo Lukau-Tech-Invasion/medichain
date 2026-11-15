@@ -34,27 +34,17 @@ feature-depth = 1
 # here is what let it drift; `unused-ignored-advisory` below now makes a stale
 # entry a build failure instead of a comment nobody rechecks.
 #
-# Scope note: this file governs the ROOT workspace only. `blockchain/` is a
-# separate cargo workspace with its own lockfile and its own `blockchain/deny.toml`.
-# An advisory ignored here says nothing about that graph, and vice versa —
-# three entries that used to sit in this list were only ever true of the
-# blockchain graph and have been moved there.
+# Scope note: this file governs the ROOT workspace, the only cargo workspace
+# since the node and its workspace were removed (ADR-0010).
 [advisories]
 version = 2
 ignore = [
-    # proc-macro-only crate: no runtime attack surface, nothing to reach.
-    "RUSTSEC-2024-0436", # paste
+    # RUSTSEC-2024-0436 (paste, unmaintained) was ignored here; paste is no
+    # longer in the dependency tree (2026-11-04).
 
-    # protobuf's uncontrolled-recursion advisory is a *decoding* (parse) issue.
-    # The only consumer in this tree is `prometheus`, which uses protobuf to
-    # *serialize* MediChain's own metrics for the `/api/metrics` scrape
-    # endpoint — MediChain never decodes attacker-supplied protobuf bytes.
-    "RUSTSEC-2024-0437",
-
-    # libsecp256k1 is pulled in generically by sp-core's multi-curve support.
-    # MediChain's signing exclusively uses sr25519 (Schnorrkel) — no code path
-    # in this codebase constructs or verifies a secp256k1 key/signature.
-    "RUSTSEC-2025-0161",
+    # RUSTSEC-2024-0437 (protobuf recursion) was ignored here; protobuf is now
+    # 3.7.2, which the advisory does not affect, and cargo-deny refuses an
+    # ignore that matches nothing (2026-11-04).
 
     # lopdf's stack-overflow advisory requires *parsing* a maliciously deeply
     # nested PDF. `api/src/pdf.rs` only calls `PdfDocument::new(...)` to
@@ -65,18 +55,6 @@ ignore = [
     # ttf-parser (unmaintained, no CVE): only parses bundled, trusted font
     # files for PDF/QR rendering — never a user-uploaded font.
     "RUSTSEC-2026-0192",
-
-    # --- TEMPORARILY ACCEPTED UPSTREAM RISK, not "ignored" ------------------
-    # Both are RustSec INFO/unmaintained notices with no patched version, both
-    # arrive through `subxt`, and `subxt`'s version is coupled to the chain
-    # runtime's metadata format (see the note in the root Cargo.toml). Moving
-    # either one independently means moving subxt independently, which is the
-    # "green audit, broken blockchain" failure mode. They leave with the
-    # coordinated Subxt/runtime upgrade and not before.
-    # Full record, including review trigger and removal criterion:
-    #   docs/TECHNICAL_DEBT_REGISTER.md -- "two accepted upstream advisories".
-    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2, unmaintained, no patched release. Reaches the graph only via subxt-macro, a proc-macro crate: it executes on the build host during compilation and ships in no deployed artifact. Build-time supply-chain debt, not runtime attack surface. Removal criterion: a subxt release compatible with the runtime metadata contract that no longer depends on it." },
-    { id = "RUSTSEC-2026-0215", reason = "smallstr, unmaintained, all versions affected, no patched release and no drop-in replacement offered. Reaches the graph via subxt -> frame-decode -> scale-info-legacy, an internal implementation detail of a dependency MediChain does not control. Removal criterion: same coordinated subxt/runtime upgrade." },
 
     # --- Reviewed but NOT ignored — reachable, no safe fix landed yet ---
     # These remain intentionally absent from this list. Once CI is switched to
@@ -89,8 +67,7 @@ ignore = [
     #     no longer an open item.
     #   RUSTSEC-2026-0049, 0098, 0099, 0104 (rustls-webpki CRL / name-
     #     constraint issues) — reachable via every outbound HTTPS call
-    #     (IPFS, national-ID APIs, SMS/notifications, blockchain node,
-    #     telehealth), but exploitation requires a malicious/compromised CA or
+    #     (IPFS, national-ID APIs, SMS/notifications, telehealth), but exploitation requires a malicious/compromised CA or
     #     a MITM presenting a certificate crafted to the specific edge case
     #     each advisory describes. No fixed release available via `cargo
     #     update` at review time. Re-run `cargo deny check advisories`
@@ -98,7 +75,7 @@ ignore = [
 ]
 
 # The header above has claimed since 2026-08-25 that this setting is here, and
-# it was not — it existed only in `blockchain/deny.toml`. A comment asserting a
+# it was not — it existed only in another workspace's deny.toml. A comment asserting a
 # guard that does not exist is worse than no comment: the four stale
 # `rustls-webpki` entries this file used to carry were removed by hand, and the
 # thing that was supposed to stop them coming back was never switched on.
@@ -146,25 +123,19 @@ private = { ignore = true }
 # for every future one, which is what adding it to `allow` above would do.
 # ---------------------------------------------------------------------------
 #
-# `webpki-roots` and `webpki-root-certs` ship the Mozilla/CCADB certificate
-# authority dataset used as the TLS trust store. CDLA-Permissive-2.0 is a *data*
+# `webpki-roots` ships the Mozilla/CCADB certificate authority dataset used as the TLS trust store. CDLA-Permissive-2.0 is a *data*
 # licence covering that certificate data, not a software licence on application
 # code, and its principal redistribution condition is making the agreement text
 # available. Reviewed and accepted for TLS trust-root use only.
 #
-# NOTE both crate NAMES are listed. `webpki-root-certs` is a separate published
-# crate from `webpki-roots`, and each is in the graph at two major versions
-# (0.26.11 and 1.0.9) via `sqlx-core`. Excepting only `webpki-roots` leaves the
-# other name rejected and the gate red.
+# `webpki-root-certs`, a separate published crate, used to need the same
+# exception while another dependency pulled it in; it is no longer in the graph, and
+# `unused-license-exception` would fail the build if the exception stayed.
 #
 # Obligation carried by this exception: the distributed product's third-party
 # notices must include the CDLA-Permissive-2.0 text.
 [[licenses.exceptions]]
 crate = "webpki-roots"
-allow = ["CDLA-Permissive-2.0"]
-
-[[licenses.exceptions]]
-crate = "webpki-root-certs"
 allow = ["CDLA-Permissive-2.0"]
 
 # ---------------------------------------------------------------------------

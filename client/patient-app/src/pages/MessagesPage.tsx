@@ -1,7 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMessages, getProviders, markMessageRead, sendMessage as sendSecureMessage, useTranslation } from '@medichain/shared';
-import type { BookableProvider, MessageConversation, SecureMessage } from '@medichain/shared';
+import {
+  AttachmentPicker,
+  attachFilesToMessage,
+  getMessages,
+  getProviders,
+  markMessageRead,
+  MessageAttachmentList,
+  sendMessage as sendSecureMessage,
+  useTranslation,
+  notifySuccess,
+} from '@medichain/shared';
+import type { BookableProvider, MessageAttachment, MessageConversation, SecureMessage } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   MessageCircle,
@@ -16,6 +26,7 @@ import {
   WifiOff,
   Plus,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
 
 interface Message {
   id: string;
@@ -26,6 +37,7 @@ interface Message {
   timestamp: string;
   read: boolean;
   isPatient: boolean;
+  attachments: MessageAttachment[];
 }
 
 interface Conversation {
@@ -50,7 +62,7 @@ function messageTimestamp(value: number | string): string {
  * Convert the persisted API contract into presentation state. Timestamps are
  * Unix seconds on the wire and must not be handed to `Date` as milliseconds.
  */
-function normalizeConversation(raw: MessageConversation, patientWallet: string): Conversation {
+function normalizeConversation(raw: MessageConversation, patientUserId: string): Conversation {
   return {
     id: raw.id,
     providerId: raw.providerId,
@@ -68,7 +80,8 @@ function normalizeConversation(raw: MessageConversation, patientWallet: string):
       content: message.content,
       timestamp: messageTimestamp(message.sent_at),
       read: Boolean(message.read),
-      isPatient: message.sender_id === patientWallet,
+      isPatient: message.sender_id === patientUserId,
+      attachments: message.attachments ?? [],
     })),
   };
 }
@@ -81,7 +94,7 @@ function normalizeConversation(raw: MessageConversation, patientWallet: string):
  * - Send/receive messages
  * - Message history
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MessagesPage() {
   const navigate = useNavigate();
@@ -96,6 +109,10 @@ export function MessagesPage() {
   const [providers, setProviders] = useState<BookableProvider[]>([]);
   const [showProviders, setShowProviders] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // Files chosen for the next message. They are attached right after it is
+  // sent, so both people in the conversation are known when they are stored.
+  const [files, setFiles] = useState<File[]>([]);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Redirect if not authenticated
@@ -113,7 +130,7 @@ export function MessagesPage() {
       const data = await getMessages('all');
       setApiConnected(true);
       const loaded = data.conversations.map(
-        (conversation) => normalizeConversation(conversation, patient.walletAddress)
+        (conversation) => normalizeConversation(conversation, patient.userId)
       );
       setConversations(loaded);
       return loaded;
@@ -131,29 +148,53 @@ export function MessagesPage() {
     }
   }, [patient, loadConversations]);
 
+  // A message arriving for this account reloads the list, and the open
+  // conversation with it (see Layout). It used to appear only on a reload.
+  useEffect(() => {
+    const reload = async () => {
+      const loaded = await loadConversations();
+      setSelectedConversation((current) =>
+        current ? loaded.find((conversation) => conversation.providerId === current.providerId) ?? current : current
+      );
+    };
+    const onMessage = () => void reload();
+    window.addEventListener('medichain:messages-refresh', onMessage);
+    return () => window.removeEventListener('medichain:messages-refresh', onMessage);
+  }, [loadConversations]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedConversation?.messages]);
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation || !patient) return;
+    if (!newMessage.trim() || !selectedConversation || !patient || sending) return;
 
     setSendError(null);
+    setSending(true);
     const content = newMessage.trim();
     try {
-      await sendSecureMessage({
+      const sent = await sendSecureMessage({
         recipient_id: selectedConversation.providerId,
         subject: 'Patient message',
         content,
         related_patient_id: patient.healthId,
       });
       setNewMessage('');
+      const failed = files.length > 0 ? await attachFilesToMessage(sent.message.message_id, files) : [];
+      setFiles([]);
+      if (failed.length > 0) {
+        const list = failed.map((file) => (file.reason ? `${file.name} (${file.reason})` : file.name)).join(', ');
+        setSendError(t('messages.attachmentsPartlyFailed', { files: list }));
+      }
       const loaded = await loadConversations();
       setSelectedConversation(
         loaded.find((conversation) => conversation.providerId === selectedConversation.providerId) ?? null
       );
+      notifySuccess('Message sent.');
     } catch (error) {
       setSendError(error instanceof Error ? error.message : 'The message could not be sent.');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -170,8 +211,8 @@ export function MessagesPage() {
 
   const selectProvider = (provider: BookableProvider) => {
     setSelectedConversation({
-      id: provider.wallet_address,
-      providerId: provider.wallet_address,
+      id: provider.user_id,
+      providerId: provider.user_id,
       providerName: provider.name,
       providerRole: provider.role,
       specialty: provider.specialty || provider.role,
@@ -238,10 +279,11 @@ export function MessagesPage() {
   // Conversation Detail View
   if (selectedConversation) {
     return (
+      <form onSubmit={(event) => { event.preventDefault(); void sendMessage(); }} noValidate>
       <div className="flex flex-col h-[calc(100vh-80px)]">
         {/* Header */}
         <div className="bg-surface border-b border-border p-4 flex items-center gap-4">
-          <button
+          <button type="button"
             onClick={() => setSelectedConversation(null)}
             className="p-2 hover:bg-surface-sunken rounded-lg"
           >
@@ -271,6 +313,7 @@ export function MessagesPage() {
                 }`}>
                   <p className="text-sm">{message.content}</p>
                 </div>
+                <MessageAttachmentList attachments={message.attachments} />
                 <div className={`flex items-center gap-1 mt-1 text-xs text-content-muted ${
                   message.isPatient ? 'justify-end' : 'justify-start'
                 }`}>
@@ -289,11 +332,17 @@ export function MessagesPage() {
         {/* Input */}
         <div className="bg-surface border-t border-border p-4">
           {sendError && <p role="alert" className="mb-2 text-sm text-critical-subtle-fg">{sendError}</p>}
-          <p className="mb-2 text-xs text-content-muted">
-            {t('messages.attachmentsUnavailable')}
-          </p>
+          <div className="mb-2">
+            <AttachmentPicker files={files} onChange={setFiles} disabled={sending} />
+          </div>
+          {sending && files.length > 0 && (
+            <p role="status" className="mb-2 flex items-center gap-2 text-xs text-content-muted">
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              {t('messages.attachingFiles')}
+            </p>
+          )}
           <div className="flex items-center gap-3">
-            <input
+            <input aria-label={t('messages.typePlaceholder')}
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
@@ -301,9 +350,9 @@ export function MessagesPage() {
               placeholder={t('messages.typePlaceholder')}
               className="flex-1 px-4 py-2 border border-border-interactive rounded-full focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
-            <button
-              onClick={() => void sendMessage()}
-              disabled={!newMessage.trim()}
+            {/* ux-allow(disabled-submit): a chat send button with nothing typed; the empty box is the reason. */}
+            <button type="submit"
+              disabled={!newMessage.trim() || sending}
               aria-label={t('messages.send')}
               className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed transition-colors"
             >
@@ -312,6 +361,7 @@ export function MessagesPage() {
           </div>
         </div>
       </div>
+      </form>
     );
   }
 
@@ -321,7 +371,7 @@ export function MessagesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('messages.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('messages.title')}</PageTitle>
           <p className="text-content-muted">
             {totalUnread > 0 ? t('messages.unreadCount', { count: totalUnread }) : t('messages.allCaughtUp')}
           </p>
@@ -339,7 +389,7 @@ export function MessagesPage() {
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-        <input
+        <input aria-label={t('messages.searchPlaceholder')}
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -365,7 +415,7 @@ export function MessagesPage() {
           <h2 className="font-semibold text-content">Choose a provider</h2>
           {providers.map(provider => (
             <button
-              key={provider.wallet_address}
+              key={provider.user_id}
               onClick={() => selectProvider(provider)}
               className="w-full rounded-lg border border-border p-3 text-left hover:border-brand"
             >

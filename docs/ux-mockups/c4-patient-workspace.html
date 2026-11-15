@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Patient workspace</title><link rel="stylesheet" href="mock.css">
+<style>.seclbl{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:rgb(var(--muted));padding:12px 12px 4px}
+.ta{min-height:64px;border:1px solid rgb(var(--border-int));border-radius:10px;padding:10px 12px;font-size:15px;color:rgb(var(--text-2));background:rgb(var(--surface))}
+.vis{display:flex;gap:10px;padding:10px 0;border-top:1px solid rgb(var(--border))}.vis:first-child{border-top:0}</style></head>
+<body><div class="desk" style="display:flex;flex-direction:column">
+  <!-- The banner is the patient: always visible, two identifiers, one way out. -->
+  <header style="background:rgb(var(--surface));border-bottom:1px solid rgb(var(--border));padding:10px 20px;display:flex;align-items:center;gap:16px">
+    <div class="logo" style="font-size:15px"><span class="mk" style="width:28px;height:28px"><i data-i="heart" class="sm"></i></span></div>
+    <span class="avatar">TN</span>
+    <div><p class="bb" style="font-size:18px">Thandiwe Ndlovu</p><p class="small t2">F · 34 · born 12 Mar 1992 · Health ID <span style="font-family:'JetBrains Mono',monospace">MC 4821 7703 19</span></p></div>
+    <span class="badge danger"><i data-i="alert" class="sm"></i>Penicillin · Latex</span>
+    <span class="badge info">O+</span><span class="badge ok">Full code</span>
+    <span class="xs muted" style="margin-left:auto">Opened for treatment · 08:58</span>
+    <span class="btn sm"><i data-i="x" class="sm"></i>Close patient</span>
+  </header>
+  <div style="display:grid;grid-template-columns:232px 1fr 300px;flex:1;min-height:0">
+    <!-- Actions: common first, recent next, everything else one search away. -->
+    <aside style="background:rgb(var(--surface));border-right:1px solid rgb(var(--border));padding:8px 8px">
+      <div class="input ph" style="min-height:40px;font-size:14px;gap:8px;margin:4px 4px 6px"><i data-i="search" class="sm"></i>All forms…</div>
+      <div class="seclbl">Common</div>
+      <a class="rail-item on"><i data-i="file" class="sm"></i>SOAP note<span class="dotmark" title="Draft"></span></a>
+      <a class="rail-item"><i data-i="clipboard" class="sm"></i>Orders</a>
+      <a class="rail-item"><i data-i="pill" class="sm"></i>Prescribe</a>
+      <a class="rail-item"><i data-i="flask" class="sm"></i>Lab results <span class="badge info" style="margin-left:auto">1</span></a>
+      <a class="rail-item"><i data-i="book" class="sm"></i>Progress note</a>
+      <a class="rail-item"><i data-i="logout" class="sm"></i>Discharge</a>
+      <div class="seclbl">Recent</div>
+      <a class="rail-item"><i data-i="pulse" class="sm"></i>Vital signs</a>
+      <a class="rail-item"><i data-i="users" class="sm"></i>Consult</a>
+      <div class="seclbl">All forms · 40</div>
+      <a class="rail-item muted">Emergency · Surgical · Specialties <i data-i="chevDown" class="sm" style="margin-left:auto"></i></a>
+    </aside>
+    <main style="padding:18px 24px;overflow:hidden" class="col">
+      <div class="row between"><h2>SOAP note</h2><div class="row"><span class="btn sm"><i data-i="copy" class="sm"></i>Insert template</span><span class="xs muted row" style="gap:6px"><i data-i="save" class="sm"></i>Draft kept</span></div></div>
+      <div class="field"><span class="label">Subjective</span><div class="ta">Chest tightness since this morning, worse on exertion. Took metformin as usual.</div></div>
+      <div class="field"><span class="label">Objective</span>
+        <div class="card pad-sm row wrap" style="gap:14px"><span class="carried">From vitals 09:02</span><span class="vit"><span>BP <b>148/92</b></span><span>Pulse <b>104</b></span><span>Resp <b>20</b></span><span>SpO₂ <b>97%</b></span><span>Temp <b>36.9 °C</b></span></span></div>
+        <div class="ta" style="min-height:44px">Chest clear. No peripheral oedema.</div></div>
+      <div class="field"><span class="label">Assessment</span><div class="ta ph" style="color:rgb(var(--muted))">Your assessment</div></div>
+      <div class="field"><span class="label">Plan</span><div class="ta ph" style="color:rgb(var(--muted))">Your plan — orders and prescriptions are one tap away on the left</div></div>
+      <div class="row" style="justify-content:flex-end;gap:10px;margin-top:auto"><span class="btn">Save and stay</span><span class="btn primary">Save SOAP note</span></div>
+    </main>
+    <!-- Everything saved for this patient since opening — the record of the visit. -->
+    <aside style="border-left:1px solid rgb(var(--border));padding:16px 18px;background:rgb(var(--surface))">
+      <p class="b row" style="gap:8px"><i data-i="history" class="sm"></i>This visit</p>
+      <p class="xs muted" style="margin-bottom:8px">Saved for Thandiwe Ndlovu since 08:58</p>
+      <div>
+        <div class="vis"><span class="tl-time">09:14</span><div><p class="b small">Prescription</p><p class="xs muted">Metformin 500 mg twice daily</p></div></div>
+        <div class="vis"><span class="tl-time">09:10</span><div><p class="b small">Lab order</p><p class="xs muted">HbA1c, lipid panel</p></div></div>
+        <div class="vis"><span class="tl-time">09:02</span><div><p class="b small">Vital signs</p><p class="xs muted">NEWS2 1 · Low (server)</p></div></div>
+        <div class="vis"><span class="tl-time">08:58</span><div><p class="small t2">Chart opened · Treatment</p></div></div>
+      </div>
+      <div class="card pad-sm" style="margin-top:12px;border-color:rgb(var(--warn))"><p class="small b" style="color:rgb(var(--warn-sub-fg))">Not saved yet</p><p class="xs muted">SOAP note — draft</p></div>
+    </aside>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

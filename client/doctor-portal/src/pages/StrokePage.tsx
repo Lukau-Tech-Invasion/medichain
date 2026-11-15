@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, getPatientStrokes, formatTimestamp, useTranslation, type StrokeListRow } from '@medichain/shared';
+import { createStroke, getPatients, getPatientStrokes, formatTimestamp, notifySuccess, useTranslation, type StrokeListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -13,12 +12,13 @@ import {
   History
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 
 
 export default function StrokePage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
   // The roster this page fetched existed only to fill a patient dropdown.
@@ -29,22 +29,41 @@ export default function StrokePage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<StrokeListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const submission = useSubmission('stroke');
   
   // Stroke Assessment State
   const [lastKnownWell, setLastKnownWell] = useState('');
   const [symptomOnset, setSymptomOnset] = useState('');
-  const [nihssScore, setNihssScore] = useState<number>(0);
+  // Nothing is pre-chosen (rule 9). NIHSS opened on 0 -- "no deficit" -- and
+  // filed it for a patient nobody had scored (rule 12); FAST opened on all
+  // three signs absent, CT on "pending" and tPA on "evaluating".
+  const [nihssScore, setNihssScore] = useState<number | null>(null);
   
   // FAST Assessment
-  const [faceDroop, setFaceDroop] = useState(false);
-  const [armDrift, setArmDrift] = useState(false);
-  const [speechDifficulty, setSpeechDifficulty] = useState(false);
+  // `null` until assessed: an unchecked sign is not an absent one.
+  const [faceDroop, setFaceDroop] = useState<boolean | null>(null);
+  const [armDrift, setArmDrift] = useState<boolean | null>(null);
+  const [speechDifficulty, setSpeechDifficulty] = useState<boolean | null>(null);
   
   // Clinical Data
   const [bloodGlucose, setBloodGlucose] = useState('');
-  const [ctHeadResult, setCtHeadResult] = useState('pending');
-  const [tpaCandidate, setTpaCandidate] = useState('evaluating');
+  const [ctHeadResult, setCtHeadResult] = useState('');
+  const [tpaCandidate, setTpaCandidate] = useState('');
   const [notes, setNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const strokeDraft = useDraftFields('stroke', selectedPatient || undefined, t('docStroke.formLabel'), {
+    lastKnownWell: [lastKnownWell, setLastKnownWell],
+    symptomOnset: [symptomOnset, setSymptomOnset],
+    nihssScore: [nihssScore, setNihssScore],
+    faceDroop: [faceDroop, setFaceDroop],
+    armDrift: [armDrift, setArmDrift],
+    speechDifficulty: [speechDifficulty, setSpeechDifficulty],
+    bloodGlucose: [bloodGlucose, setBloodGlucose],
+    ctHeadResult: [ctHeadResult, setCtHeadResult],
+    tpaCandidate: [tpaCandidate, setTpaCandidate],
+    notes: [notes, setNotes],
+  });
 
   useEffect(() => {
     loadPatients();
@@ -54,47 +73,62 @@ export default function StrokePage() {
     try {
       await getPatients();
     } catch (error) {
+      // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
       console.error('Failed to load patients', error);
     }
   };
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientStrokes(patientId));
-    } catch (e) {
-      console.error(e);
+      const history = await getPatientStrokes(patientId);
+      if (current()) setEmergencyHistory(history);
+    } catch {
+      if (!current()) return;
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docStroke.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatient) return;
+    // Said in words; the button is no longer greyed out to mean "choose a patient".
+    if (!selectedPatient) { showError(t('docStroke.errorSelectPatient')); return; }
 
     try {
       const strokeData = {
         patient_id: selectedPatient,
-        last_known_well: new Date(lastKnownWell).getTime() / 1000,
-        symptom_onset: new Date(symptomOnset).getTime() / 1000,
+        last_known_well: lastKnownWell ? new Date(lastKnownWell).getTime() / 1000 : undefined,
+        symptom_onset: symptomOnset ? new Date(symptomOnset).getTime() / 1000 : undefined,
         fast_exam: {
-          face: faceDroop,
-          arms: armDrift,
-          speech: speechDifficulty,
+          face: faceDroop ?? undefined,
+          arms: armDrift ?? undefined,
+          speech: speechDifficulty ?? undefined,
           time: true // Implied by filling the form
         },
-        nihss_score: nihssScore,
-        blood_glucose: parseFloat(bloodGlucose),
-        ct_head_interpretation: ctHeadResult,
-        tpa_eligibility: tpaCandidate,
+        nihss_score: nihssScore ?? undefined,
+        blood_glucose: bloodGlucose ? parseFloat(bloodGlucose) : undefined,
+        ct_head_interpretation: ctHeadResult || undefined,
+        tpa_eligibility: tpaCandidate || undefined,
         notes,
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
-      await createStroke(strokeData);
-      navigate('/dashboard');
+      // One record per event: a double click or a retry is the same submission.
+      const saved = await submitOnce(submission, strokeData, () => createStroke(strokeData));
+      if (saved === 'busy') return;
+      strokeDraft.markSaved();
+      notifySuccess(t(saved === 'saved' ? 'forms.saved' : saved === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
+      returnAfterSave();
     } catch (error) {
       console.error('Failed to save stroke assessment', error);
       showError(t('docStroke.saveFailed'));
@@ -115,7 +149,7 @@ export default function StrokePage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Patient Selection */}
-        <div className="bg-surface shadow rounded-lg p-6">
+        <div data-patient-picker-card className="bg-surface shadow rounded-lg p-6">
           <label htmlFor="stroke-patient" className="block text-sm font-medium text-content-secondary mb-2">
             {t('docStroke.selectPatient')}
           </label>
@@ -141,6 +175,8 @@ export default function StrokePage() {
             </h3>
             {historyLoading ? (
               <p className="text-content-muted text-sm">{t('docStroke.loadingHistory')}</p>
+            ) : historyError ? (
+              <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
             ) : emergencyHistory.length === 0 ? (
               <p className="text-content-muted text-sm italic">{t('docStroke.noEvents')}</p>
             ) : (
@@ -213,36 +249,36 @@ export default function StrokePage() {
               {t('docStroke.fastAssessment')}
             </h3>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-content-secondary">{t('docStroke.faceDrooping')}</span>
-                <button
-                  type="button"
-                  onClick={() => setFaceDroop(!faceDroop)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${faceDroop ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-secondary'}`}
-                >
-                  {faceDroop ? t('docStroke.present') : t('docStroke.absent')}
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-content-secondary">{t('docStroke.armWeakness')}</span>
-                <button
-                  type="button"
-                  onClick={() => setArmDrift(!armDrift)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${armDrift ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-secondary'}`}
-                >
-                  {armDrift ? t('docStroke.present') : t('docStroke.absent')}
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-content-secondary">{t('docStroke.speechDifficulty')}</span>
-                <button
-                  type="button"
-                  onClick={() => setSpeechDifficulty(!speechDifficulty)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium ${speechDifficulty ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-surface-sunken text-content-secondary'}`}
-                >
-                  {speechDifficulty ? t('docStroke.present') : t('docStroke.absent')}
-                </button>
-              </div>
+              <ChoiceChips
+                id="stroke-fast-face"
+                label={t('docStroke.faceDrooping')}
+                value={faceDroop === null ? undefined : faceDroop ? 'present' : 'absent'}
+                onChange={(next) => setFaceDroop(next === undefined ? null : next === 'present')}
+                options={[
+                  { value: 'present', label: t('docStroke.present') },
+                  { value: 'absent', label: t('docStroke.absent') },
+                ]}
+              />
+              <ChoiceChips
+                id="stroke-fast-arm"
+                label={t('docStroke.armWeakness')}
+                value={armDrift === null ? undefined : armDrift ? 'present' : 'absent'}
+                onChange={(next) => setArmDrift(next === undefined ? null : next === 'present')}
+                options={[
+                  { value: 'present', label: t('docStroke.present') },
+                  { value: 'absent', label: t('docStroke.absent') },
+                ]}
+              />
+              <ChoiceChips
+                id="stroke-fast-speech"
+                label={t('docStroke.speechDifficulty')}
+                value={speechDifficulty === null ? undefined : speechDifficulty ? 'present' : 'absent'}
+                onChange={(next) => setSpeechDifficulty(next === undefined ? null : next === 'present')}
+                options={[
+                  { value: 'present', label: t('docStroke.present') },
+                  { value: 'absent', label: t('docStroke.absent') },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -262,8 +298,8 @@ export default function StrokePage() {
                 min="0"
                 max="42"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                value={nihssScore}
-                onChange={(e) => setNihssScore(parseInt(e.target.value))}
+                value={nihssScore ?? ''}
+                onChange={(e) => setNihssScore(e.target.value === '' ? null : parseInt(e.target.value, 10))}
               />
             </div>
             <div>
@@ -271,39 +307,40 @@ export default function StrokePage() {
               <input
                 id="stroke-blood-glucose"
                 type="number"
+                step="0.1"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={bloodGlucose}
                 onChange={(e) => setBloodGlucose(e.target.value)}
               />
             </div>
             <div>
-              <label htmlFor="stroke-ct-head-result" className="block text-sm font-medium text-content-secondary">{t('docStroke.ctHeadResult')}</label>
-              <select
+              <ChoiceChips
                 id="stroke-ct-head-result"
-                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                value={ctHeadResult}
-                onChange={(e) => setCtHeadResult(e.target.value)}
-              >
-                <option value="pending">{t('docStroke.ctPending')}</option>
-                <option value="negative">{t('docStroke.ctNegative')}</option>
-                <option value="hemorrhage">{t('docStroke.ctHemorrhage')}</option>
-                <option value="infarct">{t('docStroke.ctInfarct')}</option>
-                <option value="tumor">{t('docStroke.ctTumor')}</option>
-              </select>
+                label={t('docStroke.ctHeadResult')}
+                value={ctHeadResult || undefined}
+                onChange={(next) => setCtHeadResult(next ?? '')}
+                options={[
+                  { value: 'pending', label: t('docStroke.ctPending') },
+                  { value: 'negative', label: t('docStroke.ctNegative') },
+                  { value: 'hemorrhage', label: t('docStroke.ctHemorrhage') },
+                  { value: 'infarct', label: t('docStroke.ctInfarct') },
+                  { value: 'tumor', label: t('docStroke.ctTumor') },
+                ]}
+              />
             </div>
             <div>
-              <label htmlFor="stroke-tpa-eligibility" className="block text-sm font-medium text-content-secondary">{t('docStroke.tpaEligibility')}</label>
-              <select
+              <ChoiceChips
                 id="stroke-tpa-eligibility"
-                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
-                value={tpaCandidate}
-                onChange={(e) => setTpaCandidate(e.target.value)}
-              >
-                <option value="evaluating">{t('docStroke.tpaEvaluating')}</option>
-                <option value="eligible">{t('docStroke.tpaEligible')}</option>
-                <option value="contraindicated">{t('docStroke.tpaContraindicated')}</option>
-                <option value="refused">{t('docStroke.tpaRefused')}</option>
-              </select>
+                label={t('docStroke.tpaEligibility')}
+                value={tpaCandidate || undefined}
+                onChange={(next) => setTpaCandidate(next ?? '')}
+                options={[
+                  { value: 'evaluating', label: t('docStroke.tpaEvaluating') },
+                  { value: 'eligible', label: t('docStroke.tpaEligible') },
+                  { value: 'contraindicated', label: t('docStroke.tpaContraindicated') },
+                  { value: 'refused', label: t('docStroke.tpaRefused') },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -323,8 +360,8 @@ export default function StrokePage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={!selectedPatient}
-            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
+            aria-disabled={submission.status === 'saving' || undefined}
+            className="aria-disabled:cursor-wait flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700"
           >
             <Save className="h-5 w-5 mr-2" />
             {t('docStroke.saveAssessment')}

@@ -124,7 +124,7 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(PaginatedResult::new(assessments, total as u64, &pagination))
+        Ok(PaginatedResult::new(assessments, total, &pagination))
     }
 
     async fn get_latest_by_patient(

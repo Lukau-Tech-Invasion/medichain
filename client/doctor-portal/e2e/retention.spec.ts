@@ -60,7 +60,7 @@ test('a requested token is not offered to its own requester', async ({ browser }
   await settle(page, '/retention');
 
   await page.getByRole('button', { name: /request approval/i }).click();
-  await expect(page.getByRole('status')).toContainText(/token was issued/i, { timeout: 20000 });
+  await expect(page.locator('#main-content').getByRole('status')).toContainText(/token was issued/i, { timeout: 20000 });
 
   // Maker-checker. The repository refuses a self-decision, so offering the
   // button would send an administrator into a refusal the screen could have

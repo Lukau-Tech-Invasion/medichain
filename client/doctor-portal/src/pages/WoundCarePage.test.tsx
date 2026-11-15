@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import WoundCarePage from './WoundCarePage';
+import WoundCarePage, { toWoundAssessment, groupWoundAssessments } from './WoundCarePage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
@@ -18,12 +18,13 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  getWound: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
 describe('WoundCarePage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Nurse',
   };
 
@@ -62,6 +63,63 @@ describe('WoundCarePage', () => {
     expect(await screen.findByText(/Wound Care/i)).toBeInTheDocument();
   });
 
+  it('keeps unmeasured dimensions and pain unknown', () => {
+    const wound = toWoundAssessment({
+      id: 'WND-1', patient_id: 'PAT-001', wound_id: 'WND-1', wound_location: 'Left forearm',
+      wound_type: 'traumatic', length_cm: '2.00', width_cm: '1.00', depth_cm: null,
+      tissue_type: null, drainage_amount: 'none', pain_level: null, notes: 'Observed abrasion',
+      assessed_by: 'nurse-1', assessed_at: '2026-10-08T00:00:00Z',
+    });
+    expect(wound.measurements[0]).toMatchObject({ length: 2, width: 1, depth: null, area: 2 });
+    expect(wound.painLevel).toBeNull();
+    const unknown = toWoundAssessment({
+      id: 'WND-2', patient_id: 'PAT-001', wound_id: 'WND-2', wound_location: 'Left forearm',
+      wound_type: 'traumatic', length_cm: null, width_cm: null, depth_cm: null,
+      tissue_type: null, drainage_amount: null, pain_level: null, notes: null,
+      assessed_by: 'nurse-1', assessed_at: '2026-10-08T00:00:00Z',
+    });
+    expect(unknown.exudate).toBeNull();
+    expect(unknown.edges).toBeNull();
+    expect(unknown.status).toBe('unknown');
+    expect(unknown.needsAttention).toBe(false);
+  });
+
+  it('groups same-wound follow-ups chronologically without combining separate wounds', () => {
+    const first = { id: 'WND-1', patient_id: 'PAT-001', wound_id: 'WND-ROOT', wound_location: 'Forearm',
+      wound_type: 'traumatic', length_cm: 2, width_cm: 1, depth_cm: null, tissue_type: null,
+      drainage_amount: null, pain_level: null, notes: 'First', assessed_by: 'nurse-1', assessed_at: '2026-10-08T08:00:00Z' };
+    const second = { ...first, id: 'WND-2', length_cm: 1, notes: 'Second', assessed_at: '2026-10-10T08:00:00Z' };
+    const grouped = groupWoundAssessments([second, { ...first, id: 'OTHER', wound_id: 'OTHER-ROOT' }, first]);
+    expect(grouped).toHaveLength(2);
+    expect(grouped[0].id).toBe('WND-2');
+    expect(grouped[0].measurements.map(item => item.area)).toEqual([2, 1]);
+    expect(grouped[0].notes).toBe('Second');
+    expect(grouped[0].historyTotal).toBe(2);
+  });
+
+  it('opens a persisted wound detail without replacing its view with raw database fields', async () => {
+    const row = {
+      id: 'WND-1', patient_id: 'PAT-001', wound_id: 'WND-1', wound_location: 'Left forearm',
+      wound_type: 'traumatic', length_cm: '2.00', width_cm: '1.00', depth_cm: null,
+      tissue_type: null, drainage_amount: 'none', pain_level: 1, notes: 'Durable wound narrative',
+      assessed_by: 'nurse-1', assessed_at: '2026-10-08T00:00:00Z',
+    };
+    vi.mocked(shared.getWound).mockResolvedValue(row as unknown as Awaited<ReturnType<typeof shared.getWound>>);
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => [row],
+    }) as unknown as typeof fetch;
+    render(<WoundCarePage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Healing Trends' }));
+    expect(screen.getByText('Not recorded')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'All Wounds' }));
+    fireEvent.click(await screen.findByRole('button', { name: /PAT-001 Traumatic/ }));
+    await waitFor(() => expect(shared.getWound).toHaveBeenCalledWith('WND-1'));
+    expect(await screen.findByText('Durable wound narrative')).toBeInTheDocument();
+    expect(screen.getByText('2 × 1 × — cm (2.0 cm²)')).toBeInTheDocument();
+  });
+
   it('displays assessment sections once loading resolves', async () => {
     render(<WoundCarePage />);
 
@@ -87,6 +145,8 @@ describe('WoundCarePage', () => {
     fireEvent.click(tab);
 
     const select = await screen.findByLabelText(/Wound Type/i);
+    expect(select).toHaveValue('');
+    expect(screen.getByRole('group', { name: 'Exudate' }).querySelector('input:checked')).toBeNull();
     fireEvent.change(select, { target: { value: 'pressure-ulcer' } });
     expect(select).toHaveValue('pressure-ulcer');
   });

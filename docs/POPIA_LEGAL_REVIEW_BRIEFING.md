@@ -1,15 +1,5 @@
 # POPIA Legal Review Briefing (Horizon HZ-WP1-HLTH-001)
 
-> **REVIEW OUTCOME (2026-07-28)**: the owner returned a substantive, cited
-> POPIA/National-Health-Act/Children's-Act review answering the 6 questions
-> below. Full outcome recorded in `docs/PRODUCTION_READINESS_GATES.md` (the
-> canonical, durable reference) and `.horizon/decision-log.md`. Headline:
-> **the synthetic-data, isolated Horizon security campaign may continue.
-> Real patient data remains blocked** until seven specific items close,
-> most notably a redesign of HZ-003's on-chain plaintext emergency fields
-> (`.horizon/findings-private/HZ-003.md`). The rest of this document is
-> preserved as the original briefing that prompted that review.
-
 > **This document is briefing material, not the legal review itself.** It is
 > written by an engineering assistant, not a lawyer, and does not constitute
 > legal advice or a compliance determination. Its purpose is to make the
@@ -46,10 +36,8 @@ table-by-table inventory; summarized for legal review:
 | National ID | South African/regional national ID numbers | Special (linked to health record) |
 | Clinical records | Diagnoses, medications, lab results, vitals, procedure notes | Special |
 | Genetic test results | Variants, clinical significance, counseling records | Special (POPIA explicitly names genetic data as special) |
-| Guardian/dependent relationships | Guardian wallet address + relationship type + permissions (no guardian PII duplicated) | Ordinary (metadata about a relationship, not itself health data) |
 | Death records | Cause of death, manner of death, address at death | Special, but lower ongoing re-identification risk (data subject deceased) |
 | Insurance/billing | Policy numbers, subscriber name/DOB, claims contact info | Ordinary |
-| Staff/user accounts | Wallet address, name, email, role | Ordinary |
 | Security/audit logs | IP address, accessor identity, access timestamps | Ordinary, processed under the "security" legitimate-interest ground |
 
 ## 3. Current technical safeguards (verifiable in source, not asserted)
@@ -99,15 +87,6 @@ table-by-table inventory; summarized for legal review:
   when a country's real API key isn't configured (`HZ-004`, this campaign)
   — loudly logged at boot, not silent, but means identity verification
   isn't always checking a live government system.
-- **On-chain fields**: `blood_type` (medical-records pallet) and
-  `organ_donor`/`dnr_status` (patient-identity pallet) are stored in the
-  clear on the Substrate blockchain, not hashed — a deliberate, documented
-  exception (`HZ-003`, this campaign) for instant offline paramedic access.
-  Accepted residual risk: re-identification if an on-chain account is ever
-  correlated to a real identity. **This is the single item most likely to
-  need explicit legal sign-off** — it's a genuine, intentional deviation
-  from "hash everything on-chain," made for a life-safety reason, and POPIA
-  counsel should confirm this tradeoff is acceptable as designed.
 - **Third-party processors**: Africa's Talking (SMS), national-ID provider
   APIs (Fayda, Ghana Card, etc.), and any IPFS pinning service are all
   third parties that would need their own data-processing agreements if/when
@@ -125,12 +104,6 @@ table-by-table inventory; summarized for legal review:
 
 ## 5. Specific questions for the reviewer
 
-1. Does the on-chain plaintext `blood_type`/`organ_donor`/`dnr_status`
-   exception (§4) meet POPIA's "appropriate technical and organisational
-   measures" bar given its documented justification and accepted residual
-   risk, or does it need additional mitigation (e.g. a legal basis
-   memorandum, additional on-chain access restrictions) before any real
-   (non-synthetic) data touches it?
 2. Is the current consent model (§3) sufficient for POPIA's conditions for
    lawful processing of special personal information (health data generally
    needs an explicit legal basis beyond simple consent — e.g. medical

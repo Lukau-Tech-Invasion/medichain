@@ -43,18 +43,9 @@ const zu_ZA: TranslationRecord = {
   },
   auth: {
     welcomeTitle: 'Wamukelekile ku-MediChain',
-    welcomeSubtitle: 'Xhuma isipoketi sakho ukuze ufinyelele kumarekhodi akho ezempilo',
-    walletAddressLabel: 'Ikheli lesipoketi',
-    walletHint: 'Ikheli lesipoketi sakho se-Substrate (ifomethi ye-SS58)',
-    connectWallet: 'Xhuma isipoketi',
     connecting: 'Iyaxhuma...',
-    quickLoginDemo: 'Ukungena okusheshayo - iziguli zesibonelo',
-    quickLoginHint: 'Chofoza noma yisiphi isiguli ukuze ungene ngokushesha',
     signInNfc: 'Ngena ngekhadi le-NFC',
     scanQr: 'Skena ikhodi ye-QR',
-    securityNotice: 'Kuqinisekiswe yi-blockchain',
-    errEnterWallet: 'Sicela ufake ikheli lakho lesipoketi',
-    errInvalidWallet: 'Ifomethi yekheli engalungile. Amagama angu-48 aqala ngo-"5".',
   },
   emergency: {
     title: 'Ikhadi Lezempilo Eliphuthumayo',
@@ -82,7 +73,6 @@ const zu_ZA: TranslationRecord = {
     call: 'Shayela',
     cardHash: 'I-Hash Yekhadi',
     lastUpdated: 'Kugcine Ukubuyekezwa',
-    securedBy: 'Kuvikelwe yi-blockchain ye-MediChain',
   },
 };
 

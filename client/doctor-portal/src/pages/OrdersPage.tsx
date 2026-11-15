@@ -2,7 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import PatientSelect from '../components/PatientSelect';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { createOrder, listOrders, updateOrderStatus, useTranslation } from '@medichain/shared';
+import { createOrder, listOrders, updateOrderStatus, useTranslation, ModalPanel,
+  notifySuccess, submitForReply, useSubmission,
+  useDraftFields,
+  draftFieldsOf,
+} from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
   Pill, FlaskConical, Stethoscope, Activity, FileText, Loader2, Search
@@ -48,6 +52,7 @@ function OrdersPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [orders, setOrders] = useState<PhysicianOrder[]>([]);
+  const orderSubmission = useSubmission('order');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewOrder, setShowNewOrder] = useState(false);
@@ -63,6 +68,9 @@ function OrdersPage() {
     priority: 'routine',
     notes: '',
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const orderDraft = useDraftFields('orders', newOrder.patient_id || undefined, t('docOrders.formLabel'),
+    draftFieldsOf(newOrder, setNewOrder, ['order_type', 'order_details', 'priority', 'notes']));
 
   // Auth redirect
   useEffect(() => {
@@ -109,18 +117,20 @@ function OrdersPage() {
     if (!user) return;
     
     try {
-      const response = await createOrder({
+      const order = {
         patient_id: newOrder.patient_id,
         category: newOrder.order_type === 'lab' ? 'Laboratory' : newOrder.order_type,
         order_text: newOrder.order_details,
         priority: newOrder.priority,
         instructions: newOrder.notes || null,
-        cosign_required: false,
-      });
+      };
+      const outcome = await submitForReply(orderSubmission, order, () => createOrder(order));
+      if (outcome.kind === 'busy') return;
 
-      if (response.success) {
+      if (outcome.kind !== 'saved' || outcome.value.success) {
         await fetchOrders();
         setShowNewOrder(false);
+        orderDraft.markSaved();
         setNewOrder({
           patient_id: '',
           order_type: 'medication',
@@ -128,6 +138,8 @@ function OrdersPage() {
           priority: 'routine',
           notes: '',
         });
+        notifySuccess(outcome.kind === 'saved' ? 'Order placed.'
+          : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       } else {
         setError(t('docOrders.failCreate'));
       }
@@ -141,6 +153,7 @@ function OrdersPage() {
     let persistedStatus: string;
     try {
       persistedStatus = (await updateOrderStatus(orderId, newStatus)).status;
+      notifySuccess('Order status updated.');
     } catch {
       // The local update below used to happen regardless, with a comment
       // saying "Update locally" -- so an order the server refused to advance
@@ -289,7 +302,7 @@ function OrdersPage() {
         <div className="flex gap-4 items-center">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
-            <input
+            <input aria-label={t('docOrders.searchPlaceholder')}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -297,7 +310,7 @@ function OrdersPage() {
               className="w-full pl-10 pr-4 py-2 border rounded-lg"
             />
           </div>
-          <select
+          <select aria-label={t('common.filterByStatus')}
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="px-4 py-2 border rounded-lg"
@@ -307,7 +320,7 @@ function OrdersPage() {
               <option key={s.value} value={s.value}>{statusLabel(s.value)}</option>
             ))}
           </select>
-          <select
+          <select aria-label={t('common.filterByType')}
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
             className="px-4 py-2 border rounded-lg"
@@ -374,7 +387,7 @@ function OrdersPage() {
                         <span className="text-sm">{statusLabel(order.status)}</span>
                       </div>
                       {order.status !== 'completed' && order.status !== 'cancelled' && (
-                        <select
+                        <select aria-label={t('common.orderStatus')}
                           value={order.status}
                           onChange={(e) => handleUpdateStatus(order.order_id, e.target.value)}
                           className="text-sm border rounded px-2 py-1"
@@ -395,9 +408,8 @@ function OrdersPage() {
 
       {/* New Order Modal */}
       {showNewOrder && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-bold mb-4">{t('docOrders.createNewOrder')}</h2>
+        <ModalPanel labelledBy="orders-dialog-title" closeOnBackdrop={false} onClose={() => setShowNewOrder(false)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50" className="bg-surface rounded-xl shadow-xl w-full max-w-lg p-6">
+            <h2 id="orders-dialog-title" className="text-xl font-bold mb-4">{t('docOrders.createNewOrder')}</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               {/* Search by name, not a remembered identifier. This was a bare
                   text box asking for a patient id: nobody memorises those, so
@@ -476,8 +488,7 @@ function OrdersPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

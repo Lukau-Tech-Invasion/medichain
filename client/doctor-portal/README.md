@@ -13,4 +13,4 @@ Key files:
 - `src/components/` — shared UI components
 
 Auth & API:
-- Uses shared API wrappers in `client/shared` which call `/api/*` endpoints. Developer auth uses `X-User-Id` for demo flows.
+- Uses shared API wrappers in `client/shared` which call `/api/*` endpoints with a verified Bearer access token. Demo accounts also sign in with account credentials.

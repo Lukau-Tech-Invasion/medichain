@@ -13,13 +13,15 @@ vi.mock('../store/authStore', async (importOriginal) => ({
   useAuthStore: vi.fn(),
 }));
 
+vi.mock('./PharmacistDashboardPage', () => ({ default: () => <div>Pharmacy review and dispensing</div> }));
+
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 describe('EPrescribePage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -47,6 +49,13 @@ describe('EPrescribePage', () => {
         json: () => Promise.resolve({}),
       });
     });
+  });
+
+  it('shows pharmacists their review workspace without prescribing fields', () => {
+    vi.mocked(useAuthStore).mockReturnValue({ user: { role: 'Pharmacist' } });
+    render(<MemoryRouter><EPrescribePage /></MemoryRouter>);
+    expect(screen.getByText('Pharmacy review and dispensing')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Amoxicillin/i)).not.toBeInTheDocument();
   });
 
   it('renders e-prescribe page', () => {

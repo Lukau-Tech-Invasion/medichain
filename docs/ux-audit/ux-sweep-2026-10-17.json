@@ -1,0 +1,3376 @@
+[
+ {
+  "role": "Doctor",
+  "route": "/access-logs",
+  "landed": "/access-logs",
+  "ms": 3382,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 10
+  },
+  "phone": {
+   "screens": 2.9,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/ama",
+  "landed": "/ama",
+  "ms": 3058,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search by patient name, ",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/anesthesia",
+  "landed": "/anesthesia",
+  "ms": 3112,
+  "desk": {
+   "screens": 2.1,
+   "h1": 1,
+   "controls": 45,
+   "fields": 41,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 15,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/appointments",
+  "landed": "/appointments",
+  "ms": 3150,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/autopsy",
+  "landed": "/autopsy",
+  "ms": 3063,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search reports...",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/burn",
+  "landed": "/burn",
+  "ms": 3071,
+  "desk": {
+   "screens": 3.7,
+   "h1": 1,
+   "controls": 110,
+   "fields": 63,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 17,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 6.7,
+   "overflowX": 89
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/cardiac",
+  "landed": "/cardiac",
+  "ms": 3091,
+  "desk": {
+   "screens": 1.8,
+   "h1": 1,
+   "controls": 49,
+   "fields": 40,
+   "unlabeled": [
+    "INPUT:text:Search patients...",
+    "SELECT:select-one:",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 3,
+   "tiny": 28,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 3.9,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/code-blue",
+  "landed": "/code-blue",
+  "ms": 3071,
+  "desk": {
+   "screens": 1.7,
+   "h1": 1,
+   "controls": 13,
+   "fields": 6,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/consult",
+  "landed": "/consult",
+  "ms": 3117,
+  "desk": {
+   "screens": 1.6,
+   "h1": 1,
+   "controls": 8,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 2.2,
+   "overflowX": 216
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/critical-value",
+  "landed": "/critical-value",
+  "ms": 3217,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/dashboard",
+  "landed": "/dashboard",
+  "ms": 3202,
+  "desk": {
+   "screens": 1.8,
+   "h1": 1,
+   "controls": 15,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.8,
+   "overflowX": 98
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/death-certificate",
+  "landed": "/death-certificate",
+  "ms": 3186,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search by name or certif",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/discharge",
+  "landed": "/discharge",
+  "ms": 3336,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.3,
+   "overflowX": 66
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/drug-interactions",
+  "landed": "/drug-interactions",
+  "ms": 3084,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 8,
+   "fields": 5,
+   "unlabeled": [
+    "INPUT:text:Search by drug name, gen"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 13
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/e-prescribe",
+  "landed": "/e-prescribe",
+  "ms": 3118,
+  "desk": {
+   "screens": 1.4,
+   "h1": 1,
+   "controls": 13,
+   "fields": 11,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.9,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/emergency",
+  "landed": "/emergency",
+  "ms": 3199,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/emergency-protocols",
+  "landed": "/emergency-protocols",
+  "ms": 3156,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 8,
+   "fields": 1,
+   "unlabeled": [
+    "A:"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/ems-handoff",
+  "landed": "/ems-handoff",
+  "ms": 3156,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 27,
+   "fields": 24,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 4,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/family-history",
+  "landed": "/family-history",
+  "ms": 3116,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/health-id-cards",
+  "landed": "/health-id-cards",
+  "ms": 3107,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/history-physical",
+  "landed": "/history-physical",
+  "ms": 3081,
+  "desk": {
+   "screens": 1.3,
+   "h1": 1,
+   "controls": 13,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/imaging",
+  "landed": "/imaging",
+  "ms": 3059,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 3,
+   "unlabeled": [
+    "INPUT:text:Search patient or study.",
+    "SELECT:select-one:",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 3,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/intubation",
+  "landed": "/intubation",
+  "ms": 3072,
+  "desk": {
+   "screens": 2,
+   "h1": 1,
+   "controls": 51,
+   "fields": 34,
+   "unlabeled": [
+    "INPUT:text:Search and select a pati",
+    "TEXTAREA:textarea:Additional notes..."
+   ],
+   "unlabeledCount": 2,
+   "tiny": 19,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/lab-results",
+  "landed": "/lab-results",
+  "ms": 3120,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/lab-review",
+  "landed": "/lab-review",
+  "ms": 3072,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/laceration-repair",
+  "landed": "/laceration-repair",
+  "ms": 3057,
+  "desk": {
+   "screens": 1.4,
+   "h1": 1,
+   "controls": 4,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search by patient, MRN, "
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 8
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 46
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/messages",
+  "landed": "/messages",
+  "ms": 3096,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 3,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 44
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/note-templates",
+  "landed": "/note-templates",
+  "ms": 3151,
+  "desk": {
+   "screens": 10,
+   "h1": 1,
+   "controls": 23,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 11.9,
+   "overflowX": 144
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/obstetrics",
+  "landed": "/obstetrics",
+  "ms": 3170,
+  "desk": {
+   "screens": 1.9,
+   "h1": 1,
+   "controls": 54,
+   "fields": 51,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 34,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.7,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/operative-note",
+  "landed": "/operative-note",
+  "ms": 3068,
+  "desk": {
+   "screens": 2.6,
+   "h1": 1,
+   "controls": 30,
+   "fields": 26,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.7,
+   "overflowX": 93
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/order-sets",
+  "landed": "/order-sets",
+  "ms": 3062,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 8,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.3,
+   "overflowX": 69
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/orders",
+  "landed": "/orders",
+  "ms": 3087,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 3,
+   "unlabeled": [
+    "INPUT:text:Search orders...",
+    "SELECT:select-one:",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 3,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/pathology",
+  "landed": "/pathology",
+  "ms": 3079,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/patients",
+  "landed": "/patients",
+  "ms": 3068,
+  "desk": {
+   "screens": 4.6,
+   "h1": 1,
+   "controls": 37,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 4.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/pediatrics",
+  "landed": "/pediatrics",
+  "ms": 3081,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search by name or MRN..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 1
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/post-op",
+  "landed": "/post-op",
+  "ms": 3063,
+  "desk": {
+   "screens": 2.7,
+   "h1": 1,
+   "controls": 54,
+   "fields": 36,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 12,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 4.2,
+   "overflowX": 65
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/pre-op",
+  "landed": "/pre-op",
+  "ms": 3089,
+  "desk": {
+   "screens": 3.3,
+   "h1": 1,
+   "controls": 116,
+   "fields": 53,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 37,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 5.1,
+   "overflowX": 82
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/progress-note",
+  "landed": "/progress-note",
+  "ms": 3084,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search patient..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 3
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/psych",
+  "landed": "/psych",
+  "ms": 3071,
+  "desk": {
+   "screens": 3.2,
+   "h1": 1,
+   "controls": 65,
+   "fields": 61,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 36,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 4.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/radiology",
+  "landed": "/radiology",
+  "ms": 3062,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 8,
+   "fields": 3,
+   "unlabeled": [
+    "INPUT:text:Search patient or access"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 1
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/register",
+  "landed": "/register",
+  "ms": 3136,
+  "desk": {
+   "screens": 1.6,
+   "h1": 1,
+   "controls": 17,
+   "fields": 14,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 2,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/sepsis",
+  "landed": "/sepsis",
+  "ms": 3106,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 37,
+   "fields": 29,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 11,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 5,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3065,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 5,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/soap",
+  "landed": "/soap",
+  "ms": 3134,
+  "desk": {
+   "screens": 3.4,
+   "h1": 1,
+   "controls": 31,
+   "fields": 27,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.7,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/splint",
+  "landed": "/splint",
+  "ms": 3059,
+  "desk": {
+   "screens": 1.8,
+   "h1": 1,
+   "controls": 31,
+   "fields": 28,
+   "unlabeled": [
+    "INPUT:text:Notes (pulses, sensation",
+    "INPUT:text:Notes (pulses, sensation",
+    "TEXTAREA:textarea:Additional notes..."
+   ],
+   "unlabeledCount": 3,
+   "tiny": 16,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/stroke",
+  "landed": "/stroke",
+  "ms": 3093,
+  "desk": {
+   "screens": 1.4,
+   "h1": 1,
+   "controls": 12,
+   "fields": 8,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/telehealth",
+  "landed": "/telehealth",
+  "ms": 3083,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 9,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 3
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/toxicology",
+  "landed": "/toxicology",
+  "ms": 3106,
+  "desk": {
+   "screens": 2.8,
+   "h1": 1,
+   "controls": 72,
+   "fields": 52,
+   "unlabeled": [
+    "INPUT:number:",
+    "INPUT:number:",
+    "INPUT:number:",
+    "INPUT:number:",
+    "INPUT:number:",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 7,
+   "tiny": 39,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 4.3,
+   "overflowX": 23
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/trauma",
+  "landed": "/trauma",
+  "ms": 3126,
+  "desk": {
+   "screens": 1.5,
+   "h1": 1,
+   "controls": 12,
+   "fields": 11,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/triage",
+  "landed": "/triage",
+  "ms": 3113,
+  "desk": {
+   "screens": 1.9,
+   "h1": 1,
+   "controls": 22,
+   "fields": 13,
+   "unlabeled": [
+    "INPUT:text:Search patient by name, ",
+    "TEXTAREA:textarea:Additional observations,"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/vitals",
+  "landed": "/vitals",
+  "ms": 3102,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Doctor",
+  "route": "/working-hours",
+  "landed": "/working-hours",
+  "ms": 3103,
+  "desk": {
+   "screens": 1.9,
+   "h1": 1,
+   "controls": 40,
+   "fields": 37,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 7,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 4.5,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/care-plan",
+  "landed": "/care-plan",
+  "ms": 3384,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 36,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search patients..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 36
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/code-blue",
+  "landed": "/code-blue",
+  "ms": 3079,
+  "desk": {
+   "screens": 1.7,
+   "h1": 1,
+   "controls": 13,
+   "fields": 6,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/dashboard",
+  "landed": "/dashboard",
+  "ms": 3129,
+  "desk": {
+   "screens": 1.4,
+   "h1": 1,
+   "controls": 14,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 5
+  },
+  "phone": {
+   "screens": 2.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/emergency",
+  "landed": "/emergency",
+  "ms": 3072,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/emergency-protocols",
+  "landed": "/emergency-protocols",
+  "ms": 3091,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 8,
+   "fields": 1,
+   "unlabeled": [
+    "A:"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/ems-handoff",
+  "landed": "/ems-handoff",
+  "ms": 3083,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 27,
+   "fields": 24,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 4,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/fall-risk",
+  "landed": "/fall-risk",
+  "ms": 3059,
+  "desk": {
+   "screens": 3.3,
+   "h1": 1,
+   "controls": 114,
+   "fields": 47,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 45,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 5.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/health-id-cards",
+  "landed": "/health-id-cards",
+  "ms": 3088,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/immunization",
+  "landed": "/immunization",
+  "ms": 3127,
+  "desk": {
+   "screens": 1.7,
+   "h1": 1,
+   "controls": 6,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 4
+  },
+  "phone": {
+   "screens": 2.6,
+   "overflowX": 186
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/incident-report",
+  "landed": "/incident-report",
+  "ms": 3072,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 8,
+   "fields": 3,
+   "unlabeled": [
+    "INPUT:text:Search incidents...",
+    "SELECT:select-one:",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 3,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 49
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/intake-output",
+  "landed": "/intake-output",
+  "ms": 3097,
+  "desk": {
+   "screens": 10.6,
+   "h1": 1,
+   "controls": 4,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search by name, MRN, or "
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 14.2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/iv-site",
+  "landed": "/iv-site",
+  "ms": 3078,
+  "desk": {
+   "screens": 1.8,
+   "h1": 1,
+   "controls": 36,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search patients..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 1.9,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/mar",
+  "landed": "/mar",
+  "ms": 3089,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/messages",
+  "landed": "/messages",
+  "ms": 3080,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 11
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/note-templates",
+  "landed": "/note-templates",
+  "ms": 3143,
+  "desk": {
+   "screens": 10,
+   "h1": 1,
+   "controls": 23,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 11.9,
+   "overflowX": 144
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/nursing",
+  "landed": "/nursing",
+  "ms": 3118,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 3,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/nursing-care-plan",
+  "landed": "/nursing-care-plan",
+  "ms": 3079,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/patients",
+  "landed": "/patients",
+  "ms": 3055,
+  "desk": {
+   "screens": 4.6,
+   "h1": 1,
+   "controls": 37,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 4.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/progress-note",
+  "landed": "/progress-note",
+  "ms": 3087,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search patient..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 3
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/register",
+  "landed": "/register",
+  "ms": 3105,
+  "desk": {
+   "screens": 1.6,
+   "h1": 1,
+   "controls": 17,
+   "fields": 14,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 2,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3050,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 5,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/shift-handoff",
+  "landed": "/shift-handoff",
+  "ms": 3069,
+  "desk": {
+   "screens": 1.2,
+   "h1": 1,
+   "controls": 10,
+   "fields": 6,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/triage",
+  "landed": "/triage",
+  "ms": 3063,
+  "desk": {
+   "screens": 1.9,
+   "h1": 1,
+   "controls": 22,
+   "fields": 13,
+   "unlabeled": [
+    "INPUT:text:Search patient by name, ",
+    "TEXTAREA:textarea:Additional observations,"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/vitals",
+  "landed": "/vitals",
+  "ms": 3070,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Nurse",
+  "route": "/wound-care",
+  "landed": "/wound-care",
+  "ms": 3062,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search patient or locati"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/blood-bank",
+  "landed": "/blood-bank",
+  "ms": 3130,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 1
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/chain-of-custody",
+  "landed": "/chain-of-custody",
+  "ms": 3117,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 1
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 164
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/critical-value",
+  "landed": "/critical-value",
+  "ms": 3079,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/dashboard",
+  "landed": "/dashboard",
+  "ms": 3070,
+  "desk": {
+   "screens": 2,
+   "h1": 1,
+   "controls": 17,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/lab-qc",
+  "landed": "/lab-qc",
+  "ms": 3058,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.2,
+   "overflowX": 24
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/lab-results",
+  "landed": "/lab-results",
+  "ms": 3121,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/messages",
+  "landed": "/messages",
+  "ms": 3089,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 11
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/pathology",
+  "landed": "/pathology",
+  "ms": 3072,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 2
+  },
+  "phone": {
+   "screens": 1.2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/patients",
+  "landed": "/patients",
+  "ms": 3065,
+  "desk": {
+   "screens": 4.6,
+   "h1": 1,
+   "controls": 37,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 4.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3089,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 5,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "LabTechnician",
+  "route": "/specimen",
+  "landed": "/specimen",
+  "ms": 3061,
+  "desk": {
+   "screens": 2,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search specimen or patie",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 14
+  },
+  "phone": {
+   "screens": 2.4,
+   "overflowX": 160
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/dashboard",
+  "landed": "/dashboard",
+  "ms": 3134,
+  "desk": {
+   "screens": 1.5,
+   "h1": 1,
+   "controls": 10,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/drug-interactions",
+  "landed": "/drug-interactions",
+  "ms": 3092,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 8,
+   "fields": 5,
+   "unlabeled": [
+    "INPUT:text:Search by drug name, gen"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 13
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/e-prescribe",
+  "landed": "/e-prescribe",
+  "ms": 3103,
+  "desk": {
+   "screens": 1.5,
+   "h1": 1,
+   "controls": 10,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/medication-admin",
+  "landed": "/medication-admin",
+  "ms": 3108,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/messages",
+  "landed": "/messages",
+  "ms": 3097,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 11
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/order-sets",
+  "landed": "/order-sets",
+  "ms": 3127,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 4,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.2,
+   "overflowX": 5
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/orders",
+  "landed": "/orders",
+  "ms": 3133,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 3,
+   "unlabeled": [
+    "INPUT:text:Search orders...",
+    "SELECT:select-one:",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 3,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/patients",
+  "landed": "/patients",
+  "ms": 3155,
+  "desk": {
+   "screens": 4.6,
+   "h1": 1,
+   "controls": 37,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 4.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Pharmacist",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3109,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 5,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Paramedic",
+  "route": "/emergency",
+  "landed": "/emergency",
+  "ms": 3119,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Paramedic",
+  "route": "/ems-handoff",
+  "landed": "/ems-handoff",
+  "ms": 3082,
+  "desk": {
+   "screens": 2.3,
+   "h1": 1,
+   "controls": 27,
+   "fields": 24,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 4,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Paramedic",
+  "route": "/mci",
+  "landed": "/mci",
+  "ms": 3047,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 30
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Paramedic",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3040,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 5,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/access-logs",
+  "landed": "/access-logs",
+  "ms": 3176,
+  "desk": {
+   "screens": 2.7,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 12
+  },
+  "phone": {
+   "screens": 3.5,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/admin",
+  "landed": "/admin",
+  "ms": 3127,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 19,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 4.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/analytics",
+  "landed": "/analytics",
+  "ms": 3272,
+  "desk": {
+   "screens": 1.9,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.6,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/autopsy",
+  "landed": "/autopsy",
+  "ms": 3056,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search reports...",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/barcode",
+  "landed": "/barcode",
+  "ms": 3050,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/cds-alerts",
+  "landed": "/cds-alerts",
+  "ms": 3060,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 4,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/claims-eob",
+  "landed": "/claims-eob",
+  "ms": 3060,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 1,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/dashboard",
+  "landed": "/dashboard",
+  "ms": 3069,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 19,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 4.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/death-certificate",
+  "landed": "/death-certificate",
+  "ms": 3085,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 2,
+   "unlabeled": [
+    "INPUT:text:Search by name or certif",
+    "SELECT:select-one:"
+   ],
+   "unlabeledCount": 2,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/devices",
+  "landed": "/devices",
+  "ms": 3055,
+  "desk": {
+   "screens": 1.4,
+   "h1": 1,
+   "controls": 19,
+   "fields": 6,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/emergency",
+  "landed": "/emergency",
+  "ms": 3062,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 7,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/health-id-cards",
+  "landed": "/health-id-cards",
+  "ms": 3069,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/mci",
+  "landed": "/mci",
+  "ms": 3098,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 6,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 30
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/national-id-reviews",
+  "landed": "/national-id-reviews",
+  "ms": 3089,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 1,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/note-templates",
+  "landed": "/note-templates",
+  "ms": 3084,
+  "desk": {
+   "screens": 10,
+   "h1": 1,
+   "controls": 16,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 11.8,
+   "overflowX": 89
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/order-sets",
+  "landed": "/order-sets",
+  "ms": 3155,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 4,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.2,
+   "overflowX": 5
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/patients",
+  "landed": "/patients",
+  "ms": 3143,
+  "desk": {
+   "screens": 4.6,
+   "h1": 1,
+   "controls": 37,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 35
+  },
+  "phone": {
+   "screens": 4.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/research-exports",
+  "landed": "/research-exports",
+  "ms": 3073,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/retention",
+  "landed": "/retention",
+  "ms": 3084,
+  "desk": {
+   "screens": 2,
+   "h1": 1,
+   "controls": 6,
+   "fields": 4,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.9,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/security-incidents",
+  "landed": "/security-incidents",
+  "ms": 3113,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 2,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3416,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 10,
+   "fields": 5,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Admin",
+  "route": "/user-management",
+  "landed": "/user-management",
+  "ms": 3204,
+  "desk": {
+   "screens": 51.4,
+   "h1": 1,
+   "controls": 557,
+   "fields": 3,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 70.4,
+   "overflowX": 347
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/access-history",
+  "landed": "/access-history",
+  "ms": 3210,
+  "desk": {
+   "screens": 13.5,
+   "h1": 1,
+   "controls": 1,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 13.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/appointments",
+  "landed": "/appointments",
+  "ms": 3025,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/consent",
+  "landed": "/consent",
+  "ms": 3015,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/dashboard",
+  "landed": "/dashboard",
+  "ms": 3017,
+  "desk": {
+   "screens": 1.8,
+   "h1": 1,
+   "controls": 7,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 1
+  },
+  "phone": {
+   "screens": 1.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/emergency-card",
+  "landed": "/emergency-card",
+  "ms": 3017,
+  "desk": {
+   "screens": 2.2,
+   "h1": 1,
+   "controls": 6,
+   "fields": 0,
+   "unlabeled": [
+    "BUTTON:submit:"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.2,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/family",
+  "landed": "/family",
+  "ms": 3027,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/insurance",
+  "landed": "/insurance",
+  "ms": 3014,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/lab-results",
+  "landed": "/lab-results",
+  "ms": 3045,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 1,
+   "fields": 0,
+   "unlabeled": [
+    "BUTTON:submit:"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/lab-trends",
+  "landed": "/lab-trends",
+  "ms": 3016,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 14,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/language",
+  "landed": "/language",
+  "ms": 3123,
+  "desk": {
+   "screens": 1.5,
+   "h1": 1,
+   "controls": 9,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.5,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/medical-history",
+  "landed": "/medical-history",
+  "ms": 3079,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/medical-id",
+  "landed": "/medical-id",
+  "ms": 3181,
+  "desk": {
+   "screens": 1.6,
+   "h1": 1,
+   "controls": 10,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 1,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.7,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/medications",
+  "landed": "/medications",
+  "ms": 3096,
+  "desk": {
+   "screens": 2.4,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [
+    "BUTTON:submit:"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.7,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/messages",
+  "landed": "/messages",
+  "ms": 3111,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 3,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search conversations..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/notifications",
+  "landed": "/notifications",
+  "ms": 3124,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/offline-sync",
+  "landed": "/offline-sync",
+  "ms": 3062,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/profile",
+  "landed": "/profile",
+  "ms": 3065,
+  "desk": {
+   "screens": 2.5,
+   "h1": 1,
+   "controls": 6,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 2.8,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/records",
+  "landed": "/records",
+  "ms": 3149,
+  "desk": {
+   "screens": 12.4,
+   "h1": 1,
+   "controls": 12,
+   "fields": 1,
+   "unlabeled": [
+    "INPUT:text:Search records..."
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 12.3,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/reminders",
+  "landed": "/reminders",
+  "ms": 3055,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 1,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/settings",
+  "landed": "/settings",
+  "ms": 3086,
+  "desk": {
+   "screens": 3.4,
+   "h1": 1,
+   "controls": 24,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 3.5,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/survey",
+  "landed": "/survey",
+  "ms": 3063,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 1,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/symptom-checker",
+  "landed": "/symptom-checker",
+  "ms": 3064,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 5,
+   "fields": 1,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/symptoms",
+  "landed": "/symptoms",
+  "ms": 3063,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/telehealth",
+  "landed": "/telehealth",
+  "ms": 3055,
+  "desk": {
+   "screens": 1,
+   "h1": 1,
+   "controls": 2,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/vitals",
+  "landed": "/vitals",
+  "ms": 3089,
+  "desk": {
+   "screens": 1.5,
+   "h1": 1,
+   "controls": 1,
+   "fields": 0,
+   "unlabeled": [
+    "BUTTON:submit:"
+   ],
+   "unlabeledCount": 1,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.4,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ },
+ {
+  "role": "Patient",
+  "route": "/wearables",
+  "landed": "/wearables",
+  "ms": 3103,
+  "desk": {
+   "screens": 1.1,
+   "h1": 1,
+   "controls": 4,
+   "fields": 0,
+   "unlabeled": [],
+   "unlabeledCount": 0,
+   "tiny": 0,
+   "errorText": "",
+   "rawIds": 0
+  },
+  "phone": {
+   "screens": 1.1,
+   "overflowX": 0
+  },
+  "consoleErrors": []
+ }
+]

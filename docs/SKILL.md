@@ -1,20 +1,5 @@
----
-name: api-design
-description: >
-  REST and WebSocket API design for MediChain's backend (Rust axum) — endpoint contracts
-  between frontend ↔ backend ↔ on-chain. Covers resource modelling, versioning, idempotency
-  for blockchain-coupled writes, signed-request authentication, error envelopes, pagination,
-  and the "what triggers an on-chain transaction" decision. Activate when adding any new
-  endpoint, designing a new request/response shape, defining a WebSocket message type,
-  refactoring an existing route, or when the user says "endpoint", "route", "API", "REST",
-  "GraphQL", "request", "response", "schema", "versioning", or "idempotency".
----
 
 # API Design for MediChain
-
-The backend sits between the frontend (and emergency reader PWA) and the on-chain program.
-Its job: authenticate, validate, encrypt/decrypt PHI, broker transactions, write audit logs,
-and serve queries that would be too expensive on-chain.
 
 ---
 
@@ -43,35 +28,21 @@ caches, debugging, and tooling. Path versioning is boring and works.
 
 | Caller          | Mechanism                                             |
 |-----------------|-------------------------------------------------------|
-| Patient app     | JWT issued after wallet signature challenge           |
 | Doctor portal   | JWT + verified credential (issued by admin flow)      |
 | Paramedic PWA   | JWT + verified employer relationship                  |
 | Emergency redeem| Capability token (signed by patient) + paramedic JWT  |
 | Backend → chain | Server keypair (limited to non-PHI, audit-log writes) |
 
-The "wallet signature challenge" flow:
-```
-1. Client GET /api/v1/auth/challenge?wallet=<pubkey>
-   → { nonce: "...", expires_at: 1763... }
-2. Client signs nonce with wallet, posts:
-   POST /api/v1/auth/verify { wallet, nonce, signature }
-   → { token: "<jwt>", expires_at: ... }
-3. Subsequent calls: Authorization: Bearer <jwt>
-```
-
 ---
 
-## Idempotency for Chain-Coupled Writes
-
-Some endpoints trigger on-chain transactions. The user's network drops mid-call.
-Did the transaction land? Should we retry? **Idempotency keys** solve this.
+## Idempotency for Consequential Writes
 
 ```
 POST /api/v1/patients/me/consents
 Headers:
   Idempotency-Key: 7c8d3e2a-b4f1-49a6-...
 Body:
-  { grantee: "DrSm1...", scope: 0x06, duration_days: 90 }
+  { grantee_id: "3f2a...", scope: "records", duration_days: 90 }
 ```
 
 Backend behaviour:
@@ -190,23 +161,6 @@ its TS client from the OpenAPI doc → end-to-end type safety, no drift.
 | Anything chain-mutating        | Backend SOL fee budget cap/day |
 
 Return `429` with `Retry-After: <seconds>` and `X-RateLimit-Remaining: 0`.
-
----
-
-## What goes on-chain vs not
-
-| Action                           | On-chain?         | Why                                |
-|----------------------------------|-------------------|------------------------------------|
-| Grant consent                    | YES               | Trust root, must be auditable      |
-| Revoke consent                   | YES               | Same                               |
-| Update PHI blob                  | NO (just hash)    | PHI itself never on-chain          |
-| Doctor reads record              | LOG hash on-chain | Audit trail for patient            |
-| Emergency token redeemed         | YES               | Audit trail, prevents replay       |
-| Patient changes phone number     | NO                | Not a trust event                  |
-| Doctor messages patient          | NO                | Off-chain encrypted messaging      |
-
-When in doubt: **on-chain costs SOL and is permanent. Default to off-chain unless the
-write needs trustless verification or auditability.**
 
 ---
 

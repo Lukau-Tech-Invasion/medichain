@@ -11,7 +11,7 @@
 //! - South Africa — Smart ID (`SMARTID_API_KEY` / `SMARTID_API_URL`)
 //! - Kenya — Huduma Namba (`HUDUMA_API_KEY` / `HUDUMA_API_URL`)
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

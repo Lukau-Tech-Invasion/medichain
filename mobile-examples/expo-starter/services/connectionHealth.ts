@@ -1,7 +1,7 @@
 /**
  * Connection Health Monitor for MediChain Mobile
  * 
- * Monitors the health of API and WebSocket connections,
+ * Monitors the health of the API connection,
  * provides reactive updates, and triggers reconnection when needed.
  * 
  * @see COMPREHENSIVE_CONNECTION_ANALYSIS.md Section 3 & 10
@@ -14,7 +14,6 @@ export type ConnectionHealth = 'healthy' | 'degraded' | 'offline' | 'unknown';
 export interface HealthStatus {
   overall: ConnectionHealth;
   api: ConnectionHealth;
-  websocket: ConnectionHealth;
   network: boolean;
   lastCheck: number;
   latency?: number;
@@ -22,7 +21,6 @@ export interface HealthStatus {
 
 export interface ConnectionHealthConfig {
   apiUrl: string;
-  wsUrl: string;
   checkInterval?: number;  // Milliseconds between health checks (default: 30000)
   timeout?: number;        // Timeout for health check (default: 5000)
   onStatusChange?: (status: HealthStatus) => void;
@@ -35,7 +33,6 @@ export interface ConnectionHealthConfig {
  * ```typescript
  * const monitor = new ConnectionHealthMonitor({
  *   apiUrl: 'http://192.168.1.100:8080',
- *   wsUrl: 'ws://192.168.1.100:9944',
  *   onStatusChange: (status) => {
  *     if (status.overall === 'offline') {
  *       showOfflineBanner();
@@ -56,7 +53,6 @@ export class ConnectionHealthMonitor {
   private currentStatus: HealthStatus = {
     overall: 'unknown',
     api: 'unknown',
-    websocket: 'unknown',
     network: true,
     lastCheck: 0
   };
@@ -136,7 +132,6 @@ export class ConnectionHealthMonitor {
       this.updateStatus({
         overall: 'offline',
         api: 'offline',
-        websocket: 'offline',
         network: false,
         lastCheck: Date.now()
       });
@@ -155,7 +150,6 @@ export class ConnectionHealthMonitor {
       return this.updateStatus({
         overall: 'offline',
         api: 'offline',
-        websocket: 'offline',
         network: false,
         lastCheck: Date.now()
       });
@@ -165,21 +159,12 @@ export class ConnectionHealthMonitor {
     const apiHealth = await this.checkApiHealth();
     const latency = Date.now() - startTime;
 
-    // Check WebSocket health
-    const wsHealth = await this.checkWebSocketHealth();
-
-    // Determine overall health
-    let overall: ConnectionHealth = 'healthy';
-    if (apiHealth === 'offline' || wsHealth === 'offline') {
-      overall = 'offline';
-    } else if (apiHealth === 'degraded' || wsHealth === 'degraded') {
-      overall = 'degraded';
-    }
+    // The API is the only connection: overall health is its health.
+    const overall: ConnectionHealth = apiHealth;
 
     return this.updateStatus({
       overall,
       api: apiHealth,
-      websocket: wsHealth,
       network: true,
       lastCheck: Date.now(),
       latency
@@ -216,45 +201,6 @@ export class ConnectionHealthMonitor {
       console.log('[ConnectionHealth] API check failed:', error.message);
       return 'offline';
     }
-  }
-
-  /**
-   * Check WebSocket health
-   */
-  private async checkWebSocketHealth(): Promise<ConnectionHealth> {
-    return new Promise((resolve) => {
-      try {
-        const ws = new WebSocket(this.config.wsUrl);
-        let resolved = false;
-
-        const timeout = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            ws.close();
-            resolve('degraded');
-          }
-        }, this.config.timeout);
-
-        ws.onopen = () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            ws.close();
-            resolve('healthy');
-          }
-        };
-
-        ws.onerror = () => {
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            resolve('offline');
-          }
-        };
-      } catch {
-        resolve('offline');
-      }
-    });
   }
 
   /**

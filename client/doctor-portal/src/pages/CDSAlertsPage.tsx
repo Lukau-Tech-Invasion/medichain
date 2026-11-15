@@ -17,6 +17,9 @@ import {
   cdsActionSchema,
   formatTimestamp,
   confirmDialog,
+  notifySuccess, ChoiceChips,
+  keepEnterInField,
+  useLatestRequest,
 } from '@medichain/shared';
 import type { CreateCdsRulePayload } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
@@ -131,10 +134,14 @@ const CDSAlertsPage: React.FC = () => {
   const [auditUnknown, setAuditUnknown] = useState(false);
   const [auditPatient, setAuditPatient] = useState('');
 
+  const beginAuditRead = useLatestRequest();
   const loadAudit = useCallback(
     async (cursor?: string) => {
+      // The patient filter re-reads on every keystroke; replies can cross.
+      const current = beginAuditRead();
       try {
         const body = await getCdsAudit(auditPatient.trim() || undefined, { cursor, limit: 50 });
+        if (!current()) return;
         const rows = (body.entries ?? []) as Record<string, unknown>[];
         setAuditEntries((previous) => (cursor ? [...previous, ...rows] : rows));
         // The handler pages; carrying the cursor is what makes the second page
@@ -142,12 +149,12 @@ const CDSAlertsPage: React.FC = () => {
         setAuditCursor(body.next_cursor ?? null);
         setAuditUnknown(false);
       } catch {
-        setAuditUnknown(true);
+        if (current()) setAuditUnknown(true);
       } finally {
-        setAuditLoaded(true);
+        if (current()) setAuditLoaded(true);
       }
     },
-    [auditPatient]
+    [auditPatient, beginAuditRead]
   );
 
   useEffect(() => {
@@ -269,6 +276,7 @@ const CDSAlertsPage: React.FC = () => {
     };
     try {
       await createCdsRule(payload);
+      notifySuccess('Rule saved.');
     } catch (err) {
       showError(getApiErrorMessage(err, t('docCDS.errorRuleSaveFailed')));
       return false;
@@ -683,39 +691,39 @@ const CDSAlertsPage: React.FC = () => {
 
               {/* Severity Filter */}
               <div>
-                <label htmlFor="cds-severity-filter" className="sr-only">{t('docCDS.filterSeveritySr')}</label>
-                <select
+                <ChoiceChips
                   id="cds-severity-filter"
+                  label={t('docCDS.filterSeveritySr')}
                   value={severityFilter}
-                  onChange={(e) => setSeverityFilter(e.target.value as AlertSeverity | 'all')}
-                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                >
-                  <option value="all">{t('docCDS.filterAllSeverities')}</option>
-                  <option value="critical">{t('docCDS.severity_critical')}</option>
-                  <option value="high">{t('docCDS.severity_high')}</option>
-                  <option value="medium">{t('docCDS.severity_medium')}</option>
-                  <option value="low">{t('docCDS.severity_low')}</option>
-                  <option value="info">{t('docCDS.severity_info')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setSeverityFilter(next as AlertSeverity | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docCDS.filterAllSeverities') },
+                    { value: 'critical', label: t('docCDS.severity_critical') },
+                    { value: 'high', label: t('docCDS.severity_high') },
+                    { value: 'medium', label: t('docCDS.severity_medium') },
+                    { value: 'low', label: t('docCDS.severity_low') },
+                    { value: 'info', label: t('docCDS.severity_info') },
+                  ]}
+                />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               {/* Status Filter */}
               <div>
-                <label htmlFor="cds-status-filter" className="sr-only">{t('docCDS.filterStatusSr')}</label>
-                <select
+                <ChoiceChips
                   id="cds-status-filter"
+                  label={t('docCDS.filterStatusSr')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as AlertStatus | 'all')}
-                  className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                >
-                  <option value="all">{t('docCDS.filterAllStatuses')}</option>
-                  <option value="active">{t('docCDS.status_active')}</option>
-                  <option value="inactive">{t('docCDS.status_inactive')}</option>
-                  <option value="testing">{t('docCDS.status_testing')}</option>
-                  <option value="draft">{t('docCDS.status_draft')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as AlertStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docCDS.filterAllStatuses') },
+                    { value: 'active', label: t('docCDS.status_active') },
+                    { value: 'inactive', label: t('docCDS.status_inactive') },
+                    { value: 'testing', label: t('docCDS.status_testing') },
+                    { value: 'draft', label: t('docCDS.status_draft') },
+                  ]}
+                />
               </div>
             </div>
           </div>
@@ -967,6 +975,7 @@ const CDSAlertsPage: React.FC = () => {
 
       {/* Create New Rule Tab */}
       {activeTab === 'create' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCreateRule(); }} onKeyDown={keepEnterInField} noValidate>
         <div className="space-y-6">
           {/* Basic Information */}
           <div className="bg-surface rounded-lg shadow p-6">
@@ -1010,19 +1019,19 @@ const CDSAlertsPage: React.FC = () => {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="cds-severity" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.severityLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="cds-severity"
+                    label={t('docCDS.severityLabel')}
                     value={newRule.severity || 'medium'}
-                    onChange={(e) => setNewRule({ ...newRule, severity: e.target.value as AlertSeverity })}
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  >
-                    <option value="critical">{t('docCDS.severity_critical')}</option>
-                    <option value="high">{t('docCDS.severity_high')}</option>
-                    <option value="medium">{t('docCDS.severity_medium')}</option>
-                    <option value="low">{t('docCDS.severity_low')}</option>
-                    <option value="info">{t('docCDS.severity_info')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewRule({ ...newRule, severity: next as AlertSeverity }); }}
+                    options={[
+                      { value: 'critical', label: t('docCDS.severity_critical') },
+                      { value: 'high', label: t('docCDS.severity_high') },
+                      { value: 'medium', label: t('docCDS.severity_medium') },
+                      { value: 'low', label: t('docCDS.severity_low') },
+                      { value: 'info', label: t('docCDS.severity_info') },
+                    ]}
+                  />
                 </div>
 
                 {/* Evidence level was initialised to 'B' with no control, so every
@@ -1030,34 +1039,33 @@ const CDSAlertsPage: React.FC = () => {
                     been given. 'Unspecified' is the honest default: a rule with
                     no stated evidence should say so rather than claim a grade. */}
                 <div>
-                  <label htmlFor="cds-evidence-level" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.evidenceLevelFieldLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="cds-evidence-level"
-                    value={newRule.evidenceLevel || ''}
-                    onChange={(e) => setNewRule({ ...newRule, evidenceLevel: e.target.value })}
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  >
-                    <option value="">{t('docCDS.evidence_unspecified')}</option>
-                    <option value="A">{t('docCDS.evidence_a')}</option>
-                    <option value="B">{t('docCDS.evidence_b')}</option>
-                    <option value="C">{t('docCDS.evidence_c')}</option>
-                  </select>
+                    label={t('docCDS.evidenceLevelFieldLabel')}
+                    value={(newRule.evidenceLevel || '') || undefined}
+                    onChange={(chosen) => { const next = chosen ?? ''; setNewRule({ ...newRule, evidenceLevel: next }); }}
+                    options={[
+                      { value: 'A', label: t('docCDS.evidence_a') },
+                      { value: 'B', label: t('docCDS.evidence_b') },
+                      { value: 'C', label: t('docCDS.evidence_c') },
+                    ]}
+                  />
                 </div>
 
                 <div>
-                  <label htmlFor="cds-trigger-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.triggerTypeLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="cds-trigger-type"
+                    label={t('docCDS.triggerTypeLabel')}
                     value={newRule.triggerType || 'threshold'}
-                    onChange={(e) => setNewRule({ ...newRule, triggerType: e.target.value as TriggerType })}
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  >
-                    <option value="threshold">{t('docCDS.trigger_threshold')}</option>
-                    <option value="pattern">{t('docCDS.trigger_pattern')}</option>
-                    <option value="time_based">{t('docCDS.trigger_time_based')}</option>
-                    <option value="interaction">{t('docCDS.trigger_interaction')}</option>
-                    <option value="contraindication">{t('docCDS.trigger_contraindication')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewRule({ ...newRule, triggerType: next as TriggerType }); }}
+                    options={[
+                      { value: 'threshold', label: t('docCDS.trigger_threshold') },
+                      { value: 'pattern', label: t('docCDS.trigger_pattern') },
+                      { value: 'time_based', label: t('docCDS.trigger_time_based') },
+                      { value: 'interaction', label: t('docCDS.trigger_interaction') },
+                      { value: 'contraindication', label: t('docCDS.trigger_contraindication') },
+                    ]}
+                  />
                 </div>
 
                 <div>
@@ -1167,19 +1175,19 @@ const CDSAlertsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="cds-condition-logical" className="sr-only">{t('docCDS.logicalOperatorSr')}</label>
-                  <select
+                  <ChoiceChips
                     id="cds-condition-logical"
+                    label={t('docCDS.logicalOperatorSr')}
                     value={newCondition.logicalOperator || 'AND'}
-                    onChange={(e) => setNewCondition({ ...newCondition, logicalOperator: e.target.value as 'AND' | 'OR' })}
-                    className="w-full px-3 py-2 border border-notice rounded focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="AND">AND</option>
-                    <option value="OR">OR</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setNewCondition({ ...newCondition, logicalOperator: next as 'AND' | 'OR' }); }}
+                    options={[
+                      { value: 'AND', label: 'AND' },
+                      { value: 'OR', label: 'OR' },
+                    ]}
+                  />
                 </div>
               </div>
-              <button
+              <button type="button"
                 onClick={handleAddCondition}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -1206,7 +1214,7 @@ const CDSAlertsPage: React.FC = () => {
                         <span className="text-notice-subtle-fg font-semibold">{condition.logicalOperator}</span>
                       )}
                     </div>
-                    <button
+                    <button type="button"
                       onClick={() => handleRemoveCondition(condition.conditionId)}
                       className="p-1 text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
                       aria-label="Remove condition"
@@ -1232,34 +1240,34 @@ const CDSAlertsPage: React.FC = () => {
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label htmlFor="cds-action-type" className="sr-only">{t('docCDS.actionTypeSr')}</label>
-                    <select
+                    <ChoiceChips
                       id="cds-action-type"
+                      label={t('docCDS.actionTypeSr')}
                       value={newAction.type || 'alert'}
-                      onChange={(e) => setNewAction({ ...newAction, type: e.target.value as ActionType })}
-                      className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="alert">{t('docCDS.actionType_alert')}</option>
-                      <option value="block">{t('docCDS.actionType_block')}</option>
-                      <option value="recommend">{t('docCDS.actionType_recommend')}</option>
-                      <option value="notify">{t('docCDS.actionType_notify')}</option>
-                      <option value="escalate">{t('docCDS.actionType_escalate')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setNewAction({ ...newAction, type: next as ActionType }); }}
+                      options={[
+                        { value: 'alert', label: t('docCDS.actionType_alert') },
+                        { value: 'block', label: t('docCDS.actionType_block') },
+                        { value: 'recommend', label: t('docCDS.actionType_recommend') },
+                        { value: 'notify', label: t('docCDS.actionType_notify') },
+                        { value: 'escalate', label: t('docCDS.actionType_escalate') },
+                      ]}
+                    />
                   </div>
                   <div>
-                    <label htmlFor="cds-action-severity" className="sr-only">{t('docCDS.actionSeveritySr')}</label>
-                    <select
+                    <ChoiceChips
                       id="cds-action-severity"
+                      label={t('docCDS.actionSeveritySr')}
                       value={newAction.severity || 'medium'}
-                      onChange={(e) => setNewAction({ ...newAction, severity: e.target.value as AlertSeverity })}
-                      className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
-                    >
-                      <option value="critical">{t('docCDS.severity_critical')}</option>
-                      <option value="high">{t('docCDS.severity_high')}</option>
-                      <option value="medium">{t('docCDS.severity_medium')}</option>
-                      <option value="low">{t('docCDS.severity_low')}</option>
-                      <option value="info">{t('docCDS.severity_info')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setNewAction({ ...newAction, severity: next as AlertSeverity }); }}
+                      options={[
+                        { value: 'critical', label: t('docCDS.severity_critical') },
+                        { value: 'high', label: t('docCDS.severity_high') },
+                        { value: 'medium', label: t('docCDS.severity_medium') },
+                        { value: 'low', label: t('docCDS.severity_low') },
+                        { value: 'info', label: t('docCDS.severity_info') },
+                      ]}
+                    />
                   </div>
                   <label htmlFor="cds-block-action" className="flex items-center gap-2 px-3 py-2">
                     <input
@@ -1298,7 +1306,7 @@ const CDSAlertsPage: React.FC = () => {
                   />
                 </div>
               </div>
-              <button
+              <button type="button"
                 onClick={handleAddAction}
                 className="mt-3 flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-lg hover:bg-orange-800 transition-colors"
               >
@@ -1333,7 +1341,7 @@ const CDSAlertsPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <button
+                      <button type="button"
                         onClick={() => handleRemoveAction(action.actionId)}
                         className="p-1 text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
                         aria-label="Remove action"
@@ -1353,7 +1361,7 @@ const CDSAlertsPage: React.FC = () => {
 
           {/* Create Button */}
           <div className="flex justify-end gap-3">
-            <button
+            <button type="button"
               onClick={() => {
                 setActiveTab('all');
                 setNewRule({
@@ -1377,8 +1385,7 @@ const CDSAlertsPage: React.FC = () => {
             >
               {t('docCDS.cancelBtn')}
             </button>
-            <button
-              onClick={handleCreateRule}
+            <button type="submit"
               className="flex items-center gap-2 px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors"
             >
               <Save className="w-5 h-5" />
@@ -1386,6 +1393,7 @@ const CDSAlertsPage: React.FC = () => {
             </button>
           </div>
         </div>
+        </form>
       )}
 
       {/* Analytics Tab */}

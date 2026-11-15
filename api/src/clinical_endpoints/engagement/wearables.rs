@@ -22,7 +22,7 @@ pub async fn register_wearable_device(
     req: web::Json<RegisterWearableRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -118,7 +118,7 @@ pub async fn get_wearable_devices(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -168,7 +168,7 @@ pub async fn disconnect_wearable_device(
     path: web::Path<String>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let device_id = path.into_inner();
@@ -257,9 +257,9 @@ pub async fn get_supported_wearables(
     http_req: HttpRequest,
 ) -> impl Responder {
     // Only authenticated users can see supported wearables
-    if http_req.headers().get("X-User-Id").is_none() {
+    if crate::support::get_current_user_id(&http_req).is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {
-            error: "Missing X-User-Id header".to_string(),
+            error: "Authentication required".to_string(),
             code: "UNAUTHORIZED".to_string(),
         });
     }
@@ -318,7 +318,7 @@ pub async fn submit_wearable_reading(
     req: web::Json<SubmitWearableReadingRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -532,12 +532,15 @@ fn check_reading_for_abnormality(
     match data_type {
         T::HeartRate if value > 120.0 => Some((120.0, "High heart rate detected".to_string())),
         T::HeartRate if value < 40.0 => Some((40.0, "Low heart rate detected".to_string())),
-        T::BloodGlucose if value > 180.0 => Some((
-            180.0,
+        // mmol/L, as the glucose meters and CGMs used here report it. These
+        // were 180 and 70 -- mg/dL -- so a mmol/L reading of 3.0 never raised
+        // the hypoglycaemia alert and every reading at all raised the other.
+        T::BloodGlucose if value > 10.0 => Some((
+            10.0,
             "Hyperglycemia (high blood sugar) detected".to_string(),
         )),
-        T::BloodGlucose if value < 70.0 => {
-            Some((70.0, "Hypoglycemia (low blood sugar) detected".to_string()))
+        T::BloodGlucose if value < 3.9 => {
+            Some((3.9, "Hypoglycemia (low blood sugar) detected".to_string()))
         }
         T::SpO2 if value < 92.0 => Some((92.0, "Low blood oxygen levels detected".to_string())),
         _ => None,
@@ -642,7 +645,7 @@ pub async fn list_wearable_alert_rules(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -676,7 +679,7 @@ pub async fn get_wearable_readings(
 ) -> impl Responder {
     let device_id = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -789,7 +792,7 @@ pub async fn create_wearable_alert_rule(
     req: web::Json<CreateAlertRuleRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -872,7 +875,7 @@ pub async fn get_wearable_alerts(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -957,5 +960,22 @@ mod alert_bounds_tests {
     #[test]
     fn an_inverted_band_is_refused() {
         assert!(alert_bounds(Some(120.0), Some(50.0)).is_err());
+    }
+}
+
+/// The built-in glucose net is in mmol/L, the unit meters here report. It was
+/// 180/70 mg/dL, so every mmol/L reading was "low" and a real low never was.
+#[cfg(test)]
+mod glucose_safety_net_tests {
+    use super::check_reading_for_abnormality;
+    use crate::clinical::WearableDataType as T;
+
+    #[test]
+    fn a_normal_mmol_l_reading_raises_nothing_and_a_low_one_does() {
+        assert!(check_reading_for_abnormality(&T::BloodGlucose, 5.5).is_none());
+        let low = check_reading_for_abnormality(&T::BloodGlucose, 3.0).expect("low");
+        assert!(low.1.contains("Hypoglycemia"));
+        let high = check_reading_for_abnormality(&T::BloodGlucose, 14.0).expect("high");
+        assert!(high.1.contains("Hyperglycemia"));
     }
 }

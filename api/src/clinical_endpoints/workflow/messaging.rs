@@ -12,7 +12,7 @@ pub async fn log_symptom(
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -29,10 +29,10 @@ pub async fn log_symptom(
     // Get patient_id - patients log for themselves, providers can log for patients.
     //
     // A patient's entries must be filed under their PATIENT RECORD id, not their
-    // wallet: `GET /api/symptoms/{patient_id}` reads by record id, so filing by
-    // wallet meant a patient logged a symptom and then could not see it in their
+    // user id: `GET /api/symptoms/{patient_id}` reads by record id, so filing by
+    // user id meant a patient logged a symptom and then could not see it in their
     // own history. `linked_patient_id` is the bridge between the two namespaces;
-    // the wallet remains the fallback for accounts that have not claimed a
+    // the user id remains the fallback for accounts that have not claimed a
     // record yet, which is also the arm `caller_owns_patient_record` honours.
     let patient_id = if matches!(current_user.role, crate::Role::Patient) {
         current_user
@@ -176,7 +176,7 @@ pub async fn get_symptom_history(
 ) -> impl Responder {
     let patient_id = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -237,7 +237,7 @@ pub async fn retract_symptom(
 ) -> impl Responder {
     let (patient_id, entry_id) = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(user) => user.wallet_address,
+        Ok(user) => user.id,
         Err(response) => return response,
     };
     let Some(current_user) = get_user(&data, &current_user_id) else {
@@ -344,7 +344,7 @@ pub async fn send_message(
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -402,7 +402,7 @@ pub async fn send_message(
 
     // Resolve every recipient before persisting anything. Previously only a
     // patient's recipient was checked, so a clinician could receive 201 for a
-    // typo or stale wallet id even though no account could ever open the copy.
+    // typo or stale user id id even though no account could ever open the copy.
     let recipient = match get_user(&data, &recipient_id) {
         Some(user) => user,
         None => {
@@ -421,6 +421,22 @@ pub async fn send_message(
             error: "Patients can only message healthcare providers".to_string(),
             code: "INVALID_RECIPIENT".to_string(),
         });
+    }
+    // Staff may write to a patient they are treating, or answer one who wrote
+    // to them. Any staff account could message any patient account before.
+    if !matches!(current_user.role, crate::Role::Patient)
+        && matches!(recipient.role, crate::Role::Patient)
+    {
+        match may_message_patient(&data, &current_user, &recipient).await {
+            Ok(true) => {}
+            Ok(false) => return HttpResponse::Forbidden().json(ErrorResponse {
+                error:
+                    "You can message a patient you are treating, or reply to one who wrote to you"
+                        .to_string(),
+                code: "NOT_TREATING_PATIENT".to_string(),
+            }),
+            Err(response) => return response,
+        }
     }
 
     let message_id = format!(
@@ -481,6 +497,20 @@ pub async fn send_message(
         log::warn!("message persist (sent folder) failed: {}", e);
     }
 
+    // Tell the recipient's open screens. Without this a delivered message
+    // appeared only when they reloaded, which reads as "it never sent". The
+    // event names the sender, never the content.
+    data.ws_manager.push_event(crate::websocket::PushEvent {
+        event_type: "message".to_string(),
+        patient_id: None,
+        payload: serde_json::json!({
+            "message_id": message_id,
+            "sender_name": current_user.name,
+        }),
+        timestamp: chrono::Utc::now().timestamp(),
+        audience: crate::websocket::Audience::Accounts(vec![recipient_id.to_string()]),
+    });
+
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "message": message,
@@ -501,7 +531,7 @@ pub async fn get_messages(
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -537,6 +567,9 @@ pub async fn get_messages(
         .map(|r| enrich_message_display_names(&data, r.data))
         .collect();
     messages.sort_by_key(|m| std::cmp::Reverse(m.get("sent_at").and_then(|v| v.as_i64())));
+    if let Err(response) = attach_attachment_descriptions(&data, &mut messages).await {
+        return response;
+    }
 
     // Group into conversations by the counterpart, newest message first.
     let mut order: Vec<String> = Vec::new();
@@ -620,7 +653,7 @@ pub async fn mark_message_read(
     path: web::Path<String>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(user) => user.wallet_address,
+        Ok(user) => user.id,
         Err(response) => return response,
     };
     let message_id = path.into_inner();
@@ -687,9 +720,40 @@ async fn sync_sender_read_receipt(
     }
 }
 
+/// Add each message's attachments (WP7.2) as an `attachments` array.
+///
+/// One read for the whole list. A storage failure is returned as the response
+/// rather than a list that silently drops files the sender attached.
+async fn attach_attachment_descriptions(
+    data: &web::Data<AppState>,
+    messages: &mut [serde_json::Value],
+) -> Result<(), HttpResponse> {
+    let ids: Vec<String> = messages
+        .iter()
+        .filter_map(|m| {
+            m.get("message_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    let mut grouped = super::message_attachments::attachments_by_message(data, &ids).await?;
+    for message in messages.iter_mut() {
+        let id = message
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let files = grouped.remove(&id).unwrap_or_default();
+        if let Some(object) = message.as_object_mut() {
+            object.insert("attachments".to_string(), serde_json::json!(files));
+        }
+    }
+    Ok(())
+}
+
 /// Add only server-authoritative display names to legacy message records.
 ///
-/// Older rows predate `sender_name`; returning their opaque wallet identifiers
+/// Older rows predate `sender_name`; returning their opaque user id identifiers
 /// made an inbox unreadable. Unknown users stay unnamed rather than being
 /// represented by a guessed person or a leaked identifier.
 fn enrich_message_display_names(
@@ -714,22 +778,143 @@ fn enrich_message_display_names(
     message
 }
 
+/// Whether `sender` (staff) may write to `patient`: they are treating them
+/// (`care_access::treats_patient`), or the patient has written to them.
+async fn may_message_patient(
+    data: &web::Data<AppState>,
+    sender: &crate::User,
+    patient: &crate::User,
+) -> Result<bool, HttpResponse> {
+    let unavailable = |what: &str| {
+        HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: format!("{what} could not be checked. Please try again."),
+            code: "RECIPIENT_CHECK_UNAVAILABLE".to_string(),
+        })
+    };
+    if let Some(patient_id) = patient.linked_patient_id.as_deref() {
+        match crate::care_access::treats_patient(data, sender, patient_id).await {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            Err(error) => {
+                log::error!("messaging chart check failed: {}", error.0);
+                return Err(unavailable("Your care relationship"));
+            }
+        }
+    }
+    let copies = data
+        .repositories
+        .messages
+        .get_by_owner(&sender.id)
+        .await
+        .map_err(|error| {
+            log::error!("messaging reply check failed: {error}");
+            unavailable("Your conversation")
+        })?;
+    Ok(copies.iter().any(|copy| {
+        copy.data.get("sender_id").and_then(|v| v.as_str()) == Some(patient.id.as_str())
+    }))
+}
+
+/// Most patient accounts one recipient listing considers. A clinician's list
+/// is filtered from these by a chart check each; a deployment with more
+/// patients than this wants a "patients of clinician" read instead.
+const RECIPIENT_PATIENT_CANDIDATES: usize = 500;
+
+/// Who the caller can write to.
+///
+/// Staff: every active staff account, and the patients they are treating (a
+/// patient's grant, a care relationship from an appointment, consultation or
+/// referral, or emergency access). The compose box offered only staff, so a
+/// doctor could not message a patient at all. Patients: staff only.
+#[get("/api/messages/recipients")]
+pub async fn list_message_recipients(
+    data: web::Data<AppState>,
+    caller: crate::middleware::AuthorizedUser,
+) -> impl Responder {
+    let (staff, candidates): (Vec<crate::User>, Vec<crate::User>) = {
+        let users = match data.users.read() {
+            Ok(users) => users,
+            Err(_) => {
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Recipients could not be loaded".to_string(),
+                    code: "RECIPIENTS_UNAVAILABLE".to_string(),
+                })
+            }
+        };
+        let active = users
+            .values()
+            .filter(|u| u.id != caller.user_id && u.status.eq_ignore_ascii_case("active"));
+        let (patients, staff): (Vec<&crate::User>, Vec<&crate::User>) =
+            active.partition(|u| u.role == crate::Role::Patient);
+        (
+            staff.into_iter().cloned().collect(),
+            patients
+                .into_iter()
+                .filter(|u| u.linked_patient_id.is_some())
+                .take(RECIPIENT_PATIENT_CANDIDATES)
+                .cloned()
+                .collect(),
+        )
+    };
+    let mut patients = Vec::new();
+    if caller.user.role != crate::Role::Patient {
+        for candidate in &candidates {
+            let patient_id = candidate.linked_patient_id.as_deref().unwrap_or_default();
+            match crate::care_access::treats_patient(&data, &caller.user, patient_id).await {
+                Ok(true) => patients.push(serde_json::json!({
+                    "user_id": candidate.id,
+                    "name": candidate.name,
+                    "patient_id": patient_id,
+                })),
+                Ok(false) => {}
+                Err(error) => {
+                    log::error!("recipient chart check failed: {}", error.0);
+                    return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                        error: "Recipients could not be loaded".to_string(),
+                        code: "RECIPIENTS_UNAVAILABLE".to_string(),
+                    });
+                }
+            }
+        }
+    }
+    let mut staff: Vec<serde_json::Value> = staff
+        .iter()
+        .map(|u| {
+            serde_json::json!({
+                "user_id": u.id,
+                "name": u.name,
+                "role": u.role.to_string(),
+                "specialty": u.specialty,
+            })
+        })
+        .collect();
+    staff.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    patients.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "staff": staff,
+        "patients": patients,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use actix_web::{test, App};
 
-    fn register(state: &AppState, wallet: &str, name: &str, role: crate::Role) {
+    fn register(state: &AppState, user_id: &str, name: &str, role: crate::Role) {
+        let is_patient = role == crate::Role::Patient;
         state.users.write().unwrap().insert(
-            wallet.to_string(),
+            user_id.to_string(),
             crate::User {
-                wallet_address: wallet.to_string(),
+                id: user_id.to_string(),
                 username: Some(name.to_string()),
                 name: name.to_string(),
                 role,
                 created_at: chrono::Utc::now(),
                 created_by: None,
-                linked_patient_id: None,
+                // A patient account is bound to its record.
+                linked_patient_id: is_patient.then(|| format!("PAT-{user_id}")),
                 email: None,
                 phone: None,
                 department: None,
@@ -741,11 +926,109 @@ mod tests {
         );
     }
 
+    /// A care relationship between a clinician and a patient account.
+    async fn treat(state: &AppState, clinician: &str, patient_user: &str) {
+        crate::care_access::record_encounter(
+            state,
+            &format!("PAT-{patient_user}"),
+            clinician,
+            "APPT-test",
+            chrono::Utc::now(),
+        )
+        .await;
+    }
+
+    fn send(from: &str, to: &str) -> test::TestRequest {
+        test::TestRequest::post()
+            .uri("/api/messages/send")
+            .insert_header(crate::test_fixtures::as_user(from))
+            .set_json(serde_json::json!({ "recipient_id": to, "content": "Hello" }))
+    }
+
+    /// Staff write to patients they treat, or answer one who wrote first.
+    #[actix_web::test]
+    async fn staff_message_a_patient_they_treat_or_one_who_wrote() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Treating", crate::Role::Doctor);
+        register(&state, "stranger", "Dr Stranger", crate::Role::Doctor);
+        register(&state, "patient", "Patient Test", crate::Role::Patient);
+        treat(&state, "doctor", "patient").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(send_message),
+        )
+        .await;
+        assert_eq!(
+            test::call_service(&app, send("doctor", "patient").to_request())
+                .await
+                .status(),
+            201
+        );
+        assert_eq!(
+            test::call_service(&app, send("stranger", "patient").to_request())
+                .await
+                .status(),
+            403
+        );
+        // The patient writes to the stranger; now the stranger may answer.
+        assert_eq!(
+            test::call_service(&app, send("patient", "stranger").to_request())
+                .await
+                .status(),
+            201
+        );
+        assert_eq!(
+            test::call_service(&app, send("stranger", "patient").to_request())
+                .await
+                .status(),
+            201
+        );
+    }
+
+    /// The compose box lists staff, and only the patients the caller treats.
+    #[actix_web::test]
+    async fn recipients_are_staff_and_the_patients_you_treat() {
+        let state = crate::AppState::new();
+        register(&state, "doctor", "Dr Treating", crate::Role::Doctor);
+        register(&state, "nurse", "Sister Nurse", crate::Role::Nurse);
+        register(&state, "mine", "Thabo Mine", crate::Role::Patient);
+        register(&state, "other", "Zanele Other", crate::Role::Patient);
+        treat(&state, "doctor", "mine").await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(list_message_recipients),
+        )
+        .await;
+        let list = |user: &'static str| {
+            test::TestRequest::get()
+                .uri("/api/messages/recipients")
+                .insert_header(crate::test_fixtures::as_user(user))
+                .to_request()
+        };
+        let names = |body: &serde_json::Value, key: &str| -> Vec<String> {
+            body[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let doctor: serde_json::Value = test::call_and_read_body_json(&app, list("doctor")).await;
+        assert_eq!(names(&doctor, "patients"), vec!["Thabo Mine"], "{doctor}");
+        assert_eq!(names(&doctor, "staff"), vec!["Sister Nurse"], "{doctor}");
+        let patient: serde_json::Value = test::call_and_read_body_json(&app, list("mine")).await;
+        assert!(names(&patient, "patients").is_empty(), "{patient}");
+        assert_eq!(names(&patient, "staff").len(), 2, "{patient}");
+    }
+
     #[actix_web::test]
     async fn opening_message_persists_read_state_and_updates_counts() {
         let state = crate::AppState::new();
         register(&state, "doctor", "Dr Test", crate::Role::Doctor);
         register(&state, "patient", "Patient Test", crate::Role::Patient);
+        treat(&state, "doctor", "patient").await;
         let data = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -760,7 +1043,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/messages/send")
-                .insert_header(("X-User-Id", "doctor"))
+                .insert_header(crate::test_fixtures::as_user("doctor"))
                 .set_json(serde_json::json!({
                     "recipient_id": "patient",
                     "subject": "Follow-up",
@@ -777,7 +1060,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/messages")
-                .insert_header(("X-User-Id", "patient"))
+                .insert_header(crate::test_fixtures::as_user("patient"))
                 .to_request(),
         )
         .await;
@@ -790,7 +1073,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/messages/{message_id}/read"))
-                .insert_header(("X-User-Id", "patient"))
+                .insert_header(crate::test_fixtures::as_user("patient"))
                 .to_request(),
         )
         .await;
@@ -800,7 +1083,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/messages")
-                .insert_header(("X-User-Id", "patient"))
+                .insert_header(crate::test_fixtures::as_user("patient"))
                 .to_request(),
         )
         .await;
@@ -823,6 +1106,7 @@ mod tests {
         let state = crate::AppState::new();
         register(&state, "doctor", "Dr Test", crate::Role::Doctor);
         register(&state, "patient", "Patient Test", crate::Role::Patient);
+        treat(&state, "doctor", "patient").await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -835,7 +1119,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/messages/send")
-                .insert_header(("X-User-Id", "doctor"))
+                .insert_header(crate::test_fixtures::as_user("doctor"))
                 .set_json(serde_json::json!({
                     "recipient_id": "patient",
                     "subject": "Follow-up",
@@ -851,7 +1135,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/messages/send")
-                .insert_header(("X-User-Id", "patient"))
+                .insert_header(crate::test_fixtures::as_user("patient"))
                 .set_json(serde_json::json!({
                     "recipient_id": "doctor",
                     "subject": "Re: Follow-up",
@@ -867,7 +1151,7 @@ mod tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/messages?folder=all")
-                .insert_header(("X-User-Id", "doctor"))
+                .insert_header(crate::test_fixtures::as_user("doctor"))
                 .to_request(),
         )
         .await;
@@ -892,7 +1176,7 @@ mod tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/messages/send")
-                .insert_header(("X-User-Id", "doctor"))
+                .insert_header(crate::test_fixtures::as_user("doctor"))
                 .set_json(serde_json::json!({
                     "recipient_id": "missing-user",
                     "content": "This must not be accepted"

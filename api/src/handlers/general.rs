@@ -4,12 +4,13 @@ use super::*;
 // API Endpoints
 // ============================================================================
 
-fn health_payload() -> HealthCheckResponse {
+/// The liveness payload, with the state of the sealed audit stream.
+async fn health_payload(data: &AppState) -> HealthCheckResponse {
     HealthCheckResponse {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
-        blockchain_connected: false, // Updated by actual blockchain client - see /health/db
+        audit_seal: crate::audit_batching::audit_seal_summary(data).await,
     }
 }
 
@@ -18,8 +19,8 @@ fn health_payload() -> HealthCheckResponse {
 /// This is the path the compose healthcheck and nginx's `location = /health`
 /// name, so it stays exactly where it is.
 #[get("/health")]
-pub async fn health_check() -> impl Responder {
-    HttpResponse::Ok().json(health_payload())
+pub async fn health_check(data: web::Data<AppState>) -> impl Responder {
+    HttpResponse::Ok().json(health_payload(&data).await)
 }
 
 /// The same health check, on the one prefix a browser can actually reach.
@@ -41,8 +42,8 @@ pub async fn health_check() -> impl Responder {
 /// API", which is what the indicator claims. Storage health is `/health/ready`
 /// and `/health/db`, which report degradation instead of hiding it.
 #[get("/api/health")]
-pub async fn api_health_check() -> impl Responder {
-    HttpResponse::Ok().json(health_payload())
+pub async fn api_health_check(data: web::Data<AppState>) -> impl Responder {
+    HttpResponse::Ok().json(health_payload(&data).await)
 }
 
 /// Readiness probe (graceful degradation).
@@ -143,6 +144,8 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         uptime_seconds: u64,
         timestamp: chrono::DateTime<Utc>,
         services: Vec<ServiceHealth>,
+        /// The sealed audit stream: backlog, last seal and export, sink, signing.
+        audit_seal: serde_json::Value,
     }
 
     let mut services = Vec::new();
@@ -181,44 +184,22 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         message: db_msg,
     });
 
-    // Check IPFS health
-    let ipfs_start = Instant::now();
-    let ipfs_connected = data.ipfs_client.health_check().await.unwrap_or(false);
-    let ipfs_latency = ipfs_start.elapsed().as_millis() as u64;
+    // Document bytes are stored encrypted in PostgreSQL on the durable backend.
+    let document_start = Instant::now();
+    let documents_connected = data.ipfs_client.health_check().await.unwrap_or(false);
+    let document_latency = document_start.elapsed().as_millis() as u64;
     services.push(ServiceHealth {
-        name: "IPFS Storage".to_string(),
-        status: if ipfs_connected {
+        name: "Encrypted Document Storage".to_string(),
+        status: if documents_connected {
             "online".to_string()
         } else {
             "offline".to_string()
         },
-        latency_ms: Some(ipfs_latency),
-        message: if ipfs_connected {
-            Some("IPFS daemon connected".to_string())
+        latency_ms: Some(document_latency),
+        message: if documents_connected {
+            Some("PostgreSQL encrypted document store available".to_string())
         } else {
-            Some("IPFS not available".to_string())
-        },
-    });
-
-    // Check Blockchain health (Substrate node)
-    let bc_start = Instant::now();
-    let bc_connected = match &data.substrate_client {
-        Some(client) => client.health_check().await,
-        None => false,
-    };
-    let bc_latency = bc_start.elapsed().as_millis() as u64;
-    services.push(ServiceHealth {
-        name: "Blockchain (Substrate)".to_string(),
-        status: if bc_connected {
-            "online".to_string()
-        } else {
-            "offline".to_string()
-        },
-        latency_ms: Some(bc_latency),
-        message: if bc_connected {
-            Some("Substrate node connected".to_string())
-        } else {
-            Some("Substrate node connection failed".to_string())
+            Some("Encrypted document store unavailable".to_string())
         },
     });
 
@@ -240,6 +221,7 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         uptime_seconds,
         timestamp: Utc::now(),
         services,
+        audit_seal: crate::audit_batching::audit_seal_summary(&data).await,
     })
 }
 
@@ -274,14 +256,19 @@ fn validate_register_patient_request(
             code: "VALIDATION_ERROR".to_string(),
         }));
     }
-    parse_blood_type(&req.blood_type).map_err(|e| {
+    let stated_blood_type = req.blood_type.trim();
+    if stated_blood_type.is_empty() {
+        return Ok(BloodType::Unknown);
+    }
+    parse_blood_type(stated_blood_type).map_err(|e| {
         HttpResponse::BadRequest().json(RegisterPatientResponse {
             success: false,
             patient_id: String::new(),
             nfc_tag_id: String::new(),
-            chain_status: None,
-            blockchain_tx_hash: None,
             message: e,
+            user_id: None,
+            activation_code: None,
+            activation_expires_at: None,
         })
     })
 }
@@ -302,6 +289,18 @@ fn normalized_gender(raw: Option<&str>) -> Option<String> {
         "unknown" | "prefer_not_to_say" => Some("unknown".to_string()),
         _ => None,
     }
+}
+
+/// Return stable fixture IDs for the opt-in demo seeder.
+///
+/// The request key is deliberately narrow so an ordinary registration cannot
+/// choose a patient identifier. `IS_DEMO=true` is required separately by the
+/// caller, keeping this deterministic path absent from production deployments.
+fn demo_seed_ids(key: &str) -> Result<(String, String), String> {
+    if key.len() != 3 || !key.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("demo_seed_key must be exactly three digits".to_string());
+    }
+    Ok((format!("PAT-DEMO-{key}"), format!("NFC-DEMO-{key}")))
 }
 
 /// Builds the new patient's profile + NFC tag from a validated request.
@@ -384,6 +383,30 @@ pub(crate) fn build_new_patient(
     (patient, nfc_tag)
 }
 
+/// Issue a 128-bit random medical number in Crockford base32, independent of
+/// the patient record key, account ID, and national ID. The database enforces
+/// uniqueness and retains the issued number after a patient row is removed.
+fn issue_medical_id() -> String {
+    const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let random = Uuid::new_v4();
+    let mut result = String::with_capacity(31);
+    result.push_str("MCHI-");
+    let mut bits = 0u32;
+    let mut buffered = 0u8;
+    for byte in random.as_bytes() {
+        bits = (bits << 8) | u32::from(*byte);
+        buffered += 8;
+        while buffered >= 5 {
+            buffered -= 5;
+            result.push(ALPHABET[((bits >> buffered) & 31) as usize] as char);
+        }
+    }
+    if buffered > 0 {
+        result.push(ALPHABET[((bits << (5 - buffered)) & 31) as usize] as char);
+    }
+    result
+}
+
 /// Register a new patient (Healthcare providers only)
 #[post("/api/register")]
 pub async fn register_patient(
@@ -396,8 +419,7 @@ pub async fn register_patient(
         Some(id) => id,
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
-                error: "Missing X-User-Id header. Only healthcare providers can register patients."
-                    .to_string(),
+                error: "Sign in as a healthcare provider to register patients.".to_string(),
                 code: "UNAUTHORIZED".to_string(),
             });
         }
@@ -427,41 +449,79 @@ pub async fn register_patient(
         Ok(bt) => bt,
         Err(resp) => return resp,
     };
-    let patient_wallet = req
-        .wallet_address
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if crate::blockchain::blockchain_enabled() && patient_wallet.is_none() {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "wallet_address is required when blockchain integration is enabled".to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
+    // Activation grants, the account, and the registration audit all require
+    // PostgreSQL. Refuse before creating a patient in memory and then failing
+    // halfway through account provisioning.
+    if data.db_pool.is_none()
+        || data.repositories.backend != crate::repositories::StorageBackend::Postgres
+    {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            error: "Patient registration requires persistent storage. Please try again later."
+                .to_string(),
+            code: "PATIENT_REGISTRATION_UNAVAILABLE".to_string(),
         });
     }
-    if patient_wallet.is_some_and(|wallet| !is_valid_wallet_address(wallet)) {
-        return HttpResponse::BadRequest().json(ErrorResponse {
-            error: "wallet_address must be a valid SS58 address".to_string(),
-            code: "INVALID_WALLET_ADDRESS".to_string(),
-        });
-    }
+    // The deterministic path is for the opt-in fixture seeder only. Real
+    // registrations keep server-generated identifiers.
+    let demo_ids = match req.demo_seed_key.as_deref() {
+        Some(key) => {
+            if !crate::support::is_demo_mode() {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    error: "Deterministic demo records are disabled in this deployment."
+                        .to_string(),
+                    code: "DEMO_SEED_DISABLED".to_string(),
+                });
+            }
+            match demo_seed_ids(key) {
+                Ok(ids) => Some(ids),
+                Err(error) => {
+                    return HttpResponse::BadRequest().json(ErrorResponse {
+                        error,
+                        code: "VALIDATION_ERROR".to_string(),
+                    })
+                }
+            }
+        }
+        None => None,
+    };
+    let patient_id = demo_ids
+        .as_ref()
+        .map(|ids| ids.0.clone())
+        .unwrap_or_else(|| format!("PAT-{}", Uuid::new_v4().simple()));
+    let nfc_tag_id = demo_ids
+        .as_ref()
+        .map(|ids| ids.1.clone())
+        .unwrap_or_else(|| format!("NFC-{}", Uuid::new_v4().simple()));
 
-    // Generate IDs
-    let patient_id = format!(
-        "PAT-{}",
-        Uuid::new_v4()
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("000")
-    );
-    let nfc_tag_id = format!(
-        "NFC-{}",
-        Uuid::new_v4()
-            .to_string()
-            .split('-')
-            .next()
-            .unwrap_or("000")
-    );
+    // Re-running the deterministic seeder must not create a second patient,
+    // a second NFC tag, or an extra registration event. A conflicting key is
+    // refused instead of overwriting an unrelated record.
+    if demo_ids.is_some() {
+        match data.repositories.patients.get_by_id(&patient_id).await {
+            Ok(existing)
+                if existing.national_id_hash
+                    == crate::support::hash_national_id(&req.national_id) =>
+            {
+                return HttpResponse::Ok().json(RegisterPatientResponse {
+                    success: true,
+                    patient_id,
+                    nfc_tag_id,
+                    message: "Deterministic demo patient already exists.".to_string(),
+                    user_id: None,
+                    activation_code: None,
+                    activation_expires_at: None,
+                });
+            }
+            Ok(_) => {
+                return HttpResponse::Conflict().json(ErrorResponse {
+                    error: "A different record already uses this demo fixture identifier."
+                        .to_string(),
+                    code: "DEMO_SEED_CONFLICT".to_string(),
+                })
+            }
+            Err(_) => {}
+        }
+    }
 
     let (patient, nfc_tag) = build_new_patient(&req, blood_type, &patient_id, &nfc_tag_id);
 
@@ -470,29 +530,34 @@ pub async fn register_patient(
     // PostgreSQL both rows commit in one transaction so neither is orphaned on failure.
     {
         let mut entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
-        entity.wallet_address = patient_wallet.map(str::to_string);
+        entity.health_id = issue_medical_id();
         if let Err(e) = data
             .repositories
-            .create_patient_with_nfc(entity, nfc_tag.into())
+            .create_patient_with_nfc(entity, {
+                // Who issued the card: the column existed and was never set,
+                // so every card's "issued by" read blank.
+                let mut tag: crate::repositories::traits::NfcTagEntity = nfc_tag.into();
+                tag.issued_by = Some(current_user_id.clone());
+                tag
+            })
             .await
         {
             log::error!("Patient persistence failed: {}", e);
-            return HttpResponse::InternalServerError().json(RegisterPatientResponse {
-                success: false,
-                patient_id: String::new(),
-                nfc_tag_id: String::new(),
-                chain_status: None,
-                blockchain_tx_hash: None,
-                message: "Failed to persist patient record".to_string(),
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Patient registration is temporarily unavailable. Please try again."
+                    .to_string(),
+                code: "PATIENT_REGISTRATION_UNAVAILABLE".to_string(),
             });
         }
     }
 
-    // Create an account only when a real patient-owned wallet was supplied.
-    if let Some(wallet_address) = patient_wallet {
+    // Every patient receives an unactivated account, linked to the clinical
+    // record by an internal ID. The patient chooses a login name on redemption.
+    let (patient_user_id, activation) = {
+        let patient_user_id = Uuid::new_v4().to_string();
         let patient_user = User {
-            wallet_address: wallet_address.to_string(),
-            username: Some(req.full_name.to_lowercase().replace(' ', ".")),
+            id: patient_user_id.clone(),
+            username: None,
             name: req.full_name.clone(),
             role: Role::Patient,
             created_at: Utc::now(),
@@ -516,13 +581,42 @@ pub async fn register_patient(
                 success: false,
                 patient_id,
                 nfc_tag_id,
-                chain_status: None,
-                blockchain_tx_hash: None,
                 message: "Patient record was created, but account persistence failed; retry account provisioning"
                     .to_string(),
+                user_id: None,
+                activation_code: None,
+                activation_expires_at: None,
             });
         }
-    }
+        let Some(pool) = data.db_pool.as_ref() else {
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                error: "Patient account activation is unavailable".to_string(),
+                code: "AUTH_STORAGE_REQUIRED".to_string(),
+            });
+        };
+        let Some(user_uuid) = crate::actor_directory::parse_user_id(&patient_user_id) else {
+            return HttpResponse::ServiceUnavailable().finish();
+        };
+        let issuer = crate::actor_directory::parse_user_id(&current_user_id);
+        let activation = match crate::credentials::issue(
+            pool,
+            user_uuid,
+            crate::credentials::GrantPurpose::Activation,
+            issuer,
+        )
+        .await
+        {
+            Ok(grant) => grant,
+            Err(error) => {
+                log::error!("Patient activation grant failed: {error:?}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    error: "Patient record was created, but activation is unavailable".to_string(),
+                    code: "ACCOUNT_PROVISIONING_UNAVAILABLE".to_string(),
+                });
+            }
+        };
+        (patient_user_id, activation)
+    };
 
     log::info!(
         "Registered new patient: {} with NFC tag: {} by provider: {}",
@@ -532,30 +626,22 @@ pub async fn register_patient(
     );
 
     let id_hash = crate::support::hash_national_id(&req.national_id);
-    let chain_anchor = match crate::audit_outbox::anchor_patient_registration_or_queue(
-        &data,
-        &patient_id,
-        patient_wallet.unwrap_or_default(),
-        &id_hash,
-        "national_id",
-        &current_user_id,
-    )
-    .await
+    let digest = crate::audit_outbox::registration_digest(&patient_id, &id_hash, &current_user_id);
+    if let Err(error) =
+        crate::audit_outbox::record_patient_registered(&data, &patient_id, &digest).await
     {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            log::error!("Patient chain registration could not be finalized or queued: {error}");
-            return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
-                success: false,
-                patient_id,
-                nfc_tag_id,
-                chain_status: None,
-                blockchain_tx_hash: None,
-                message: "Patient record was created, but its required blockchain registration could not be queued."
-                    .to_string(),
-            });
-        }
-    };
+        log::error!("Patient registration audit event could not be recorded: {error}");
+        return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
+            success: false,
+            patient_id,
+            nfc_tag_id,
+            message: "Patient record was created, but its registration audit event could not be recorded."
+                .to_string(),
+            user_id: Some(patient_user_id),
+            activation_code: Some(activation.code),
+            activation_expires_at: Some(activation.expires_at),
+        });
+    }
 
     if let Err(error) =
         crate::emergency_capsule::publish_capsule(&data, &patient.emergency_info, &current_user_id)
@@ -566,10 +652,11 @@ pub async fn register_patient(
             success: false,
             patient_id,
             nfc_tag_id,
-            chain_status: Some(chain_anchor.status),
-            blockchain_tx_hash: chain_anchor.transaction_hash,
-            message: "Patient record was created, but the emergency capsule could not be stored and queued for anchoring."
+            message: "Patient record was created, but the emergency capsule could not be stored and recorded."
                 .to_string(),
+            user_id: Some(patient_user_id),
+            activation_code: Some(activation.code),
+            activation_expires_at: Some(activation.expires_at),
         });
     }
 
@@ -577,8 +664,25 @@ pub async fn register_patient(
         success: true,
         patient_id,
         nfc_tag_id,
-        chain_status: Some(chain_anchor.status),
-        blockchain_tx_hash: chain_anchor.transaction_hash,
         message: "Patient registered successfully. NFC tag provisioned.".to_string(),
+        user_id: Some(patient_user_id),
+        activation_code: Some(activation.code),
+        activation_expires_at: Some(activation.expires_at),
     })
+}
+
+#[cfg(test)]
+mod demo_seed_tests {
+    use super::demo_seed_ids;
+
+    #[test]
+    fn demo_fixture_ids_are_stable_and_narrowly_validated() {
+        assert_eq!(
+            demo_seed_ids("001").unwrap(),
+            ("PAT-DEMO-001".to_string(), "NFC-DEMO-001".to_string())
+        );
+        assert!(demo_seed_ids("1").is_err());
+        assert!(demo_seed_ids("001x").is_err());
+        assert!(demo_seed_ids("abc").is_err());
+    }
 }

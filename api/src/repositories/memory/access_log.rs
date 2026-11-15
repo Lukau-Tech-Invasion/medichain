@@ -1,5 +1,6 @@
 //! In-memory access log repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -32,29 +33,49 @@ impl Default for MemoryAccessLogRepository {
 
 #[async_trait]
 impl AccessLogRepository for MemoryAccessLogRepository {
-    async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity> {
-        let mut storage = self
+    async fn patient_grant_usage(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<PatientGrantUsage>> {
+        let storage = self
             .storage
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+            .read()
+            .map_err(|_| RepositoryError::Internal("Access log store unavailable".into()))?;
+        let mut usage: HashMap<String, PatientGrantUsage> = HashMap::new();
+        for row in storage.values().filter(|row| {
+            row.patient_id.as_deref() == Some(patient_id)
+                && row.authority_type.as_deref() == Some("patient_grant")
+        }) {
+            let Some(id) = &row.authority_id else {
+                continue;
+            };
+            let summary = usage
+                .entry(id.clone())
+                .or_insert_with(|| PatientGrantUsage {
+                    grant_id: id.clone(),
+                    access_count: 0,
+                    last_accessed: row.accessed_at,
+                });
+            summary.access_count += 1;
+            summary.last_accessed = summary.last_accessed.max(row.accessed_at);
+        }
+        Ok(usage.into_values().collect())
+    }
+
+    async fn create(&self, log: AccessLogEntity) -> RepositoryResult<AccessLogEntity> {
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
 
         // Allow duplicate IDs for logs (append-only)
         storage.insert(log.id.clone(), log.clone());
 
-        let mut accessor_index = self
-            .accessor_index
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut accessor_index = self.accessor_index.write().map_err(lock_poisoned)?;
         accessor_index
             .entry(log.accessor_id.clone())
             .or_default()
             .push(log.id.clone());
 
         if let Some(ref patient_id) = log.patient_id {
-            let mut patient_index = self
-                .patient_index
-                .write()
-                .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+            let mut patient_index = self.patient_index.write().map_err(lock_poisoned)?;
             patient_index
                 .entry(patient_id.clone())
                 .or_default()
@@ -66,26 +87,19 @@ impl AccessLogRepository for MemoryAccessLogRepository {
 
     async fn get_by_accessor(
         &self,
-        accessor_id: &str,
+        accessor_ids: &[String],
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let accessor_index = self
-            .accessor_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let accessor_index = self.accessor_index.read().map_err(lock_poisoned)?;
 
-        let mut logs: Vec<AccessLogEntity> = match accessor_index.get(accessor_id) {
-            Some(ids) => ids
-                .iter()
-                .filter_map(|id| storage.get(id).cloned())
-                .collect(),
-            None => Vec::new(),
-        };
+        let mut logs: Vec<AccessLogEntity> = accessor_ids
+            .iter()
+            .filter_map(|accessor_id| accessor_index.get(accessor_id))
+            .flatten()
+            .filter_map(|id| storage.get(id).cloned())
+            .collect();
 
         logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
@@ -103,15 +117,9 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -137,10 +145,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         range: DateRange,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = storage
             .values()
@@ -175,10 +180,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = storage
             .values()
@@ -201,10 +203,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let mut logs: Vec<AccessLogEntity> = storage.values().cloned().collect();
 
@@ -224,10 +223,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let query_lower = query.to_lowercase();
 
@@ -257,25 +253,11 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
-    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+    async fn count_sealed(&self) -> RepositoryResult<(u64, u64)> {
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let total = storage.len() as u64;
-        // An empty-string hash is not an anchor. Treating it as one would put
-        // the coverage figure back where it started.
-        let anchored = storage
-            .values()
-            .filter(|log| {
-                log.blockchain_tx_hash
-                    .as_deref()
-                    .is_some_and(|h| !h.trim().is_empty())
-            })
-            .count() as u64;
-
-        Ok((total, anchored))
+        // Sealing is a PostgreSQL job; nothing held in memory is ever sealed.
+        Ok((storage.len() as u64, 0))
     }
 }
 
@@ -302,9 +284,10 @@ mod tests {
             is_emergency_access: emergency,
             ip_address: Some("192.168.1.1".to_string()),
             user_agent: Some("MediChain/1.0".to_string()),
-            blockchain_tx_hash: None,
             accessed_at: Utc::now(),
             facility_id: None,
+            authority_type: None,
+            authority_id: None,
         }
     }
 

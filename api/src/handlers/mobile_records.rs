@@ -16,6 +16,15 @@ pub struct AuthoriseMobileRecordRequest {
     pub encrypted_content_reference: String,
     pub watermark_text: Option<String>,
 }
+/// The enrolled phone's proof that it holds its private key.
+#[derive(Debug, Deserialize)]
+pub struct LockscreenTokenRequest {
+    /// Unix seconds the request was signed at.
+    pub timestamp: i64,
+    /// Hex DER ECDSA P-256 signature over `lockscreen_request_message`.
+    pub signature: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RevokeMobileDeviceRequest {
     pub reason: String,
@@ -64,6 +73,13 @@ pub async fn register_patient_mobile_device(
         Ok(value) => value,
         Err(response) => return response,
     };
+    // The key signs every lockscreen-token request, so it must be one.
+    if !crate::mobile_records::is_p256_public_key(&body.public_key) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "public_key must be an uncompressed P-256 point, hex".into(),
+            code: "INVALID_DEVICE_KEY".into(),
+        });
+    }
     match data
         .mobile_records
         .register_device_durable(
@@ -160,15 +176,25 @@ pub async fn issue_mobile_lockscreen_token(
     data: web::Data<AppState>,
     req: HttpRequest,
     path: web::Path<String>,
+    body: Option<web::Json<LockscreenTokenRequest>>,
 ) -> impl Responder {
     let patient_id = match authenticated_patient_id(&data, &req) {
         Ok(value) => value,
         Err(response) => return response,
     };
     let device_id = path.into_inner();
-    match data.mobile_records.get_device_durable(&device_id).await {
+    let Some(proof) = body.map(web::Json::into_inner) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Sign the request with the enrolled device key".into(),
+            code: "DEVICE_SIGNATURE_REQUIRED".into(),
+        });
+    };
+    let public_key = match data.mobile_records.get_device_durable(&device_id).await {
         Ok(Some(device))
-            if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active => {}
+            if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active =>
+        {
+            device.public_key
+        }
         Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 error: "Mobile device is not active for this patient".into(),
@@ -182,6 +208,22 @@ pub async fn issue_mobile_lockscreen_token(
             });
         }
         Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
+    if let Err(error) = crate::mobile_records::verify_device_signature(
+        &public_key,
+        &device_id,
+        proof.timestamp,
+        &proof.signature,
+        chrono::Utc::now().timestamp(),
+    ) {
+        let code = match error {
+            crate::mobile_records::DeviceSignatureError::Stale => "DEVICE_SIGNATURE_EXPIRED",
+            crate::mobile_records::DeviceSignatureError::Invalid => "DEVICE_SIGNATURE_INVALID",
+        };
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "The request was not signed by this device's enrolled key".into(),
+            code: code.into(),
+        });
     }
     match crate::mobile_records::issue_lockscreen_token(&patient_id, &device_id) {
         Ok(token) => HttpResponse::Ok().json(LockscreenTokenResponse {
@@ -271,9 +313,9 @@ mod mobile_device_listing_tests {
     use crate::{AppState, Role, User};
     use actix_web::{test, web, App};
 
-    fn user(role: Role, wallet: &str, linked: Option<&str>) -> User {
+    fn user(role: Role, user_id: &str, linked: Option<&str>) -> User {
         User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Test".to_string(),
             role,
@@ -295,13 +337,13 @@ mod mobile_device_listing_tests {
         {
             let mut table = state.users.write().unwrap();
             for entry in users {
-                table.insert(entry.wallet_address.clone(), entry);
+                table.insert(entry.id.clone(), entry);
             }
         }
         web::Data::new(state)
     }
 
-    async fn list(data: web::Data<AppState>, wallet: &str) -> (u16, String) {
+    async fn list(data: web::Data<AppState>, user_id: &str) -> (u16, String) {
         let app = test::init_service(
             App::new()
                 .app_data(data)
@@ -310,7 +352,7 @@ mod mobile_device_listing_tests {
         .await;
         let req = test::TestRequest::get()
             .uri("/api/mobile/devices")
-            .insert_header(("X-User-Id", wallet.to_string()))
+            .insert_header(crate::test_fixtures::as_user(user_id))
             .to_request();
         let response = test::call_service(&app, req).await;
         let status = response.status().as_u16();
@@ -321,8 +363,8 @@ mod mobile_device_listing_tests {
     #[actix_web::test]
     async fn a_patient_sees_only_their_own_devices() {
         let data = state(vec![
-            user(Role::Patient, "wallet-a", Some("PAT-1")),
-            user(Role::Patient, "wallet-b", Some("PAT-2")),
+            user(Role::Patient, "user-a", Some("PAT-1")),
+            user(Role::Patient, "user-b", Some("PAT-2")),
         ]);
         let mine = data
             .mobile_records
@@ -345,12 +387,12 @@ mod mobile_device_listing_tests {
             .await
             .unwrap();
 
-        let (status, body) = list(data.clone(), "wallet-a").await;
+        let (status, body) = list(data.clone(), "user-a").await;
         assert_eq!(status, 200);
         assert!(body.contains(&mine.id));
         assert!(!body.contains(&theirs.id));
 
-        let (_, other) = list(data, "wallet-b").await;
+        let (_, other) = list(data, "user-b").await;
         assert!(other.contains(&theirs.id));
         assert!(!other.contains(&mine.id));
     }
@@ -360,7 +402,7 @@ mod mobile_device_listing_tests {
     /// disappears looks the same as one that was never there.
     #[actix_web::test]
     async fn a_revoked_device_is_still_listed() {
-        let data = state(vec![user(Role::Patient, "wallet-a", Some("PAT-1"))]);
+        let data = state(vec![user(Role::Patient, "user-a", Some("PAT-1"))]);
         let device = data
             .mobile_records
             .register_device_durable(
@@ -376,7 +418,7 @@ mod mobile_device_listing_tests {
             .await
             .unwrap();
 
-        let (status, body) = list(data, "wallet-a").await;
+        let (status, body) = list(data, "user-a").await;
         assert_eq!(status, 200);
         assert!(body.contains(&device.id));
         assert!(body.contains("revoked"));

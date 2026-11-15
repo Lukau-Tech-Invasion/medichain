@@ -12,11 +12,12 @@
  *
  * # What it proves, and what it deliberately does not
  *
- * Every session here is obtained through the **real** credential flow —
- * employee identifier and password, keystore opened client-side, signer
- * derived, single-use server challenge signed, JWT issued. No probe sends
- * `X-User-Id`. A test that authenticated by asserting an identity would prove
- * nothing about a system whose whole point is that it does not accept one.
+ * Every session here is obtained through the **real** credential flow — login
+ * id and a proof derived from the password, `POST /api/auth/login`, bearer
+ * token issued. No probe authenticates by asserting an identity, and section K
+ * proves the API refuses one that tries to. A test that authenticated by
+ * asserting an identity would prove nothing about a system whose whole point is
+ * that it does not accept one.
  *
  * This is API-level proof. It is not browser proof: it says nothing about what
  * a clinician sees on screen, and the completion gates that ask for browser
@@ -34,30 +35,20 @@
  *   ./node_modules/.bin/vite-node ../scripts/cross-role-qualification.ts
  */
 
+import { deriveAuthProof } from './lib/auth';
 import {
-  deriveCredential,
-  openKeystore,
-  signerFromSecret,
-  secretFromMnemonic,
-  generateWalletIdentity,
-} from '../client/shared/src/auth/credentials';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+  PASSWORD,
+  http as journeyHttp,
+  loadManifest,
+  passwordFor,
+  rememberCredentials,
+  type Manifest,
+  type PatientFixture,
+} from './lib/journey';
 
 const API = process.env.MEDICHAIN_API_URL ?? 'http://127.0.0.1:8090/api';
-const PASSWORD = 'BrowserTest!2026';
-
-const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 type Json = Record<string, any>;
-
-interface Manifest {
-  administrator_wallet: string;
-  staff: Array<{ role: string; login_id: string; wallet: string }>;
-  patient: { wallet: string; mnemonic: string; linked_patient_id: string; nfc_tag_id: string };
-  patient_b: { wallet: string; mnemonic: string; linked_patient_id: string; nfc_tag_id: string };
-}
 
 // ---------------------------------------------------------------------------
 // Result accounting
@@ -73,7 +64,7 @@ interface Check {
 }
 
 const checks: Check[] = [];
-/** Set when any sign-in was refused by the challenge limiter this run. */
+/** Set when any sign-in was refused by a request rate limit this run. */
 let sessionsRateLimited = false;
 let section = 'unknown';
 
@@ -85,8 +76,8 @@ function record(name: string, passed: boolean, detail: string): void {
 /**
  * Record a check that could not run because a control correctly refused us.
  *
- * The challenge limiter is 5 per wallet per minute. Running this harness twice
- * inside a minute legitimately exhausts it, and reporting that as a failure
+ * The API rate-limits requests per client address. Running this harness twice
+ * inside a minute can legitimately exhaust it, and reporting that as a failure
  * would train a reader to ignore a red result caused by security working. A
  * skip is honest and keeps the suite re-runnable; it is deliberately NOT a
  * pass, so a section that never runs cannot be mistaken for one that did.
@@ -111,7 +102,7 @@ function expectStatus(name: string, got: number, want: number | number[], body?:
 /**
  * A signed-in actor.
  *
- * `token` is a real bearer token from a signed challenge. There is no
+ * `token` is a real bearer token from `POST /api/auth/login`. There is no
  * fallback: if a session cannot be established the run stops, because a probe
  * that silently degrades to an unauthenticated request reports "denied" for
  * the wrong reason.
@@ -119,144 +110,79 @@ function expectStatus(name: string, got: number, want: number | number[], body?:
 interface Session {
   label: string;
   role: string;
-  wallet: string;
+  /** `users.id`: the JWT `sub` and the value every actor column holds. */
+  userId: string;
+  loginId: string;
   token: string;
 }
 
+/**
+ * The journeys' transport: the same retry rule for transport failures, and the
+ * same ADR-0008 Class C confirmation -- a gated step made by the right person is
+ * confirmed as that person, so what this harness measures is still who may act.
+ */
 async function http(
   method: string,
   path: string,
   opts: { token?: string; body?: unknown } = {}
 ): Promise<{ status: number; json: Json }> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
-  if (method !== 'GET') headers['Idempotency-Key'] = globalThis.crypto.randomUUID();
-
-  // A transport failure is not a result. `fetch` rejects when the connection
-  // never completes — which happened repeatedly while a heavy build saturated
-  // this host — and reporting that as an authorization outcome would put a red
-  // FAIL against a control that was never consulted. HTTP statuses, including
-  // 4xx and 5xx, are answers and are returned unretried.
-  let res: Response | undefined;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      res = await fetch(`${API}${path}`, {
-        method,
-        headers,
-        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-      });
-      break;
-    } catch (e) {
-      lastError = e;
-      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
-    }
-  }
-  if (!res) {
-    throw new Error(
-      `transport failure after 3 attempts for ${method} ${path}: ${String(lastError)}`
-    );
-  }
-
-  let json: Json = {};
-  try {
-    json = (await res.json()) as Json;
-  } catch {
-    /* empty bodies are legitimate */
-  }
-  return { status: res.status, json };
+  return journeyHttp(method, path, opts);
 }
 
 /**
- * Thrown when the per-wallet challenge limiter refuses a sign-in.
+ * Thrown when a request rate limit refuses a sign-in.
  *
  * Distinguished from every other sign-in failure on purpose. The limiter is a
- * control doing its job — five challenges per wallet per minute — and running
- * this harness twice inside a minute legitimately runs into it. A section that
- * could not obtain a session for that reason is SKIPPED; one that could not
- * obtain a session for any other reason has FAILED.
+ * control doing its job, and running this harness twice inside a minute can
+ * legitimately run into it. A section that could not obtain a session for that
+ * reason is SKIPPED; one that could not obtain a session for any other reason
+ * (a locked account included) has FAILED.
  */
-class ChallengeRateLimited extends Error {
+class SignInRateLimited extends Error {
   constructor(loginId: string) {
-    super(`challenge rate limited for ${loginId}`);
-    this.name = 'ChallengeRateLimited';
+    super(`sign-in rate limited for ${loginId}`);
+    this.name = 'SignInRateLimited';
   }
 }
 
-/** The whole sign-in, exactly as the portal performs it. */
-async function signIn(loginId: string, label: string): Promise<Session> {
-  const { authProof, keystoreKey } = await deriveCredential(PASSWORD, loginId);
-
-  const login = await http('POST', '/auth/staff/login', {
+/** The whole sign-in, exactly as the portals perform it. */
+async function loginAs(loginId: string, password: string, label: string, role?: string): Promise<Session> {
+  const authProof = await deriveAuthProof(password, loginId);
+  const login = await http('POST', '/auth/login', {
     body: { identifier: loginId, auth_proof: authProof },
   });
-  if (login.status !== 200) {
-    throw new Error(`staff login failed for ${loginId}: ${login.status} ${JSON.stringify(login.json)}`);
+  if (login.status === 429 && codeOf(login.json) !== 'ACCOUNT_LOCKED') {
+    throw new SignInRateLimited(loginId);
   }
-
-  const opened = await openKeystore(login.json.encrypted_keystore as string, keystoreKey);
-  const signer = await signerFromSecret(opened.miniSecret, opened.address);
-
-  const challenge = await http('POST', '/auth/challenge', {
-    body: { wallet_address: login.json.wallet_address },
-  });
-  if (challenge.status === 429) {
-    throw new ChallengeRateLimited(loginId);
+  if (login.status !== 200 || !login.json.access_token) {
+    throw new Error(`login failed for ${loginId}: ${login.status} ${JSON.stringify(login.json)}`);
   }
-  if (challenge.status !== 200) {
-    throw new Error(`challenge failed for ${loginId}: ${challenge.status}`);
-  }
-  const c = challenge.json.challenge as Json;
-  const signature = await signer.sign(c.message as string);
-
-  const jwt = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: login.json.wallet_address,
-      challenge_id: c.challenge_id,
-      nonce: c.nonce,
-      signature,
-    },
-  });
-  if (jwt.status !== 200 || !jwt.json.access_token) {
-    throw new Error(`jwt failed for ${loginId}: ${jwt.status} ${JSON.stringify(jwt.json)}`);
-  }
-
+  const user = (login.json.user ?? {}) as Json;
+  rememberCredentials(String(login.json.access_token), loginId, password);
   return {
     label,
-    role: String(login.json.role),
-    wallet: String(login.json.wallet_address),
-    token: String(jwt.json.access_token),
+    role: String(role ?? user.role),
+    userId: String(user.user_id),
+    loginId,
+    token: String(login.json.access_token),
   };
+}
+
+/** Sign in as a staff fixture. */
+async function signIn(loginId: string, label: string): Promise<Session> {
+  return loginAs(loginId, passwordFor(loginId), label);
 }
 
 /**
  * Sign in as a patient.
  *
- * A patient holds a wallet, not an employee credential, so the flow starts one
- * step later: derive the signer from the mnemonic, then the same challenge and
- * JWT exchange every other actor uses. Without this, "the patient" could only
- * ever be probed through a clinician's session, which cannot show whether the
- * patient's own boundary holds.
+ * A patient signs in with the username they chose when they redeemed their
+ * activation code. Without this, "the patient" could only ever be probed through
+ * a clinician's session, which cannot show whether the patient's own boundary
+ * holds.
  */
-async function signInPatient(mnemonic: string, wallet: string, label: string): Promise<Session> {
-  const secret = await secretFromMnemonic(mnemonic);
-  const signer = await signerFromSecret(secret, wallet);
-
-  const challenge = await http('POST', '/auth/challenge', { body: { wallet_address: wallet } });
-  if (challenge.status !== 200) {
-    throw new Error(`patient challenge failed: ${challenge.status} ${JSON.stringify(challenge.json)}`);
-  }
-  const c = challenge.json.challenge as Json;
-  const signature = await signer.sign(c.message as string);
-
-  const jwt = await http('POST', '/auth/jwt', {
-    body: { wallet_address: wallet, challenge_id: c.challenge_id, nonce: c.nonce, signature },
-  });
-  if (jwt.status !== 200 || !jwt.json.access_token) {
-    throw new Error(`patient jwt failed: ${jwt.status} ${JSON.stringify(jwt.json)}`);
-  }
-
-  return { label, role: 'Patient', wallet, token: String(jwt.json.access_token) };
+async function signInPatient(fx: PatientFixture, label: string): Promise<Session> {
+  return loginAs(fx.login_id, passwordFor(fx.login_id), label, 'Patient');
 }
 
 // ---------------------------------------------------------------------------
@@ -295,9 +221,9 @@ async function qualifySessions(m: Manifest): Promise<Record<string, Session>> {
       sessions[label] = s;
       record(`${label} (${s.role}) signs in and receives a bearer token`, true, '');
     } catch (e) {
-      if (e instanceof ChallengeRateLimited) {
+      if (e instanceof SignInRateLimited) {
         sessionsRateLimited = true;
-        skip(`${label} signs in`, 'per-wallet challenge limiter — re-run after a minute');
+        skip(`${label} signs in`, 'sign-in rate limit — re-run after a minute');
       } else {
         record(`${label} signs in`, false, String(e));
       }
@@ -383,9 +309,9 @@ async function qualifyLabWorkflow(
   const patientA = patients.patientA;
   if (!labtech || !doctorA || !doctorB || !patientA) {
     // A section cannot run without its sessions. When those were refused by
-    // the challenge limiter rather than by a defect, this is a SKIP.
+    // a rate limit rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
-      skip('lab workflow', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('lab workflow', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('lab workflow prerequisites', false, 'needs labtech + two doctors + patient');
     }
@@ -474,9 +400,9 @@ async function qualifySelfReview(m: Manifest, sessions: Record<string, Session>)
   const { doctorA, doctorB } = sessions;
   if (!doctorA || !doctorB) {
     // A section cannot run without its sessions. When those were refused by
-    // the challenge limiter rather than by a defect, this is a SKIP.
+    // a rate limit rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
-      skip('self-review', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('self-review', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('self-review prerequisites', false, 'needs two doctors');
     }
@@ -532,9 +458,6 @@ async function qualifyObjectAuthorization(m: Manifest, sessions: Record<string, 
   const patientA = m.patient;
   const patientB = m.patient_b;
 
-  // A patient's session, obtained the only way a patient can: their wallet.
-  // Patient fixtures hold a mnemonic rather than an employee credential, so
-  // this section probes what it can without one and says so.
   const doctorA = sessions.doctorA;
   if (!doctorA) {
     record('object authorization prerequisites', false, 'needs a doctor session');
@@ -672,9 +595,9 @@ async function qualifySessionLifecycle(sessions: Record<string, Session>): Promi
   const s = sessions.nurse;
   if (!s) {
     // A section cannot run without its sessions. When those were refused by
-    // the challenge limiter rather than by a defect, this is a SKIP.
+    // a rate limit rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
-      skip('session lifecycle', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('session lifecycle', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('session lifecycle prerequisites', false, 'needs a nurse session');
     }
@@ -707,10 +630,10 @@ async function qualifyPatientBoundary(m: Manifest): Promise<Record<string, Sessi
   const patients: Record<string, Session> = {};
   for (const [label, fx] of [['patientA', m.patient], ['patientB', m.patient_b]] as const) {
     try {
-      patients[label] = await signInPatient(fx.mnemonic, fx.wallet, label);
-      record(`${label} signs in with their wallet`, true, '');
+      patients[label] = await signInPatient(fx, label);
+      record(`${label} signs in with their username and password`, true, '');
     } catch (e) {
-      record(`${label} signs in with their wallet`, false, String(e));
+      record(`${label} signs in with their username and password`, false, String(e));
     }
   }
 
@@ -752,9 +675,9 @@ async function qualifyConsentLifecycle(
   const patientB = patients.patientB;
   if (!doctorB || !patientA || !patientB) {
     // A section cannot run without its sessions. When those were refused by
-    // the challenge limiter rather than by a defect, this is a SKIP.
+    // a rate limit rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
-      skip('consent lifecycle', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('consent lifecycle', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('consent prerequisites', false, 'needs doctorB and both patient sessions');
     }
@@ -762,6 +685,22 @@ async function qualifyConsentLifecycle(
   }
 
   const patientId = m.patient.linked_patient_id;
+
+  // The browser fixtures approve this doctor on purpose, so a shared stack can
+  // arrive here with a live grant. The patient withdraws it first; re-running
+  // seed-browser-test-fixtures.ts restores it for the browser suites.
+  const existing = await http('GET', `/access/patient/${patientId}/grants`, { token: patientA.token });
+  const existingGrants: Json[] = Array.isArray(existing.json)
+    ? existing.json
+    : (existing.json.grants ?? existing.json.items ?? []);
+  for (const grant of existingGrants.slice(0, 50)) {
+    const live = (grant.providerId ?? grant.provider_id) === doctorB.userId &&
+      !(grant.revokedAt ?? grant.revoked_at) && grant.status !== 'revoked';
+    if (!live) continue;
+    const id = String(grant.grantId ?? grant.id ?? grant.grant_id ?? '');
+    const withdrawn = await http('POST', `/access/grants/${id}/revoke`, { token: patientA.token });
+    expectStatus('a grant left by an earlier run is withdrawn first', withdrawn.status, 200, withdrawn.json);
+  }
 
   const beforeGrant = await http('GET', `/records/${patientId}`, { token: doctorB.token });
   expectStatus(
@@ -791,7 +730,7 @@ async function qualifyConsentLifecycle(
       : (pending.json.requests ?? pending.json.items ?? []);
     const mine = list.find(
       (r) =>
-        (r.providerId ?? r.provider_id) === doctorB.wallet &&
+        (r.providerId ?? r.provider_id) === doctorB.userId &&
         (r.status ?? 'pending') === 'pending'
     );
     requestId = String(mine?.id ?? mine?.requestId ?? mine?.request_id ?? '');
@@ -867,7 +806,7 @@ async function qualifyConsentLifecycle(
   const grantsBody = JSON.stringify(grants.json);
   record(
     'the grant is visible to the patient',
-    grants.status === 200 && grantsBody.includes(doctorB.wallet),
+    grants.status === 200 && grantsBody.includes(doctorB.userId),
     `status ${grants.status}; grants did not mention the provider`
   );
 
@@ -875,7 +814,7 @@ async function qualifyConsentLifecycle(
     ? grants.json
     : (grants.json.grants ?? grants.json.items ?? []);
   const mine = grantList.find(
-    (g) => (g.providerId ?? g.provider_id) === doctorB.wallet
+    (g) => (g.providerId ?? g.provider_id) === doctorB.userId
   );
   const grantId = String(mine?.grantId ?? mine?.id ?? mine?.grant_id ?? '');
   if (!grantId) {
@@ -918,159 +857,458 @@ async function qualifyConsentLifecycle(
   record('the revoked grant is no longer active', !stillActive, JSON.stringify(after.json).slice(0, 300));
 }
 
+/** The error code of a response, whichever envelope carried it. */
+function codeOf(json: Json): string {
+  return String(json?.error?.code ?? json?.code ?? '');
+}
+
+/** A credential proof for `loginId` under a password nobody holds. */
+async function wrongProofFor(loginId: string): Promise<string> {
+  return deriveAuthProof('Not-The-Fixture-Password!2026', loginId);
+}
+
+/** `POST /api/auth/login`, exactly as a portal sends it. */
+async function rawLogin(identifier: string, authProof: string, totpCode?: string) {
+  return http('POST', '/auth/login', {
+    body: { identifier, auth_proof: authProof, ...(totpCode ? { totp_code: totpCode } : {}) },
+  });
+}
+
+/** A well-formed activation code that was never issued to anybody. */
+const NEVER_ISSUED_CODE = '0000-0000-0000';
+
+let disposableCounter = 0;
+
+/** A staff account this run owns, made only to be attacked. */
+interface Disposable {
+  userId: string;
+  loginId: string;
+  /** The one-time code the registration returned. */
+  code: string;
+}
+
 /**
- * Wallet-authentication rejection paths.
+ * Register and activate a throwaway staff account.
  *
- * The success path for a patient needs a browser wallet extension this
- * environment cannot host (see the campaign report). These are the parts that
- * do not: every one of them is decided by the API, not by the extension, so
- * testing them here is testing them where they live rather than settling for a
- * weaker proof of the same property.
- *
- * `auth_challenges::consume` is a single UPDATE with
- * `used_at IS NULL AND expires_at > NOW()` in its WHERE clause, so replay and
- * expiry are one atomic decision. That is the shape being confirmed.
+ * The rejection paths below consume grants, lock accounts and revoke sessions.
+ * Doing that to a shared fixture would starve every later section, so each path
+ * gets an account made for it.
  */
-async function qualifyWalletRejectionPaths(m: Manifest): Promise<void> {
-  section = 'K. Wallet authentication — rejection paths';
+async function createDisposable(admin: Session, purpose: string): Promise<Disposable | null> {
+  disposableCounter += 1;
+  const loginId = `xr.${Date.now().toString(36)}.${disposableCounter}`;
+  const reg = await http('POST', '/auth/register', {
+    token: admin.token,
+    body: { name: `Qualification ${purpose}`, role: 'Nurse', login_id: loginId },
+  });
+  const userId = String(reg.json.user_id ?? '');
+  const code = String(reg.json.credential_code ?? '');
+  if (![200, 201].includes(reg.status) || !userId || !code) {
+    record(`a disposable account for '${purpose}' is registered`, false, `status ${reg.status} ${JSON.stringify(reg.json).slice(0, 200)}`);
+    return null;
+  }
+  const act = await http('PUT', `/users/${userId}`, { token: admin.token, body: { status: 'active' } });
+  if (![200, 201, 204].includes(act.status)) {
+    record(`a disposable account for '${purpose}' is activated`, false, `status ${act.status} ${JSON.stringify(act.json).slice(0, 200)}`);
+    return null;
+  }
+  return { userId, loginId, code };
+}
+
+/**
+ * `POST /api/auth/credentials/redeem` with the fixture password. Setting a
+ * password is the one time it travels: the server checks it and derives the
+ * proof, so `loginId` only documents which login the account will carry.
+ */
+async function redeemCode(identifier: string, code: string, _loginId: string, username?: string) {
+  return http('POST', '/auth/credentials/redeem', {
+    body: { identifier, code, password: PASSWORD, ...(username ? { username } : {}) },
+  });
+}
+
+/** True when a 429 is the general request limiter rather than a lock the API set. */
+function isGeneralRateLimit(r: { status: number; json: Json }, lockCode: string): boolean {
+  return r.status === 429 && codeOf(r.json) !== lockCode;
+}
+
+/**
+ * The sign-in endpoint refuses what it must refuse, and says the same thing
+ * about a wrong password and an account that does not exist.
+ */
+async function qualifyLoginRefusals(sessions: Record<string, Session>): Promise<void> {
+  const subject = sessions.pharmacist2 ?? sessions.pharmacist;
+  if (!subject) {
+    skip('login refusals', 'no pharmacist session to name an account with');
+    return;
+  }
+
+  const wrong = await rawLogin(subject.loginId, await wrongProofFor(subject.loginId));
+  expectStatus('a wrong proof is refused', wrong.status, 401, wrong.json);
+  record('the refusal says INVALID_CREDENTIALS', codeOf(wrong.json) === 'INVALID_CREDENTIALS', `code ${codeOf(wrong.json)}`);
+
+  const ghostId = `nobody.${Date.now().toString(36)}`;
+  const unknown = await rawLogin(ghostId, await wrongProofFor(ghostId));
+  record(
+    'an unknown login id is refused exactly like a wrong password',
+    unknown.status === wrong.status && codeOf(unknown.json) === codeOf(wrong.json),
+    `unknown -> ${unknown.status} ${codeOf(unknown.json)}, wrong password -> ${wrong.status} ${codeOf(wrong.json)}; ` +
+      `a difference tells an attacker which login ids exist`
+  );
+
+  const malformed = await rawLogin(subject.loginId, 'not-a-proof');
+  expectStatus('a malformed proof is refused', malformed.status, [400, 401], malformed.json);
+
+  const empty = await rawLogin('', '');
+  expectStatus('an empty identifier and proof are refused', empty.status, [400, 401, 422], empty.json);
+
+  // One failure must not lock a real account: the counter is a threshold, not a
+  // tripwire, and the fixture has to keep working for every later section.
+  const right = await rawLogin(subject.loginId, await deriveAuthProof(passwordFor(subject.loginId), subject.loginId));
+  expectStatus('the right proof still signs in after one failure', right.status, 200, right.json);
+}
+
+/**
+ * Endpoints the removal deleted stay deleted.
+ *
+ * Probed with a signed-in session so the answer is the router's, not the
+ * idempotency or authentication layers refusing an anonymous caller first.
+ */
+async function qualifyRetiredEndpoints(sessions: Record<string, Session>): Promise<void> {
+  const caller = sessions.doctorA;
+  if (!caller) {
+    skip('retired endpoints', 'no doctor session');
+    return;
+  }
+  for (const path of [
+    '/auth/challenge',
+    '/auth/jwt',
+    '/auth/staff/login',
+    '/auth/demo-login',
+    '/auth/credentials',
+    '/auth/staff/rotate-credentials',
+    '/auth/step-up/challenge',
+    '/auth/step-up/verify',
+  ]) {
+    const r = await http('POST', path, { token: caller.token, body: {} });
+    expectStatus(`POST ${path} no longer exists`, r.status, [404, 405, 410], r.json);
+  }
+}
+
+/**
+ * One-time credential codes: wrong, replayed, malformed-proof, and exhausted.
+ *
+ * Each case gets its own account, because a code that is refused five times is
+ * dead and the point is to prove it.
+ */
+async function qualifyCredentialCodes(admin: Session): Promise<void> {
+  // A code that was never issued.
+  const first = await createDisposable(admin, 'code paths');
+  if (!first) return;
+
+  const bogus = await redeemCode(first.loginId, NEVER_ISSUED_CODE, first.loginId);
+  if (isGeneralRateLimit(bogus, 'GRANT_LOCKED')) {
+    skip('credential code paths', 'the general request limiter fired — re-run after a minute');
+    return;
+  }
+  expectStatus('a code that was never issued is refused', bogus.status, 401, bogus.json);
+  record('and the refusal says INVALID_GRANT', codeOf(bogus.json) === 'INVALID_GRANT', `code ${codeOf(bogus.json)}`);
+
+  // A client that sends only a proof cannot skip the strength check, and a
+  // weak password is refused with its reason. Neither burns the code.
+  const proofOnly = await http('POST', '/auth/credentials/redeem', {
+    body: { identifier: first.loginId, code: first.code, auth_proof: await deriveAuthProof(PASSWORD, first.loginId) },
+  });
+  expectStatus('a redemption without the password is refused', proofOnly.status, 400, proofOnly.json);
+  record('and the refusal says PASSWORD_REQUIRED', codeOf(proofOnly.json) === 'PASSWORD_REQUIRED', `code ${codeOf(proofOnly.json)}`);
+  const weak = await http('POST', '/auth/credentials/redeem', {
+    body: { identifier: first.loginId, code: first.code, password: 'Password2026!!!!' },
+  });
+  expectStatus('a common password is refused at redemption', weak.status, 422, weak.json);
+  record('and the refusal says PASSWORD_TOO_COMMON', codeOf(weak.json) === 'PASSWORD_TOO_COMMON', `code ${codeOf(weak.json)}`);
+
+  const redeemed = await redeemCode(first.loginId, first.code, first.loginId);
+  expectStatus('the real code still redeems afterwards', redeemed.status, 200, redeemed.json);
+  if (redeemed.status === 200) {
+    const me = await http('GET', '/auth/me', { token: String(redeemed.json.access_token) });
+    expectStatus('redemption signs the person in', me.status, 200, me.json);
+  }
+
+  // Single use.
+  const replay = await redeemCode(first.loginId, first.code, first.loginId);
+  expectStatus('a redeemed code cannot be redeemed again', replay.status, 401, replay.json);
+  record('and the refusal says INVALID_GRANT', codeOf(replay.json) === 'INVALID_GRANT', `code ${codeOf(replay.json)}`);
+
+  // A code is bound to the account it was issued for.
+  const second = await createDisposable(admin, 'code for another account');
+  if (second) {
+    const crossed = await redeemCode(first.loginId, second.code, first.loginId);
+    expectStatus("one account's code does not redeem another's", crossed.status, 401, crossed.json);
+  }
+
+  // Five wrong attempts kill the grant, so the right code stops working too.
+  const third = await createDisposable(admin, 'grant lockout');
+  if (third) {
+    // The grant dies without announcing it: every wrong code gets the same
+    // INVALID_GRANT, so an attacker cannot tell when the count ran out.
+    let uniform = true;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const r = await redeemCode(third.loginId, NEVER_ISSUED_CODE, third.loginId);
+      uniform &&= r.status === 401 && codeOf(r.json) === 'INVALID_GRANT';
+    }
+    record('five wrong codes are each refused the same way', uniform, 'a wrong code got a distinguishable answer');
+    const after = await redeemCode(third.loginId, third.code, third.loginId);
+    record(
+      'a locked grant refuses even the real code',
+      [401, 429].includes(after.status),
+      `status ${after.status} ${JSON.stringify(after.json).slice(0, 160)}`
+    );
+  }
+}
+
+/**
+ * Sign-in lockout, and an administrator's reset revoking live sessions.
+ */
+async function qualifyLockoutAndReset(admin: Session): Promise<void> {
+  const victim = await createDisposable(admin, 'lockout');
+  if (victim) {
+    const redeemed = await redeemCode(victim.loginId, victim.code, victim.loginId);
+    if (redeemed.status === 200) {
+      const wrong = await wrongProofFor(victim.loginId);
+      let locked = false;
+      for (let attempt = 0; attempt < 25 && !locked; attempt += 1) {
+        const r = await rawLogin(victim.loginId, wrong);
+        if (isGeneralRateLimit(r, 'ACCOUNT_LOCKED')) {
+          skip('sign-in lockout', 'the general request limiter fired — re-run after a minute');
+          return;
+        }
+        locked = r.status === 429 && codeOf(r.json) === 'ACCOUNT_LOCKED';
+      }
+      record('repeated wrong proofs lock the account (ACCOUNT_LOCKED)', locked, 'twenty-five wrong proofs never produced ACCOUNT_LOCKED');
+      const right = await rawLogin(victim.loginId, await deriveAuthProof(PASSWORD, victim.loginId));
+      record(
+        'a locked account refuses even the right proof',
+        [401, 429].includes(right.status),
+        `status ${right.status} — a lock the correct password walks through is not a lock`
+      );
+    } else {
+      record('the lockout account can be activated', false, `redeem -> ${redeemed.status} ${JSON.stringify(redeemed.json).slice(0, 160)}`);
+    }
+  }
+
+  // Reset revokes sessions.
+  const target = await createDisposable(admin, 'reset');
+  if (!target) return;
+  const first = await redeemCode(target.loginId, target.code, target.loginId);
+  if (first.status !== 200) {
+    record('the reset account can be activated', false, `redeem -> ${first.status}`);
+    return;
+  }
+  const token = String(first.json.access_token);
+  const live = await http('GET', '/auth/me', { token });
+  expectStatus('the account has a live session before the reset', live.status, 200, live.json);
+
+  const reset = await http('POST', `/admin/users/${target.userId}/credential-reset`, { token: admin.token, body: {} });
+  if (reset.status === 403 && codeOf(reset.json) === 'MFA_REQUIRED') {
+    skip('credential reset', 'the administrator session lacks step-up assurance on this deployment');
+    return;
+  }
+  if (!expectStatus('an administrator resets the credential', reset.status, [200, 201], reset.json)) return;
+  const resetCode = String(reset.json.credential_code ?? '');
+  record('the reset returns a one-time code and an expiry', resetCode !== '' && Boolean(reset.json.expires_at), JSON.stringify(reset.json).slice(0, 160));
+
+  const dead = await http('GET', '/auth/me', { token });
+  expectStatus('the reset revoked the live session', dead.status, 401, dead.json);
+
+  const again = await redeemCode(target.loginId, resetCode, target.loginId);
+  expectStatus('the reset code redeems', again.status, 200, again.json);
+  const replay = await redeemCode(target.loginId, resetCode, target.loginId);
+  expectStatus('the reset code cannot be redeemed twice', replay.status, 401, replay.json);
+
+  const notAdmin = await http('POST', `/admin/users/${target.userId}/credential-reset`, { token, body: {} });
+  expectStatus('a nurse cannot reset credentials', notAdmin.status, [401, 403], notAdmin.json);
+}
+
+/**
+ * A patient's activation code: username rules, single use, and what a fresh
+ * account can and cannot reach.
+ */
+async function qualifyPatientActivation(m: Manifest, sessions: Record<string, Session>): Promise<void> {
+  const doctor = sessions.doctorA;
+  if (!doctor) {
+    skip('patient activation', 'no doctor session');
+    return;
+  }
+  const stamp = Date.now().toString(36);
+  const reg = await http('POST', '/register', {
+    token: doctor.token,
+    body: {
+      full_name: `Activation Probe ${stamp}`,
+      date_of_birth: '1990-01-01',
+      national_id: `XR-${stamp}`,
+      phone: '+27000000300',
+      blood_type: 'O+',
+      allergies: [],
+      current_medications: [],
+      chronic_conditions: [],
+      emergency_contact_name: 'Probe Contact',
+      emergency_contact_phone: '+27000000301',
+      emergency_contact_relationship: 'friend',
+      organ_donor: false,
+      dnr_status: false,
+      languages: ['en'],
+    },
+  });
+  const patientId = String(reg.json.patient_id ?? '');
+  const activation = reg.json.activation as Json | undefined;
+  const code = String(activation?.code ?? reg.json.activation_code ?? '');
+  if (![200, 201].includes(reg.status) || !patientId || !code) {
+    record('registering a patient returns an activation code', false, `status ${reg.status} ${JSON.stringify(reg.json).slice(0, 200)}`);
+    return;
+  }
+  record('registering a patient returns an activation code', true, '');
+  record(
+    'the code has the documented shape (XXXX-XXXX-XXXX)',
+    /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code),
+    `got '${code}'`
+  );
+
+  const taken = await redeemCode(patientId, code, m.patient.login_id, m.patient.login_id);
+  expectStatus("a username somebody already holds is refused", taken.status, 409, taken.json);
+  record('and the refusal says LOGIN_ID_TAKEN', codeOf(taken.json) === 'LOGIN_ID_TAKEN', `code ${codeOf(taken.json)}`);
+
+  const badName = await redeemCode(patientId, code, 'a b!', 'a b!');
+  expectStatus('a username with spaces or punctuation is refused', badName.status, 400, badName.json);
+  record('and the refusal says INVALID_LOGIN_ID', codeOf(badName.json) === 'INVALID_LOGIN_ID', `code ${codeOf(badName.json)}`);
+
+  const foreign = await redeemCode(m.patient_b.linked_patient_id, code, `xr${stamp}`, `xr${stamp}`);
+  expectStatus("a code does not activate a different patient's account", foreign.status, 401, foreign.json);
+
+  const username = `xr${stamp}`;
+  const good = await redeemCode(patientId, code, username, username);
+  if (!expectStatus('the patient activates their account with a username of their own', good.status, 200, good.json)) return;
+  const linked = String(good.json?.user?.linked_patient_id ?? '');
+  record('the new account is bound to the registered record', linked === patientId, `linked_patient_id ${linked}`);
+
+  const token = String(good.json.access_token);
+  const own = await http('GET', `/patients/${patientId}`, { token });
+  expectStatus('the new patient reads their own record', own.status, 200, own.json);
+  const other = await http('GET', `/patients/${m.patient.linked_patient_id}`, { token });
+  expectStatus("and cannot read another patient's record", other.status, [403, 404], other.json);
+
+  const reuse = await redeemCode(patientId, code, `xs${stamp}`, `xs${stamp}`);
+  expectStatus('an activation code cannot be used twice', reuse.status, 401, reuse.json);
+
+  const reissue = await http('POST', `/patients/${patientId}/activation-code`, { token: doctor.token, body: {} });
+  record(
+    'a second activation code is not issued for an activated patient',
+    reissue.status === 409 && codeOf(reissue.json) === 'ALREADY_ACTIVATED',
+    `status ${reissue.status} code ${codeOf(reissue.json)}`
+  );
+}
+
+/**
+ * Class C: one challenge, one factor, one use, one session.
+ *
+ * The challenge names the factor the account must present. Fixtures carry no
+ * TOTP secret, so the positive path is exercised only when the factor is the
+ * password; the refusals are exercised for either.
+ */
+async function qualifyTransactionAuthorization(sessions: Record<string, Session>): Promise<void> {
+  const { doctorA, doctorB } = sessions;
+  if (!doctorA || !doctorB) {
+    skip('transaction authorization', 'needs two doctor sessions');
+    return;
+  }
+  const issue = async (who: Session) =>
+    http('POST', '/auth/transaction/challenge', {
+      token: who.token,
+      body: { action: 'qualification.probe', method: 'POST', path: '/api/qualification/probe' },
+    });
+
+  const issued = await issue(doctorA);
+  if (!expectStatus('a signed-in clinician is issued a transaction challenge', issued.status, [200, 201], issued.json)) return;
+  const challenge = ((issued.json.challenge as Json | undefined) ?? issued.json) as Json;
+  const challengeId = String(challenge.challenge_id ?? '');
+  const factor = String(challenge.required_factor ?? '');
+  record(
+    'the challenge names its factor and lifetime',
+    challengeId !== '' && ['totp', 'password'].includes(factor) && Number(challenge.expires_in_secs) > 0,
+    JSON.stringify(challenge).slice(0, 200)
+  );
+  if (!challengeId) return;
+
+  const wrongFactor =
+    factor === 'password'
+      ? { auth_proof: await wrongProofFor(doctorA.loginId) }
+      : { code: '000000' };
+  const wrong = await http('POST', '/auth/transaction/verify', {
+    token: doctorA.token,
+    body: { challenge_id: challengeId, ...wrongFactor },
+  });
+  expectStatus('the wrong factor does not authorize', wrong.status, [400, 401, 403], wrong.json);
+
+  const stolen = await http('POST', '/auth/transaction/verify', {
+    token: doctorB.token,
+    body: {
+      challenge_id: challengeId,
+      ...(factor === 'password'
+        ? { auth_proof: await deriveAuthProof(passwordFor(doctorB.loginId), doctorB.loginId) }
+        : { code: '000000' }),
+    },
+  });
+  expectStatus("another clinician cannot spend this session's challenge", stolen.status, [400, 401, 403, 404], stolen.json);
+
+  const ghost = await http('POST', '/auth/transaction/verify', {
+    token: doctorA.token,
+    body: { challenge_id: '00000000-0000-4000-8000-000000000000', ...wrongFactor },
+  });
+  expectStatus('a challenge id that was never issued is refused', ghost.status, [400, 401, 403, 404], ghost.json);
+
+  if (factor !== 'password') {
+    skip('the right factor authorizes, once', 'this account is asked for a TOTP code and fixtures hold no TOTP secret');
+    return;
+  }
+  const good = await http('POST', '/auth/transaction/verify', {
+    token: doctorA.token,
+    body: {
+      challenge_id: challengeId,
+      auth_proof: await deriveAuthProof(passwordFor(doctorA.loginId), doctorA.loginId),
+    },
+  });
+  expectStatus('the right password proof authorizes', good.status, 200, good.json);
+  const replay = await http('POST', '/auth/transaction/verify', {
+    token: doctorA.token,
+    body: {
+      challenge_id: challengeId,
+      auth_proof: await deriveAuthProof(passwordFor(doctorA.loginId), doctorA.loginId),
+    },
+  });
+  expectStatus('the same challenge cannot be spent twice', replay.status, [400, 401, 403, 404, 409], replay.json);
+}
+
+/**
+ * Credential authentication — rejection paths.
+ *
+ * Every one of these is decided by the API, so they are asserted here rather
+ * than settled for a weaker proof of the same property in a browser. Run last:
+ * it registers accounts, spends grants and locks one of them.
+ */
+async function qualifyCredentialRejectionPaths(m: Manifest, sessions: Record<string, Session>): Promise<void> {
+  section = 'K. Credential authentication — rejection paths';
   console.log(`\n${section}`);
 
-  // Patient B, not A. The limiter is 5 challenges per wallet per minute
-  // (`MAX_CHALLENGES_PER_WALLET_PER_MINUTE`), and A's budget is what sections
-  // I and J need to sign in on an immediate re-run. B is used once earlier and
-  // not after this, so it has room.
-  const wallet = m.patient_b.wallet;
-  const signer = await signerFromSecret(await secretFromMnemonic(m.patient_b.mnemonic), wallet);
+  await qualifyLoginRefusals(sessions);
+  await qualifyRetiredEndpoints(sessions);
+  await qualifyPatientActivation(m, sessions);
+  await qualifyTransactionAuthorization(sessions);
 
-  /** A challenge, or null when the per-wallet limiter has already fired. */
-  const challenge = async (): Promise<Json | null> => {
-    const r = await http('POST', '/auth/challenge', { body: { wallet_address: wallet } });
-    return r.status === 200 ? (r.json.challenge as Json) : null;
-  };
-
-  // --- single use ---------------------------------------------------------
-  const c1 = await challenge();
-  if (!c1) {
-    skip(
-      'wallet rejection paths',
-      'the per-wallet challenge limiter is already satisfied — re-run after a minute'
-    );
+  const admin = sessions.admin;
+  if (!admin) {
+    skip('credential codes, lockout and reset', 'no administrator session');
     return;
   }
-  record('a challenge is issued', true, '');
-
-  const signed = await signer.sign(c1.message as string);
-  const good = await http('POST', '/auth/jwt', {
-    body: { wallet_address: wallet, challenge_id: c1.challenge_id, nonce: c1.nonce, signature: signed },
-  });
-  expectStatus('a correctly signed challenge is accepted', good.status, 200, good.json);
-
-  const replay = await http('POST', '/auth/jwt', {
-    body: { wallet_address: wallet, challenge_id: c1.challenge_id, nonce: c1.nonce, signature: signed },
-  });
-  expectStatus('the same challenge cannot be used twice', replay.status, [400, 401, 409], replay.json);
-
-  // --- every negative probe shares ONE challenge --------------------------
-  //
-  // `auth_challenges::consume` only marks a challenge used on success, so a
-  // rejected attempt leaves it outstanding. Reusing one is not a shortcut: it
-  // is what lets all four probes run inside a per-wallet challenge limiter
-  // that fires after a handful of requests — and that limiter is itself
-  // asserted at the end.
-  const c2 = await challenge();
-  if (!c2) {
-    skip(
-      'wallet negative probes',
-      'the per-wallet challenge limiter fired mid-section — re-run after a minute'
-    );
-    return;
-  }
-
-  const otherSigner = await signerFromSecret(
-    await secretFromMnemonic(m.patient.mnemonic),
-    m.patient.wallet
-  );
-  const wrongSigner = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: wallet,
-      challenge_id: c2.challenge_id,
-      nonce: c2.nonce,
-      // Patient A signs a challenge issued to patient B.
-      signature: await otherSigner.sign(c2.message as string),
-    },
-  });
-  expectStatus(
-    "another patient's signature does not authenticate this wallet",
-    wrongSigner.status,
-    [400, 401],
-    wrongSigner.json
-  );
-
-  const forgedId = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: wallet,
-      challenge_id: '00000000-0000-4000-8000-000000000000',
-      nonce: c2.nonce,
-      signature: await signer.sign(c2.message as string),
-    },
-  });
-  expectStatus(
-    'a challenge id that was never issued is refused',
-    forgedId.status,
-    [400, 401, 404],
-    forgedId.json
-  );
-
-  const badNonce = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: wallet,
-      challenge_id: c2.challenge_id,
-      nonce: `${c2.nonce}tampered`,
-      signature: await signer.sign(c2.message as string),
-    },
-  });
-  expectStatus('a tampered nonce is refused', badNonce.status, [400, 401], badNonce.json);
-
-  const noSig = await http('POST', '/auth/jwt', {
-    body: { wallet_address: wallet, challenge_id: c2.challenge_id, nonce: c2.nonce, signature: '' },
-  });
-  expectStatus('an empty signature is refused', noSig.status, [400, 401], noSig.json);
-
-  // The challenge survived all four, which is the property that made sharing
-  // it valid — and confirms a failed attempt does not burn a user's challenge.
-  const stillUsable = await http('POST', '/auth/jwt', {
-    body: {
-      wallet_address: wallet,
-      challenge_id: c2.challenge_id,
-      nonce: c2.nonce,
-      signature: await signer.sign(c2.message as string),
-    },
-  });
-  expectStatus(
-    'a rejected attempt does not consume the challenge',
-    stillUsable.status,
-    200,
-    stillUsable.json
-  );
-
-  // --- the limiter --------------------------------------------------------
-  // A wallet GENERATED here, so it is provably nobody's.
-  //
-  // This was a hardcoded address chosen as a "throwaway" without checking it —
-  // and it turned out to be a real registered nurse, `nurse.dlamini`. The probe
-  // had been consuming a live user's challenge budget every run. An address
-  // that looks unused is not the same as one that is.
-  const throwaway = (await generateWalletIdentity()).address;
-  let limited = false;
-  for (let i = 0; i < 12 && !limited; i += 1) {
-    const r = await http('POST', '/auth/challenge', { body: { wallet_address: throwaway } });
-    if (r.status === 429) limited = true;
-  }
-  record(
-    'repeated challenge requests are rate limited',
-    limited,
-    'twelve further challenge requests were all accepted'
-  );
+  await qualifyCredentialCodes(admin);
+  await qualifyLockoutAndReset(admin);
 }
 
 /**
@@ -1099,9 +1337,9 @@ async function qualifyAuthorizationBoundaries(
 
   if (!doctorA || !pharmacist || !labtech || !admin) {
     // A section cannot run without its sessions. When those were refused by
-    // the challenge limiter rather than by a defect, this is a SKIP.
+    // a rate limit rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
-      skip('authorization boundaries', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('authorization boundaries', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('boundary prerequisites', false, 'needs doctor, pharmacist, labtech and admin sessions');
     }
@@ -1113,34 +1351,46 @@ async function qualifyAuthorizationBoundaries(
 
   // --- identity substitution ---------------------------------------------
   //
-  // The legacy header is the one MediChain spent a campaign removing. A
-  // request carrying a valid Bearer token AND a contradicting X-User-Id must
-  // resolve identity from the token, never from the header.
+  // The legacy identity header was removed outright: no route reads it, with or
+  // without a token. These probes send it anyway (the gate
+  // check-legacy-identity-headers.py exempts exactly the lines marked
+  // `identity-header-negative-assertion`) because the property under test is
+  // that a caller cannot become somebody else by naming them.
   const substituted = await fetch(`${API}/patients/${pidA}`, {
     headers: {
       Authorization: `Bearer ${pharmacist.token}`,
       // Claim to be the admin while holding a pharmacist's token.
-      'X-User-Id': m.administrator_wallet,
+      'X-User-Id': m.administrator_user_id, // identity-header-negative-assertion
     },
   });
+  const pharmacistOwn = await http('GET', `/patients/${pidA}`, { token: pharmacist.token });
   record(
-    'a contradicting X-User-Id does not upgrade a bearer session',
-    // Either the header is ignored (pharmacist's own rights apply) or the
-    // request is refused outright. What must NOT happen is admin access.
-    substituted.status !== 500,
-    `status ${substituted.status}`
+    'a contradicting identity header does not change what a bearer session can do',
+    substituted.status === pharmacistOwn.status,
+    `with the header ${substituted.status}, without ${pharmacistOwn.status}`
   );
 
   const adminOnlyAsPharmacist = await fetch(`${API}/dashboard/admin`, {
     headers: {
       Authorization: `Bearer ${pharmacist.token}`,
-      'X-User-Id': m.administrator_wallet,
+      'X-User-Id': m.administrator_user_id, // identity-header-negative-assertion
     },
   });
   record(
-    'a pharmacist claiming the admin wallet still cannot reach the admin dashboard',
+    'a pharmacist naming the administrator still cannot reach the admin dashboard',
     [401, 403].includes(adminOnlyAsPharmacist.status),
     `status ${adminOnlyAsPharmacist.status}`
+  );
+
+  const headerOnly = await fetch(`${API}/dashboard/admin`, {
+    headers: {
+      'X-User-Id': m.administrator_user_id, // identity-header-negative-assertion
+    },
+  });
+  record(
+    'the identity header alone authenticates nobody',
+    headerOnly.status === 401,
+    `status ${headerOnly.status}`
   );
 
   // --- cross-patient ------------------------------------------------------
@@ -1192,8 +1442,8 @@ async function qualifyAuthorizationBoundaries(
     try {
       disposable = await signIn(nurseFixture.login_id, 'revocation-probe');
     } catch (e) {
-      if (e instanceof ChallengeRateLimited) {
-        skip('revocation probe', 'challenge limiter — re-run after a minute');
+      if (e instanceof SignInRateLimited) {
+        skip('revocation probe', 'sign-in rate limit — re-run after a minute');
       } else {
         record('a disposable session for the revocation probe', false, String(e));
       }
@@ -1279,11 +1529,9 @@ async function qualifyAuthorizationBoundaries(
  * others do not — patient to staff — so the delivery half is proved by having
  * the recipient read it back, not by trusting the 201.
  *
- * Deliberately API-level, not browser. Patient sign-in in a browser needs a
- * wallet extension this environment cannot host (AUTH-007), so the session here
- * is built the same way a portal would build it — mnemonic, signer, single-use
- * challenge, signature, JWT — and the gap that remains is the *browser*, not
- * the authentication.
+ * Deliberately API-level, not browser: the session here is built the way a
+ * portal builds it (`POST /api/auth/login`), and what this does not cover is
+ * what a patient sees on screen.
  */
 async function qualifyPatientMutation(
   m: Manifest,
@@ -1298,9 +1546,9 @@ async function qualifyPatientMutation(
   const doctorA = sessions.doctorA;
   if (!patientA || !doctorA) {
     // A section cannot run without its sessions. When those were refused by
-    // the challenge limiter rather than by a defect, this is a SKIP.
+    // a rate limit rather than by a defect, this is a SKIP.
     if (sessionsRateLimited) {
-      skip('patient mutation', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('patient mutation', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('patient mutation prerequisites', false, 'needs a patient session and a doctor session');
     }
@@ -1329,7 +1577,7 @@ async function qualifyPatientMutation(
   const send = await http('POST', '/messages/send', {
     token: patientA.token,
     body: {
-      recipient_id: doctorA.wallet,
+      recipient_id: doctorA.userId,
       subject: 'Qualification message',
       content: `patient-to-clinician ${marker}`,
       priority: 'normal',
@@ -1371,7 +1619,7 @@ async function qualifyPatientMutation(
     const toPatient = await http('POST', '/messages/send', {
       token: patientA.token,
       body: {
-        recipient_id: patientB.wallet,
+        recipient_id: patientB.userId,
         subject: 'Should not arrive',
         content: 'patient-to-patient probe',
         priority: 'normal',
@@ -1394,11 +1642,11 @@ async function qualifyPatientMutation(
 
   // A patient must not be able to message a recipient that does not exist,
   // which is the same guard reached from the other side.
-  // Generated, for the same reason: the address originally used here was a
+  // Generated, for the same reason: the recipient originally used here was a
   // real nurse, so the "unknown recipient" probe was actually testing a
   // permitted patient-to-nurse message and reporting the correct 201 as a
   // failure.
-  const nobody = (await generateWalletIdentity()).address;
+  const nobody = globalThis.crypto.randomUUID();
   const ghost = await http('POST', '/messages/send', {
     token: patientA.token,
     body: {
@@ -1408,7 +1656,10 @@ async function qualifyPatientMutation(
       priority: 'normal',
     },
   });
-  expectStatus('a patient cannot message an unknown recipient', ghost.status, [403, 404], ghost.json);
+  // 400 as well: since 2026-09-22 every recipient is resolved before anything
+  // is stored, and an account that does not exist is a bad request body
+  // (INVALID_RECIPIENT). The property under test is the refusal, not its code.
+  expectStatus('a patient cannot message an unknown recipient', ghost.status, [400, 403, 404], ghost.json);
 }
 
 /**
@@ -1443,7 +1694,7 @@ async function qualifyTelehealth(
 
   if (!doctorA || !patientA) {
     if (sessionsRateLimited) {
-      skip('telehealth', 'sessions unavailable — challenge limiter, re-run after a minute');
+      skip('telehealth', 'sessions unavailable — sign-in rate limit, re-run after a minute');
     } else {
       record('telehealth prerequisites', false, 'needs a doctor and a patient session');
     }
@@ -1466,6 +1717,10 @@ async function qualifyTelehealth(
       recording_enabled: false,
     },
   });
+  if (create.status === 503 && codeOf(create.json) === 'TELEHEALTH_UNAVAILABLE') {
+    skip('telehealth', 'this deployment has no telehealth provider configured');
+    return;
+  }
   if (!expectStatus('a clinician schedules a session', create.status, [200, 201], create.json)) return;
 
   const session = (create.json.session ?? create.json) as Json;
@@ -1507,17 +1762,11 @@ async function qualifyTelehealth(
     );
   }
 
-  // Refused — but by the idempotency middleware (409 IDEMPOTENCY_AUTH_REQUIRED)
-  // rather than by the auth layer, because a keyed mutation needs a subject
-  // before authorization is even consulted. The boundary holds; which layer
-  // holds it is a diagnosability nit, not a hole, so the assertion names both.
+  // 401, whichever layer refuses it. The idempotency middleware used to answer
+  // a keyed write with no caller 409 IDEMPOTENCY_AUTH_REQUIRED, so this
+  // accepted 409 too; it answers 401 now (2026-11-13).
   const anon = await http('POST', `/telehealth/sessions/${sessionId}/join`);
-  expectStatus(
-    'an unauthenticated caller cannot join',
-    anon.status,
-    [401, 403, 409],
-    anon.json
-  );
+  expectStatus('an unauthenticated caller cannot join', anon.status, [401], anon.json);
 
   // --- a session that does not exist --------------------------------------
   const ghost = await http('POST', '/telehealth/sessions/SESSION-DOES-NOT-EXIST/join', {
@@ -1664,13 +1913,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const manifestPath = join(REPO_ROOT, '.browser-test', 'fixtures.json');
   let m: Manifest;
   try {
-    m = JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest;
-  } catch {
+    m = loadManifest();
+  } catch (e) {
     console.error(
-      `\n  No fixtures at ${manifestPath}.\n` +
+      `\n  No usable fixtures (${String(e)}).\n` +
         `  Run scripts/seed-browser-test-fixtures.ts first.\n`
     );
     process.exit(1);
@@ -1692,9 +1940,8 @@ async function main(): Promise<void> {
   await qualifyTelehealth(m, sessions, patients);
   await qualifyAuthorizationBoundaries(m, sessions, patients);
   await qualifySessionLifecycle(sessions);
-  // Last: this section deliberately consumes challenges, and the
-  // per-wallet challenge rate limiter is a real control that will fire.
-  await qualifyWalletRejectionPaths(m);
+  // Last: this section registers accounts, spends grants and locks one of them.
+  await qualifyCredentialRejectionPaths(m, sessions);
 
   const failed = checks.filter((c) => !c.passed && !c.skipped);
   const skipped = checks.filter((c) => c.skipped);

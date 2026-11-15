@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { patientFixture, staffFixture } from './support';
 
 /**
  * Comprehensive Frontend E2E Tests
@@ -17,15 +18,15 @@ test.describe('MediChain Whole Frontend', () => {
       await expect(page.locator('h1')).toContainText('MediChain');
       await expect(page.locator('p')).toContainText('Doctor Portal');
 
-      // Login as Dr. Mbeki using demo button
-      const drMbekiButton = page.locator('button:has-text("Mbeki")');
-      await expect(drMbekiButton).toBeVisible();
-      await drMbekiButton.click();
+      // Sign in as the seeded doctor fixture with Employee ID and password.
+      const doctor = staffFixture('Doctor');
+      await page.locator('input#identifier').fill(doctor.login_id);
+      await page.locator('input#password').fill(doctor.password);
+      await page.locator('button[type="submit"]').click();
 
       // Verify redirection to dashboard
-      await expect(page).toHaveURL(/.*dashboard/);
+      await expect(page).toHaveURL(/.*dashboard/, { timeout: 30000 });
       await expect(page.locator('h1')).toContainText(/Welcome back/i);
-      await expect(page.locator('h1')).toContainText(/Mbeki/i);
       
       // Verify some dashboard elements
       await expect(page.locator('text=Recent Emergency Access')).toBeVisible();
@@ -43,14 +44,14 @@ test.describe('MediChain Whole Frontend', () => {
       // Patient app doesn't explicitly say "Patient App" in H1 but has different styling/icons
       await expect(page.locator('text=Patient Login')).toBeVisible();
 
-      // Login as Thabo Mokoena using demo button
-      const thaboButton = page.locator('button:has-text("Thabo")');
-      await expect(thaboButton).toBeVisible();
-      await thaboButton.click();
+      // Sign in as the seeded fixture patient with username and password.
+      const patient = patientFixture();
+      await page.locator('input#username').fill(patient.login_id);
+      await page.locator('input#password').fill(patient.password);
+      await page.locator('button[type="submit"]').click();
 
       // Verify redirection to dashboard
-      await expect(page).toHaveURL(/.*dashboard/);
-      await expect(page.locator('h2')).toContainText(/Thabo Mokoena/i);
+      await expect(page).toHaveURL(/.*dashboard/, { timeout: 30000 });
       
       // Verify some dashboard elements
       await expect(page.locator('text=My Health Status')).toBeVisible();

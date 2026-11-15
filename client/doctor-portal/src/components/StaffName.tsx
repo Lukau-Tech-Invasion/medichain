@@ -3,20 +3,20 @@ import { getProviders, type BookableProvider } from '@medichain/shared';
 import { useAuthStore } from '../store';
 
 /**
- * Render who did something by their name, not their wallet address.
+ * Render who did something by their name, not their user id.
  *
- * Records store the actor's SS58 wallet, which is the right identity for the
- * API to keep — it is what signs, and it is unambiguous. It is the wrong thing
- * to put in front of a clinician: `5GnPcTux4PX1F8RchBGn9QBgS3fPu3AnVQyQc9snQ74LoCDG`
- * tells a reader nothing, and two colleagues cannot be told apart by it. An
+ * Records store the actor's `user_id`, which is the right identity for the
+ * API to keep — it is unambiguous. It is the wrong thing to put in front of a
+ * clinician: a UUID tells a reader nothing, and two colleagues cannot be told
+ * apart by it. An
  * order, a note or a dispensing record is only accountable if the person who
  * made it can be recognised.
  *
  * The directory is fetched once per page load and shared by every instance, so
  * a list of fifty rows makes one request, not fifty.
  *
- * When a wallet is not in the directory the address is shown unchanged. That is
- * deliberate: a wallet that cannot be resolved must never be rendered as
+ * When an id is not in the directory it is shown unchanged. That is
+ * deliberate: an id that cannot be resolved must never be rendered as
  * somebody else's name, and an account may legitimately be absent (deactivated,
  * or belonging to another facility).
  */
@@ -35,10 +35,10 @@ async function loadDirectory(): Promise<Directory> {
     try {
       const { providers } = await getProviders();
       for (const row of providers) {
-        if (row.wallet_address) directory.set(row.wallet_address, row);
+        if (row.user_id) directory.set(row.user_id, row);
       }
     } catch {
-      // An unreachable directory means addresses stay as addresses, which is
+      // An unreachable directory means ids stay as ids, which is
       // the honest fallback. It is not worth a visible error on every row.
     }
     cache = directory;
@@ -49,7 +49,7 @@ async function loadDirectory(): Promise<Directory> {
   return inFlight;
 }
 
-/** The display name for a wallet, or the wallet itself when unknown. */
+/** The display name for a `user_id`, or the id itself when unknown. */
 export function useStaffName(id?: string | null): string {
   const { user } = useAuthStore();
   const [directory, setDirectory] = useState<Directory | null>(cache);
@@ -110,7 +110,7 @@ export function useStaffDirectory(): (id?: string | null) => string {
 }
 
 interface StaffNameProps {
-  /** The stored actor: a wallet address, or already a name. */
+  /** The stored actor: a `user_id`, or already a name. */
   id?: string | null;
   /** Shown when `id` is empty. */
   fallback?: string;

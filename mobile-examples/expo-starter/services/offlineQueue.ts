@@ -69,7 +69,7 @@ const DEFAULT_CONFIG: Partial<OfflineQueueConfig> = {
  * const queue = new OfflineQueue({
  *   apiBaseUrl: 'http://192.168.1.100:8080',
  *   getAuthHeaders: async () => ({
- *     'X-User-Id': await SecureStore.getItemAsync('user_id') || ''
+ *     Authorization: `Bearer ${await SecureStore.getItemAsync('access_token')}`
  *   })
  * });
  * 

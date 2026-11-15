@@ -84,6 +84,9 @@ pub struct SubmitLabResultRequest {
     /// Optional facility whose CDS thresholds should apply to this submission's
     /// rule evaluation. Absent => the engine default thresholds are used.
     pub facility_id: Option<String>,
+    /// Stable fixture key accepted only in explicit demo mode.
+    #[serde(default)]
+    pub demo_seed_key: Option<String>,
 }
 
 /// Response for lab result submission

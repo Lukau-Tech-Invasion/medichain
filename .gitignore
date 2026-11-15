@@ -97,7 +97,6 @@ docs/copilot-instructions.md
 # docs/CONNECTION_FIXES_SUMMARY.md
 # docs/CONNECTION_TROUBLESHOOTING_RUNBOOK.md
 # docs/COMPREHENSIVE_CONNECTION_ANALYSIS.md
-# docs/BLOCKCHAIN_MOBILE_AMD.md
 # docs/MOBILE_AUTH_FLOW.md
 # docs/MOBILE_INTEGRATION_CHECKLIST.md
 # docs/PROJECT_PROGRESS.md
@@ -108,12 +107,8 @@ docs/copilot-instructions.md
 __pycache__/
 *.py[cod]
 
-# Blockchain node: the CI-downloaded binary and any local chain database.
-# Both are large and machine-specific; the binary comes from the
-# "Blockchain node release binary" workflow, the chain data from
-# `run-dev-node.sh --persist`.
-.node-bin/
-# All local chain databases and node logs. Nothing under data/ is tracked.
+# Local runtime data (databases, logs). Machine-specific; nothing under data/
+# is tracked.
 /data/
 
 # Playwright run output and the screenshots captured during browser-driven
@@ -130,13 +125,23 @@ client/**/*.png
 *.png
 fix-results.tsv
 
-# Browser-test identity fixtures: throwaway synthetic credentials and
-# recovery phrases. Regenerate with scripts/seed-browser-test-fixtures.ts;
+# Browser-test identity fixtures: throwaway synthetic login IDs, passwords and
+# medical IDs. Regenerate with scripts/seed-browser-test-fixtures.ts;
 # never commit them.
 .browser-test/
+
+# Browser-audit evidence: screenshots and page snapshots of synthetic patient
+# records. Kept locally as audit evidence; never commit them.
+output/
 
 # Playwright saved sign-in state (contains a live session token)
 client/**/.auth/
 
 # Jitsi generates its own configuration and certificates into this tree.
 .jitsi-config/
+
+# Local tooling and generated output (not source)
+.node-bin/
+.presentation-build/
+.clinerules/
+docs/fnb-submission/build/

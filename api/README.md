@@ -1,32 +1,16 @@
-# API (medichain/api)
+# MediChain API
 
-Purpose: Actix-web REST API for MediChain. Hosts clinical endpoints, FHIR read endpoints, IPFS integration, auth/demo utilities and supporting services.
+The Actix-web API serves clinical workflows, FHIR endpoints, patient access
+history, and account authentication. Run it from the repository root with
+`cargo run -p medichain-api` after configuring a development PostgreSQL database.
 
-Quick run (development):
+Clients sign in through `POST /api/auth/login` using a login ID, password proof,
+and an authenticator code if enrolled. Protected requests use
+`Authorization: Bearer <access-token>`. A verified session ID is required;
+caller-supplied identity headers do not establish a user identity.
 
- - Ensure Rust toolchain from `rust-toolchain.toml` is installed
- - From repository root:
-```
-cd api
-cargo run
-```
-
-Key files:
-- `src/main.rs` — server bootstrap, route handlers for core API and demo endpoints
-- `src/clinical_endpoints.rs` — large collection of clinical handlers and FHIR mappings
-- `data/demo_users.json` — demo user seed data
-
-Env / runtime notes:
-- Uses `X-User-Id` header for wallet-based auth (SS58 addresses).
-- **Secure by default:** wallet signature verification (SEC-005) is ENABLED unless
-  you explicitly opt out. With it enabled, every mutating request carrying
-  `X-User-Id` must also carry a valid `X-Signature` + `X-Timestamp` (sr25519 over
-  `<timestamp>:<wallet_address>`); otherwise `X-User-Id` is treated as
-  unauthenticated. Handlers may trust `X-User-Id` as the caller's identity ONLY
-  because the middleware binds it to a verified signature.
-- For local/demo runs set `IS_DEMO=true` (see root `.env.example`), which disables
-  signature verification so requests work with just `X-User-Id`. Never set
-  `IS_DEMO=true` in production. Precedence: `REQUIRE_SIGNATURES=true|false`
-  overrides the `IS_DEMO`-derived default. When verification ends up disabled the
-  server logs a loud startup warning.
-- Demo seeding and demo endpoints are present; consider gating in production.
+Patient registration issues a one-time activation code. An administrator can
+register staff and issue a code or reset an existing credential. The recipient
+redeems it through `POST /api/auth/credentials/redeem`, then chooses a password.
+Demo fixture credentials are available only with both development and demo mode
+enabled; see [developer authentication guidance](../docs/DEV_AUTH.md).

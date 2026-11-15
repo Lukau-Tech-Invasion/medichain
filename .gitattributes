@@ -1,0 +1,6 @@
+*.pdf -text -diff
+*.pptx -text -diff
+# Shell scripts run inside Linux containers and on the EC2 instance: a CRLF
+# line ending breaks them, whatever the checkout platform.
+*.sh text eol=lf
+infra/aws/systemd/* text eol=lf

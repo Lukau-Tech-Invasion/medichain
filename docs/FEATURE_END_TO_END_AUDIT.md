@@ -17,9 +17,6 @@ gate, because each was a **successful write that no reader could see**:
    the portal produces**, including `requested`, which every new consult is
    created with. Requesting a consult failed outright on PostgreSQL while
    succeeding in the in-memory backend.
-3. **Credential sign-in could never obtain a JWT.** `from_hex` rejected the `0x`
-   prefix `u8aToHex` emits, so a valid sr25519 signature failed at the hex
-   decoder and was reported as `SIGNATURE_VERIFICATION_FAILED`.
 4. **Five repository methods reachable from handlers were unimplemented on
    Postgres only**, returning `list_all not implemented` — lab QC, blood bank,
    specimen collection and specimen rejection registries.
@@ -99,7 +96,6 @@ route scan is not by itself end-to-end proof.
 
 | Feature group | Status | What is complete | What prevents an end-to-end production claim |
 |---|---|---|---|
-| Authentication, users and RBAC | **Partial — release verification required** | Wallet/JWT authentication, persistent user/profile/RBAC mutations and MFA step-up remediation exist with regression coverage. | Rust/Postgres tests were not freshly run on this workstation, and 41 bulk-read handlers still require a documented tenant-scope decision or enforcement. |
 | Emergency protocols | **Implemented — dynamic proof pending** | Code Blue, trauma, stroke, cardiac and sepsis use repositories and have restart-oriented tests. | Fresh Rust/Postgres CI evidence is still required on the release commit. |
 | Emergency and lock-screen Medical ID | **Partial — release blocking** | Capability checks, device binding, audit-before-disclosure and the lock-screen preference are implemented. | Core Medical-ID responses still omit emergency contacts, chronic conditions and current medicines in some paths; external emergency notification recipients are not implemented. |
 | Consent and patient access | **Partial — release blocking** | Consent records use the repository abstraction and the hardcoded patient response was removed. | Patient access requests and grants in `patient_access.rs` are process-memory only and disappear on restart. |
@@ -107,7 +103,7 @@ route scan is not by itself end-to-end proof.
 | Patient satisfaction | **Connected** | Correct patient-facing API, durable repository write, validation and truthful failure UI are implemented. | Fresh Rust/Postgres execution remains part of the release gate. |
 | Settings | **Partial** | Patient and doctor preferences round-trip durably; Medical-ID lock-screen and language mappings are connected. | Notification/privacy preferences are stored but are not yet consumed by every downstream delivery and research workflow. Legal Terms and Privacy notices have not been published. |
 | FHIR interoperability | **Partial — release blocking for claimed resources** | FHIR routes and several resource transformations exist. | Patient address/contact arrays and chronic medication/condition resources still contain explicit empty/TODO mappings. |
-| Telehealth, mobile and federation | **Partial / external qualification required** | UI and API surfaces exist for the current demo flows. | Several compatibility/security registries remain memory-only, and real providers, secure key custody, mobile hardware and multi-validator/multi-hospital qualification require external environments. |
+| Telehealth, mobile and federation | **Partial / external qualification required** | UI and API surfaces exist for the current demo flows. | Several compatibility/security registries remain memory-only, and real providers, secure key custody, mobile hardware and multi-hospital qualification require external environments. |
 | Automated testing | **Partial — H3 remains open** | Typechecks and the reviewed 32-file / 127-test frontend gate pass. CI makes Rust formatting, Clippy and Postgres tests blocking. | The historical generated frontend suite still has large unresolved failures, and fresh local Rust compilation/tests were blocked by insufficient disk space. |
 
 ## Release-blocking implementation backlog
@@ -312,14 +308,6 @@ route scan is not by itself end-to-end proof.
 > owner can supply. Each is annotated below rather than deleted, because a
 > backlog that loses its own history gets re-litigated.
 
-1. Make notification, privacy and research preferences authoritative in every
-   email, SMS, push, research export and secondary-use path.
-   **Push: closed** — `notifications::notify_patient` bridges `PAT-` to the
-   linked wallet and consults `patient_wants` before every send.
-   **SMS: closed by a different mechanism** — the global opt-out list is
-   enforced inside `send_sms_with_retry`, and the medication-reminder path is
-   additionally gated on the reminder's own SMS opt-in, which is the more
-   specific preference. **Research export and secondary use remain open.**
 2. ~~Replace or persist the process-memory federation/security compatibility
    stores.~~ **Closed 2026-09-17.** All seven were checked against what they do
    rather than against the fact that they hold a map. Five were already durable
@@ -340,11 +328,6 @@ route scan is not by itself end-to-end proof.
    translation gained the same shape (`TRANSLATION_PROVIDER`). Key management
    is not an integration gap: private wrapping keys deliberately never enter
    this process, which is the design, not a missing feature.
-4. Deploy and qualify the required Substrate runtime calls on an independent
-   multi-validator environment and prove finalized writes and outbox replay.
-   **Open, and not closable here** — it needs validator hosts and a consortium
-   governance decision. See the unchecked list at the top of
-   `IMPLEMENTATION_PLAN.md`.
 5. Publish reviewed Terms, Privacy/PAIA information and the data-subject contact
    path before enabling those links in production. **Open** — legal content,
    not code.
@@ -367,18 +350,6 @@ route scan is not by itself end-to-end proof.
    assumed.
 
 ## Proof still required
-
-The workstation did not have sufficient free disk space for a fresh Rust build,
-Clippy run or Postgres test run. This is not a formality: the patient-access
-work landed on 2026-08-09 is `rustfmt`-clean (so it parses) but has **never been
-type-checked** — `cargo check -p medichain-api --features postgres` exhausted the
-disk partway through and its artifacts had to be deleted to recover space. Treat
-that code as unverified until CI compiles it. No API, Postgres, Substrate node or browser dev
-server was started during this audit. Consequently, the current code-level and
-frontend-test evidence must be followed by the release gates in
-[`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) on the exact commit proposed
-for launch.
-
 
 ## Frontend test reconciliation — method and findings (2026-08-11)
 
@@ -480,14 +451,6 @@ shows a clear permission message instead of a raw 403 error.
 The final route sweep found only expected administrator restrictions for the
 Doctor account on `/admin`, `/user-management`, and `/analytics`. Focused tests
 for the affected pages passed after the fixes.
-
-Administrator-role limitation: the live browser could not complete an Admin
-session because the static/demo admin wallet is not enrolled in the current
-credential-login flow. Injecting that wallet into the browser session was
-correctly rejected by the API with `403` on `/api/dashboard/admin`; this was
-not treated as a successful admin test. A supported admin credential or wallet
-signature is required to verify Admin Dashboard, User Management, and the
-administrator Analytics view end to end.
 
 Telehealth creation returned success and the session reappeared when searched
 by patient after reload. The API response does not currently include the

@@ -1,5 +1,6 @@
 //! In-memory triage assessment repository implementation.
 
+use super::lock_poisoned;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use std::collections::HashMap;
@@ -35,10 +36,7 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
         &self,
         assessment: TriageAssessmentEntity,
     ) -> RepositoryResult<TriageAssessmentEntity> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         if storage.contains_key(&assessment.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -48,16 +46,10 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
         }
         drop(storage);
 
-        let mut storage = self
-            .storage
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
         storage.insert(assessment.id.clone(), assessment.clone());
 
-        let mut patient_index = self
-            .patient_index
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut patient_index = self.patient_index.write().map_err(lock_poisoned)?;
         patient_index
             .entry(assessment.patient_id.clone())
             .or_default()
@@ -67,10 +59,7 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<TriageAssessmentEntity> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         storage
             .get(id)
@@ -83,15 +72,9 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<TriageAssessmentEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<TriageAssessmentEntity> = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -117,15 +100,9 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Option<TriageAssessmentEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
-        let patient_index = self
-            .patient_index
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let patient_index = self.patient_index.read().map_err(lock_poisoned)?;
 
         let latest = match patient_index.get(patient_id) {
             Some(ids) => ids
@@ -143,10 +120,7 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
         &self,
         assessment: TriageAssessmentEntity,
     ) -> RepositoryResult<TriageAssessmentEntity> {
-        let mut storage = self
-            .storage
-            .write()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let mut storage = self.storage.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&assessment.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -160,10 +134,7 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
     }
 
     async fn get_critical(&self) -> RepositoryResult<Vec<TriageAssessmentEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let cutoff = Utc::now() - Duration::hours(24);
 
@@ -185,10 +156,7 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
     }
 
     async fn get_ed_dashboard(&self) -> RepositoryResult<Vec<TriageAssessmentEntity>> {
-        let storage = self
-            .storage
-            .read()
-            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+        let storage = self.storage.read().map_err(lock_poisoned)?;
 
         let cutoff = Utc::now() - Duration::hours(24);
 
@@ -228,7 +196,7 @@ mod tests {
             oxygen_saturation: Some(97),
             pain_scale: Some(7),
             gcs_score: Some(15),
-            blood_glucose: Some(110),
+            blood_glucose: Some(6.1),
             weight: Some(80.0),
             is_critical: esi_level <= 2,
             requires_isolation: false,

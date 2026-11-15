@@ -16,7 +16,7 @@ global.fetch = mockFetch;
 
 describe('PharmacistDashboardPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Pharmacist',
     fullName: 'Pharmacist Phil',
   };
@@ -71,8 +71,43 @@ describe('PharmacistDashboardPage', () => {
   });
 });
 
+describe('PharmacistDashboardPage allergy decision access', () => {
+  it('blocks a new decision when patient decision history is denied', async () => {
+    vi.clearAllMocks();
+    vi.mocked(useAuthStore).mockReturnValue({
+      user: { userId: 'pharmacist', role: 'Pharmacist' },
+      isAuthenticated: true,
+    });
+    mockFetch.mockImplementation((input: string) => {
+      if (String(input).includes('/pharmacy-decisions')) {
+        return Promise.resolve({
+          ok: false,
+          status: 403,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ error: { code: 'CARE_RELATIONSHIP_REQUIRED' } }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({
+          prescriptions: { pending_fill: 0, in_progress: 0, completed_today: 0, list: [] },
+          drug_interactions: [],
+          allergy_alerts: [{ id: 'alert-1', patient_id: 'PAT-1', patient_name: 'Patient', allergen: 'Penicillin', severity: 'Major' }],
+        }),
+      });
+    });
+
+    render(<MemoryRouter><PharmacistDashboardPage /></MemoryRouter>);
+
+    expect(await screen.findByRole('alert', { name: '' })).toHaveTextContent(/Decision history cannot be checked/i);
+    expect(screen.getByRole('button', { name: /^reject$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /contact md/i })).toBeDisabled();
+  });
+});
+
 describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
-  const mockUser = { walletAddress: '5Ew3MyB1...mock', role: 'Pharmacist' };
+  const mockUser = { userId: '5Ew3MyB1...mock', role: 'Pharmacist' };
 
   /** One prescription per lifecycle state the queue can contain. */
   const queue = {
@@ -162,7 +197,7 @@ describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
   });
 
   /** A non-numeric or zero quantity is refused locally, for the same reason. */
-  it('refuses a zero quantity without calling the API', async () => {
+  it.each(['0', '1.5', '9007199254740992'])('refuses invalid whole-unit quantity %s without calling the API', async (quantity) => {
     render(
       <MemoryRouter>
         <PharmacistDashboardPage />
@@ -172,7 +207,7 @@ describe('PharmacistDashboardPage dispensing actions (SCR-013)', () => {
     const dispense = await screen.findByRole('button', { name: /^dispense$/i });
     const before = mockFetch.mock.calls.length;
     fireEvent.click(dispense);
-    await answerPrompt('0');
+    await answerPrompt(quantity);
 
     await screen.findByText(/whole number of units/i);
     expect(mockFetch.mock.calls.length).toBe(before);
@@ -185,7 +220,7 @@ describe('PharmacistDashboardPage secondary verification actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: pharmacistId, role: 'Pharmacist' },
+      user: { userId: pharmacistId, role: 'Pharmacist' },
       isAuthenticated: true,
     });
   });
@@ -298,7 +333,7 @@ describe('PharmacistDashboardPage dispense correction history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
-      user: { walletAddress: 'pharmacist-one', role: 'Pharmacist' },
+      user: { userId: 'pharmacist-one', role: 'Pharmacist' },
       isAuthenticated: true,
     });
     mockFetch.mockImplementation((request: RequestInfo | URL, init?: RequestInit) => {

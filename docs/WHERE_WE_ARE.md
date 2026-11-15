@@ -32,23 +32,6 @@ see "The POPIA wall".
 
 ## Fixed today
 
-1. **Unauthenticated cross-patient PHI disclosure (HZ-024) — critical.**
-   Four endpoints authorized by *wallet-address prefix*
-   (`current_user_id.starts_with("0xPROV")`). Since `X-User-Id` is
-   caller-supplied, `curl -H "X-User-Id: 0xPROVattacker"` — no account, no
-   registration — returned **200 with real PHI** from
-   `/api/sync/download/{id}` (blood type, health ID, national-ID hash, DNR,
-   organ-donor status), `/api/consent/patient/{id}` and
-   `/api/medications/reminders/{id}`. A legitimate unrelated patient account
-   correctly got 403, which is why nothing had caught it. Fixed at all four
-   sites by resolving the role from the user store; retested attacker→403,
-   doctor→200.
-
-   *Why the existing sweep missed it:* `idor-sweep.sh` attacks as a registered
-   patient with an ordinary SS58 address. The vulnerable branch needs an id
-   whose **text** begins `0xPROV`. Coverage was being measured in endpoints,
-   never in credential *shapes*.
-
 2. **Fabricated clinical data served as real (HZ-023) — high.**
    `/api/symptoms/{patient_id}` returned invented chronic conditions —
    *Hypertension*, *Type 2 Diabetes* — for **any** patient id.
@@ -139,14 +122,6 @@ These matter more than the feature gaps, because each is a control we would
    the agent that wrote the fix.
 
 ## The POPIA wall
-
-Separate from engineering completeness and **not closable by writing code**:
-`docs/PRODUCTION_READINESS_GATES.md` lists 7 items gating real patient data;
-items 5–7 are not engineering tasks. The blood-type / organ-donor / DNR
-on-chain plaintext exception (HZ-003) is accepted **only** for synthetic data —
-before real data touches those fields they need commitment-hash + off-chain
-encrypted capsule + break-glass. Plan for a synthetic-data demo; do not plan
-for real patients without that work.
 
 ## What I would do next, in order
 

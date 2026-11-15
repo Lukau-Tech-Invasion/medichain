@@ -31,7 +31,7 @@ pub async fn check_drug_interactions(
     http_req: HttpRequest,
     req: web::Json<CheckDrugInteractionsRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
+    let current_user_id = match require_caller_id(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
     };
@@ -422,7 +422,7 @@ pub async fn get_interaction_history(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
+    let current_user_id = match require_caller_id(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
     };
@@ -556,7 +556,7 @@ mod patientless_check_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/interactions/check")
-            .insert_header(("X-User-Id", "5Doctor"))
+            .insert_header(crate::test_fixtures::as_user("5Doctor"))
             .set_json(serde_json::json!({
                 "medications": ["warfarin", "aspirin"],
                 "include_allergies": true
@@ -648,7 +648,7 @@ mod allergy_screen_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/interactions/check")
-            .insert_header(("X-User-Id", "5Doctor"))
+            .insert_header(crate::test_fixtures::as_user("5Doctor"))
             .set_json(serde_json::json!({
                 "patient_id": "PAT-ALLERGIC",
                 "medications": ["Amoxicillin 500mg"],
@@ -677,7 +677,7 @@ mod allergy_screen_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/interactions/check")
-            .insert_header(("X-User-Id", "5Doctor"))
+            .insert_header(crate::test_fixtures::as_user("5Doctor"))
             .set_json(serde_json::json!({
                 "patient_id": "PAT-NOBODY",
                 "medications": ["Amoxicillin 500mg"]

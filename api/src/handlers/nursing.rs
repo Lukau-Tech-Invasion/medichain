@@ -107,15 +107,21 @@ pub async fn nursing_administer_medication(
     if let Err(resp) = require_provider(&data, &req) {
         return resp;
     }
-    let current_user_id = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let Some(caller) = get_current_user_id(&req).and_then(|id| get_user(&data, &id)) else {
+        return HttpResponse::Unauthorized().finish();
     };
+    let current_user_id = caller.id.clone();
     let body = body.into_inner();
     let patient_id = match required_patient_id(&body) {
         Ok(p) => p,
         Err(resp) => return resp,
     };
+    // Same rule as an emergency dose: only a clinician linked to the patient
+    // writes to their medication record.
+    if let Err(resp) = crate::care_access::require_treating_link(&data, &caller, &patient_id).await
+    {
+        return resp;
+    }
     // Keep everything the eMAR form captures. The five-rights verification, the
     // witnessing nurse and whether the dose was actually given (versus held or
     // refused) are the clinically and legally meaningful parts of a medication
@@ -299,8 +305,11 @@ pub async fn nursing_record_fluid(
             // as "other": "wound drain" and "chest drain" are both drainage to
             // the totals and different things to the person reading the chart.
             label: fluid_label.as_deref(),
+            // The nursing dashboard's form has no source field.
+            source: None,
             notes: body.get("notes").and_then(|v| v.as_str()),
             amount_ml,
+            recorded_at: crate::support::clinical_time(&req),
         },
     )
     .await
@@ -317,5 +326,54 @@ pub async fn nursing_record_fluid(
                 code: "IO_WRITE_FAILED".to_string(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod mar_scope_tests {
+    //! A ward dose is written to the chart of a patient the nurse is linked to,
+    //! by the same rule as an emergency dose.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+
+    const PATIENT: &str = "PAT-WARD-MAR";
+    const TREATING: &str = "ward-mar-treating-nurse";
+    const STRANGER: &str = "ward-mar-stranger-nurse";
+
+    #[actix_web::test]
+    async fn only_a_linked_nurse_records_a_ward_dose() {
+        let state = AppState::new();
+        test_fixtures::register(&state, TREATING, Role::Nurse);
+        test_fixtures::register(&state, STRANGER, Role::Nurse);
+        test_fixtures::seed_patient(&state, PATIENT).await;
+        crate::care_access::record_encounter(&state, PATIENT, TREATING, "APT-WARD-MAR", Utc::now())
+            .await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::nursing_administer_medication),
+        )
+        .await;
+        let dose = |who: &'static str| {
+            test::TestRequest::post()
+                .uri("/api/nursing/mar/administer")
+                .insert_header(test_fixtures::as_user(who))
+                .set_json(serde_json::json!({
+                    "patient_id": PATIENT, "medication_name": "Paracetamol",
+                    "dose": "1 g", "route": "PO", "status": "given",
+                }))
+                .to_request()
+        };
+        let refused = test::call_service(&app, dose(STRANGER)).await;
+        assert_eq!(refused.status().as_u16(), 403);
+        let body: serde_json::Value = test::read_body_json(refused).await;
+        assert_eq!(body["code"], "CARE_RELATIONSHIP_REQUIRED");
+
+        let recorded = test::call_service(&app, dose(TREATING)).await;
+        assert!(
+            recorded.status().is_success(),
+            "the linked nurse records the dose"
+        );
     }
 }

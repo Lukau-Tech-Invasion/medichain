@@ -73,7 +73,7 @@ export async function pharmacistJourney(
   const signed = await http('POST', `/e-prescriptions/${rx}/sign`, {
     token: prescriber.token,
     body: {
-      signature_method: 'wallet',
+      signature_method: 'password',
       attestation:
         'I certify that this prescription is issued for a legitimate medical purpose in the usual course of my professional practice.',
     },
@@ -148,7 +148,7 @@ export async function pharmacistJourney(
   // --- The pharmacist cannot become the prescriber ------------------------
   const forge = await http('POST', `/e-prescriptions/${rx}/sign`, {
     token: pharmacist.token,
-    body: { signature_method: 'wallet', attestation: 'x' },
+    body: { signature_method: 'password', attestation: 'x' },
   });
   j.status('a pharmacist cannot sign a prescription', forge.status, [401, 403], forge.json);
 
@@ -385,7 +385,7 @@ export async function pharmacistJourney(
       order_text: 'Full blood count',
       priority: 'Routine',
       start_time: Date.now(),
-      ordering_provider: pharmacist.wallet,
+      ordering_provider: pharmacist.userId,
       order_time: Date.now(),
       status: 'Pending',
     },

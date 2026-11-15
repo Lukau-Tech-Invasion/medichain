@@ -1,28 +1,3 @@
-````markdown
-# MediChain — One-Page Presentation Summary
-
-Date: 2026-01-28
-
-Problem
-- In many African settings, patients' medical records are unavailable during emergencies, causing delays, medication errors, and avoidable harm.
-
-Solution (MediChain)
-- Blockchain-verified national health ID + NFC/QR emergency access.
-- End-to-end encrypted documents stored on IPFS; metadata and audit logs on-chain (Substrate).
-- Wallet-based authentication (SS58) and role-based access control enforced at API and pallet levels.
-
-Key Implemented Features (Ready for Demo)
-- Wallet-based authentication (SS58) with signed challenges
-- Patient registration + National Health ID generation
-- Emergency NFC/QR flows with time-limited, auditable access
-- IPFS-backed encrypted medical records upload/download
-- Large set of clinical documentation endpoints (triage, SOAP, vitals, labs)
-- RBAC (Admin, Doctor, Nurse, LabTech, Pharmacist, Patient)
-- Audit logs for every access
-
-Quick Demo Steps (local)
-1. Start API server
-```bash
 cd api
 cargo run --release
 ```

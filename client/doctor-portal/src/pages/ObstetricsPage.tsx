@@ -1,45 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
-import { useAuthStore } from '../store/authStore';
-import { getPatients, createOb, useTranslation, formatTimestamp } from '@medichain/shared';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
+import { createOb, useTranslation, formatTimestamp, ChoiceChips, useScoringCatalog, fhrCategoryPreview, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
+import { useSubmitGuard } from '../hooks/useSubmitGuard';
 
 type FetalHeartCategory = 'I' | 'II' | 'III';
 type LaborStage = 'latent' | 'active' | 'second' | 'third' | 'postpartum';
 
+// Every finding is unrecorded until entered: '' or null, never a normal value.
 interface FetalHeartMonitoring {
-  baseline: number;
-  variability: 'absent' | 'minimal' | 'moderate' | 'marked';
-  accelerations: boolean;
-  decelerations: 'none' | 'early' | 'variable' | 'late' | 'prolonged';
-  category: FetalHeartCategory;
+  baseline: number | null;
+  variability: 'absent' | 'minimal' | 'moderate' | 'marked' | '';
+  accelerations: boolean | null;
+  decelerations: 'none' | 'early' | 'variable' | 'late' | 'prolonged' | '';
 }
 
+/** One assessment filed in this session, as the history list shows it. */
 interface ObAssessment {
   id: string;
-  patientId: string;
   patientName: string;
-  assessedBy: string;
   assessedAt: string;
-  gravida: number;
-  para: number;
-  gestationalAge: number;
-  edd: string;
-  prenatalCare: boolean;
-  chiefComplaint: string;
-  contractions: { present: boolean; frequency: string; duration: string };
-  membraneStatus: 'intact' | 'ruptured' | 'unknown';
-  ruptureTime: string;
-  fluidColor: 'clear' | 'meconium' | 'bloody' | 'unknown';
-  cervicalExam: { dilation: number; effacement: number; station: number };
-  laborStage: LaborStage;
-  fetalMonitoring: FetalHeartMonitoring;
-  presentation: 'cephalic' | 'breech' | 'transverse' | 'unknown';
+  gravida: number | null;
+  para: number | null;
+  gestationalAge: number | null;
+  dilation: number | null;
+  effacement: number | null;
+  station: number | null;
+  /** The server's category; null when the tracing was incomplete. */
+  fhrCategory: FetalHeartCategory | null;
   complications: string[];
-  interventions: string[];
-  notes: string;
 }
 
 const fhrCategories: Record<FetalHeartCategory, { desc: string; color: string }> = {
@@ -63,90 +53,120 @@ const obInterventions = [
 
 const ObstetricsPage: React.FC = () => {
   const { t } = useTranslation();
-  const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
   const fhrDesc = (cat: FetalHeartCategory): string => ({
     I: t('docObstetrics.fhrDescI'), II: t('docObstetrics.fhrDescII'), III: t('docObstetrics.fhrDescIII'),
   }[cat]);
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  // One save at a time: a second press while a write is in flight used to send it twice.
+  const { pending: submitPending, guard: guardSubmit } = useSubmitGuard();
   const [assessments, setAssessments] = useState<ObAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
   const [selectedPatient, setSelectedPatient] = useState('');
 
-  const [gravida, setGravida] = useState(1);
-  const [para, setPara] = useState(0);
-  const [gestationalAge, setGestationalAge] = useState(40);
+  // Nothing is pre-chosen (rule 9). The form opened on G1 P0 at 40 weeks with
+  // prenatal care, membranes intact, clear fluid, a 0 cm / 0% / station 0
+  // cervix, latent labour, cephalic presentation and a Category I tracing at
+  // 140 bpm, and filed all of it for a woman nobody had examined. A finding
+  // nobody recorded is absent, not normal and not zero (rule 12).
+  const [gravida, setGravida] = useState<number | null>(null);
+  const [para, setPara] = useState<number | null>(null);
+  const [gestationalAge, setGestationalAge] = useState<number | null>(null);
   const [edd, setEdd] = useState('');
-  const [prenatalCare, setPrenatalCare] = useState(true);
+  const [prenatalCare, setPrenatalCare] = useState<boolean | null>(null);
   const [chiefComplaint, setChiefComplaint] = useState('');
-  const [contractions, setContractions] = useState({ present: false, frequency: '', duration: '' });
-  const [membraneStatus, setMembraneStatus] = useState<'intact' | 'ruptured' | 'unknown'>('intact');
+  const [contractions, setContractions] = useState<{ present: boolean | null; frequency: string; duration: string }>({ present: null, frequency: '', duration: '' });
+  const [membraneStatus, setMembraneStatus] = useState<'intact' | 'ruptured' | 'unknown' | ''>('');
   const [ruptureTime, setRuptureTime] = useState('');
-  const [fluidColor, setFluidColor] = useState<'clear' | 'meconium' | 'bloody' | 'unknown'>('clear');
-  const [cervicalExam, setCervicalExam] = useState({ dilation: 0, effacement: 0, station: 0 });
-  const [laborStage, setLaborStage] = useState<LaborStage>('latent');
-  const [presentation, setPresentation] = useState<'cephalic' | 'breech' | 'transverse' | 'unknown'>('cephalic');
+  const [fluidColor, setFluidColor] = useState<'clear' | 'meconium' | 'bloody' | 'unknown' | ''>('');
+  const [cervicalExam, setCervicalExam] = useState<{ dilation: number | null; effacement: number | null; station: number | null }>({ dilation: null, effacement: null, station: null });
+  const [laborStage, setLaborStage] = useState<LaborStage | ''>('');
+  const [presentation, setPresentation] = useState<'cephalic' | 'breech' | 'transverse' | 'unknown' | ''>('');
   const [selectedComplications, setSelectedComplications] = useState<string[]>([]);
   const [selectedInterventions, setSelectedInterventions] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
 
   const [fhr, setFhr] = useState<FetalHeartMonitoring>({
-    baseline: 140,
-    variability: 'moderate',
-    accelerations: true,
-    decelerations: 'none',
-    category: 'I'
+    baseline: null,
+    variability: '',
+    accelerations: null,
+    decelerations: '',
+  });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const obstetricsDraft = useDraftFields('obstetrics', selectedPatient || undefined, t('docObstetrics.formLabel'), {
+    gravida: [gravida, setGravida],
+    para: [para, setPara],
+    gestationalAge: [gestationalAge, setGestationalAge],
+    edd: [edd, setEdd],
+    prenatalCare: [prenatalCare, setPrenatalCare],
+    chiefComplaint: [chiefComplaint, setChiefComplaint],
+    contractions: [contractions, setContractions],
+    membraneStatus: [membraneStatus, setMembraneStatus],
+    ruptureTime: [ruptureTime, setRuptureTime],
+    fluidColor: [fluidColor, setFluidColor],
+    cervicalExam: [cervicalExam, setCervicalExam],
+    laborStage: [laborStage, setLaborStage],
+    presentation: [presentation, setPresentation],
+    selectedComplications: [selectedComplications, setSelectedComplications],
+    selectedInterventions: [selectedInterventions, setSelectedInterventions],
+    notes: [notes, setNotes],
+    fhr: [fhr, setFhr],
   });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
-  // Auto-calculate FHR category
-  useEffect(() => {
-    let cat: FetalHeartCategory = 'I';
-    // Category I: Normal baseline (110-160), moderate variability, accelerations present, no concerning decels
-    if (fhr.baseline >= 110 && fhr.baseline <= 160 && fhr.variability === 'moderate' &&
-      fhr.accelerations && (fhr.decelerations === 'none' || fhr.decelerations === 'early')) {
-      cat = 'I';
-    }
-    // Category III: Absent variability with recurrent late/variable decels, bradycardia, sinusoidal
-    else if (fhr.variability === 'absent' || fhr.decelerations === 'late' || fhr.decelerations === 'prolonged' ||
-      fhr.baseline < 110 || fhr.baseline > 160) {
-      cat = fhr.variability === 'absent' && (fhr.decelerations === 'late' || fhr.decelerations === 'variable') ? 'III' : 'II';
-    } else {
-      cat = 'II';
-    }
-    setFhr(prev => ({ ...prev, category: cat }));
-  }, [fhr.baseline, fhr.variability, fhr.accelerations, fhr.decelerations]);
+  // The NICHD category, as a preview of what the server computes and stores
+  // (rule 8); null until all four tracing findings are entered.
+  const { catalog } = useScoringCatalog();
+  const fhrCategory = fhrCategoryPreview(fhr, catalog);
 
-  const handleSubmit = async () => {
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
+  const handleSubmit = guardSubmit(async () => {
     if (!selectedPatient) {
       showError(t('docObstetrics.errorSelectPatient'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
-    const newAssessment: ObAssessment = {
-      id: `OB-${Date.now()}`,
-      patientId: selectedPatient,
-      patientName: patient ? patient.full_name : '',
-      assessedBy: user?.userId || 'Unknown',
-      assessedAt: new Date().toISOString(),
-      gravida, para, gestationalAge, edd, prenatalCare, chiefComplaint,
-      contractions, membraneStatus, ruptureTime, fluidColor,
-      cervicalExam, laborStage, fetalMonitoring: fhr, presentation,
-      complications: selectedComplications, interventions: selectedInterventions, notes
+    // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+    // Usually already resolved when the patient was chosen; awaiting only when it
+    // is not keeps a double press from slipping past the pending-save guard.
+    const patient = selectedPatientEntry ?? await resolveSelectedPatient();
+    // Only what was recorded, under the names the server reads. The page used
+    // to send `gestationalAge`, `edd` and a contractions object, none of which
+    // the handler reads, so every assessment stored 0 weeks and no
+    // contractions. The id, the assessor and the time are the server's.
+    const leadingNumber = (text: string) => { const n = parseInt(text, 10); return Number.isFinite(n) ? n : undefined; };
+    const weeks = gestationalAge === null ? undefined : Math.floor(gestationalAge);
+    const cervixExamined = cervicalExam.dilation !== null || cervicalExam.effacement !== null || cervicalExam.station !== null;
+    const payload = {
+      patient_id: selectedPatient,
+      gravida: gravida ?? undefined,
+      para: para ?? undefined,
+      gestational_age_weeks: weeks,
+      gestational_age_days: gestationalAge === null || weeks === undefined ? undefined : Math.round((gestationalAge - weeks) * 7),
+      edd_date: edd || undefined,
+      prenatal_care: prenatalCare ?? undefined,
+      chief_complaint: chiefComplaint || undefined,
+      contractions: contractions.present ?? undefined,
+      contraction_frequency_min: contractions.present ? leadingNumber(contractions.frequency) : undefined,
+      contraction_duration_sec: contractions.present ? leadingNumber(contractions.duration) : undefined,
+      rupture_of_membranes: membraneStatus === 'ruptured' ? true : membraneStatus === 'intact' ? false : undefined,
+      rom_time: membraneStatus === 'ruptured' && ruptureTime ? new Date(ruptureTime).toISOString() : undefined,
+      fluid_color: membraneStatus === 'ruptured' ? fluidColor || undefined : undefined,
+      cervical_exam_performed: cervixExamined || undefined,
+      dilation_cm: cervicalExam.dilation ?? undefined,
+      effacement_percent: cervicalExam.effacement ?? undefined,
+      station: cervicalExam.station ?? undefined,
+      presentation: presentation || undefined,
+      labor_stage: laborStage || undefined,
+      fetal_heart_rate: fhr.baseline ?? undefined,
+      fetal_heart_variability: fhr.variability || undefined,
+      fetal_accelerations: fhr.accelerations ?? undefined,
+      fetal_decelerations: fhr.decelerations || undefined,
+      complications: selectedComplications,
+      interventions: selectedInterventions,
+      notes: notes || undefined,
     };
+    let saved: { assessment_id?: string; fhr_category?: FetalHeartCategory | null };
     try {
-      await createOb(newAssessment);
+      saved = await createOb(payload) as typeof saved;
     } catch (err) {
       console.error('Failed to save OB assessment:', err);
       // Stop here. Falling through added the record to the local list
@@ -154,9 +174,18 @@ const ObstetricsPage: React.FC = () => {
       showError(t('common.saveFailed'));
       return;
     }
-    setAssessments([newAssessment, ...assessments]);
+    setAssessments([{
+      id: saved.assessment_id ?? '',
+      patientName: patient ? patient.full_name : '',
+      assessedAt: new Date().toISOString(),
+      gravida, para, gestationalAge,
+      dilation: cervicalExam.dilation, effacement: cervicalExam.effacement, station: cervicalExam.station,
+      fhrCategory: saved.fhr_category ?? null,
+      complications: selectedComplications,
+    }, ...assessments]);
+    obstetricsDraft.markSaved();
     showSuccess(t('docObstetrics.saved'));
-  };
+  });
 
   return (
     <div className="min-h-screen bg-surface-sunken">
@@ -172,7 +201,7 @@ const ObstetricsPage: React.FC = () => {
       </div>
 
       {/* FHR Category Alert */}
-      {fhr.category === 'III' && (
+      {fhrCategory === 'III' && (
         <div className="bg-critical text-critical-fg p-4 flex items-center gap-3">
           <AlertTriangle className="w-6 h-6" />
           <span className="font-semibold">{t('docObstetrics.cat3Banner')}</span>
@@ -198,6 +227,7 @@ const ObstetricsPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'assessment' ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
           <div className="space-y-6">
             {/* Patient & OB History */}
             <div className="bg-surface rounded-lg shadow p-4">
@@ -218,8 +248,8 @@ const ObstetricsPage: React.FC = () => {
                   <input
                     id="ob-gravida"
                     type="number"
-                    value={gravida}
-                    onChange={e => setGravida(Number(e.target.value))}
+                    value={gravida ?? ''}
+                    onChange={e => setGravida(e.target.value === '' ? null : Number(e.target.value))}
                     className="w-full border rounded p-2"
                     min="1"
                   />
@@ -229,8 +259,8 @@ const ObstetricsPage: React.FC = () => {
                   <input
                     id="ob-para"
                     type="number"
-                    value={para}
-                    onChange={e => setPara(Number(e.target.value))}
+                    value={para ?? ''}
+                    onChange={e => setPara(e.target.value === '' ? null : Number(e.target.value))}
                     className="w-full border rounded p-2"
                     min="0"
                   />
@@ -240,8 +270,8 @@ const ObstetricsPage: React.FC = () => {
                   <input
                     id="ob-gestational-age"
                     type="number"
-                    value={gestationalAge}
-                    onChange={e => setGestationalAge(Number(e.target.value))}
+                    value={gestationalAge ?? ''}
+                    onChange={e => setGestationalAge(e.target.value === '' ? null : Number(e.target.value))}
                     className="w-full border rounded p-2"
                     step="0.1"
                   />
@@ -256,16 +286,17 @@ const ObstetricsPage: React.FC = () => {
                     className="w-full border rounded p-2"
                   />
                 </div>
-                <div className="flex items-center">
-                  <label htmlFor="ob-prenatal-care" className="flex items-center gap-2">
-                    <input
-                      id="ob-prenatal-care"
-                      type="checkbox"
-                      checked={prenatalCare}
-                      onChange={e => setPrenatalCare(e.target.checked)}
-                    />
-                    <span>{t('docObstetrics.prenatalCare')}</span>
-                  </label>
+                <div>
+                  <ChoiceChips
+                    id="ob-prenatal-care"
+                    label={t('docObstetrics.prenatalCare')}
+                    value={prenatalCare === null ? undefined : prenatalCare ? 'yes' : 'no'}
+                    onChange={(next) => setPrenatalCare(next === undefined ? null : next === 'yes')}
+                    options={[
+                      { value: 'yes', label: t('docObstetrics.yes') },
+                      { value: 'no', label: t('docObstetrics.no') },
+                    ]}
+                  />
                 </div>
                 <div className="md:col-span-2">
                   <label htmlFor="ob-chief-complaint" className="text-sm text-content-muted">{t('docObstetrics.chiefComplaint')}</label>
@@ -288,15 +319,16 @@ const ObstetricsPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="ob-contractions" className="flex items-center gap-2 mb-2">
-                    <input
-                      id="ob-contractions"
-                      type="checkbox"
-                      checked={contractions.present}
-                      onChange={e => setContractions({ ...contractions, present: e.target.checked })}
-                    />
-                    <span className="font-medium">{t('docObstetrics.contractions')}</span>
-                  </label>
+                  <ChoiceChips
+                    id="ob-contractions"
+                    label={t('docObstetrics.contractions')}
+                    value={contractions.present === null ? undefined : contractions.present ? 'yes' : 'no'}
+                    onChange={(next) => setContractions({ ...contractions, present: next === undefined ? null : next === 'yes' })}
+                    options={[
+                      { value: 'yes', label: t('docObstetrics.yes') },
+                      { value: 'no', label: t('docObstetrics.no') },
+                    ]}
+                  />
                   {contractions.present && (
                     <div className="space-y-2">
                       <label htmlFor="ob-contractions-frequency" className="sr-only">{t('docObstetrics.contractionsFreqAria')}</label>
@@ -321,17 +353,17 @@ const ObstetricsPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label htmlFor="ob-membrane-status" className="text-sm text-content-muted">{t('docObstetrics.membraneStatus')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-membrane-status"
-                    value={membraneStatus}
-                    onChange={e => setMembraneStatus(e.target.value as 'intact' | 'ruptured' | 'unknown')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="intact">{t('docObstetrics.msIntact')}</option>
-                    <option value="ruptured">{t('docObstetrics.msRuptured')}</option>
-                    <option value="unknown">{t('docObstetrics.msUnknown')}</option>
-                  </select>
+                    label={t('docObstetrics.membraneStatus')}
+                    value={membraneStatus || undefined}
+                    onChange={(next) => setMembraneStatus((next ?? '') as 'intact' | 'ruptured' | 'unknown' | '')}
+                    options={[
+                      { value: 'intact', label: t('docObstetrics.msIntact') },
+                      { value: 'ruptured', label: t('docObstetrics.msRuptured') },
+                      { value: 'unknown', label: t('docObstetrics.msUnknown') },
+                    ]}
+                  />
                   {membraneStatus === 'ruptured' && (
                     <>
                       <label htmlFor="ob-rupture-time" className="sr-only">{t('docObstetrics.ruptureTimeAria')}</label>
@@ -342,49 +374,49 @@ const ObstetricsPage: React.FC = () => {
                         onChange={e => setRuptureTime(e.target.value)}
                         className="w-full border rounded p-2 mt-2"
                       />
-                      <label htmlFor="ob-fluid-color" className="sr-only">{t('docObstetrics.fluidColorAria')}</label>
-                      <select
+                      <ChoiceChips
                         id="ob-fluid-color"
-                        value={fluidColor}
-                        onChange={e => setFluidColor(e.target.value as 'clear' | 'meconium' | 'bloody' | 'unknown')}
-                        className="w-full border rounded p-2 mt-2"
-                      >
-                        <option value="clear">{t('docObstetrics.fcClear')}</option>
-                        <option value="meconium">{t('docObstetrics.fcMeconium')}</option>
-                        <option value="bloody">{t('docObstetrics.fcBloody')}</option>
-                        <option value="unknown">{t('docObstetrics.fcUnknown')}</option>
-                      </select>
+                        label={t('docObstetrics.fluidColorAria')}
+                        value={fluidColor || undefined}
+                        onChange={(next) => setFluidColor((next ?? '') as 'clear' | 'meconium' | 'bloody' | 'unknown' | '')}
+                        options={[
+                          { value: 'clear', label: t('docObstetrics.fcClear') },
+                          { value: 'meconium', label: t('docObstetrics.fcMeconium') },
+                          { value: 'bloody', label: t('docObstetrics.fcBloody') },
+                          { value: 'unknown', label: t('docObstetrics.fcUnknown') },
+                        ]}
+                      />
                     </>
                   )}
                 </div>
                 <div>
-                  <label htmlFor="ob-presentation" className="text-sm text-content-muted">{t('docObstetrics.presentation')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-presentation"
-                    value={presentation}
-                    onChange={e => setPresentation(e.target.value as 'cephalic' | 'breech' | 'transverse' | 'unknown')}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="cephalic">{t('docObstetrics.presCephalic')}</option>
-                    <option value="breech">{t('docObstetrics.presBreech')}</option>
-                    <option value="transverse">{t('docObstetrics.presTransverse')}</option>
-                    <option value="unknown">{t('docObstetrics.presUnknown')}</option>
-                  </select>
+                    label={t('docObstetrics.presentation')}
+                    value={presentation || undefined}
+                    onChange={(next) => setPresentation((next ?? '') as 'cephalic' | 'breech' | 'transverse' | 'unknown' | '')}
+                    options={[
+                      { value: 'cephalic', label: t('docObstetrics.presCephalic') },
+                      { value: 'breech', label: t('docObstetrics.presBreech') },
+                      { value: 'transverse', label: t('docObstetrics.presTransverse') },
+                      { value: 'unknown', label: t('docObstetrics.presUnknown') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="ob-labor-stage" className="text-sm text-content-muted">{t('docObstetrics.laborStage')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-labor-stage"
-                    value={laborStage}
-                    onChange={e => setLaborStage(e.target.value as LaborStage)}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="latent">{t('docObstetrics.lsLatent')}</option>
-                    <option value="active">{t('docObstetrics.lsActive')}</option>
-                    <option value="second">{t('docObstetrics.lsSecond')}</option>
-                    <option value="third">{t('docObstetrics.lsThird')}</option>
-                    <option value="postpartum">{t('docObstetrics.lsPostpartum')}</option>
-                  </select>
+                    label={t('docObstetrics.laborStage')}
+                    value={laborStage || undefined}
+                    onChange={(next) => setLaborStage((next ?? '') as LaborStage | '')}
+                    options={[
+                      { value: 'latent', label: t('docObstetrics.lsLatent') },
+                      { value: 'active', label: t('docObstetrics.lsActive') },
+                      { value: 'second', label: t('docObstetrics.lsSecond') },
+                      { value: 'third', label: t('docObstetrics.lsThird') },
+                      { value: 'postpartum', label: t('docObstetrics.lsPostpartum') },
+                    ]}
+                  />
                 </div>
               </div>
               <div className="grid md:grid-cols-3 gap-4 mt-4">
@@ -393,8 +425,8 @@ const ObstetricsPage: React.FC = () => {
                   <input
                     id="ob-dilation"
                     type="number"
-                    value={cervicalExam.dilation}
-                    onChange={e => setCervicalExam({ ...cervicalExam, dilation: Number(e.target.value) })}
+                    value={cervicalExam.dilation ?? ''}
+                    onChange={e => setCervicalExam({ ...cervicalExam, dilation: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                     min="0" max="10"
                   />
@@ -404,8 +436,8 @@ const ObstetricsPage: React.FC = () => {
                   <input
                     id="ob-effacement"
                     type="number"
-                    value={cervicalExam.effacement}
-                    onChange={e => setCervicalExam({ ...cervicalExam, effacement: Number(e.target.value) })}
+                    value={cervicalExam.effacement ?? ''}
+                    onChange={e => setCervicalExam({ ...cervicalExam, effacement: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                     min="0" max="100"
                   />
@@ -414,10 +446,11 @@ const ObstetricsPage: React.FC = () => {
                   <label htmlFor="ob-station" className="text-sm text-content-muted">{t('docObstetrics.station')}</label>
                   <select
                     id="ob-station"
-                    value={cervicalExam.station}
-                    onChange={e => setCervicalExam({ ...cervicalExam, station: Number(e.target.value) })}
+                    value={cervicalExam.station ?? ''}
+                    onChange={e => setCervicalExam({ ...cervicalExam, station: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docObstetrics.notExamined')}</option>
                     {[-3, -2, -1, 0, 1, 2, 3].map(s => (
                       <option key={s} value={s}>{s > 0 ? `+${s}` : s}</option>
                     ))}
@@ -432,63 +465,65 @@ const ObstetricsPage: React.FC = () => {
                 <h2 className="font-semibold flex items-center gap-2">
                   <Heart className="w-5 h-5" /> {t('docObstetrics.fhrMonitoring')}
                 </h2>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${fhrCategories[fhr.category].color}`}>
-                  {t('docObstetrics.categoryBadge', { cat: fhr.category })}
-                </span>
+                {fhrCategory && (
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${fhrCategories[fhrCategory].color}`}>
+                    {t('docObstetrics.categoryBadge', { cat: fhrCategory })}
+                  </span>
+                )}
               </div>
-              <p className="text-sm text-content-muted mb-4">{fhrDesc(fhr.category)}</p>
+              <p className="text-sm text-content-muted mb-4">{fhrCategory ? fhrDesc(fhrCategory) : t('docObstetrics.fhrNeedsAll')}</p>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
                   <label htmlFor="ob-fhr-baseline" className="text-sm text-content-muted">{t('docObstetrics.baseline')}</label>
                   <input
                     id="ob-fhr-baseline"
                     type="number"
-                    value={fhr.baseline}
-                    onChange={e => setFhr({ ...fhr, baseline: Number(e.target.value) })}
-                    className={`w-full border rounded p-2 ${fhr.baseline < 110 || fhr.baseline > 160 ? 'border-red-500 bg-critical-subtle' : ''}`}
+                    value={fhr.baseline ?? ''}
+                    onChange={e => setFhr({ ...fhr, baseline: e.target.value === '' ? null : Number(e.target.value) })}
+                    className={`w-full border rounded p-2 ${fhr.baseline !== null && catalog?.fhr && (fhr.baseline < catalog.fhr.baseline_normal_low || fhr.baseline > catalog.fhr.baseline_normal_high) ? 'border-red-500 bg-critical-subtle' : ''}`}
                   />
                   <p className="text-xs text-content-muted">{t('docObstetrics.baselineNormal')}</p>
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-variability" className="text-sm text-content-muted">{t('docObstetrics.variability')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-fhr-variability"
-                    value={fhr.variability}
-                    onChange={e => setFhr({ ...fhr, variability: e.target.value as 'absent' | 'minimal' | 'moderate' | 'marked' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="absent">{t('docObstetrics.varAbsent')}</option>
-                    <option value="minimal">{t('docObstetrics.varMinimal')}</option>
-                    <option value="moderate">{t('docObstetrics.varModerate')}</option>
-                    <option value="marked">{t('docObstetrics.varMarked')}</option>
-                  </select>
+                    label={t('docObstetrics.variability')}
+                    value={fhr.variability || undefined}
+                    onChange={(next) => setFhr({ ...fhr, variability: (next ?? '') as FetalHeartMonitoring['variability'] })}
+                    options={[
+                      { value: 'absent', label: t('docObstetrics.varAbsent') },
+                      { value: 'minimal', label: t('docObstetrics.varMinimal') },
+                      { value: 'moderate', label: t('docObstetrics.varModerate') },
+                      { value: 'marked', label: t('docObstetrics.varMarked') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-accelerations" className="text-sm text-content-muted">{t('docObstetrics.accelerations')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-fhr-accelerations"
-                    value={fhr.accelerations ? 'yes' : 'no'}
-                    onChange={e => setFhr({ ...fhr, accelerations: e.target.value === 'yes' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="yes">{t('docObstetrics.accPresent')}</option>
-                    <option value="no">{t('docObstetrics.accAbsent')}</option>
-                  </select>
+                    label={t('docObstetrics.accelerations')}
+                    value={fhr.accelerations === null ? undefined : fhr.accelerations ? 'yes' : 'no'}
+                    onChange={(next) => setFhr({ ...fhr, accelerations: next === undefined ? null : next === 'yes' })}
+                    options={[
+                      { value: 'yes', label: t('docObstetrics.accPresent') },
+                      { value: 'no', label: t('docObstetrics.accAbsent') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-decelerations" className="text-sm text-content-muted">{t('docObstetrics.decelerations')}</label>
-                  <select
+                  <ChoiceChips
                     id="ob-fhr-decelerations"
-                    value={fhr.decelerations}
-                    onChange={e => setFhr({ ...fhr, decelerations: e.target.value as 'none' | 'early' | 'variable' | 'late' | 'prolonged' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="none">{t('docObstetrics.decNone')}</option>
-                    <option value="early">{t('docObstetrics.decEarly')}</option>
-                    <option value="variable">{t('docObstetrics.decVariable')}</option>
-                    <option value="late">{t('docObstetrics.decLate')}</option>
-                    <option value="prolonged">{t('docObstetrics.decProlonged')}</option>
-                  </select>
+                    label={t('docObstetrics.decelerations')}
+                    value={fhr.decelerations || undefined}
+                    onChange={(next) => setFhr({ ...fhr, decelerations: (next ?? '') as FetalHeartMonitoring['decelerations'] })}
+                    options={[
+                      { value: 'none', label: t('docObstetrics.decNone') },
+                      { value: 'early', label: t('docObstetrics.decEarly') },
+                      { value: 'variable', label: t('docObstetrics.decVariable') },
+                      { value: 'late', label: t('docObstetrics.decLate') },
+                      { value: 'prolonged', label: t('docObstetrics.decProlonged') },
+                    ]}
+                  />
                 </div>
               </div>
             </div>
@@ -552,13 +587,13 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              className="w-full py-3 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700"
+            <button type="submit" aria-disabled={submitPending || undefined}
+              className="aria-disabled:cursor-wait w-full py-3 bg-pink-600 text-white rounded-lg font-semibold hover:bg-pink-700"
             >
               {t('docObstetrics.save')}
             </button>
           </div>
+          </form>
         ) : (
           <div className="space-y-4">
             {assessments.length === 0 ? (
@@ -571,15 +606,17 @@ const ObstetricsPage: React.FC = () => {
                       <h3 className="font-semibold">{a.patientName}</h3>
                       <p className="text-sm text-content-muted">{formatTimestamp(a.assessedAt)}</p>
                     </div>
-                    <span className={`px-2 py-1 text-xs rounded ${fhrCategories[a.fetalMonitoring.category].color}`}>
-                      {t('docObstetrics.fhrCat', { cat: a.fetalMonitoring.category })}
-                    </span>
+                    {a.fhrCategory && (
+                      <span className={`px-2 py-1 text-xs rounded ${fhrCategories[a.fhrCategory].color}`}>
+                        {t('docObstetrics.fhrCat', { cat: a.fhrCategory })}
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-4 gap-2 text-sm">
-                    <div><strong>G{a.gravida}P{a.para}</strong></div>
-                    <div>{t('docObstetrics.gaValue', { weeks: a.gestationalAge })}</div>
-                    <div>{a.cervicalExam.dilation}cm / {a.cervicalExam.effacement}%</div>
-                    <div>{t('docObstetrics.stationValue', { station: a.cervicalExam.station })}</div>
+                    <div><strong>G{a.gravida ?? '—'}P{a.para ?? '—'}</strong></div>
+                    <div>{a.gestationalAge === null ? '—' : t('docObstetrics.gaValue', { weeks: a.gestationalAge })}</div>
+                    <div>{a.dilation ?? '—'}cm / {a.effacement ?? '—'}%</div>
+                    <div>{a.station === null ? '—' : t('docObstetrics.stationValue', { station: a.station })}</div>
                   </div>
                   {a.complications.length > 0 && (
                     <p className="text-sm text-critical-subtle-fg mt-2">{t('docObstetrics.complicationsList', { list: a.complications.join(', ') })}</p>

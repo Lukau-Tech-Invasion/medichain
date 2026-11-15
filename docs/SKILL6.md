@@ -1,14 +1,3 @@
----
-name: refactoring
-description: >
-  Safe, incremental code refactoring for MediChain — improving structure without changing
-  behaviour. Covers the "tests first, then refactor" rule, extracting functions, taming
-  long Rust modules, splitting Anchor programs, decomposing React components, and knowing
-  when to leave it alone. Activate when the user says "this is messy", "clean this up",
-  "refactor", "duplication", "extract", "this function is too long", "technical debt", or
-  when a Rust file is over 300 lines / a function over 40 lines / a React component over
-  200 lines. NEVER refactor without tests in place first — that's just rewriting.
----
 
 # Refactoring for MediChain
 
@@ -169,27 +158,6 @@ if duration > MAX_CONSENT_DURATION_SECS { return Err(...) }
 ---
 
 ## Specific MediChain Refactor Patterns
-
-### Splitting an Anchor Program File
-A single `lib.rs` over 600 lines is hard to navigate. Split:
-```
-crates/program/src/
-├── lib.rs                      ← #[program] mod, declares instructions
-├── state/
-│   ├── mod.rs
-│   ├── patient.rs              ← #[account] PatientAccount + impl
-│   ├── doctor.rs
-│   └── consent.rs
-├── instructions/
-│   ├── mod.rs
-│   ├── initialize_patient.rs   ← Accounts struct + handler
-│   ├── grant_consent.rs
-│   └── use_emergency_token.rs
-├── error.rs
-└── constants.rs
-```
-
-Each instruction file: ~50-150 lines, focused on one operation.
 
 ### Decomposing the Backend
 ```

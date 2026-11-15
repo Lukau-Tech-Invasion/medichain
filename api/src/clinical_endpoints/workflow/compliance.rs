@@ -13,7 +13,7 @@ pub async fn get_consent_types(
     http_req: HttpRequest,
 ) -> impl Responder {
     let _current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -88,29 +88,6 @@ pub async fn get_consent_types(
 /// policy engine, but named so it can be found and changed deliberately.
 const DEFAULT_CONSENT_VALIDITY_DAYS: i64 = 365;
 
-async fn anchor_consent_on_chain(
-    data: &web::Data<AppState>,
-    patient_account: Option<&str>,
-    consent_id: &str,
-    accessor_id: &str,
-    access_type: &str,
-) -> Result<(String, Option<String>), String> {
-    if !crate::blockchain::blockchain_enabled() {
-        return Ok(("disabled".to_string(), None));
-    }
-    let account = patient_account.ok_or("patient has no blockchain wallet")?;
-    let outcome = crate::audit_outbox::anchor_access_or_queue(
-        data,
-        "consent",
-        consent_id,
-        account,
-        accessor_id,
-        access_type,
-    )
-    .await?;
-    Ok((outcome.status, outcome.transaction_hash))
-}
-
 /// Request body for `sign_consent`.
 ///
 /// Replaces the previous untyped `serde_json::Value`, which silently accepted
@@ -125,8 +102,8 @@ pub struct SignConsentRequest {
     #[serde(alias = "consent_type")]
     pub type_id: Option<String>,
     pub patient_id: Option<String>,
-    /// Whether consent was actually given. Absent means granted, matching the
-    /// previous hardcoded behaviour of this endpoint.
+    /// Whether consent was actually given. Required: a decision nobody stated
+    /// is refused (400), never recorded as granted.
     pub consent_given: Option<bool>,
     pub popia_section_11_basis: Option<PopiaSection11Basis>,
     pub special_information_basis: Option<SpecialInformationBasis>,
@@ -298,8 +275,16 @@ pub async fn sign_consent(
     body: web::Json<SignConsentRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
+    };
+    // Absent used to mean granted: a client that left the field out recorded a
+    // consent the person never gave. Fail closed instead (OWASP A10).
+    let Some(granted) = body.consent_given else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "State whether consent was given or refused".to_string(),
+            code: "CONSENT_DECISION_REQUIRED".to_string(),
+        });
     };
 
     let current_user = match get_user(&data, &current_user_id) {
@@ -365,25 +350,6 @@ pub async fn sign_consent(
         Err(refusal) => return refusal,
     };
 
-    let patient_chain_account = match data.repositories.patients.get_by_id(&patient_id).await {
-        Ok(patient) => patient.wallet_address,
-        Err(_) if crate::blockchain::blockchain_enabled() => {
-            return HttpResponse::Conflict().json(ErrorResponse {
-                error: "Patient must have a wallet-bound record before consent can be anchored"
-                    .to_string(),
-                code: "PATIENT_WALLET_REQUIRED".to_string(),
-            });
-        }
-        Err(_) => None,
-    };
-    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
-        return HttpResponse::Conflict().json(ErrorResponse {
-            error: "Patient must have a wallet-bound record before consent can be anchored"
-                .to_string(),
-            code: "PATIENT_WALLET_REQUIRED".to_string(),
-        });
-    }
-
     // A third-party capacity with no recorded guardian relationship is exactly
     // the gap the legal review flagged — refuse rather than record an
     // unevidenced claim of authority.
@@ -442,7 +408,6 @@ pub async fn sign_consent(
         },
     };
 
-    let granted = body.consent_given.unwrap_or(true);
     let consent_status = if granted {
         ConsentStatus::Granted
     } else {
@@ -486,7 +451,10 @@ pub async fn sign_consent(
         document_url: None,
         document_ipfs_hash: None,
         regulatory_requirement: None,
-        version: None,
+        // Research consent records the wording version it was given under, so
+        // an export can include only consents to the current terms.
+        version: (consent_type == crate::research_export::RESEARCH_CONSENT_TYPE)
+            .then(|| crate::research_export::RESEARCH_CONSENT_VERSION.to_string()),
         created_at: Some(now),
         updated_at: Some(now),
         popia_section_11_basis: section_11_basis.as_str().to_string(),
@@ -511,43 +479,25 @@ pub async fn sign_consent(
             .map(|_| current_user_id.clone()),
     };
 
+    // ADR-0008 Class C: consent changes what may be done with the record, so
+    // it is confirmed exactly, once, immediately before it is stored.
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &http_req,
+        "consent.sign",
+        &format!("{patient_id}:{consent_type}"),
+        "new",
+    )
+    .await
+    {
+        return response;
+    }
+
     match data.repositories.consent_records.create(entity).await {
         Ok(created) => {
-            let access_type = if created.consent_status == ConsentStatus::Granted.as_str() {
-                "CONSENT_GRANT"
-            } else {
-                "CONSENT_REFUSAL"
-            };
-            let (chain_status, chain_tx_hash) = match anchor_consent_on_chain(
-                &data,
-                patient_chain_account.as_deref(),
-                &created.id,
-                &current_user_id,
-                access_type,
-            )
-            .await
-            {
-                Ok(result) => result,
-                Err(error) => {
-                    log::error!(
-                        "Consent {} could not be durably queued: {}",
-                        created.id,
-                        error
-                    );
-                    return HttpResponse::ServiceUnavailable().json(serde_json::json!({
-                        "success": false,
-                        "consent_id": created.id,
-                        "error": "Consent was saved, but its blockchain audit could not be recorded or queued",
-                        "code": "CONSENT_CHAIN_AUDIT_UNAVAILABLE"
-                    }));
-                }
-            };
-            let pending = chain_status == "pending";
             let payload = serde_json::json!({
             "success": true,
             "consent_id": created.id,
-            "chain_status": chain_status,
-            "blockchain_tx_hash": chain_tx_hash,
             "consent": {
                 "consent_id": created.id,
                 "consent_type": created.consent_type,
@@ -564,11 +514,7 @@ pub async fn sign_consent(
             },
             "message": "Consent signed and recorded"
             });
-            if pending {
-                HttpResponse::Accepted().json(payload)
-            } else {
-                HttpResponse::Created().json(payload)
-            }
+            HttpResponse::Created().json(payload)
         }
         Err(e) => {
             log::error!(
@@ -634,11 +580,29 @@ pub async fn revoke_consent(
             code: "CONSENT_REVOKE_FORBIDDEN".to_string(),
         });
     }
+    // A consent already withdrawn cannot be withdrawn again; nobody is asked to confirm it.
+    if existing.revoked == Some(true) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            error: "Consent is no longer active".to_string(),
+            code: "CONSENT_NOT_ACTIVE".to_string(),
+        });
+    }
+    if let Err(response) = crate::handlers::transaction_auth::require_exact_authorization(
+        &data,
+        &http_req,
+        "consent.revoke",
+        &consent_id,
+        &existing.consent_status,
+    )
+    .await
+    {
+        return response;
+    }
 
     match data
         .repositories
         .consent_records
-        .revoke(&consent_id, &caller.wallet_address, body.reason.as_deref())
+        .revoke(&consent_id, &caller.id, body.reason.as_deref())
         .await
     {
         Ok(revoked) => HttpResponse::Ok().json(serde_json::json!({
@@ -672,7 +636,7 @@ pub async fn get_patient_consents(
 ) -> impl Responder {
     let patient_id = path.into_inner();
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -734,6 +698,10 @@ pub async fn get_patient_consents(
                 "consent_giver_capacity": c.consent_giver_capacity,
                 "guardian_authority_evidence_id": c.guardian_authority_evidence_id,
                 "emergency_basis": c.emergency_basis,
+                // The wording version (research consent) and whether it was
+                // withdrawn, so the patient app shows the real state.
+                "version": c.version,
+                "revoked": c.revoked.unwrap_or(false),
                 // Present only when something is wrong, so a clean record's
                 // response shape is unchanged.
                 "integrity_problems": integrity.err(),
@@ -855,7 +823,7 @@ pub async fn scan_barcode(
         "barcode_value": barcode_value,
         "entity_type": entity_type,
         "location": location,
-        "scanned_by": current_user.wallet_address,
+        "scanned_by": current_user.id,
         "scanned_by_name": current_user.name,
         "scanned_by_role": current_user.role.to_string(),
         "scanned_at": scanned_at.timestamp(),
@@ -868,7 +836,7 @@ pub async fn scan_barcode(
     let save_history = data
         .repositories
         .scanner_settings
-        .get_by_owner(&current_user.wallet_address)
+        .get_by_owner(&current_user.id)
         .await
         .ok()
         .and_then(|rows| rows.into_iter().next())
@@ -887,7 +855,7 @@ pub async fn scan_barcode(
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string(),
-                owner_id: current_user.wallet_address.clone(),
+                owner_id: current_user.id.clone(),
                 data: scan.clone(),
                 created_at: scanned_at,
                 updated_at: scanned_at,
@@ -975,7 +943,7 @@ pub async fn get_barcode_scan_history(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1076,7 +1044,7 @@ pub async fn get_scanner_settings(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -1120,7 +1088,7 @@ pub async fn update_scanner_settings(
     req: web::Json<ScannerSettings>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let settings = req.into_inner();
@@ -1189,7 +1157,7 @@ pub async fn clear_scan_history(
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let now = chrono::Utc::now();
@@ -1724,9 +1692,9 @@ mod consent_endpoint_regression_tests {
     use super::*;
     use actix_web::test;
 
-    fn active_patient_user(wallet: &str, patient_id: &str) -> User {
+    fn active_patient_user(user_id: &str, patient_id: &str) -> User {
         User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Consent Test Patient".to_string(),
             role: Role::Patient,
@@ -1748,12 +1716,12 @@ mod consent_endpoint_regression_tests {
         for expected in [0usize, 1, 3] {
             let state = AppState::new();
             let patient_id = format!("PAT-CONSENT-{expected}");
-            let wallet = format!("wallet-consent-{expected}");
+            let user_id = format!("user-consent-{expected}");
             state
                 .users
                 .write()
                 .unwrap()
-                .insert(wallet.clone(), active_patient_user(&wallet, &patient_id));
+                .insert(user_id.clone(), active_patient_user(&user_id, &patient_id));
             for index in 0..expected {
                 let record = ConsentRecordEntity {
                     id: format!("CONS-{expected}-{index}"),
@@ -1776,11 +1744,36 @@ mod consent_endpoint_regression_tests {
             .await;
             let request = test::TestRequest::get()
                 .uri(&format!("/api/consent/patient/{patient_id}"))
-                .insert_header(("X-User-Id", wallet))
+                .insert_header(crate::test_fixtures::as_user(user_id))
                 .to_request();
             let response: serde_json::Value = test::call_and_read_body_json(&app, request).await;
             assert_eq!(response["total"].as_u64(), Some(expected as u64));
             assert_eq!(response["consents"].as_array().unwrap().len(), expected);
         }
+    }
+    /// A consent decision nobody stated is refused, never recorded as granted.
+    #[actix_web::test]
+    async fn a_consent_without_a_stated_decision_is_refused() {
+        let state = AppState::new();
+        let (user_id, patient_id) = ("user-consent-undecided", "PAT-CONSENT-UNDECIDED");
+        state.users.write().unwrap().insert(
+            user_id.to_string(),
+            active_patient_user(user_id, patient_id),
+        );
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(state))
+                .service(sign_consent),
+        )
+        .await;
+        let request = test::TestRequest::post()
+            .uri("/api/consent/sign")
+            .insert_header(crate::test_fixtures::as_user(user_id))
+            .set_json(serde_json::json!({ "type_id": "treatment", "patient_id": patient_id }))
+            .to_request();
+        let response = test::call_service(&app, request).await;
+        assert_eq!(response.status(), actix_web::http::StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = test::read_body_json(response).await;
+        assert_eq!(body["error"]["code"], "CONSENT_DECISION_REQUIRED");
     }
 }

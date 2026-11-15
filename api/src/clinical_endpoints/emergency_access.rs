@@ -90,6 +90,36 @@ pub fn verify_emergency_token(
 /// [`issue_emergency_token`] via the `/api/emergency/nfc-token` endpoint and
 /// gate actual data release on [`verify_emergency_token`], not on this
 /// function's result directly (Horizon HZ-001).
+/// Domain label for the Medical ID QR proof, so this MAC can never be confused
+/// with any other value keyed by the same secret.
+const MEDICAL_ID_QR_PROOF_LABEL: &[u8] = b"medichain-medical-id-qr:v1:";
+
+/// The possession proof printed in a patient's Medical ID QR code.
+///
+/// Emergency access is bound to holding something the patient carries: an NFC
+/// card, or now their printed QR. A bare patient id cannot serve, because staff
+/// see patient ids in every chart URL. The QR therefore carries
+/// HMAC-SHA256(server secret, label || patient_id), which only the server can
+/// mint. It is static for the life of the secret, exactly like a card's tag id;
+/// rotating `JWT_SECRET` invalidates printed QR codes, and patients re-download.
+pub fn medical_id_qr_proof(patient_id: &str) -> String {
+    use hmac::{Hmac, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(emergency_secret().as_bytes())
+        .expect("HMAC accepts any key length");
+    mac.update(MEDICAL_ID_QR_PROOF_LABEL);
+    mac.update(patient_id.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Whether `provided` is the Medical ID QR proof for `patient_id`.
+pub fn medical_id_qr_proof_matches(patient_id: &str, provided: &str) -> bool {
+    !patient_id.is_empty()
+        && ct_eq(
+            medical_id_qr_proof(patient_id).as_bytes(),
+            provided.as_bytes(),
+        )
+}
+
 pub fn nfc_hash_matches(provided: &str, tags: &[NfcTagEntity]) -> bool {
     !provided.is_empty()
         && tags
@@ -281,6 +311,17 @@ mod tests {
             "token already used",
             "a redeemed emergency token became replayable after restart"
         );
+    }
+
+    #[test]
+    fn medical_id_qr_proof_binds_to_its_patient() {
+        let proof = medical_id_qr_proof("PAT-1");
+        assert_eq!(proof.len(), 64);
+        assert!(medical_id_qr_proof_matches("PAT-1", &proof));
+        assert!(!medical_id_qr_proof_matches("PAT-2", &proof));
+        assert!(!medical_id_qr_proof_matches("PAT-1", ""));
+        assert!(!medical_id_qr_proof_matches("PAT-1", "PAT-1"));
+        assert!(!medical_id_qr_proof_matches("", &medical_id_qr_proof("")));
     }
 
     #[test]

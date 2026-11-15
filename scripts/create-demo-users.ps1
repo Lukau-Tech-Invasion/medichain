@@ -6,15 +6,12 @@
 # in a way that looks like a broken API. The API's own default is 8090.
 $API_URL = if ($env:API_URL) { $env:API_URL } else { "http://localhost:8090" }
 
-# The registering clinician. Defaults to the DOC-001 seed identity this script
-# was written against, but that only exists on a database seeded with the
-# string-ID demo staff. A stack whose users are SS58 wallet addresses has no
-# DOC-001, and `support::get_user` then returns 401 USER_NOT_FOUND for every
-# call below -- which the per-patient `catch` blocks report as "Already exists
-# or error", so the script prints "Demo Setup Complete" having created nothing.
-# Override with a real active Doctor/Admin wallet, e.g.
-#   $env:STAFF_ID = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
-$STAFF_ID = if ($env:STAFF_ID) { $env:STAFF_ID } else { "DOC-001" }
+# The registering clinician signs in with a password like anybody else. Defaults
+# to the seeded doctor fixture (scripts/seed-browser-test-fixtures.ts); override
+# with STAFF_LOGIN_ID and STAFF_PASSWORD for another active Doctor or Admin on
+# this database. There is no identity header: every call below carries the
+# bearer token that sign-in returns.
+. "$PSScriptRoot/lib/MediChainAuth.ps1"
 
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -34,12 +31,14 @@ catch {
 }
 
 Write-Host ""
-Write-Host "Using existing demo staff accounts:" -ForegroundColor Yellow
-Write-Host "  ADMIN-001   - System Administrator" -ForegroundColor Gray
-Write-Host "  DOC-001     - Dr. Oluwaseun Adebayo (Cardiologist)" -ForegroundColor Gray
-Write-Host "  NURSE-001   - Nurse Amina Yusuf (ICU)" -ForegroundColor Gray
-Write-Host "  LAB-001     - Kwame Asante (Lab Technician)" -ForegroundColor Gray
-Write-Host "  PHARMA-001  - Zainab Mohammed (Pharmacist)" -ForegroundColor Gray
+Write-Host "Signing in as the registering clinician..." -ForegroundColor Yellow
+if ($env:STAFF_LOGIN_ID) {
+    $session = Connect-MediChain -ApiBase $API_URL -LoginId $env:STAFF_LOGIN_ID -Password $env:STAFF_PASSWORD
+}
+else {
+    $session = Connect-FixtureRole -ApiBase $API_URL -Role Doctor
+}
+Write-Host "  Signed in as $($session.LoginId) ($($session.Role))" -ForegroundColor Gray
 Write-Host ""
 
 Write-Host "Step 1: Registering Demo Patients..." -ForegroundColor Yellow
@@ -47,13 +46,13 @@ Write-Host ""
 
 $headers = @{
     "Content-Type" = "application/json"
-    "X-User-Id" = $STAFF_ID
+    "Authorization" = "Bearer $($session.Token)"
 }
 
 # A fresh Idempotency-Key per registration.
 #
 # api/src/middleware/idempotency.rs refuses any authenticated mutation that
-# arrives without one, and every call below carries X-User-Id, so all five
+# arrives without one, and every call below is authenticated, so all five
 # registrations were answered 409 IDEMPOTENCY_KEY_REQUIRED and this script --
 # which DEMO_SETUP.md tells a human to run -- created nothing.
 #
@@ -67,17 +66,17 @@ function Get-WriteHeaders {
     return $h
 }
 
-# Fail loudly if the registering identity is not one the API will accept. Without
-# this the five try/catch blocks below swallow every 401 and the script still
-# reports success.
-Write-Host "Registering as: $STAFF_ID" -ForegroundColor Gray
+# Fail loudly if the session is not one the API will accept. Without this the
+# five try/catch blocks below swallow every 401 and the script still reports
+# success.
+Write-Host "Registering as: $($session.LoginId)" -ForegroundColor Gray
 try {
     Invoke-RestMethod -Uri "$API_URL/api/patients" -Method Get -Headers $headers -ErrorAction Stop | Out-Null
     Write-Host "Identity accepted by the API" -ForegroundColor Green
 }
 catch {
-    Write-Host "ERROR: the API rejected X-User-Id '$STAFF_ID' ($($_.Exception.Response.StatusCode.value__))." -ForegroundColor Red
-    Write-Host "       Set STAFF_ID to an active Doctor or Admin on this database." -ForegroundColor Red
+    Write-Host "ERROR: the API rejected the session for '$($session.LoginId)' ($($_.Exception.Response.StatusCode.value__))." -ForegroundColor Red
+    Write-Host "       Set STAFF_LOGIN_ID and STAFF_PASSWORD to an active Doctor or Admin on this database." -ForegroundColor Red
     exit 1
 }
 Write-Host ""
@@ -222,12 +221,9 @@ Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "   Demo Setup Complete" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "DEMO STAFF ACCOUNTS (use X-User-Id header):" -ForegroundColor Yellow
-Write-Host "  ADMIN-001   - System Administrator" -ForegroundColor White
-Write-Host "  DOC-001     - Dr. Oluwaseun Adebayo" -ForegroundColor White
-Write-Host "  NURSE-001   - Nurse Amina Yusuf" -ForegroundColor White
-Write-Host "  LAB-001     - Kwame Asante" -ForegroundColor White
-Write-Host "  PHARMA-001  - Zainab Mohammed" -ForegroundColor White
+Write-Host "SIGN-IN: staff sign in with an employee id and password (POST /api/auth/login)." -ForegroundColor Yellow
+Write-Host "  Each patient registered above returned an activation code; the patient" -ForegroundColor White
+Write-Host "  redeems it, choosing a username and password. There is no identity header." -ForegroundColor White
 Write-Host ""
 Write-Host "DEMO PATIENTS:" -ForegroundColor Yellow
 Write-Host "  - Adaeze Nwosu (Diabetic with multiple conditions)" -ForegroundColor White
@@ -239,5 +235,5 @@ Write-Host ""
 Write-Host "Plus 12 South African patients auto-created by server" -ForegroundColor Gray
 Write-Host ""
 Write-Host "To view all patients:" -ForegroundColor Green
-Write-Host "  curl $API_URL/api/patients -H 'X-User-Id: DOC-001'" -ForegroundColor Gray
+Write-Host "  curl $API_URL/api/patients -H 'Authorization: Bearer <token from POST /api/auth/login>'" -ForegroundColor Gray
 Write-Host ""

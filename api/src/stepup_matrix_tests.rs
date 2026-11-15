@@ -31,10 +31,10 @@
 //! `get_current_claims(req)?`, so a caller carrying no JWT at all produces
 //! `None` and skips the check entirely.
 //!
-//! A signature-authenticated caller (one whose `X-User-Id` the signature
-//! middleware has already verified) is exactly that caller. In these in-process
-//! tests there is no signature middleware, so a bare `X-User-Id` header models
-//! the post-middleware state faithfully: identity established, no JWT present.
+//! Identity comes from the access token alone (there is no identity header), so a
+//! caller either presents a token or is nobody: the "identified but no JWT" state
+//! that this matrix once had to model no longer exists, and the cases below
+//! assert that a bare identity header authenticates no one.
 //!
 //! ## Control cases are not padding
 //!
@@ -63,7 +63,7 @@ mod tests {
 
     fn admin_user() -> User {
         User {
-            wallet_address: ADMIN.to_string(),
+            id: ADMIN.to_string(),
             username: Some("admin".to_string()),
             name: "Admin".to_string(),
             role: Role::Admin,
@@ -88,6 +88,11 @@ mod tests {
             .write()
             .unwrap()
             .insert(ADMIN.to_string(), admin_user());
+        // The account a role is assigned to.
+        state.users.write().unwrap().insert(
+            TARGET.to_string(),
+            crate::test_fixtures::staff(TARGET, Role::Nurse),
+        );
 
         if mfa_enrolled {
             state.security.mfa.write().unwrap().insert(
@@ -98,6 +103,7 @@ mod tests {
                     secret_base32: "JBSWY3DPEHPK3PXP".to_string(),
                     enabled: true,
                     created_at: Utc::now(),
+                    last_used_step: None,
                 },
             );
         }
@@ -106,7 +112,7 @@ mod tests {
 
     fn assign_body() -> serde_json::Value {
         json!({
-            "wallet_address": TARGET,
+            "user_id": TARGET,
             "name": "Target User",
             "username": "target",
             "role": "Doctor"
@@ -212,10 +218,8 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
-    /// An expired JWT, with no `X-User-Id` to fall back to, resolves to no
-    /// caller at all. (`get_current_claims` returns `None` on expiry, and
-    /// `get_current_user_id` then falls through to the header — see
-    /// `support.rs:227-233`.)
+    /// An expired JWT resolves to no caller at all (`get_current_claims`
+    /// returns `None` on expiry).
     #[actix_rt::test]
     async fn control_expired_jwt_alone_is_rejected() {
         let state = state_with_admin(true).await;
@@ -238,40 +242,24 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // BYPASS CASES — these FAIL against pre-fix code. That failure is the H2
-    // evidence. Each models a caller the signature middleware has already
-    // authenticated, presenting no JWT.
+    // BYPASS CASES — H2 was a caller identified without a JWT slipping past the
+    // step-up policy. There is no such caller now: a bare header is no identity.
     // ---------------------------------------------------------------------
 
-    /// **The H2 bypass.** A signature-authenticated, MFA-*enrolled* admin
-    /// performs a privileged operation having never stepped up. Pre-fix this
-    /// returns 200: `enforce_mfa_step_up` finds no claims and exempts the
-    /// caller outright.
+    /// A caller-supplied identity header authenticates nobody, whatever the
+    /// account behind it.
     #[actix_rt::test]
-    async fn bypass_signature_only_enrolled_admin_must_be_denied() {
-        let state = state_with_admin(true).await;
-        let status = assign_role_status(state, &[("X-User-Id", ADMIN.to_string())]).await;
-        assert_eq!(
-            status,
-            StatusCode::FORBIDDEN,
-            "H2: an MFA-enrolled admin authenticated by wallet signature alone \
-             must NOT reach a privileged route without verified step-up"
-        );
-    }
-
-    /// The owner's stricter policy: a *never-enrolled* admin has no assurance
-    /// to offer, so a privileged route must refuse rather than wave them
-    /// through. Pre-fix this returns 200.
-    #[actix_rt::test]
-    async fn bypass_signature_only_unenrolled_admin_must_be_denied() {
-        let state = state_with_admin(false).await;
-        let status = assign_role_status(state, &[("X-User-Id", ADMIN.to_string())]).await;
-        assert_eq!(
-            status,
-            StatusCode::FORBIDDEN,
-            "H2: a never-enrolled admin must be refused a privileged route — \
-             non-enrollment is a refusal, not an exemption"
-        );
+    async fn a_bare_identity_header_authenticates_no_one() {
+        for enrolled in [true, false] {
+            let state = state_with_admin(enrolled).await;
+            // identity-header-negative-assertion
+            let status = assign_role_status(state, &[("X-User-Id", ADMIN.to_string())]).await;
+            assert_eq!(
+                status,
+                StatusCode::UNAUTHORIZED,
+                "a header naming an admin (enrolled={enrolled}) must not identify a caller"
+            );
+        }
     }
 
     /// Enrollment is re-read per request from durable state, so a token minted
@@ -363,8 +351,8 @@ mod tests {
         }
     }
 
-    /// An expired JWT must not be resurrected by an accompanying `X-User-Id`
-    /// header into a privileged operation.
+    /// An expired JWT must not be resurrected by an accompanying identity header
+    /// into a privileged operation.
     #[actix_rt::test]
     async fn bypass_expired_jwt_with_user_header_must_be_denied() {
         let state = state_with_admin(true).await;
@@ -373,14 +361,15 @@ mod tests {
             state,
             &[
                 ("Authorization", format!("Bearer {}", token)),
+                // identity-header-negative-assertion
                 ("X-User-Id", ADMIN.to_string()),
             ],
         )
         .await;
         assert_eq!(
             status,
-            StatusCode::FORBIDDEN,
-            "H2: an expired step-up claim must not be revived by the fallback header"
+            StatusCode::UNAUTHORIZED,
+            "an expired token identifies no one, and the header is not an identity"
         );
     }
 
@@ -410,7 +399,7 @@ mod tests {
             .uri("/api/guardians/verify")
             .insert_header(("Authorization", bearer.clone()))
             .set_json(json!({
-                "guardian_wallet": TARGET,
+                "guardian_user_id": TARGET,
                 "ward_patient_id": "PAT-WARD-1",
                 "relationship_type": "parent_or_guardian",
                 "permissions": []

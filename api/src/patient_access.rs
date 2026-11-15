@@ -45,6 +45,7 @@ impl AccessType {
 }
 
 /// Details carried from a request into the grant it becomes on approval.
+#[derive(Clone)]
 pub struct RequestingProvider {
     pub provider_id: String,
     pub provider_name: String,
@@ -120,7 +121,7 @@ impl PatientAccessService {
         &self,
         patient_id: String,
         provider: RequestingProvider,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
         now: DateTime<Utc>,
     ) -> Result<AccessRequestEntity, &'static str> {
         if patient_id.is_empty()
@@ -192,10 +193,27 @@ impl PatientAccessService {
         provider_id: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, &'static str> {
+        Ok(self
+            .active_grant_id(patient_id, provider_id, now)
+            .await?
+            .is_some())
+    }
+
+    /// The id of the provider's effective grant on this patient, if any.
+    ///
+    /// A read made under it is recorded against this id, which is what the
+    /// patient's per-grant disclosure count is derived from.
+    pub async fn active_grant_id(
+        &self,
+        patient_id: &str,
+        provider_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Option<String>, &'static str> {
         let grants = self.list_grants_by_patient(patient_id, now).await?;
         Ok(grants
-            .iter()
-            .any(|grant| grant.provider_id == provider_id && grant.is_effective(now)))
+            .into_iter()
+            .find(|grant| grant.provider_id == provider_id && grant.is_effective(now))
+            .map(|grant| grant.id))
     }
 
     pub async fn get_request(
@@ -269,7 +287,7 @@ impl PatientAccessService {
         request_id: &str,
         access_type: AccessType,
         expires_at: Option<DateTime<Utc>>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
         now: DateTime<Utc>,
     ) -> Result<(AccessRequestEntity, AccessGrantEntity), &'static str> {
         let request = match self.get_request(request_id).await? {
@@ -325,7 +343,7 @@ impl PatientAccessService {
     pub async fn deny_request_with_audit(
         &self,
         request_id: &str,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> Result<AccessRequestEntity, &'static str> {
         match self.repo.deny_request_with_audit(request_id, event).await {
             Ok(Some(request)) => Ok(request),
@@ -361,7 +379,7 @@ impl PatientAccessService {
         &self,
         grant_id: &str,
         now: DateTime<Utc>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> Result<AccessGrantEntity, &'static str> {
         match self
             .repo
@@ -418,7 +436,7 @@ mod tests {
 
     fn provider() -> RequestingProvider {
         RequestingProvider {
-            provider_id: "5DoctorWallet".into(),
+            provider_id: "5DoctorUser".into(),
             provider_name: "Dr Synthetic".into(),
             provider_role: "Doctor".into(),
             organization: "Synthetic General Hospital".into(),
@@ -569,7 +587,7 @@ mod tests {
         let svc = service();
         let now = Utc::now();
         assert!(!svc
-            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .provider_has_active_grant("PAT-1", "5DoctorUser", now)
             .await
             .unwrap());
 
@@ -587,16 +605,16 @@ mod tests {
             .await
             .unwrap();
         assert!(svc
-            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .provider_has_active_grant("PAT-1", "5DoctorUser", now)
             .await
             .unwrap());
         assert!(!svc
-            .provider_has_active_grant("PAT-1", "5OtherWallet", now)
+            .provider_has_active_grant("PAT-1", "5OtherUser", now)
             .await
             .unwrap());
         svc.revoke_grant(&grant.id, now).await.unwrap();
         assert!(!svc
-            .provider_has_active_grant("PAT-1", "5DoctorWallet", now)
+            .provider_has_active_grant("PAT-1", "5DoctorUser", now)
             .await
             .unwrap());
 
@@ -613,7 +631,7 @@ mod tests {
         .await
         .unwrap();
         assert!(!svc
-            .provider_has_active_grant("PAT-2", "5DoctorWallet", now + Duration::hours(2))
+            .provider_has_active_grant("PAT-2", "5DoctorUser", now + Duration::hours(2))
             .await
             .unwrap());
     }

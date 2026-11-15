@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, useTranslation, type TraumaListRow } from '@medichain/shared';
+import { createTrauma, getPatients, getPatientTraumas, formatTimestamp, notifySuccess, useTranslation, type TraumaListRow, ChoiceChips, submitOnce, useSubmission, useLatestRequest, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   AlertCircle,
@@ -12,11 +11,12 @@ import {
   History
 } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 
 export default function TraumaPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
   // The roster this page fetched existed only to fill a patient dropdown.
@@ -27,21 +27,40 @@ export default function TraumaPage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<TraumaListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const submission = useSubmission('trauma');
   
-  // Trauma Form State
-  const [traumaType, setTraumaType] = useState('blunt');
+  // Trauma Form State. Nothing is pre-chosen (rule 9): the form opened on a
+  // blunt injury, GCS 15, ISS 0 and a primary survey of patent / spontaneous /
+  // stable / alert / nothing found, and filed all of it for a patient nobody
+  // had examined -- an unexamined trauma patient read as an intact one. A
+  // score nobody measured is absent, not 15 or 0 (rule 12).
+  const [traumaType, setTraumaType] = useState('');
   const [mechanism, setMechanism] = useState('');
-  const [gcsScore, setGcsScore] = useState(15);
-  const [issScore, setIssScore] = useState(0);
-  
+  const [gcsScore, setGcsScore] = useState<number | null>(null);
+  const [issScore, setIssScore] = useState<number | null>(null);
+
   // Primary Survey
-  const [airway, setAirway] = useState('patent');
-  const [breathing, setBreathing] = useState('spontaneous');
-  const [circulation, setCirculation] = useState('stable');
-  const [disability, setDisability] = useState('alert');
-  const [exposure, setExposure] = useState('none');
+  const [airway, setAirway] = useState('');
+  const [breathing, setBreathing] = useState('');
+  const [circulation, setCirculation] = useState('');
+  const [disability, setDisability] = useState('');
+  const [exposure, setExposure] = useState('');
 
   const [notes, setNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const traumaDraft = useDraftFields('trauma', selectedPatient || undefined, t('docTrauma.formLabel'), {
+    traumaType: [traumaType, setTraumaType],
+    mechanism: [mechanism, setMechanism],
+    gcsScore: [gcsScore, setGcsScore],
+    issScore: [issScore, setIssScore],
+    airway: [airway, setAirway],
+    breathing: [breathing, setBreathing],
+    circulation: [circulation, setCirculation],
+    disability: [disability, setDisability],
+    exposure: [exposure, setExposure],
+    notes: [notes, setNotes],
+  });
 
   useEffect(() => {
     loadPatients();
@@ -51,32 +70,46 @@ export default function TraumaPage() {
     try {
       await getPatients();
     } catch (error) {
+      // ux-allow(console-catch): a warm-up whose result is discarded; nothing on screen depends on it (debt register).
       console.error('Failed to load patients', error);
     }
   };
 
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientTraumas(patientId));
-    } catch (e) {
-      console.error('Failed to fetch emergency history', e);
+      const history = await getPatientTraumas(patientId);
+      if (current()) setEmergencyHistory(history);
+    } catch {
+      if (!current()) return;
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docTrauma.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatient) return;
+    // Said in words; the button is no longer greyed out to mean "choose a patient".
+    if (!selectedPatient) { showError(t('docTrauma.errorSelectPatient')); return; }
 
+    const surveyLines = ([['A', airway], ['B', breathing], ['C', circulation], ['D', disability], ['E', exposure]] as const)
+      .filter(([, finding]) => finding)
+      .map(([letter, finding]) => `${letter}: ${finding}`);
     try {
       const traumaData = {
         patient_id: selectedPatient,
-        trauma_type: traumaType,
-        injury_severity_score: issScore,
-        gcs_score: gcsScore,
+        trauma_type: traumaType || undefined,
+        injury_severity_score: issScore ?? undefined,
+        gcs_score: gcsScore ?? undefined,
         mechanism_of_injury: mechanism,
         injuries: [], // Injuries added via injury documentation form
         interventions: [],
@@ -91,12 +124,21 @@ export default function TraumaPage() {
         // answer, and an absent set reads as "not recorded here" rather than as
         // a stable patient.
 
-        notes: `Primary Survey:\nA: ${airway}\nB: ${breathing}\nC: ${circulation}\nD: ${disability}\nE: ${exposure}\n\nNotes: ${notes}`,
+        // Only the survey findings someone recorded; an unassessed letter is
+        // left out rather than written as normal.
+        notes: [
+          surveyLines.length ? `Primary Survey:\n${surveyLines.join('\n')}` : null,
+          notes ? `Notes: ${notes}` : null,
+        ].filter(Boolean).join('\n\n') || undefined,
         assessed_at: Math.floor(Date.now() / 1000)
       };
 
-      await createTrauma(traumaData);
-      navigate('/dashboard');
+      // One record per event: a double click or a retry is the same submission.
+      const saved = await submitOnce(submission, traumaData, () => createTrauma(traumaData));
+      if (saved === 'busy') return;
+      traumaDraft.markSaved();
+      notifySuccess(t(saved === 'saved' ? 'forms.saved' : saved === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
+      returnAfterSave();
     } catch (error) {
       console.error('Failed to save trauma assessment', error);
       showError(t('docTrauma.saveFailed'));
@@ -117,7 +159,7 @@ export default function TraumaPage() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Patient Selection */}
-        <div className="bg-surface shadow rounded-lg p-6">
+        <div data-patient-picker-card className="bg-surface shadow rounded-lg p-6">
           <label htmlFor="trauma-patient" className="block text-sm font-medium text-content-secondary mb-2">
             {t('docTrauma.selectPatient')}
           </label>
@@ -143,6 +185,8 @@ export default function TraumaPage() {
             </h3>
             {historyLoading ? (
               <p className="text-content-muted text-sm">{t('docTrauma.loadingHistory')}</p>
+            ) : historyError ? (
+              <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
             ) : emergencyHistory.length === 0 ? (
               <p className="text-content-muted text-sm italic">{t('docTrauma.noEvents')}</p>
             ) : (
@@ -180,18 +224,18 @@ export default function TraumaPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="trauma-type" className="block text-sm font-medium text-content-secondary">{t('docTrauma.traumaType')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-type"
-                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={traumaType}
-                onChange={(e) => setTraumaType(e.target.value)}
-              >
-                <option value="blunt">{t('docTrauma.typeBlunt')}</option>
-                <option value="penetrating">{t('docTrauma.typePenetrating')}</option>
-                <option value="burn">{t('docTrauma.typeBurn')}</option>
-                <option value="blast">{t('docTrauma.typeBlast')}</option>
-              </select>
+                label={t('docTrauma.traumaType')}
+                value={traumaType || undefined}
+                onChange={(next) => setTraumaType(next ?? '')}
+                options={[
+                  { value: 'blunt', label: t('docTrauma.typeBlunt') },
+                  { value: 'penetrating', label: t('docTrauma.typePenetrating') },
+                  { value: 'burn', label: t('docTrauma.typeBurn') },
+                  { value: 'blast', label: t('docTrauma.typeBlast') },
+                ]}
+              />
             </div>
             <div>
               <label htmlFor="trauma-mechanism" className="block text-sm font-medium text-content-secondary">{t('docTrauma.mechanism')}</label>
@@ -213,8 +257,8 @@ export default function TraumaPage() {
                 min="3"
                 max="15"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={gcsScore}
-                onChange={(e) => setGcsScore(parseInt(e.target.value))}
+                value={gcsScore ?? ''}
+                onChange={(e) => setGcsScore(e.target.value === '' ? null : parseInt(e.target.value, 10))}
               />
             </div>
             <div>
@@ -225,8 +269,8 @@ export default function TraumaPage() {
                 min="0"
                 max="75"
                 className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={issScore}
-                onChange={(e) => setIssScore(parseInt(e.target.value))}
+                value={issScore ?? ''}
+                onChange={(e) => setIssScore(e.target.value === '' ? null : parseInt(e.target.value, 10))}
               />
             </div>
           </div>
@@ -240,78 +284,78 @@ export default function TraumaPage() {
           </h3>
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-airway" className="font-medium text-content-secondary">{t('docTrauma.airway')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-airway"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={airway}
-                onChange={(e) => setAirway(e.target.value)}
-              >
-                <option value="patent">{t('docTrauma.airwayPatent')}</option>
-                <option value="obstructed">{t('docTrauma.airwayObstructed')}</option>
-                <option value="intubated">{t('docTrauma.airwayIntubated')}</option>
-                <option value="c-spine">{t('docTrauma.airwayCSpine')}</option>
-              </select>
+                label={t('docTrauma.airway')}
+                value={airway || undefined}
+                onChange={(next) => setAirway(next ?? '')}
+                options={[
+                  { value: 'patent', label: t('docTrauma.airwayPatent') },
+                  { value: 'obstructed', label: t('docTrauma.airwayObstructed') },
+                  { value: 'intubated', label: t('docTrauma.airwayIntubated') },
+                  { value: 'c-spine', label: t('docTrauma.airwayCSpine') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-breathing" className="font-medium text-content-secondary">{t('docTrauma.breathing')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-breathing"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={breathing}
-                onChange={(e) => setBreathing(e.target.value)}
-              >
-                <option value="spontaneous">{t('docTrauma.breathingSpontaneous')}</option>
-                <option value="labored">{t('docTrauma.breathingLabored')}</option>
-                <option value="absent">{t('docTrauma.breathingAbsent')}</option>
-                <option value="ventilated">{t('docTrauma.breathingVentilated')}</option>
-              </select>
+                label={t('docTrauma.breathing')}
+                value={breathing || undefined}
+                onChange={(next) => setBreathing(next ?? '')}
+                options={[
+                  { value: 'spontaneous', label: t('docTrauma.breathingSpontaneous') },
+                  { value: 'labored', label: t('docTrauma.breathingLabored') },
+                  { value: 'absent', label: t('docTrauma.breathingAbsent') },
+                  { value: 'ventilated', label: t('docTrauma.breathingVentilated') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-circulation" className="font-medium text-content-secondary">{t('docTrauma.circulation')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-circulation"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={circulation}
-                onChange={(e) => setCirculation(e.target.value)}
-              >
-                <option value="stable">{t('docTrauma.circStable')}</option>
-                <option value="tachycardic">{t('docTrauma.circTachycardic')}</option>
-                <option value="weak">{t('docTrauma.circWeak')}</option>
-                <option value="absent">{t('docTrauma.circAbsent')}</option>
-                <option value="hemorrhage">{t('docTrauma.circHemorrhage')}</option>
-              </select>
+                label={t('docTrauma.circulation')}
+                value={circulation || undefined}
+                onChange={(next) => setCirculation(next ?? '')}
+                options={[
+                  { value: 'stable', label: t('docTrauma.circStable') },
+                  { value: 'tachycardic', label: t('docTrauma.circTachycardic') },
+                  { value: 'weak', label: t('docTrauma.circWeak') },
+                  { value: 'absent', label: t('docTrauma.circAbsent') },
+                  { value: 'hemorrhage', label: t('docTrauma.circHemorrhage') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-disability" className="font-medium text-content-secondary">{t('docTrauma.disability')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-disability"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={disability}
-                onChange={(e) => setDisability(e.target.value)}
-              >
-                <option value="alert">{t('docTrauma.disAlert')}</option>
-                <option value="voice">{t('docTrauma.disVoice')}</option>
-                <option value="pain">{t('docTrauma.disPain')}</option>
-                <option value="unresponsive">{t('docTrauma.disUnresponsive')}</option>
-              </select>
+                label={t('docTrauma.disability')}
+                value={disability || undefined}
+                onChange={(next) => setDisability(next ?? '')}
+                options={[
+                  { value: 'alert', label: t('docTrauma.disAlert') },
+                  { value: 'voice', label: t('docTrauma.disVoice') },
+                  { value: 'pain', label: t('docTrauma.disPain') },
+                  { value: 'unresponsive', label: t('docTrauma.disUnresponsive') },
+                ]}
+              />
             </div>
             {/* E — Exposure. A, B, C and D each had a control; this did not, so
                 every primary survey narrative recorded "E: none" regardless of
                 what was found. */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label htmlFor="trauma-exposure" className="font-medium text-content-secondary">{t('docTrauma.exposure')}</label>
-              <select
+              <ChoiceChips
                 id="trauma-exposure"
-                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                value={exposure}
-                onChange={(e) => setExposure(e.target.value)}
-              >
-                <option value="none">{t('docTrauma.expNone')}</option>
-                <option value="log-rolled">{t('docTrauma.expLogRolled')}</option>
-                <option value="fully-exposed">{t('docTrauma.expFullyExposed')}</option>
-                <option value="hypothermia-risk">{t('docTrauma.expHypothermia')}</option>
-              </select>
+                label={t('docTrauma.exposure')}
+                value={exposure || undefined}
+                onChange={(next) => setExposure(next ?? '')}
+                options={[
+                  { value: 'none', label: t('docTrauma.expNone') },
+                  { value: 'log-rolled', label: t('docTrauma.expLogRolled') },
+                  { value: 'fully-exposed', label: t('docTrauma.expFullyExposed') },
+                  { value: 'hypothermia-risk', label: t('docTrauma.expHypothermia') },
+                ]}
+              />
             </div>
           </div>
         </div>
@@ -331,8 +375,8 @@ export default function TraumaPage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={!selectedPatient}
-            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
+            aria-disabled={submission.status === 'saving' || undefined}
+            className="aria-disabled:cursor-wait flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
           >
             <Save className="h-5 w-5 mr-2" />
             {t('docTrauma.saveAssessment')}

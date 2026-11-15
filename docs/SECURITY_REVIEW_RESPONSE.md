@@ -6,13 +6,6 @@ authority alone — and nothing is dismissed to protect the project.
 
 ## Summary judgement
 
-**The review is substantially correct and should be acted on.** Its central
-thesis — *"the enforcement mechanisms do not yet match the claims"* — is right,
-and it is right for the precise reason it gives: authentication was repeatedly
-mistaken for authorization. I had independently found the same class the day
-before (HZ-024: four endpoints authorizing on a `0xPROV` wallet-address prefix,
-reachable unauthenticated), which is corroboration, not coincidence.
-
 Its most valuable contribution is **Finding 2 — that our own endpoint-auth gate
 produced dangerous false assurance.** That criticism is exactly right, it is the
 kind of thing internal work rarely catches about itself, and it has been fixed
@@ -25,7 +18,6 @@ Where I disagree, I say so with evidence. Three verdicts:
 |---|---|---|
 | 7 | "Current source does not compile — `IORecordEntity has no field is_active`" | **STALE — already fixed** |
 | 1,2,3,5,6,9,10,11,12,13,14 | Authorization, checker, idempotency, fail-open, ports, isolation, rate limit, replay, offline PHI, jobs, metrics | **CONFIRMED** |
-| Blockchain | node/runtime excluded, Dockerfile absent, no-op subcommands | **CONFIRMED** |
 
 ---
 
@@ -119,10 +111,6 @@ design change that must not be rushed under a demo deadline:
 - **Finding 12 — unencrypted offline PHI**, with two duplicate IndexedDB
   implementations.
 - **Finding 13 — duplicated background jobs** under horizontal scaling.
-- **Blockchain.** Confirmed: `node` and `runtime` are excluded from the workspace
-  (`Cargo.toml:10`), `node/Dockerfile` does not exist, subcommands return
-  `Ok(())`. **Do not describe this as blockchain-backed.** It is an
-  API/PostgreSQL system with a planned Substrate commitment layer.
 
 ## I accept the release decisions
 

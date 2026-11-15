@@ -31,6 +31,8 @@ export interface SidebarBadges {
   pendingLabApprovals: number;
   criticalValues: number;
   codeBlues: number;
+  /** Ambulances on their way to, or waiting at, the caller's facility. */
+  incomingAmbulances: number;
   
   // Nurse badges
   vitalsDue: number;
@@ -77,6 +79,7 @@ const DEFAULT_BADGES: SidebarBadges = {
   pendingLabApprovals: 0,
   criticalValues: 0,
   codeBlues: 0,
+  incomingAmbulances: 0,
   vitalsDue: 0,
   medsDue: 0,
   woundsToAssess: 0,
@@ -138,6 +141,16 @@ async function fetchPharmacistDashboard(): Promise<PharmacistDashboardResponse |
   try {
     const response = await getApiClient().get<PharmacistDashboardResponse>('/api/dashboard/pharmacist');
     return response;
+  } catch {
+    return null;
+  }
+}
+
+/** How many ambulances the board lists; null when it could not be read. */
+async function fetchIncomingAmbulanceCount(): Promise<number | null> {
+  try {
+    const response = await getApiClient().get<{ runs?: unknown[] }>('/api/ems/incoming');
+    return Array.isArray(response.runs) ? response.runs.length : null;
   } catch {
     return null;
   }
@@ -207,6 +220,12 @@ export function useSidebarData(
       }
       if (notificationsData) {
         updatedBadges.unreadNotifications = notificationsData.unread_count;
+      }
+
+      // Doctors and nurses receive ambulances; the board is theirs.
+      if (role === 'Doctor' || role === 'Nurse') {
+        const incoming = await fetchIncomingAmbulanceCount();
+        if (incoming !== null) updatedBadges.incomingAmbulances = incoming;
       }
 
       // Fetch role-specific dashboard data

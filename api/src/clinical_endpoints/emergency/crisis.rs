@@ -60,7 +60,7 @@ pub async fn create_code_blue(
     req: web::Json<CreateCodeBlueRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -137,7 +137,7 @@ pub async fn list_patient_code_blues(
     // masked it (the victim had no records); code inspection confirmed the gap.
     // Apply provider-or-self, matching the clinical endpoints.
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     match get_user(&data, &current_user_id) {
@@ -289,7 +289,7 @@ pub async fn create_cardiac(
     req: web::Json<CreateCardiacRequest>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

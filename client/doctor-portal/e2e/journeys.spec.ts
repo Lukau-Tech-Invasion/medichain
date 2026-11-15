@@ -28,13 +28,10 @@ import { signIn, settle, type RoleName } from './support';
  * would spend an hour re-proving what a faster suite already knows. These pick,
  * per role, the screen whose failure would be worst and least visible.
  *
- * # Why a missing fixture skips rather than fails
+ * # Fixture integrity
  *
- * `GET /api/auth/demo-credentials` only offers accounts that carry a keystore.
- * `bt.admin` is in the server's fixture list and is not returned, so the
- * administrator cannot be signed in here at all. That is a seeding gap, not a
- * product defect, and reporting it as a failed assertion about the product
- * would be a lie about what was tested. It is named out loud instead.
+ * Every role signs in with a seeded account. A missing fixture fails so the
+ * browser run cannot silently skip an unverified role.
  *
  * Run:
  *   bash scripts/run-browser-e2e-api.sh &
@@ -42,38 +39,9 @@ import { signIn, settle, type RoleName } from './support';
  *   npx playwright test journeys --config playwright.local-api.config.ts
  */
 
-/** Roles the API is currently willing to hand a demo credential for. */
-async function availableRoles(page: Page): Promise<Set<string>> {
-  const response = await page.request.get('/api/auth/demo-credentials');
-  if (!response.ok()) return new Set();
-  const body = (await response.json()) as { credentials?: { role: string }[] };
-  return new Set((body.credentials ?? []).map((c) => c.role));
-}
-
-/**
- * Sign in, or skip the test saying exactly why it could not.
- *
- * Retries once after a pause: the API rate-limits at 60 requests a minute and a
- * serial browser suite doing full sign-ins walks into that ceiling, at which
- * point the login page renders no demo buttons and the failure looks
- * identical to a missing fixture. Distinguishing the two is the whole point of
- * this helper.
- */
-async function signInOrSkip(page: Page, role: RoleName) {
-  const offered = await availableRoles(page);
-  test.skip(
-    !offered.has(role),
-    `the API offers no demo credential for ${role} (it has: ${[...offered].join(', ') || 'none'}). ` +
-      'Only accounts with a keystore are offered; run scripts/seed-browser-test-fixtures.ts.'
-  );
-
-  try {
-    await signIn(page, role);
-  } catch {
-    // One retry, after the rate-limit window.
-    await page.waitForTimeout(15000);
-    await signIn(page, role);
-  }
+/** Sign in with the seeded role account; missing credentials fail the test. */
+async function signInFixture(page: Page, role: RoleName) {
+  await signIn(page, role, 0);
 }
 
 /** Assert the screen is not reporting an error. */
@@ -88,9 +56,9 @@ async function noErrorBanner(page: Page) {
 }
 
 /** Every account the portal serves renders a real landing page. */
-for (const role of ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin'] as const) {
+for (const role of ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin', 'Paramedic'] as const) {
   test(`${role} signs in and their dashboard renders content`, async ({ page }) => {
-    await signInOrSkip(page, role as RoleName);
+    await signInFixture(page, role as RoleName);
 
     // `/dashboard` is one URL and five different components —
     // `SmartDashboardRouter` dispatches on the signed-in role — so this is
@@ -117,7 +85,7 @@ for (const role of ['Doctor', 'Nurse', 'Pharmacist', 'LabTechnician', 'Admin'] a
 }
 
 test('a nurse can reach the MAR', async ({ page }) => {
-  await signInOrSkip(page, 'Nurse');
+  await signInFixture(page, 'Nurse');
   await settle(page, '/mar');
 
   // The screen that reported "Documented: <drug>" for doses the server had
@@ -128,7 +96,7 @@ test('a nurse can reach the MAR', async ({ page }) => {
 });
 
 test('a doctor can reach the order board', async ({ page }) => {
-  await signInOrSkip(page, 'Doctor');
+  await signInFixture(page, 'Doctor');
   await settle(page, '/orders');
 
   // `handleUpdateStatus` used to update local state unconditionally, so the
@@ -140,7 +108,7 @@ test('a doctor can reach the order board', async ({ page }) => {
 test('the health ID card screen offers no ID type by default', async ({ page }) => {
   // Doctor rather than Admin: issuing is doctor/nurse/admin, and the doctor
   // fixture is the one reliably offered a credential.
-  await signInOrSkip(page, 'Doctor');
+  await signInFixture(page, 'Doctor');
   await settle(page, '/health-id-cards');
 
   // A card issued against a blank ID type is a national health credential
@@ -153,7 +121,7 @@ test('the health ID card screen offers no ID type by default', async ({ page }) 
 });
 
 test('telehealth offers the session types the API accepts', async ({ page }) => {
-  await signInOrSkip(page, 'Doctor');
+  await signInFixture(page, 'Doctor');
   await settle(page, '/telehealth');
 
   await page
@@ -173,8 +141,8 @@ test('telehealth offers the session types the API accepts', async ({ page }) => 
   // one fell through to a video visit and the list then rendered the stored
   // `VideoVisit` as a raw enum name. These are the API's own spellings.
   const values = await select
-    .locator('option')
-    .evaluateAll((options) => options.map((o) => (o as HTMLOptionElement).value));
+    .locator('option, input[type=radio]')
+    .evaluateAll((options) => options.map((o) => (o as HTMLInputElement).value));
   expect(values).toContain('VideoVisit');
   expect(values).toContain('PhoneCall');
   expect(
@@ -184,7 +152,7 @@ test('telehealth offers the session types the API accepts', async ({ page }) => 
 });
 
 test('registration does not collect a personal phone it would send as empty', async ({ page }) => {
-  await signInOrSkip(page, 'Doctor');
+  await signInFixture(page, 'Doctor');
   await settle(page, '/register');
 
   // Registration used to send `phone: ''` for a field it does not collect — the

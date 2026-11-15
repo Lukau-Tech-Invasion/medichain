@@ -1,12 +1,18 @@
 #!/bin/bash
 # MediChain Demo Users Creation Script
-# This creates demo users using the OLD demo user format (DOC-001, NURSE-001, etc.)
+# This registers demo patients through a signed-in doctor.
 
 API_URL="${API_URL:-http://localhost:8090}"
-# The identity these registrations are made as. It used to be hard-coded to
-# DOC-001, which does not exist on every database -- and the script reported
-# success anyway. Override for a deployment whose staff are wallet addresses.
-STAFF_ID="${STAFF_ID:-DOC-001}"
+BASE="$API_URL"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/actors.sh
+. "$SCRIPT_DIR/lib/actors.sh"
+actors_init
+# The registering clinician signs in with a password like anybody else: the
+# seeded doctor fixture by default (scripts/seed-browser-test-fixtures.ts), or
+# STAFF_LOGIN_ID and STAFF_PASSWORD for another active Doctor or Admin. There is
+# no identity header; every call below carries the bearer token that returns.
+STAFF=doctor
 
 echo "============================================="
 echo "   MediChain Demo Users Setup"
@@ -22,19 +28,33 @@ fi
 echo "Server is running!"
 echo ""
 
-# The current binary uses demo users: ADMIN-001, DOC-001, NURSE-001, LAB-001, PHARMA-001
-echo "Using existing demo staff accounts:"
-echo "  - ADMIN-001 (System Administrator)"
-echo "  - DOC-001 (Dr. Oluwaseun Adebayo - Cardiologist)"
-echo "  - NURSE-001 (Nurse Amina Yusuf - ICU)"
-echo "  - LAB-001 (Kwame Asante - Lab Technician)"
-echo "  - PHARMA-001 (Zainab Mohammed - Pharmacist)"
+# Sign in first: a script that cannot authenticate must stop here rather than
+# print a success banner over five refusals.
+if [ -n "${STAFF_LOGIN_ID:-}" ]; then
+  LOGIN_ID="$STAFF_LOGIN_ID"; PASSWORD="${STAFF_PASSWORD:?set STAFF_PASSWORD with STAFF_LOGIN_ID}"
+else
+  read -r LOGIN_ID PASSWORD <<< "$(python - "$SCRIPT_DIR/../.browser-test/fixtures.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+d = next(s for s in m["staff"] if s["role"] == "Doctor")
+print(d["login_id"], d["password"])
+PY
+)"
+fi
+echo "Signing in as: $LOGIN_ID"
+SIGNIN=$(login_as "$STAFF" "$LOGIN_ID" "$PASSWORD")
+if [ "$SIGNIN" != "200" ]; then
+  echo "ERROR: the API rejected the sign-in for '$LOGIN_ID' ($SIGNIN)." >&2
+  echo "       Seed the fixtures, or set STAFF_LOGIN_ID and STAFF_PASSWORD to an active Doctor or Admin." >&2
+  exit 1
+fi
+echo "Signed in"
 echo ""
 
 # A fresh Idempotency-Key per registration.
 #
 # `api/src/middleware/idempotency.rs` refuses any authenticated mutation that
-# arrives without one, and every call below carries `X-User-Id`, so all five
+# arrives without one, and every call below is authenticated, so all five
 # registrations were answered 409 IDEMPOTENCY_KEY_REQUIRED and this script --
 # which DEMO_SETUP.md tells a human to run -- created nothing while still
 # printing its success banner.
@@ -54,12 +74,12 @@ FAILED=0
 #
 # The script used to pipe every response straight to stdout and then print
 # "Demo Users Setup Complete!" and a list of five created patients
-# unconditionally. With a stale STAFF_ID that meant five USER_NOT_FOUND
+# unconditionally. With a stale sign-in that meant five 401
 # responses scrolling past, followed by a success banner naming patients that
 # do not exist. A setup script that cannot fail is not a setup script.
 post_patient() {
   local code
-  code=$(curl -s -o /tmp/mc_demo_body -w '%{http_code}' -X POST "$API_URL/api/register"     -H "Content-Type: application/json"     -H "X-User-Id: $STAFF_ID"     -H "Idempotency-Key: $(idem_key)"     -d @-)
+  code=$(curl -s -o /tmp/mc_demo_body -w '%{http_code}' -X POST "$API_URL/api/register"     -H "Content-Type: application/json"     -H "Authorization: Bearer $(tok_of "$STAFF")"     -H "Idempotency-Key: $(idem_key)"     -d @-)
   case "$code" in
     200|201) CREATED=$((CREATED + 1)); echo "  created ($code)" ;;
     *)       FAILED=$((FAILED + 1))
@@ -67,18 +87,15 @@ post_patient() {
   esac
 }
 
-# Fail loudly if the registering identity is not one this API will accept.
-# Without this the five registrations below each fail on their own and the
-# script still finishes with a success banner. The PowerShell twin has had
-# this probe for a while; the bash one did not.
-echo "Registering as: $STAFF_ID"
-PROBE=$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/api/patients" -H "X-User-Id: $STAFF_ID")
+# Fail loudly if the session is not one this API will accept. Without this the
+# five registrations below each fail on their own and the script still finishes
+# with a success banner.
+PROBE=$(curl -s -o /dev/null -w '%{http_code}' "$API_URL/api/patients" -H "Authorization: Bearer $(tok_of "$STAFF")")
 if [ "$PROBE" != "200" ]; then
-  echo "ERROR: the API rejected X-User-Id '$STAFF_ID' ($PROBE)." >&2
-  echo "       Set STAFF_ID to an active Doctor or Admin on this database." >&2
+  echo "ERROR: the API rejected the session ($PROBE)." >&2
   exit 1
 fi
-echo "Identity accepted by the API"
+echo "Session accepted by the API"
 echo ""
 
 echo "Step 1: Registering Demo Patients..."
@@ -197,12 +214,9 @@ else
 fi
 echo "============================================="
 echo ""
-echo "DEMO STAFF ACCOUNTS (use X-User-Id header):"
-echo "  ADMIN-001   - System Administrator"
-echo "  DOC-001     - Dr. Oluwaseun Adebayo (Cardiologist)"
-echo "  NURSE-001   - Nurse Amina Yusuf (ICU)"  
-echo "  LAB-001     - Kwame Asante (Lab Technician)"
-echo "  PHARMA-001  - Zainab Mohammed (Pharmacist)"
+echo "SIGN-IN: staff sign in with an employee id and password (POST /api/auth/login)."
+echo "  Each patient registered above returned an activation code; the patient redeems"
+echo "  it, choosing a username and password. There is no identity header."
 echo ""
 echo "DEMO PATIENTS REQUESTED:"
 echo "  - Adaeze Nwosu (Diabetic with multiple conditions)"
@@ -211,7 +225,7 @@ echo "  - Aisha Bello (Pregnant, gestational diabetes)"
 echo "  - Oluwaseyi Adeyemi (Pediatric, severe allergies)"
 echo "  - Chidinma Eze (Mental health conditions)"
 echo ""
-echo "To list all patients: curl http://localhost:8090/api/patients -H 'X-User-Id: DOC-001'"
+echo "To list all patients: curl http://localhost:8090/api/patients -H 'Authorization: Bearer <token from POST /api/auth/login>'"
 echo ""
 
 # Non-zero when anything failed, so a caller can tell.

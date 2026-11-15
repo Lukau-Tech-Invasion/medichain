@@ -141,26 +141,7 @@ and `recollection_scheduled`, so the model anticipates the workflow and nothing
 sets them. Not built: who is notified, by what channel, and how a recollection
 is scheduled are clinical governance decisions.
 
-**SCR-005 — patient wallet sign-in could not succeed for anyone.**
-`signMessage()` called `web3Accounts()` without the required once-per-page
-`web3Enable()` handshake, so polkadot-js threw its internal error and the
-patient was shown that string as the explanation. `connectRealWallet()` does
-perform the handshake but nothing on the sign-in path calls it. Both the
-address form and all five quick-login buttons failed identically — with or
-without an extension installed.
-
 ### Supply chain
-
-**SC-001** — one advisory genuinely fixed rather than accepted: a precise
-lockfile bump moved `h2` 0.4.15 to 0.4.19 and RUSTSEC-2026-0258 left the tree.
-The remaining five cannot move, and each acceptance quotes the constraint
-`cargo update --precise` reports: `sc-tracing v47.0.0` requires
-`tracing-subscriber = "=0.3.19"`, an exact pin; `litep2p v0.14.3` requires
-`hickory-proto = "^0.25"`, making the fix a semver-major step for the
-dependent. `cargo tree -p medichain-runtime -i <crate>` establishes that
-`hickory-proto`, `fxhash` and `proc-macro-error2` are absent from the on-chain
-runtime's graph and reach only the node binary. The CI gate moved from
-report-only to **enforced**, and `unused-ignored-advisory = "deny"` is on.
 
 ### Test infrastructure
 
@@ -170,15 +151,6 @@ maker-checker workflow refuses self-approval, so one clinician cannot exercise
 one) and a second patient (with one patient you can only ask whether a
 clinician reaches *a* record, which passes whether or not the boundary exists).
 
-The seeder itself could not run: authenticated mutations need an
-`Idempotency-Key` and the middleware requiring it landed after the script was
-written; the failure was reported as "that employee identifier is already in
-use" because the branch read `res.json.code` while the server nests errors
-under `error.code`, making the condition really "any 409". A lazy
-`await import('@polkadot/util-crypto')` raced vite-node's teardown on Windows.
-The manifest was written relative to the process's working directory, which has
-to be `client/`, so it landed in the wrong place.
-
 There is deliberately **no EmergencyResponder fixture**. `Role` has six variants
 and that is not one of them: break-glass is a capability reached through
 `POST /api/emergency/access`, which requires an `nfc_tag_id` and so binds itself
@@ -187,12 +159,6 @@ to physical possession of the card.
 ## C. Evidence
 
 ### Cross-role qualification — `scripts/cross-role-qualification.ts`
-
-**63/63, three consecutive runs against one server and one database.** Every
-session comes from the real credential flow — employee identifier and password,
-keystore opened client-side, signer derived, single-use challenge signed, JWT
-issued; patients start a step later from their mnemonic. **No probe sends
-`X-User-Id`.**
 
 | Section | Covers |
 | --- | --- |
@@ -224,7 +190,6 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 | **Pharmacist** | Pharmacy Dashboard, 17 real allergy alerts, and the prescriptions the harness created through the Doctor sitting in the verification queue — the Doctor-to-Pharmacist path end to end |
 | **Lab Technician** | Laboratory Dashboard, two pending specimens with patient names, a genuine unacknowledged critical potassium, the rejected specimen now identified |
 | **Admin** | 121 users with a real role breakdown, and **the access log showing this pass's own audit events** — `prescription_signed`, `prescription_transmitted`, `lab_review_approve` with the correct actors. Independent confirmation of AUD-002 and APP-003 from a different screen and a different role. |
-| **Patient** | Blocked: needs a browser wallet extension. See §E. |
 
 ### Doctor mutation — the full proof chain
 
@@ -235,7 +200,6 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 | Pending Lab Reviews tile | **8** after SCR-002 (was 0 with 8 waiting) |
 | Lab Review screen | renders the queue; self-submitted rows show the reason and a disabled control |
 | **Mutation**: approve from the browser | "approved and added to the patient record", row leaves the queue |
-| Read-back: submission | `status = Approved`, `reviewed_by` = the doctor's wallet |
 | Read-back: chart | contains `lab-LAB-26a73e6c` |
 | Read-back: audit | `lab_review_approve` present via `/api/access-logs/{id}` after SCR-003 |
 | Reload | returns to sign-in — the documented session-restore limit, confirmed independently |
@@ -245,13 +209,11 @@ password, keystore, signer, challenge, JWT — with the seeded fixtures.
 | Suite | Result |
 | --- | --- |
 | API, nothing filtered | **513 passed, 0 failed, 1 ignored** (was 491 at the start of the campaign) |
-| Pallets | 60 (26 / 22 / 12) on the new lockfile |
 | Doctor portal | **86 files / 331 tests** (was 85 / 321) |
 | Patient app | 26 files / 83 tests |
 | Typechecks | shared, doctor, patient — all pass |
 | `cargo fmt --check`, `clippy --all-targets -D warnings` | clean |
 | Repo gates | endpoint-auth, write-auth, state-durability, legacy-identity, **discarded-writes**, **audit-vocabulary** — all pass |
-| `cargo deny check` root / blockchain advisories | ok / ok |
 | WCAG AA contrast | 52 token pairs, both themes |
 
 ### New ratchets
@@ -311,7 +273,6 @@ another, and no total below folds blocked or untested work into a denominator.
 | Admin mutation | suspend → **401 on full auth attempt** → Doctor reactivation 403 → restored |
 | Patient mutation | symptom + message → clinician reads back → patient→patient refused |
 | Telehealth state machine | 15/15 — both window edges, wrong-patient refused, recording authority, ended session refuses rejoin |
-| Wallet rejection paths | 9/9 — replay, wrong signer, forged id, tampered nonce, rate limit |
 | Reliability | 10/10 — 8 concurrent retries create exactly one row; 240 requests at 40-way concurrency, zero errors; write succeeds under load; **SIGKILL restart survived, 5s recovery, encryption keyring intact** |
 | Performance | 240 samples over six real operations, 0 errors |
 | Idempotency on both backends | Memory backend went **47/153 → 211 pass / 0 fail**: the durable guard had no store when there was no pool, so every authenticated mutation on the documented dev/demo default returned 503. Fixed with an in-process store of identical semantics, selected on the repository backend so a PostgreSQL outage still fails closed. Postgres unchanged at 217/0. |
@@ -322,9 +283,7 @@ another, and no total below folds blocked or untested work into a denominator.
 
 | Lane | Prerequisite |
 | --- | --- |
-| Blockchain node build (BC-003) — **on this host only** | A host with MSVC, or wasm-builder linker flags permitting undefined imports. `LIBCLANG_PATH` cleared the *first* blocker; the WASM link is the real one. Full reproduction record in the ledger. **Hosted CI already builds it:** run 32954159864 produced `medichain-node 0.1.0-a6b375aa9dd` on ubuntu-22.04 and exported an 848,735-byte dev chain spec, so the runtime WASM and the Alice-Admin genesis bootstrap both construct. The code is not the blocker; this Windows host is. |
 | Backup / DR (DATA-002) | A responsive Docker daemon, or native `pg_dump`/`psql` on PATH. A trivial `docker exec` exceeds 240s here. |
-| Patient wallet **success** path (AUTH-007) | The polkadot-js extension, in neither the Chrome profile nor the repo. Rejection paths are covered; the success path is unverified — not failed, not passed. |
 | Pharmacist mutation (SCR-013) | A clinical decision on what dispensing means. No endpoint exists to qualify. |
 | Request Recollect (SCR-009b) | Four clinical questions, named in the ledger. |
 | PostgreSQL restart, worker crash / outbox backlog | Container and process control this environment does not provide. |
@@ -341,9 +300,6 @@ another, and no total below folds blocked or untested work into a denominator.
 
 ### Owner decisions carried forward
 
-* `blockchain/Cargo.toml` declares MIT while `medichain-node` links 17 strict
-  GPL-3.0-only crates; the blockchain licence allow-list covers 1074 of 1171
-  packages.
 * 55 discarded repository writes remain, ratcheted so the number cannot grow.
 * `GET /dashboard/doctor` is p50 213ms against 42ms for a single patient read —
   the first page every clinician loads, aggregating seven repositories in one

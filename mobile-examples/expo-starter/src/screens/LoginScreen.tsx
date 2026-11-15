@@ -1,5 +1,9 @@
 /**
- * Wallet login screen (Phase 8.3).
+ * Sign-in screen (Phase 8.3): username and password, plus the authenticator
+ * code when the account has one.
+ *
+ * A patient who has not activated yet does so once, in the patient app or at
+ * their clinic, with the one-time code the clinic gave them.
  *
  * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
@@ -9,30 +13,62 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator 
 import { useAuth } from '../auth/AuthContext';
 
 export function LoginScreen() {
-  const { login, loading, error } = useAuth();
-  const [wallet, setWallet] = useState('');
+  const { login, loading, error, mfaRequired } = useAuth();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+
+  const ready = username.trim() !== '' && password !== '' && (!mfaRequired || code.trim() !== '');
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>MediChain</Text>
       <Text style={styles.subtitle}>National Health ID</Text>
 
-      <Text style={styles.label}>Wallet address</Text>
+      <Text style={styles.label}>Username</Text>
       <TextInput
         style={styles.input}
-        placeholder="5Grw..."
         autoCapitalize="none"
         autoCorrect={false}
-        value={wallet}
-        onChangeText={setWallet}
+        textContentType="username"
+        value={username}
+        onChangeText={setUsername}
       />
+
+      <Text style={[styles.label, styles.gap]}>Password</Text>
+      <TextInput
+        style={styles.input}
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="password"
+        value={password}
+        onChangeText={setPassword}
+      />
+
+      {mfaRequired ? (
+        <>
+          <Text style={[styles.label, styles.gap]}>Authentication code</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            value={code}
+            onChangeText={setCode}
+          />
+        </>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <TouchableOpacity
-        style={[styles.button, (loading || !wallet) && styles.buttonDisabled]}
-        disabled={loading || !wallet}
-        onPress={() => login(wallet.trim())}
+        style={[styles.button, (loading || !ready) && styles.buttonDisabled]}
+        disabled={loading || !ready}
+        onPress={async () => {
+          const ok = await login(username, password, mfaRequired ? code.trim() : undefined);
+          setCode('');
+          if (!ok) setPassword('');
+        }}
       >
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign in</Text>}
       </TouchableOpacity>
@@ -45,6 +81,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 34, fontWeight: '800', color: '#0f766e', textAlign: 'center' },
   subtitle: { fontSize: 16, color: '#475569', textAlign: 'center', marginBottom: 32 },
   label: { fontSize: 13, color: '#334155', marginBottom: 6 },
+  gap: { marginTop: 16 },
   input: {
     borderWidth: 1,
     borderColor: '#cbd5e1',

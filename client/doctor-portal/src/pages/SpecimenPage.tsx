@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   TestTube,
   Search,
@@ -24,12 +24,16 @@ import {
   createSpecimen,
   rejectSpecimen,
   getApiErrorMessage,
-  formatTimestamp,
+  formatTimestamp, ModalPanel,
+  notifySuccess, ChoiceChips,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import type { SpecimenRejectionCategory } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 import StaffName from '../components/StaffName';
+import { PatientName } from '../components/PatientName';
 /**
  * SpecimenPage
  * 
@@ -48,6 +52,7 @@ interface PersistedSpecimen {
   collector_id: string;
   collected_at: string;
   received_at?: string | null;
+  rejected?: boolean;
   notes?: string | null;
   created_at: string;
   data?: {
@@ -127,6 +132,9 @@ const SpecimenPage: React.FC = () => {
     notes: '',
     checklist: [] as string[],
   });
+  // Kept for this tab while unsent; the patient alone is not unsaved work.
+  const specimenDraft = useDraftFields('specimen', form.patientId || undefined, t('docSpecimen.formLabel'),
+    draftFieldsOf(form, setForm, ['specimenType', 'priority', 'testsOrdered', 'collectionSite', 'notes', 'checklist']));
   const { user } = useAuthStore();
 
   const toggleCheck = (key: string) =>
@@ -140,6 +148,7 @@ const SpecimenPage: React.FC = () => {
   const { errors, validate, validateField, clearField } = useValidatedForm(specimenSchema);
 
   const submitRejection = async (specimenId: string) => {
+    if (rejecting) return;
     if (!rejectCategory || !rejectReason.trim()) {
       setRejectMessage(t('docSpecimen.rejectIncomplete'));
       return;
@@ -155,11 +164,14 @@ const SpecimenPage: React.FC = () => {
         ...(notes ? { detailed_notes: notes } : {}),
         recollection_required: rejectRecollect,
       });
+      await fetchSpecimens();
+      setSelectedSpecimen(previous => previous?.id === specimenId ? { ...previous, status: 'rejected' } : previous);
       setRejectMessage(t('docSpecimen.rejectRecorded', { id: result.rejection_id }));
       setRejectCategory('');
       setRejectReason('');
       setRejectNotes('');
       setRejectRecollect(false);
+      notifySuccess('Specimen rejection recorded.');
     } catch (err) {
       setRejectMessage(getApiErrorMessage(err, t('docSpecimen.rejectFailed')));
     } finally {
@@ -168,7 +180,7 @@ const SpecimenPage: React.FC = () => {
   };
 
   const recordCollection = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     // Was a banner naming two fields at once. The message now sits on the
     // control that needs fixing (WCAG 3.3.1).
     if (!validate(form)) {
@@ -186,11 +198,14 @@ const SpecimenPage: React.FC = () => {
         notes: form.notes.trim() || null,
         checklist: form.checklist,
       });
+      await fetchSpecimens();
       setSaveMessage(t('docSpecimen.savedOk'));
+      specimenDraft.markSaved();
       setForm({
         patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
         collectionSite: '', notes: '', checklist: [],
       });
+      notifySuccess('Specimen collection recorded.');
     } catch (err) {
       console.error('Failed to record specimen collection:', err);
       setSaveMessage(t('docSpecimen.errSaveFailed'));
@@ -199,9 +214,8 @@ const SpecimenPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchSpecimens = async () => {
-      if (!user?.walletAddress) {
+  const fetchSpecimens = useCallback(async () => {
+      if (!user?.userId) {
         setError(t('docSpecimen.notAuthenticated'));
         setLoading(false);
         return;
@@ -230,7 +244,7 @@ const SpecimenPage: React.FC = () => {
             : t('docSpecimen.notRecorded'),
           // The existence of this row is the record that collection occurred;
           // receipt is the only later timestamp modeled by this endpoint.
-          status: specimen.received_at ? 'received' : 'collected',
+          status: specimen.rejected ? 'rejected' : specimen.received_at ? 'received' : 'collected',
           priority: persistedPriority(specimen.data?.priority),
           orderedBy: t('docSpecimen.notRecorded'),
           orderedAt: new Date(specimen.created_at),
@@ -247,10 +261,9 @@ const SpecimenPage: React.FC = () => {
       } finally {
         setLoading(false);
       }
-    };
+  }, [user?.userId, t]);
 
-    fetchSpecimens();
-  }, [user, t]);
+  useEffect(() => { void fetchSpecimens(); }, [fetchSpecimens]);
 
   const getSpecimenIcon = (type: SpecimenType) => {
     const icons: Record<SpecimenType, React.ReactNode> = {
@@ -327,8 +340,12 @@ const SpecimenPage: React.FC = () => {
   };
 
   const filteredSpecimens = specimens.filter(s => {
-    const matchesSearch = s.patientDisplay.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.patientId.includes(searchQuery) || s.id.toLowerCase().includes(searchQuery.toLowerCase());
+    // By patient, specimen id, or the test ordered: "full blood count" is how a
+    // technician looks for the tube in their hand.
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = s.patientDisplay.toLowerCase().includes(query) ||
+      s.patientId.includes(searchQuery) || s.id.toLowerCase().includes(query) ||
+      s.testOrdered.toLowerCase().includes(query);
     const matchesStatus = filterStatus === 'all' || s.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
@@ -387,10 +404,13 @@ const SpecimenPage: React.FC = () => {
 
           {/* Tabs */}
           <div className="bg-surface border-b">
-            <div className="flex">
+            <div className="flex" role="tablist">
               {(['specimens', 'add', 'tracking'] as const).map(tab => (
                 <button
                   key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium ${
                     activeTab === tab ? 'text-content-secondary border-b-2 border-teal-700' : 'text-content-muted'
@@ -408,7 +428,7 @@ const SpecimenPage: React.FC = () => {
               <div className="flex gap-2 mb-4">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-                  <input
+                  <input aria-label={t('docSpecimen.searchPlaceholder')}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -416,17 +436,19 @@ const SpecimenPage: React.FC = () => {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg"
                   />
             </div>
-            <select
+            <ChoiceChips
+              label={t('common.filterByStatus')}
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as CollectionStatus | 'all')}
-              className="border rounded-lg px-3 py-2"
-            >
-              <option value="all">{t('docSpecimen.allStatus')}</option>
-              <option value="pending">{t('docSpecimen.filterPending')}</option>
-              <option value="collected">{t('docSpecimen.filterCollected')}</option>
-              <option value="processing">{t('docSpecimen.filterProcessing')}</option>
-              <option value="completed">{t('docSpecimen.filterCompleted')}</option>
-            </select>
+              onChange={(next) => { if (next === undefined) return; setFilterStatus(next as CollectionStatus | 'all'); }}
+              options={[
+                { value: 'all', label: t('docSpecimen.allStatus') },
+                { value: 'pending', label: t('docSpecimen.filterPending') },
+                { value: 'collected', label: t('docSpecimen.filterCollected') },
+                { value: 'rejected', label: t('docSpecimen.stRejected') },
+                { value: 'processing', label: t('docSpecimen.filterProcessing') },
+                { value: 'completed', label: t('docSpecimen.filterCompleted') },
+              ]}
+            />
           </div>
 
           <div className="space-y-3">
@@ -512,13 +534,17 @@ const SpecimenPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="specimen-priority" className="block text-sm font-medium mb-1">{t('docSpecimen.priorityRequired')}</label>
-                  <select id="specimen-priority" className="w-full border rounded-lg px-3 py-2"
-                    value={form.priority} onChange={(e) => setForm(f => ({ ...f, priority: e.target.value }))}>
-                    <option value="routine">{t('docSpecimen.optRoutine')}</option>
-                    <option value="urgent">{t('docSpecimen.optUrgent')}</option>
-                    <option value="stat">{t('docSpecimen.optStat')}</option>
-                  </select>
+                  <ChoiceChips
+                    id="specimen-priority"
+                    label={t('docSpecimen.priorityRequired')}
+                    value={form.priority}
+                    onChange={(next) => { if (next === undefined) return; setForm(f => ({ ...f, priority: next })); }}
+                    options={[
+                      { value: 'routine', label: t('docSpecimen.optRoutine') },
+                      { value: 'urgent', label: t('docSpecimen.optUrgent') },
+                      { value: 'stat', label: t('docSpecimen.optStat') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -627,13 +653,12 @@ const SpecimenPage: React.FC = () => {
 
       {/* Specimen Detail Modal */}
       {selectedSpecimen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="specimen-dialog-title" closeOnBackdrop={false} onClose={() => setSelectedSpecimen(null)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {getSpecimenIcon(selectedSpecimen.specimenType)}
                 <div>
-                  <h2 className="text-xl font-semibold">{selectedSpecimen.id}</h2>
+                  <h2 id="specimen-dialog-title" className="text-xl font-semibold">{selectedSpecimen.id}</h2>
                   <p className="text-sm text-content-muted">{t('docSpecimen.specimenSuffix', { type: typeLabel(selectedSpecimen.specimenType) })}</p>
                 </div>
               </div>
@@ -648,7 +673,7 @@ const SpecimenPage: React.FC = () => {
 
               <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.patientInfo')}</h3>
-                <p><strong>{t('docSpecimen.patientIdLabel')}</strong> {selectedSpecimen.patientId}</p>
+                <p><PatientName id={selectedSpecimen.patientId} inherit /></p>
               </div>
 
               <div className="bg-surface-sunken rounded-lg p-4">
@@ -734,15 +759,14 @@ const SpecimenPage: React.FC = () => {
                 )}
                 <button
                   type="submit"
-                  disabled={rejecting}
-                  className="w-full py-2 rounded-lg font-medium bg-critical text-critical-fg disabled:opacity-60"
+                  aria-disabled={rejecting || undefined}
+                  className="w-full py-2 rounded-lg font-medium bg-critical text-critical-fg"
                 >
                   {rejecting ? t('docSpecimen.rejectSubmitting') : t('docSpecimen.rejectSubmit')}
                 </button>
               </form>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

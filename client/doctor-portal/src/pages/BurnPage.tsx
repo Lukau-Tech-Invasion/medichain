@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   createBurn,
-  getPatients,
+  getBurnForPatient,
+  formatTimestamp,
   useTranslation,
   useScoringCatalog,
   yearsSince,
@@ -10,17 +11,17 @@ import {
   lundBrowderRegionPercent,
   lundBrowderTbsa,
   parklandPreview,
-  burnSeverityPreview,
-} from '@medichain/shared';
+  burnSeverityPreview, ChoiceChips,
+  formatDateOnly, useDraftFields } from '@medichain/shared';
 import type { BurnCreateResult, ParklandPreview } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
+import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import {
   Flame,
   AlertTriangle,
   CheckCircle2,
   Clock,
   Save,
-  Search,
   User,
   Activity,
   Droplets,
@@ -34,6 +35,7 @@ import {
   Ruler,
   RefreshCw
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 type BurnDepth = 'superficial' | 'partial-superficial' | 'partial-deep' | 'full-thickness';
 type BurnMechanism = 'thermal' | 'chemical' | 'electrical' | 'radiation' | 'friction' | 'frostbite';
@@ -47,14 +49,12 @@ interface BurnArea {
 
 export default function BurnPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const [searchParams] = useSearchParams();
   // `user` is no longer read here: the server attributes each record to
   // whoever authenticated the request, rather than to whatever `assessed_by`
   // the body claimed.
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState<PatientDirectoryEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -62,10 +62,15 @@ export default function BurnPage() {
   const { catalog } = useScoringCatalog();
   // What the server computed and stored: the TBSA, the fluid order and the
   // severity band. Shown in place of the preview once the assessment is filed.
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getBurnForPatient>>['assessments']>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
   const [savedBurn, setSavedBurn] = useState<BurnCreateResult | null>(null);
 
   // Form state
-  const [mechanism, setMechanism] = useState<BurnMechanism>('thermal');
+  // Unchosen until recorded (rule 9): the form opened on a thermal burn with
+  // pain 5/10 and filed both for a patient nobody had assessed.
+  const [mechanism, setMechanism] = useState<BurnMechanism | ''>('');
   const [agentSource, setAgentSource] = useState('');
   const [injuryTime, setInjuryTime] = useState('');
   // Empty, not 70. This drives the Parkland volume, and a default adult weight
@@ -73,7 +78,7 @@ export default function BurnPage() {
   // weight now means no fluid order, on this page and on the server.
   const [weight, setWeight] = useState<number | undefined>(undefined);
   const [burnAreas, setBurnAreas] = useState<BurnArea[]>([]);
-  const [painLevel, setPainLevel] = useState(5);
+  const [painLevel, setPainLevel] = useState<number | null>(null);
   const [tetanusStatus, setTetanusStatus] = useState('unknown');
   const [notes, setNotes] = useState('');
   const [fluidStartTime, setFluidStartTime] = useState('');
@@ -97,6 +102,23 @@ export default function BurnPage() {
 
   const [associatedInjuries, setAssociatedInjuries] = useState<string[]>([]);
   const [interventions, setInterventions] = useState<string[]>([]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const burnDraft = useDraftFields('burn', selectedPatient?.patient_id, t('docBurn.formLabel'), {
+    mechanism: [mechanism, setMechanism],
+    agentSource: [agentSource, setAgentSource],
+    injuryTime: [injuryTime, setInjuryTime],
+    weight: [weight, setWeight],
+    burnAreas: [burnAreas, setBurnAreas],
+    painLevel: [painLevel, setPainLevel],
+    tetanusStatus: [tetanusStatus, setTetanusStatus],
+    notes: [notes, setNotes],
+    fluidStartTime: [fluidStartTime, setFluidStartTime],
+    urineOutput: [urineOutput, setUrineOutput],
+    inhalationInjury: [inhalationInjury, setInhalationInjury],
+    circumferential: [circumferential, setCircumferential],
+    associatedInjuries: [associatedInjuries, setAssociatedInjuries],
+    interventions: [interventions, setInterventions],
+  });
 
   const mechanismOptions: { value: BurnMechanism; label: string; icon: React.ReactNode }[] = [
     { value: 'thermal', label: t('docBurn.mechanism_thermal'), icon: <Flame className="h-4 w-4" /> },
@@ -132,28 +154,34 @@ export default function BurnPage() {
     'Chest', 'Abdomen', 'Neck', 'Digits'
   ];
 
+  // A `?patient=` link resolves on the server; the first page of patients
+  // held nobody past the fiftieth.
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const patientData = await getPatients();
-        setPatients(patientData || []);
-
-        const patientId = searchParams.get('patient');
-        if (patientId && patientData) {
-          const patient = patientData.find((p: PatientProfile) => p.patient_id === patientId);
-          if (patient) setSelectedPatient(patient);
-        }
-      } catch (err) {
-        console.error('Failed to fetch patients', err);
-      }
-    };
-    fetchData();
+    const patientId = searchParams.get('patient');
+    if (!patientId) return;
+    let active = true;
+    findDirectoryPatient(patientId)
+      .then((patient) => { if (active && patient) setSelectedPatient(patient); })
+      .catch((err) => console.error('Failed to resolve linked patient', err));
+    return () => { active = false; };
   }, [searchParams]);
 
-  const filteredPatients = patients.filter(p =>
-    p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Clear the previous chart immediately and ignore responses after switching patients.
+  useEffect(() => {
+    let cancelled = false;
+    setHistory([]);
+    setHistoryError(false);
+    if (!selectedPatient) return;
+    setHistoryLoading(true);
+    getBurnForPatient(selectedPatient.patient_id)
+      .then(result => { if (!cancelled) setHistory(result.assessments); })
+      .catch(error => {
+        console.error('Burn history read failed', error);
+        if (!cancelled) setHistoryError(true);
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedPatient]);
 
   // Previews. The stored TBSA, Parkland volumes and severity band are computed
   // by the server from the weight and the charted regions, and come back from
@@ -255,6 +283,7 @@ export default function BurnPage() {
   };
 
   const handleSave = async () => {
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docBurn.errorSelectPatient'));
       return;
@@ -271,7 +300,7 @@ export default function BurnPage() {
       // authenticated.
       const assessmentData = {
         patient_id: selectedPatient.patient_id,
-        mechanism,
+        mechanism: mechanism || undefined,
         agent_source: agentSource,
         injury_time: injuryTime,
         weight,
@@ -286,7 +315,7 @@ export default function BurnPage() {
         circumferential,
         associated_injuries: associatedInjuries,
         tetanus_status: tetanusStatus,
-        pain_level: painLevel,
+        pain_level: painLevel ?? undefined,
         interventions,
         fluid_start_time: fluidStartTime,
         urine_output: urineOutput,
@@ -298,8 +327,9 @@ export default function BurnPage() {
       // for a burned patient; the clinician needs to see the number the record
       // holds, not the one this page arrived at.
       setSavedBurn(saved);
+      burnDraft.markSaved();
       setSuccess(t('docBurn.successSaved'));
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docBurn.errorSaveFailed'));
       console.error('Failed to save burn assessment', err);
@@ -326,7 +356,7 @@ export default function BurnPage() {
             {selectedPatient && (
               <div className="text-right text-white">
                 <p className="font-medium">{selectedPatient.full_name}</p>
-                <p className="text-sm">{selectedPatient.patient_id}</p>
+                {selectedPatient.date_of_birth && <p className="text-sm">{t('kit.bornOn', { date: formatDateOnly(selectedPatient.date_of_birth) })}</p>}
               </div>
             )}
           </div>
@@ -421,42 +451,21 @@ export default function BurnPage() {
         </div>
 
         {activeTab === 'assessment' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Patient Selection & Info */}
             <div className="lg:col-span-1 space-y-4">
-              <div className="bg-surface rounded-lg shadow p-4">
+              <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-bold text-content mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-critical" />
                   {t('docBurn.selectPatientTitle')}
                 </h2>
-                <div className="relative mb-4">
-                  <label htmlFor="burn-patient-search" className="sr-only">{t('docBurn.searchPatientsSr')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    id="burn-patient-search"
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder={t('docBurn.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg"
-                  />
-                </div>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {filteredPatients.map(patient => (
-                    <button
-                      key={patient.patient_id}
-                      onClick={() => setSelectedPatient(patient)}
-                      className={`w-full text-left p-3 rounded-lg transition-colors ${
-                        selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-critical-subtle border-2 border-red-500'
-                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
-                      }`}
-                    >
-                      <p className="font-medium text-content">{patient.full_name}</p>
-                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
-                    </button>
-                  ))}
-                </div>
+                <PatientSelect
+                  id="burn-patient-search"
+                  label={t('docBurn.searchPatientsSr')}
+                  value={selectedPatient?.patient_id ?? ''}
+                  onChange={(_, patient) => setSelectedPatient(patient ?? null)}
+                />
               </div>
 
               {/* Injury Details */}
@@ -471,9 +480,10 @@ export default function BurnPage() {
                     <select
                       id="burn-mechanism"
                       value={mechanism}
-                      onChange={(e) => setMechanism(e.target.value as BurnMechanism)}
+                      onChange={(e) => setMechanism(e.target.value as BurnMechanism | '')}
                       className="w-full p-2 border border-border-interactive rounded"
                     >
+                      <option value="">{t('docBurn.mechanismNotChosen')}</option>
                       {mechanismOptions.map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
@@ -541,37 +551,35 @@ export default function BurnPage() {
               <div className="bg-surface rounded-lg shadow p-4">
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="burn-tetanus-status" className="block text-sm font-medium text-content-secondary mb-1">{t('docBurn.tetanusStatusLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="burn-tetanus-status"
+                      label={t('docBurn.tetanusStatusLabel')}
                       value={tetanusStatus}
-                      onChange={(e) => setTetanusStatus(e.target.value)}
-                      className="w-full p-2 border border-border-interactive rounded"
-                    >
-                      <option value="unknown">{t('docBurn.tetanus_unknown')}</option>
-                      <option value="current">{t('docBurn.tetanus_current')}</option>
-                      <option value="needs-booster">{t('docBurn.tetanus_needsBooster')}</option>
-                      <option value="needs-series">{t('docBurn.tetanus_needsSeries')}</option>
-                    </select>
+                      onChange={(next) => { if (next === undefined) return; setTetanusStatus(next); }}
+                      options={[
+                        { value: 'unknown', label: t('docBurn.tetanus_unknown') },
+                        { value: 'current', label: t('docBurn.tetanus_current') },
+                        { value: 'needs-booster', label: t('docBurn.tetanus_needsBooster') },
+                        { value: 'needs-series', label: t('docBurn.tetanus_needsSeries') },
+                      ]}
+                    />
                   </div>
                   <div>
+                    {/* A number field, not a slider: a slider always holds a value,
+                        so it could not say "not recorded". */}
                     <label htmlFor="burn-pain-level" className="block text-sm font-medium text-content-secondary mb-1">
-                      {t('docBurn.painLevelLabel', { value: painLevel })}
+                      {t('docBurn.painScoreLabel')}
                     </label>
                     <input
                       id="burn-pain-level"
-                      type="range"
+                      type="number"
                       min="0"
                       max="10"
-                      value={painLevel}
-                      onChange={(e) => setPainLevel(Number(e.target.value))}
-                      className="w-full h-6"
+                      inputMode="numeric"
+                      value={painLevel ?? ''}
+                      onChange={(e) => setPainLevel(e.target.value === '' ? null : Math.min(10, Math.max(0, Number(e.target.value))))}
+                      className="w-full p-2 border border-border-interactive rounded"
                     />
-                    <div className="flex justify-between text-xs text-content-muted">
-                      <span>{t('docBurn.painNone')}</span>
-                      <span>{t('docBurn.painModerate')}</span>
-                      <span>{t('docBurn.painSevere')}</span>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -831,10 +839,9 @@ export default function BurnPage() {
 
               {/* Submit Button */}
               <div className="flex justify-end">
-                <button
-                  onClick={handleSave}
-                  disabled={isSubmitting || !selectedPatient}
-                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center"
+                <button type="submit"
+                  aria-disabled={isSubmitting || undefined}
+                  className="aria-disabled:cursor-wait bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical flex items-center"
                 >
                   {isSubmitting ? (
                     <>
@@ -851,6 +858,7 @@ export default function BurnPage() {
               </div>
             </div>
           </div>
+          </form>
         )}
 
         {activeTab === 'calculator' && (
@@ -1002,11 +1010,26 @@ export default function BurnPage() {
               <History className="h-6 w-6 mr-2 text-critical" />
               {t('docBurn.assessmentHistoryTitle')}
             </h2>
-            <div className="text-center py-12 text-content-muted">
-              <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>{t('docBurn.noHistory')}</p>
-              <p className="text-sm mt-1">{t('docBurn.noHistoryHint')}</p>
-            </div>
+            {historyLoading ? <p role="status">{t('common.loading')}</p> : historyError ? (
+              <p role="alert" className="text-critical">{t('common.dataUnavailable')}</p>
+            ) : history.length === 0 ? (
+              <div className="text-center py-12 text-content-muted">
+                <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>{t('docBurn.noHistory')}</p>
+                <p className="text-sm mt-1">{t('docBurn.noHistoryHint')}</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {history.map(record => (
+                  <li key={record.id} className="py-4 space-y-1">
+                    <p className="font-semibold">{record.burn_agent || record.mechanism_of_injury}</p>
+                    <p className="text-content-muted">{record.id} · {formatTimestamp(record.assessment_datetime)}</p>
+                    <p>{Number(record.tbsa_percentage).toFixed(1)}% · {record.severity}</p>
+                    {record.notes && <p className="whitespace-pre-wrap">{record.notes}</p>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

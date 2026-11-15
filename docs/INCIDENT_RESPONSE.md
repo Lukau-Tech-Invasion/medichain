@@ -2,7 +2,7 @@
 
 > **Phase 11.4** — Security Hardening. Companion to `medichain-security-deep-dive.md`.
 > **Scope:** Confidentiality, integrity, or availability incidents affecting ePHI,
-> patient identity data, blockchain integrity, or platform availability.
+> patient identity data, audit-stream integrity, or platform availability.
 > **Owner:** Security Officer (designate a named individual + deputy before go-live).
 
 MediChain processes electronic protected health information (ePHI) for African
@@ -45,7 +45,7 @@ Sources of signal:
   - `abnormal_access` — one provider reading ≥ 30 distinct patient records in 5 min (bulk-exfiltration signal).
   - These are logged at `WARN`/`ERROR`, broadcast over SSE as `security_alert` events, and retained in the in-memory alert ring buffer (`GET /api/admin/security/alerts`, Admin only).
 - Manual reports (staff, patients, external researchers).
-- Infrastructure alarms (DB connection loss, IPFS unavailability, blockchain RPC failure).
+- Infrastructure alarms (DB connection loss, IPFS unavailability, audit sealing or checkpoint export stalled — see `audit_seal` in `GET /api/health`).
 
 **Triage questions:** What data class is involved (ePHI / identity / credentials / availability only)? How many subjects? Is it ongoing? Is ePHI confirmed exposed or only at risk?
 
@@ -55,11 +55,11 @@ Assign a severity:
 - **SEV-3 Low** — contained policy violation, no data exposure.
 
 ### 2.2 Containment
-- **Revoke access:** disable the implicated wallet/user; for JWT sessions, rotate `JWT_SECRET` to invalidate all outstanding access tokens (they are stateless and signed with this key).
+- **Revoke access:** reset the implicated account's credential (an administrator reset clears the password and ends every server-tracked session for that account; the user can also use `POST /api/auth/logout-all`). To cut off every account at once, rotate `JWT_SECRET`, which invalidates all outstanding access tokens signed with it.
 - **Force MFA / re-auth:** enrolled users must step up again after secret rotation.
 - **Isolate:** if a node or service is compromised, remove it from the load balancer; preserve it for forensics (do not wipe).
 - **Throttle:** tighten rate limits; enable `REQUIRE_SIGNATURES=true` if not already on.
-- **Blockchain:** on-chain data is immutable — containment focuses on the off-chain ePHI (PostgreSQL/IPFS) and the keys that gate it. No PHI is ever on-chain (only hashes/pointers), which bounds blockchain-side exposure.
+- **Audit stream:** sealed batches and exported checkpoints are immutable by design — containment focuses on the ePHI (PostgreSQL/IPFS) and the keys that gate it. No PHI is ever in the audit stream (only ids, digests and commitments), which bounds its exposure. If `AUDIT_SEAL_SIGNING_KEY` is suspected exposed, treat audit history signed since the exposure as unproven, rotate the key, and compare exported checkpoints against the database with `scripts/verify-audit-checkpoints.py` (see [`AUDIT_LOG.md`](AUDIT_LOG.md)).
 
 ### 2.3 Eradication & Recovery
 - Patch the root cause (code fix, dependency upgrade, config change).
@@ -98,7 +98,7 @@ Assign a severity:
 
 ```
 1. IC paged → open incident channel, assign roles.
-2. On-call: disable implicated wallet(s); rotate JWT_SECRET.
+2. On-call: reset implicated account(s) to end their sessions; rotate JWT_SECRET.
 3. Security Officer: snapshot logs + DB + alert buffer for forensics.
 4. Confirm scope (subjects, data classes) with Privacy Officer.
 5. POST /api/admin/security/breach  → 72h clock starts.
@@ -140,25 +140,25 @@ and run without inventing this process under time pressure.
   Rule's 2025 NPRM expectations for a regulated ePHI system).
 - **Additional out-of-cycle test required after:** a SEV-1 breach (§2.1), a
   major architecture change to an in-scope system (new auth mechanism, new
-  public-facing service, blockchain integration going live in production), or
+  public-facing service, a cloud checkpoint sink going live in production), or
   12+ months since the last test regardless of the calendar trigger above.
 
 ### 6.2 Scope
 In scope:
 - The public API surface (`api/src/routes.rs` — all `/api/*` endpoints),
-  wallet-based auth + JWT (`api/src/security/jwt.rs`) + MFA
-  (`api/src/security/mfa.rs`), rate limiting and signature verification
-  middleware.
+  login ID + password sign-in (`POST /api/auth/login`), one-time credential-code
+  redemption, JWT bearer sessions (`api/src/security/jwt.rs`,
+  `api/src/auth_sessions.rs`) + MFA (`api/src/security/mfa.rs`), rate limiting
+  and the request-authentication middleware (`api/src/middleware/authorized_user.rs`).
 - The doctor-portal and patient-app web clients as deployed (not local dev
   builds).
 - Network perimeter: TLS termination (`docs/TLS.md`), exposed ports per
   `docker-compose.tls.yml`.
 
 Out of scope (unless separately contracted):
-- The Substrate blockchain node/pallets (`node/`, `runtime/`, `pallets/`) —
-  immutable-ledger consensus security is a different specialty than a web API
-  pentest; commission a blockchain-specific audit if/when the chain carries
-  real value.
+- The audit-checkpoint sink's own infrastructure (for example a cloud
+  write-once store, once one is adopted) — assess it as part of that vendor's
+  scope, not the web-API test.
 - Physical security, social engineering, and denial-of-service testing
   (explicitly excluded by default — DoS testing against a healthcare system's
   production environment risks a real availability incident; only include it

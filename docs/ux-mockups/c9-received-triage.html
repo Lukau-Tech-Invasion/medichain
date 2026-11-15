@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Received</title><link rel="stylesheet" href="mock.css">
+<style>.num{display:flex;align-items:center;gap:8px}.num .input{width:92px;justify-content:flex-end}.unit{font-size:13px;color:rgb(var(--muted))}
+.seclbl{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:rgb(var(--muted));padding:12px 12px 4px}</style></head>
+<body><div class="desk" style="display:flex;flex-direction:column">
+  <header style="background:rgb(var(--surface));border-bottom:1px solid rgb(var(--border));padding:10px 20px;display:flex;align-items:center;gap:16px">
+    <span class="avatar">TN</span>
+    <div><p class="bb" style="font-size:18px">Thandiwe Ndlovu</p><p class="small t2">F · 34 · born 12 Mar 1992 · Health ID MC 4821 7703 19</p></div>
+    <span class="badge danger"><i data-i="alert" class="sm"></i>Penicillin · Latex</span><span class="badge info">O+</span>
+    <span class="xs muted" style="margin-left:auto">Received from Unit 14 · 14:32 · ED bay 3</span>
+    <span class="btn sm"><i data-i="x" class="sm"></i>Close patient</span>
+  </header>
+  <!-- The ambulance story stays pinned on top of whatever the ED does next. -->
+  <div style="background:rgb(var(--primary-sub));color:rgb(var(--primary-sub-fg));padding:10px 20px;display:flex;gap:18px;align-items:center;font-size:14px">
+    <i data-i="truck"></i><b>Ambulance</b>
+    <span>Car crash, driver · L forearm deformity · chest wall tenderness</span>
+    <span>BP 92/58 → <b>104/66</b> · HR 118 → <b>106</b> · SpO₂ 91 → <b>96%</b></span>
+    <span>O₂ · IV 18G · NaCl 500 mL · splint</span>
+    <span class="btn sm" style="margin-left:auto;border-color:currentColor;color:inherit">Full timeline</span>
+  </div>
+  <div style="display:grid;grid-template-columns:232px 1fr 300px;flex:1;min-height:0">
+    <aside style="background:rgb(var(--surface));border-right:1px solid rgb(var(--border));padding:8px">
+      <div class="seclbl">Common</div>
+      <a class="rail-item on"><i data-i="clipboard" class="sm"></i>Triage</a>
+      <a class="rail-item"><i data-i="pulse" class="sm"></i>Vital signs</a>
+      <a class="rail-item"><i data-i="file" class="sm"></i>Trauma assessment</a>
+      <a class="rail-item"><i data-i="clipboard" class="sm"></i>Orders</a>
+      <a class="rail-item"><i data-i="pill" class="sm"></i>Medicines (MAR)</a>
+      <a class="rail-item"><i data-i="book" class="sm"></i>Progress note</a>
+    </aside>
+    <main style="padding:18px 24px" class="col">
+      <div class="row between"><h2>Triage</h2><span class="xs muted">Values from the ambulance are labelled — check and change before saving</span></div>
+      <div class="field"><span class="label">Chief complaint <span class="carried">From ambulance</span></span><div class="input">Car crash, driver — left forearm deformity, chest wall tenderness</div></div>
+      <div style="display:grid;grid-template-columns:repeat(3,auto);justify-content:start;gap:14px 34px">
+        <div class="field"><span class="label">Blood pressure <span class="carried">14:24</span></span><div class="num"><div class="input">104</div><span class="unit">/</span><div class="input">66</div></div></div>
+        <div class="field"><span class="label">Pulse <span class="carried">14:24</span></span><div class="num"><div class="input">106</div><span class="unit">/min</span></div></div>
+        <div class="field"><span class="label">SpO₂ <span class="carried">14:24</span></span><div class="num"><div class="input">96</div><span class="unit">%</span></div></div>
+        <div class="field"><span class="label">GCS <span class="carried">14:24</span></span><div class="num"><div class="input">15</div></div></div>
+        <div class="field"><span class="label">Temperature</span><div class="num"><div class="input ph">—</div><span class="unit">°C</span></div></div>
+        <div class="field"><span class="label">Pain</span><div class="num"><div class="input ph">—</div><span class="unit">/10</span></div></div>
+      </div>
+      <!-- Acuity is a clinical decision: shown, never pre-selected. -->
+      <div class="field"><span class="label">Acuity (ESI)</span><div class="seg"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div></div>
+      <div class="row" style="justify-content:flex-end;gap:10px;margin-top:auto"><span class="btn primary">Save triage</span></div>
+    </main>
+    <aside style="border-left:1px solid rgb(var(--border));padding:16px 18px;background:rgb(var(--surface))">
+      <p class="b row" style="gap:8px"><i data-i="history" class="sm"></i>This visit</p>
+      <div class="tl" style="margin-top:8px">
+        <div class="tl-row"><span class="tl-time">14:32</span><span class="tl-dot green"></span><div><p class="small b">Received from Unit 14</p><p class="xs muted">by you · admitted to ED</p></div></div>
+        <div class="tl-row"><span class="tl-time">14:31</span><span class="tl-dot"></span><div><p class="small b">Ambulance arrived</p></div></div>
+        <div class="tl-row"><span class="tl-time">14:18</span><span class="tl-dot amber"></span><div><p class="small b">Pre-alert received</p></div></div>
+      </div>
+    </aside>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

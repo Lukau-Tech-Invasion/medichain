@@ -22,7 +22,7 @@ impl PgGuardianRelationshipRepository {
     }
 }
 
-const SELECT_COLUMNS: &str = "id, guardian_wallet, ward_patient_id, relationship_type, \
+const SELECT_COLUMNS: &str = "id, guardian_user_id, ward_patient_id, relationship_type, \
     permissions, verified_by, verified_at, active, expires_at, revoked_at, revoked_reason, \
     authority_evidence_type, authority_evidence_reference, authority_issuing_authority, \
     authority_verified_by_role, authority_evidence_recorded_at, next_reverification_due, \
@@ -37,7 +37,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
             "INSERT INTO guardian_relationships
-                (id, guardian_wallet, ward_patient_id, relationship_type, permissions,
+                (id, guardian_user_id, ward_patient_id, relationship_type, permissions,
                  verified_by, verified_at, active, expires_at, revoked_at, revoked_reason,
                  authority_evidence_type, authority_evidence_reference,
                  authority_issuing_authority, authority_verified_by_role,
@@ -49,7 +49,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
              RETURNING {SELECT_COLUMNS}"
         ))
         .bind(&relationship.id)
-        .bind(&relationship.guardian_wallet)
+        .bind(&relationship.guardian_user_id)
         .bind(&relationship.ward_patient_id)
         .bind(&relationship.relationship_type)
         .bind(&relationship.permissions)
@@ -80,12 +80,12 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
     async fn create_with_audit(
         &self,
         relationship: GuardianRelationshipEntity,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         let mut tx = self.pool.begin().await?;
         let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
             "INSERT INTO guardian_relationships
-                (id, guardian_wallet, ward_patient_id, relationship_type, permissions, verified_by, verified_at,
+                (id, guardian_user_id, ward_patient_id, relationship_type, permissions, verified_by, verified_at,
                  active, expires_at, revoked_at, revoked_reason, authority_evidence_type, authority_evidence_reference,
                  authority_issuing_authority, authority_verified_by_role, authority_evidence_recorded_at,
                  next_reverification_due, child_assent_status, child_assent_recorded_at, child_assent_notes,
@@ -93,7 +93,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
              RETURNING {SELECT_COLUMNS}"
         ))
-        .bind(&relationship.id).bind(&relationship.guardian_wallet).bind(&relationship.ward_patient_id)
+        .bind(&relationship.id).bind(&relationship.guardian_user_id).bind(&relationship.ward_patient_id)
         .bind(&relationship.relationship_type).bind(&relationship.permissions).bind(&relationship.verified_by)
         .bind(relationship.verified_at).bind(relationship.active).bind(relationship.expires_at)
         .bind(relationship.revoked_at).bind(&relationship.revoked_reason).bind(&relationship.authority_evidence_type)
@@ -103,11 +103,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         .bind(relationship.child_assent_recorded_at).bind(&relationship.child_assent_notes)
         .bind(&relationship.supersedes_relationship_id).bind(relationship.dispute_flag).bind(&relationship.dispute_notes)
         .fetch_one(&mut *tx).await?;
-        sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivered_at, delivery_attempts, last_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
-            .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-            .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-            .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
-            .bind(&event.last_error).execute(&mut *tx).await?;
+        crate::audit_outbox::insert_event(&mut *tx, &event).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -128,12 +124,12 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
 
     async fn get_by_guardian(
         &self,
-        guardian_wallet: &str,
+        guardian_user_id: &str,
     ) -> RepositoryResult<Vec<GuardianRelationshipEntity>> {
         let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
-            "SELECT {SELECT_COLUMNS} FROM guardian_relationships WHERE guardian_wallet = $1"
+            "SELECT {SELECT_COLUMNS} FROM guardian_relationships WHERE guardian_user_id = $1"
         ))
-        .bind(guardian_wallet)
+        .bind(guardian_user_id)
         .fetch_all(&self.pool)
         .await?;
 
@@ -177,7 +173,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         id: &str,
         permissions: Vec<String>,
         expires_at: Option<DateTime<Utc>>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         let mut tx = self.pool.begin().await?;
         let result = sqlx::query_as::<Postgres, GuardianRelationshipEntity>(&format!(
@@ -189,15 +185,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         .bind(expires_at)
         .fetch_one(&mut *tx)
         .await?;
-        sqlx::query(
-            "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash,
-             payload, occurred_at, delivered_at, delivery_attempts, last_error)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        )
-        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-        .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
-        .bind(&event.last_error).execute(&mut *tx).await?;
+        crate::audit_outbox::insert_event(&mut *tx, &event).await?;
         tx.commit().await?;
         Ok(result)
     }
@@ -220,7 +208,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
         &self,
         id: &str,
         reason: Option<String>,
-        event: crate::audit_outbox::AuditOutboxEvent,
+        event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<()> {
         let mut tx = self.pool.begin().await?;
         let changed = sqlx::query(
@@ -236,15 +224,7 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
                 id.into(),
             ));
         }
-        sqlx::query(
-            "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash,
-             payload, occurred_at, delivered_at, delivery_attempts, last_error)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
-        )
-        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
-        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
-        .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
-        .bind(&event.last_error).execute(&mut *tx).await?;
+        crate::audit_outbox::insert_event(&mut *tx, &event).await?;
         tx.commit().await?;
         Ok(())
     }

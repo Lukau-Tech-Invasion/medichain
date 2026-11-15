@@ -6,8 +6,10 @@ import {
   updateDemographics,
   replaceEmergencyContacts,
   formatTimestamp,
+  notifySuccess, ChoiceChips
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { validInsuranceDates } from './insuranceDates';
 import {
   User,
   Heart,
@@ -107,7 +109,7 @@ interface PatientProfile {
  * allergies, conditions, DNR) stay read-only because a self-declared blood type
  * must never be mistaken for a verified clinical record.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyProfilePage() {
   const { t } = useTranslation();
@@ -125,8 +127,10 @@ export function MyProfilePage() {
   const [editingDetails, setEditingDetails] = useState(false);
   const [detailsDraft, setDetailsDraft] = useState({ phone: '', gender: '', languages: '' });
   const [editingAddress, setEditingAddress] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
   const [addressDraft, setAddressDraft] = useState<PatientAddress>(EMPTY_ADDRESS);
   const [editingInsurance, setEditingInsurance] = useState(false);
+  const [insuranceError, setInsuranceError] = useState<string | null>(null);
   const [insuranceDraft, setInsuranceDraft] = useState<PatientInsurance>(EMPTY_INSURANCE);
 
   const loadProfile = useCallback(async () => {
@@ -256,7 +260,9 @@ export function MyProfilePage() {
   };
 
   const handleAddContact = async () => {
-    if (!profile || !newContact.name || !newContact.phone || !newContact.relationship) {
+    if (!profile || isSaving) return;
+    if (!newContact.name || !newContact.phone || !newContact.relationship) {
+      setError(t('profile.errContactFields'));
       return;
     }
     // Reject malformed numbers before submit so we never save a broken contact.
@@ -296,7 +302,7 @@ export function MyProfilePage() {
   };
 
   const handleSaveDetails = async () => {
-    if (!profile) return;
+    if (!profile || isSaving) return;
     if (detailsDraft.phone.trim() && !isValidPhoneNumber(detailsDraft.phone)) {
       setError(t('profile.invalidPhone'));
       return;
@@ -322,6 +328,7 @@ export function MyProfilePage() {
       });
       setEditingDetails(false);
       flash(t('profile.detailsSaved'));
+      notifySuccess('Your details are saved.');
     } catch (err) {
       console.error('Failed to save details:', err);
       setError(t('profile.saveFailedRetry'));
@@ -331,18 +338,19 @@ export function MyProfilePage() {
   };
 
   const beginEditAddress = () => {
+    setAddressError(null);
     setAddressDraft(profile?.address ?? EMPTY_ADDRESS);
     setEditingAddress(true);
   };
 
   const handleSaveAddress = async () => {
-    if (!profile) return;
+    if (!profile || isSaving) return;
     if (!addressDraft.city.trim() || !addressDraft.country.trim()) {
-      setError(t('profile.addressIncomplete'));
+      setAddressError(t('profile.addressIncomplete'));
       return;
     }
     setIsSaving(true);
-    setError(null);
+    setAddressError(null);
     try {
       await updateDemographics(profile.patientId, {
         address: {
@@ -357,15 +365,17 @@ export function MyProfilePage() {
       setProfile({ ...profile, address: addressDraft, lastUpdated: new Date().toISOString() });
       setEditingAddress(false);
       flash(t('profile.detailsSaved'));
+      notifySuccess('Your address is saved.');
     } catch (err) {
       console.error('Failed to save address:', err);
-      setError(t('profile.saveFailedRetry'));
+      setAddressError(t('profile.addressSaveFailed'));
     } finally {
       setIsSaving(false);
     }
   };
 
   const beginEditInsurance = () => {
+    setInsuranceError(null);
     setInsuranceDraft(profile?.insurance ?? EMPTY_INSURANCE);
     setEditingInsurance(true);
   };
@@ -373,11 +383,15 @@ export function MyProfilePage() {
   const handleSaveInsurance = async () => {
     if (!profile) return;
     if (!insuranceDraft.provider.trim() || !insuranceDraft.policyNumber.trim()) {
-      setError(t('profile.insuranceIncomplete'));
+      setInsuranceError(t('profile.insuranceIncomplete'));
+      return;
+    }
+    if (!validInsuranceDates(insuranceDraft.validFrom, insuranceDraft.validTo)) {
+      setInsuranceError(t('profile.insuranceDatesInvalid'));
       return;
     }
     setIsSaving(true);
-    setError(null);
+    setInsuranceError(null);
     try {
       await updateDemographics(profile.patientId, {
         insurance: {
@@ -397,9 +411,10 @@ export function MyProfilePage() {
       setProfile({ ...profile, insurance: insuranceDraft, lastUpdated: new Date().toISOString() });
       setEditingInsurance(false);
       flash(t('profile.detailsSaved'));
+      notifySuccess('Your insurance details are saved.');
     } catch (err) {
       console.error('Failed to save insurance:', err);
-      setError(t('profile.saveFailedRetry'));
+      setInsuranceError(t('profile.insuranceSaveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -431,7 +446,7 @@ export function MyProfilePage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 animate-pulse">
+      <div className="p-6 space-y-6">
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="h-32 bg-surface-sunken rounded-xl" />
         <div className="h-48 bg-surface-sunken rounded-xl" />
@@ -440,7 +455,7 @@ export function MyProfilePage() {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
+    <div className="p-4 md:p-5 space-y-4 pb-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-content">{t('profile.title')}</h1>
@@ -665,6 +680,7 @@ export function MyProfilePage() {
         </div>
 
         {editingDetails ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSaveDetails(); }} noValidate>
           <div className="space-y-4">
               <div>
                 <label htmlFor="profile-phone" className="block text-sm font-medium text-content-secondary mb-1">
@@ -680,20 +696,17 @@ export function MyProfilePage() {
                 />
               </div>
               <div>
-                <label htmlFor="profile-gender" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('profile.gender')}
-                </label>
-                <select
+                <ChoiceChips
                   id="profile-gender"
-                  value={detailsDraft.gender}
-                  onChange={(e) => setDetailsDraft({ ...detailsDraft, gender: e.target.value })}
-                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="">{t('profile.genderUnspecified')}</option>
-                  <option value="female">{t('profile.genderFemale')}</option>
-                  <option value="male">{t('profile.genderMale')}</option>
-                  <option value="other">{t('profile.genderOther')}</option>
-                </select>
+                  label={t('profile.gender')}
+                  value={(detailsDraft.gender) || undefined}
+                  onChange={(chosen) => { const next = chosen ?? ''; setDetailsDraft({ ...detailsDraft, gender: next }); }}
+                  options={[
+                    { value: 'female', label: t('profile.genderFemale') },
+                    { value: 'male', label: t('profile.genderMale') },
+                    { value: 'other', label: t('profile.genderOther') },
+                  ]}
+                />
               </div>
               <div>
                 <label htmlFor="profile-languages" className="block text-sm font-medium text-content-secondary mb-1">
@@ -709,23 +722,23 @@ export function MyProfilePage() {
                 />
               </div>
             <div className="flex gap-3 pt-2">
-              <button
+              <button type="button"
                 onClick={() => setEditingDetails(false)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
               </button>
-              <button
-                onClick={handleSaveDetails}
-                disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={isSaving || undefined}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
               </button>
             </div>
           </div>
+          </form>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -779,6 +792,7 @@ export function MyProfilePage() {
         </div>
 
         {editingAddress ? (
+          <form onSubmit={(event) => { event.preventDefault(); void handleSaveAddress(); }} noValidate>
           <div className="space-y-4">
               <div>
                 <label htmlFor="address-street" className="block text-sm font-medium text-content-secondary mb-1">
@@ -800,6 +814,7 @@ export function MyProfilePage() {
                 <input
                   type="text"
                   id="address-city"
+                  aria-describedby={addressError ? 'address-error' : undefined}
                   value={addressDraft.city}
                   onChange={(e) => setAddressDraft({ ...addressDraft, city: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -824,6 +839,7 @@ export function MyProfilePage() {
                 <input
                   type="text"
                   id="address-country"
+                  aria-describedby={addressError ? 'address-error' : undefined}
                   value={addressDraft.country}
                   onChange={(e) => setAddressDraft({ ...addressDraft, country: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -843,24 +859,25 @@ export function MyProfilePage() {
                 />
               </div>
               </div>
+            {addressError && <p id="address-error" role="alert" className="text-critical-subtle-fg">{addressError}</p>}
             <div className="flex gap-3 pt-2">
-              <button
+              <button type="button"
                 onClick={() => setEditingAddress(false)}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
               </button>
-              <button
-                onClick={handleSaveAddress}
-                disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={isSaving || undefined}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
               </button>
             </div>
           </div>
+          </form>
         ) : profile?.address ? (
           <div className="text-content space-y-1">
             {profile.address.street && <p className="font-medium">{profile.address.street}</p>}
@@ -939,27 +956,23 @@ export function MyProfilePage() {
                 />
               </div>
               <div>
-                <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('profile.insuranceCoverageType')}
-                </label>
-                <select
+                <ChoiceChips
                   id="insurance-type"
+                  label={t('profile.insuranceCoverageType')}
                   value={insuranceDraft.coverageType}
-                  onChange={(e) =>
-                    setInsuranceDraft({
+                  onChange={(next) => { if (next === undefined) return; setInsuranceDraft({
                       ...insuranceDraft,
-                      coverageType: e.target.value as PatientInsurance['coverageType'],
-                    })
-                  }
-                  className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                >
-                  <option value="Public">{t('profile.coveragePublic')}</option>
-                  <option value="Private">{t('profile.coveragePrivate')}</option>
-                  <option value="Employer">{t('profile.coverageEmployer')}</option>
-                  <option value="NHIS">{t('profile.coverageNHIS')}</option>
-                  <option value="Community">{t('profile.coverageCommunity')}</option>
-                  <option value="None">{t('profile.coverageNone')}</option>
-                </select>
+                      coverageType: next as PatientInsurance['coverageType'],
+                    }); }}
+                  options={[
+                    { value: 'Public', label: t('profile.coveragePublic') },
+                    { value: 'Private', label: t('profile.coveragePrivate') },
+                    { value: 'Employer', label: t('profile.coverageEmployer') },
+                    { value: 'NHIS', label: t('profile.coverageNHIS') },
+                    { value: 'Community', label: t('profile.coverageCommunity') },
+                    { value: 'None', label: t('profile.coverageNone') },
+                  ]}
+                />
               </div>
               <div>
                 <label htmlFor="insurance-from" className="block text-sm font-medium text-content-secondary mb-1">
@@ -968,6 +981,7 @@ export function MyProfilePage() {
                 <input
                   type="date"
                   id="insurance-from"
+                  aria-describedby={insuranceError ? 'insurance-error' : undefined}
                   value={insuranceDraft.validFrom}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validFrom: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -980,6 +994,7 @@ export function MyProfilePage() {
                 <input
                   type="date"
                   id="insurance-to"
+                  aria-describedby={insuranceError ? 'insurance-error' : undefined}
                   value={insuranceDraft.validTo}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validTo: e.target.value })}
                   className="w-full p-3 border border-border-interactive rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -995,6 +1010,7 @@ export function MyProfilePage() {
               />
               {t('profile.insuranceActive')}
             </label>
+            {insuranceError && <p id="insurance-error" role="alert" className="text-critical-subtle-fg">{insuranceError}</p>}
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setEditingInsurance(false)}
@@ -1064,6 +1080,7 @@ export function MyProfilePage() {
         {isAddingContact && (
           <div className="mb-6 p-4 bg-ok-subtle rounded-xl border border-ok-subtle-fg/20">
             <h3 className="font-medium text-content mb-4">{t('profile.addEmergencyContact')}</h3>
+            <form onSubmit={(event) => { event.preventDefault(); void handleAddContact(); }} noValidate>
             <div className="space-y-4">
               <div>
                 <label htmlFor="emergency-contact-name" className="block text-sm font-medium text-content-secondary mb-1">{t('profile.fullNameRequired')}</label>
@@ -1116,17 +1133,16 @@ export function MyProfilePage() {
                 {t('profile.canMakeDecisions')}
               </label>
               <div className="flex gap-3 pt-2">
-                <button
+                <button type="button"
                   onClick={cancelAddContact}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
                 >
                   <X className="w-4 h-4" />
                   {t('common.cancel')}
                 </button>
-                <button
-                  onClick={handleAddContact}
-                  disabled={isSaving || !newContact.name || !newContact.phone || !newContact.relationship}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+                <button type="submit"
+                  aria-disabled={isSaving || undefined}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-ok text-ok-fg rounded-xl hover:bg-ok/90 transition-colors"
                 >
                   {isSaving ? (
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1137,6 +1153,7 @@ export function MyProfilePage() {
                 </button>
               </div>
             </div>
+            </form>
           </div>
         )}
 

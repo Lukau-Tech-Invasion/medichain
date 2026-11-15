@@ -1,12 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const playwrightPort = process.env.PLAYWRIGHT_PORT || '5173';
-const playwrightBaseUrl = `http://localhost:${playwrightPort}`;
+const deployedUrl = process.env.E2E_DEPLOYED_URL;
+const playwrightBaseUrl = deployedUrl || `http://localhost:${playwrightPort}`;
 
 export default defineConfig({
   testDir: './e2e',
-  // Authentication intentionally honours a durable per-wallet rolling
-  // challenge budget. The shared harness may pause before reusing a fixture.
+  // Sign-in is a real password check (Argon2id on the server), so each test's
+  // sign-in costs time on purpose; the budget below allows for it.
   timeout: 120_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -32,7 +33,7 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
+  webServer: deployedUrl ? undefined : {
     command: `npm run dev -- --port ${playwrightPort}`,
     url: playwrightBaseUrl,
     // A reused server can carry an arbitrary proxy target from a previous
@@ -57,6 +58,10 @@ export default defineConfig({
       // Overridable, because the standalone deployment is still a supported way
       // to run this.
       VITE_API_PROXY_TARGET: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1',
+      // The login suites sign in through the "Demo accounts" buttons, which
+      // only render in a demo build (FEATURES.QUICK_LOGIN). The API-side gate
+      // (MEDICHAIN_DEV_MODE) still decides whether any accounts are offered.
+      VITE_DEMO_MODE: 'true',
     },
   },
 });

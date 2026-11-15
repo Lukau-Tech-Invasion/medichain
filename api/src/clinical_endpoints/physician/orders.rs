@@ -108,7 +108,7 @@ pub async fn create_order(
     let entity = PhysicianOrderEntity {
         id: order_id.clone(),
         patient_id: record.patient_id.clone(),
-        ordering_provider_id: current_user.wallet_address.clone(),
+        ordering_provider_id: current_user.id.clone(),
         order_datetime: now,
         order_type,
         priority,

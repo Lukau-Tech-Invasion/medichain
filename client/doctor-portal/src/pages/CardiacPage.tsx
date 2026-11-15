@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, getPatients, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp } from '@medichain/shared';
+import { createCardiac, useTranslation, useScoringCatalog, getPatientCardiacEvents, formatDateOnly, type CardiacEventListRow, formatTimestamp, ChoiceChips, useLatestRequest, useDraftFields } from '@medichain/shared';
+import PatientSelect from '../components/PatientSelect';
 import type { TimiCriteriaInput } from '@medichain/shared';
-import type { PatientProfile } from '@medichain/shared';
+import type { PatientDirectoryEntry } from '@medichain/shared';
 import {
   Heart,
   HeartPulse,
@@ -16,6 +16,7 @@ import {
   Plus,
   History
 } from 'lucide-react';
+import { useReturnAfterSave } from '../workspace/useReturnAfterSave';
 
 interface CardiacEvent {
   time: string;
@@ -27,9 +28,11 @@ interface ECGReading {
   id: string;
   timestamp: string;
   rhythm: string;
-  rate: number;
+  /** Absent when nobody counted it: never 72. */
+  rate: number | null;
   interpretation: string;
-  stElevation: boolean;
+  /** Only a tick is a record; an unticked box is not "no ST elevation". */
+  stElevation?: boolean;
   leads: string[];
 }
 
@@ -55,11 +58,11 @@ const TIMI_CRITERIA_FIELDS: ReadonlyArray<{
 
 export default function CardiacPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const returnAfterSave = useReturnAfterSave();
   const { user } = useAuthStore();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
-  const [searchTerm, setSearchTerm] = useState('');
+  // The chosen directory entry, as the server's search returned it.
+  const [selectedPatientData, setSelectedPatientData] = useState<PatientDirectoryEntry | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -68,6 +71,7 @@ export default function CardiacPage() {
   // full-record shape -- so every row showed a blank ID and "N/A".
   const [emergencyHistory, setEmergencyHistory] = useState<CardiacEventListRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
 
   // Cardiac Event Form State
   const [eventType, setEventType] = useState<string>('stemi');
@@ -80,7 +84,9 @@ export default function CardiacPage() {
   const [bloodPressure, setBloodPressure] = useState('');
   const [troponinLevel, setTroponinLevel] = useState('');
   const [bnpLevel, setBnpLevel] = useState('');
-  const [killipClass, setKillipClass] = useState('1');
+  // Unchosen until assessed (rule 9): it opened on Killip I -- no heart
+  // failure -- and filed that for a patient nobody had examined.
+  const [killipClass, setKillipClass] = useState('');
   // The five TIMI criteria that are clinical judgements. Age and the cardiac
   // marker are not here: the server reads age from the patient's date of birth
   // and derives the marker from the troponin value below.
@@ -114,10 +120,31 @@ export default function CardiacPage() {
 
   // ECG Readings
   const [ecgReadings, setEcgReadings] = useState<ECGReading[]>([]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const cardiacDraft = useDraftFields('cardiac', selectedPatient || undefined, t('docCardiac.formLabel'), {
+    eventType: [eventType, setEventType],
+    chiefComplaint: [chiefComplaint, setChiefComplaint],
+    symptomOnset: [symptomOnset, setSymptomOnset],
+    chestPainCharacter: [chestPainCharacter, setChestPainCharacter],
+    painRadiation: [painRadiation, setPainRadiation],
+    associatedSymptoms: [associatedSymptoms, setAssociatedSymptoms],
+    heartRate: [heartRate, setHeartRate],
+    bloodPressure: [bloodPressure, setBloodPressure],
+    troponinLevel: [troponinLevel, setTroponinLevel],
+    bnpLevel: [bnpLevel, setBnpLevel],
+    killipClass: [killipClass, setKillipClass],
+    timiCriteria: [timiCriteria, setTimiCriteria],
+    treatment: [treatment, setTreatment],
+    disposition: [disposition, setDisposition],
+    narrative: [narrative, setNarrative],
+    ecgReadings: [ecgReadings, setEcgReadings],
+  });
   const [showECGForm, setShowECGForm] = useState(false);
+  // Nothing is pre-chosen (rule 9): a reading added untouched used to be
+  // charted as normal sinus rhythm at 72.
   const [newECG, setNewECG] = useState<Partial<ECGReading>>({
-    rhythm: 'normal_sinus',
-    rate: 72,
+    rhythm: '',
+    rate: null,
     interpretation: '',
     stElevation: false,
     leads: []
@@ -126,37 +153,26 @@ export default function CardiacPage() {
   // Event Timeline
   const [events, setEvents] = useState<CardiacEvent[]>([]);
 
-  useEffect(() => {
-    loadPatients();
-  }, []);
-
-  const loadPatients = async () => {
-    try {
-      const data = await getPatients();
-      setPatients(data);
-    } catch (err) {
-      console.error('Failed to load patients', err);
-    }
-  };
-
+  const beginHistoryRead = useLatestRequest();
   const fetchEmergencyHistory = async (patientId: string) => {
+    // Only the patient now selected may answer: an earlier patient's history
+    // arriving late would otherwise be listed under this one.
+    const current = beginHistoryRead();
     if (!user || !patientId) return;
     setHistoryLoading(true);
+    setHistoryError('');
     try {
-      setEmergencyHistory(await getPatientCardiacEvents(patientId));
-    } catch (e) {
-      console.error(e);
+      const history = await getPatientCardiacEvents(patientId);
+      if (current()) setEmergencyHistory(history);
+    } catch {
+      if (!current()) return;
+      // Not "no events": a history that could not be read is unknown.
+      setEmergencyHistory([]);
+      setHistoryError(t('docCardiac.errorLoadHistory'));
     } finally {
-      setHistoryLoading(false);
+      if (current()) setHistoryLoading(false);
     }
   };
-
-  const filteredPatients = patients.filter(p =>
-    (p.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (p.patient_id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-  );
-
-  const selectedPatientData = patients.find(p => p.patient_id === selectedPatient);
 
   const addEvent = (type: string, details: string) => {
     setEvents(prev => [
@@ -170,20 +186,21 @@ export default function CardiacPage() {
     const reading: ECGReading = {
       id: `ECG-${Date.now()}`,
       timestamp: new Date().toISOString(),
-      rhythm: newECG.rhythm || 'normal_sinus',
-      rate: newECG.rate || 72,
+      rhythm: newECG.rhythm,
+      rate: newECG.rate ?? null,
       interpretation: newECG.interpretation || '',
-      stElevation: newECG.stElevation || false,
+      stElevation: newECG.stElevation || undefined,
       leads: newECG.leads || []
     };
     setEcgReadings(prev => [...prev, reading]);
-    addEvent('ECG', `${reading.rhythm} - Rate: ${reading.rate}`);
+    addEvent('ECG', reading.rate === null ? reading.rhythm : `${reading.rhythm} - Rate: ${reading.rate}`);
     setShowECGForm(false);
-    setNewECG({ rhythm: 'normal_sinus', rate: 72, interpretation: '', stElevation: false, leads: [] });
+    setNewECG({ rhythm: '', rate: null, interpretation: '', stElevation: false, leads: [] });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (!selectedPatient) {
       setError(t('docCardiac.errorSelectPatient'));
       return;
@@ -209,14 +226,14 @@ export default function CardiacPage() {
         pain_radiation: painRadiation,
         associated_symptoms: associatedSymptoms,
         vital_signs: {
-          heart_rate: parseInt(heartRate) || 0,
+          heart_rate: heartRate === '' ? null : Number(heartRate),
           blood_pressure: bloodPressure
         },
         lab_values: {
-          troponin: parseFloat(troponinLevel) || 0,
-          bnp: parseFloat(bnpLevel) || 0
+          troponin: troponinLevel === '' ? null : Number(troponinLevel),
+          bnp: bnpLevel === '' ? null : Number(bnpLevel)
         },
-        killip_class: parseInt(killipClass),
+        killip_class: killipClass ? parseInt(killipClass, 10) : undefined,
         timi_criteria: timiCriteria,
         ecg_readings: ecgReadings,
         treatments: treatment,
@@ -227,8 +244,9 @@ export default function CardiacPage() {
 
       const saved = await createCardiac(cardiacData);
       setSavedTimi({ timi_score: saved.timi_score, timi_band: saved.timi_band });
+      cardiacDraft.markSaved();
       setSuccess(true);
-      setTimeout(() => navigate('/dashboard'), 2000);
+      setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
       setError(t('docCardiac.errorSaveFailed'));
       console.error('Failed to save cardiac event', err);
@@ -302,34 +320,23 @@ export default function CardiacPage() {
                   <Search className="h-5 w-5 mr-2 text-critical" />
                   {t('docCardiac.patientSelectionTitle')}
                 </h2>
-                <div className="relative mb-4">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
-                  <input
-                    type="text"
-                    placeholder={t('docCardiac.searchPatientsPh')}
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  />
-                </div>
-                <select
+                {/* Searched on the server; a select built from the first page
+                    of patients could not reach anyone past the fiftieth. */}
+                <PatientSelect
+                  id="cardiac-patient"
+                  label={t('docCardiac.searchPatientsPh')}
                   value={selectedPatient}
-                  onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
-                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
+                  onChange={(patientId, patient) => {
+                    setSelectedPatient(patientId);
+                    setSelectedPatientData(patient ?? null);
+                    fetchEmergencyHistory(patientId);
+                  }}
                   required
-                >
-                  <option value="">{t('docCardiac.selectPatientOption')}</option>
-                  {filteredPatients.map(p => (
-                    <option key={p.patient_id} value={p.patient_id}>
-                      {p.full_name} - {p.patient_id}
-                    </option>
-                  ))}
-                </select>
+                />
                 {selectedPatientData && (
                   <div className="mt-4 p-3 bg-surface-sunken rounded-lg">
                     <p className="font-medium">{selectedPatientData.full_name}</p>
                     <p className="text-sm text-content-muted">{t('docCardiac.dobLabel', { value: selectedPatientData.date_of_birth })}</p>
-                    <p className="text-sm text-content-muted">{t('docCardiac.bloodTypeLabel', { value: selectedPatientData.emergency_info?.blood_type || t('docCardiac.bloodTypeUnknown') })}</p>
                   </div>
                 )}
                 {selectedPatient && (
@@ -339,6 +346,8 @@ export default function CardiacPage() {
                     </h4>
                     {historyLoading ? (
                       <p className="text-content-muted text-xs">{t('docCardiac.loadingHistory')}</p>
+                    ) : historyError ? (
+                      <p role="alert" className="text-sm text-critical-subtle-fg">{historyError}</p>
                     ) : emergencyHistory.length === 0 ? (
                       <p className="text-content-muted text-xs italic">{t('docCardiac.noPriorEvents')}</p>
                     ) : (
@@ -384,17 +393,18 @@ export default function CardiacPage() {
 
               {/* Killip Classification */}
               <div className="bg-surface rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-content mb-4">{t('docCardiac.killipTitle')}</h2>
-                <select
-                  value={killipClass}
-                  onChange={(e) => setKillipClass(e.target.value)}
-                  className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
-                >
-                  <option value="1">{t('docCardiac.killip_1')}</option>
-                  <option value="2">{t('docCardiac.killip_2')}</option>
-                  <option value="3">{t('docCardiac.killip_3')}</option>
-                  <option value="4">{t('docCardiac.killip_4')}</option>
-                </select>
+                <h2 id="cardiac-killip-heading" className="text-lg font-semibold text-content mb-4">{t('docCardiac.killipTitle')}</h2>
+                <ChoiceChips
+                  label={t('docCardiac.killipTitle')}
+                  value={killipClass || undefined}
+                  onChange={(next) => setKillipClass(next ?? '')}
+                  options={[
+                    { value: '1', label: t('docCardiac.killip_1') },
+                    { value: '2', label: t('docCardiac.killip_2') },
+                    { value: '3', label: t('docCardiac.killip_3') },
+                    { value: '4', label: t('docCardiac.killip_4') },
+                  ]}
+                />
                 {/* TIMI criteria.
 
                     These used to be inferred from unrelated controls behind a
@@ -475,20 +485,19 @@ export default function CardiacPage() {
                     />
                   </div>
                   <div>
-                    <label htmlFor="cardiac-chest-pain-character" className="block text-sm font-medium text-content-secondary mb-1">{t('docCardiac.chestPainCharacterLabel')}</label>
-                    <select
+                    <ChoiceChips
                       id="cardiac-chest-pain-character"
-                      value={chestPainCharacter}
-                      onChange={(e) => setChestPainCharacter(e.target.value)}
-                      className="w-full p-3 border border-border-interactive rounded-lg focus:ring-2 focus:ring-red-500"
-                    >
-                      <option value="">{t('docCardiac.selectCharacter')}</option>
-                      <option value="crushing">{t('docCardiac.painChar_crushing')}</option>
-                      <option value="sharp">{t('docCardiac.painChar_sharp')}</option>
-                      <option value="burning">{t('docCardiac.painChar_burning')}</option>
-                      <option value="aching">{t('docCardiac.painChar_aching')}</option>
-                      <option value="squeezing">{t('docCardiac.painChar_squeezing')}</option>
-                    </select>
+                      label={t('docCardiac.chestPainCharacterLabel')}
+                      value={(chestPainCharacter) || undefined}
+                      onChange={(chosen) => { const next = chosen ?? ''; setChestPainCharacter(next); }}
+                      options={[
+                        { value: 'crushing', label: t('docCardiac.painChar_crushing') },
+                        { value: 'sharp', label: t('docCardiac.painChar_sharp') },
+                        { value: 'burning', label: t('docCardiac.painChar_burning') },
+                        { value: 'aching', label: t('docCardiac.painChar_aching') },
+                        { value: 'squeezing', label: t('docCardiac.painChar_squeezing') },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-content-secondary mb-2">{t('docCardiac.painRadiationLabel')}</label>
@@ -659,6 +668,7 @@ export default function CardiacPage() {
                         onChange={(e) => setNewECG({ ...newECG, rhythm: e.target.value })}
                         className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       >
+                        <option value="">{t('docCardiac.rhythmNotChosen')}</option>
                         {rhythmTypes.map(r => (
                           <option key={r} value={r}>{r.replace(/_/g, ' ').toUpperCase()}</option>
                         ))}
@@ -669,8 +679,8 @@ export default function CardiacPage() {
                       <input
                         id="cardiac-ecg-rate"
                         type="number"
-                        value={newECG.rate}
-                        onChange={(e) => setNewECG({ ...newECG, rate: parseInt(e.target.value) })}
+                        value={newECG.rate ?? ''}
+                        onChange={(e) => setNewECG({ ...newECG, rate: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                         className="w-full p-2 border border-border-interactive rounded-lg text-sm"
                       />
                     </div>
@@ -740,7 +750,9 @@ export default function CardiacPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium text-sm">{ecg.rhythm.replace(/_/g, ' ').toUpperCase()}</p>
-                            <p className="text-xs text-content-muted">{t('docCardiac.rateLine', { value: ecg.rate })}</p>
+                            <p className="text-xs text-content-muted">
+                              {ecg.rate === null ? t('docCardiac.rateNotRecorded') : t('docCardiac.rateLine', { value: ecg.rate })}
+                            </p>
                             {ecg.stElevation && (
                               <p className="text-xs text-critical-subtle-fg font-medium">
                                 {t('docCardiac.stElevationLine', { leads: ecg.leads.join(', ') })}
@@ -820,15 +832,15 @@ export default function CardiacPage() {
           <div className="mt-6 flex justify-end space-x-4">
             <button
               type="button"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => returnAfterSave()}
               className="px-6 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
             >
               {t('docCardiac.cancelBtn')}
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed flex items-center"
+              aria-disabled={isSubmitting || undefined}
+              className="aria-disabled:cursor-wait px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical flex items-center"
             >
               {isSubmitting ? (
                 <>

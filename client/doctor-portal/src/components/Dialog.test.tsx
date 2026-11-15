@@ -25,9 +25,11 @@ describe('in-app dialog', () => {
     void promptDialog({ message: 'Reason', required: true });
 
     const ok = await screen.findByRole('button', { name: 'OK' });
-    expect(ok).toBeDisabled();
     fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: '   ' } });
-    expect(ok).toBeDisabled();
+    fireEvent.click(ok);
+    // Refused in words, and the dialog stays open for the answer.
+    expect(await screen.findByRole('alert')).toHaveTextContent(/answer is needed/i);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   });
 

@@ -9,7 +9,7 @@
 //!
 //! Select the active provider with the `TELEHEALTH_PROVIDER` env var.
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -922,7 +922,12 @@ impl TelehealthService {
         let info = self.provider.create_session(params).await?;
 
         {
-            let mut sessions = self.sessions.write().unwrap();
+            // A lock poisoned by a panic elsewhere still guards a usable map;
+            // unwrapping it failed every later telehealth request until restart.
+            let mut sessions = self
+                .sessions
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             sessions.insert(session_id, info.clone());
         }
 
@@ -931,7 +936,10 @@ impl TelehealthService {
 
     /// Retrieve a persisted session by ID.
     pub fn get_session(&self, session_id: &str) -> Option<SessionInfo> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self
+            .sessions
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.get(session_id).cloned()
     }
 
@@ -966,7 +974,10 @@ impl TelehealthService {
     pub async fn end_session(&self, session_id: &str) -> Result<(), TelehealthError> {
         // Remove from our local store
         {
-            let mut sessions = self.sessions.write().unwrap();
+            let mut sessions = self
+                .sessions
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             sessions.remove(session_id);
         }
         self.provider.end_session(session_id).await

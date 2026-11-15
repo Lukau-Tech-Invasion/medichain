@@ -1,14 +1,3 @@
----
-name: performance-optimization
-description: >
-  Performance work for MediChain — compute-unit budgets on Solana, Rust backend latency,
-  React/PWA load time on budget Android, NFC tap-to-display under 3 seconds. Covers the
-  "measure first" rule, profiling tools per layer, common bottlenecks, and when not to
-  optimise. Activate when the user says "it's slow", "lagging", "high CPU", "long
-  transaction", "compute units exceeded", "p99 latency", "bundle size too big", "lighthouse
-  score", "the tap takes too long", or any complaint about speed. NEVER activate to
-  optimise something the user hasn't measured.
----
 
 # Performance Optimisation for MediChain
 
@@ -29,43 +18,6 @@ software. The rule is Knuth's: only optimise what profiling proves is slow.
    surprises you.
 4. **Optimise the bottleneck.** Not your favourite slow thing. The actual one.
 5. **Re-measure.** Confirm improvement. Sometimes "optimisations" make things worse.
-
----
-
-## Solana Compute Units (CU)
-
-Each instruction has a CU limit. Default 200k, max 1.4M per transaction. CU costs:
-
-| Operation                          | Approx CU                  |
-|------------------------------------|----------------------------|
-| Account read                       | ~1k                        |
-| Account write                      | ~1k                        |
-| `Clock::get()`                     | ~100                       |
-| `msg!()` simple string             | ~100                       |
-| `msg!()` formatted                 | ~1k+ (be careful)          |
-| `sha256` of 32 bytes               | ~100                       |
-| `keccak256` of 32 bytes            | ~250                       |
-| `ed25519_verify`                   | ~3000 (use the precompile) |
-| Borsh serialise small struct       | ~500                       |
-| `find_program_address`             | ~1500 to ~10000 (varies)   |
-| Vec push (heap alloc)              | ~1000+                     |
-
-**Rules:**
-- **Store bumps.** Re-deriving a PDA in a hot path costs thousands of CU.
-- **Avoid loops over user-controlled length.** Cap them or split the work.
-- **`msg!` only what you'd actually want to see.** It's not free.
-- **Pre-compute off-chain when possible** and pass the result as instruction data.
-
-If hitting the limit:
-```rust
-// Request more CU at the start of the transaction (TS side)
-import { ComputeBudgetProgram } from "@solana/web3.js";
-const ix = ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 });
-tx.add(ix);
-```
-
-But this isn't free — bigger CU = higher fees + bigger blocks = worse for everyone.
-Optimise the program first.
 
 ---
 
@@ -198,12 +150,6 @@ attention. Pay it only when the win justifies it.
 
 Once you optimise, write down WHY:
 
-```rust
-// PERF: We cache patient PDA in memory because re-deriving is ~10k CU on-chain
-// and we read it on every consent check. Cache is keyed by (patient_pubkey,
-// program_id) and invalidated on patient account close.
-```
-
 Otherwise the next dev refactors away the cache, performance regresses silently,
 and the bug shows up six months later when usage hits a threshold.
 
@@ -213,7 +159,6 @@ and the bug shows up six months later when usage hits a threshold.
 
 | Layer           | Profiler                                |
 |-----------------|-----------------------------------------|
-| Solana program  | `solana program logs`, anchor BPF debugger |
 | Rust backend    | `cargo flamegraph`, `tokio-console`     |
 | Frontend        | Chrome DevTools Performance, Lighthouse |
 | Network         | Chrome DevTools Network, `mitmproxy`    |

@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { MotionLink } from '@medichain/shared';
+import { getEmergencyNumber, ModalPanel } from '@medichain/shared';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogOut,
   FileText,
@@ -18,20 +20,27 @@ import {
   Clipboard,
   Download,
 } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
   approveDischarge as postDischargeApproval,
   createDischargeInstructions,
   createDischargeSummary,
   exportDocumentToPdf,
+  formatDateOnly,
   getApiErrorMessage,
   getPatients,
   listDischarges,
   useTranslation,
+  contentFingerprint,
+  submitForReply,
+  submitOnce,
+  useSubmission,
+  useDraftFields,
+  draftFieldsOf,
 } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 interface DischargeInstruction {
   category: string;
@@ -167,24 +176,19 @@ function toDischargeSummary(raw: Record<string, unknown>): DischargeSummary {
   };
 }
 
-interface Patient {
-  patient_id: string;
-  full_name: string;
-  date_of_birth: string;
-  admission_date?: string;
-}
-
 /**
  * DischargePage - Manage patient discharge documentation
  */
 function DischargePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   const [discharges, setDischarges] = useState<DischargeSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const summarySubmission = useSubmission('discharge-summary');
+  const instructionsSubmission = useSubmission('discharge-instructions');
+  const filedSummary = useRef<{ fingerprint: string; summaryId?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [apiConnected, setApiConnected] = useState(false);
@@ -200,16 +204,24 @@ function DischargePage() {
     primary_diagnosis: '',
     secondary_diagnoses: '',
     procedures_performed: '',
-    discharge_disposition: 'home',
-    discharge_condition: 'stable',
-    diet_instructions: 'Resume regular diet as tolerated',
+    // Nothing pre-chosen: a disposition, a condition or a diet nobody entered
+    // was stored as if the clinician had stated it.
+    discharge_disposition: '',
+    discharge_condition: '',
+    admission_date: '',
+    diet_instructions: '',
     activity_restrictions: '',
     warning_signs: '',
-    emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: t('common.emergencyNumber') }),
+    emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: getEmergencyNumber() }),
   });
 
   const [medications, setMedications] = useState<DischargeMedication[]>([]);
   const [followUps, setFollowUps] = useState<FollowUpAppointment[]>([]);
+  // Kept for this tab while unsent; a cleared form after saving is not a draft.
+  useDraftFields('discharge', selectedPatient || undefined, t('docDischarge.formLabel'), {
+    ...draftFieldsOf(formData, setFormData, Object.keys(formData) as Array<keyof typeof formData>),
+    medications: [medications, setMedications], followUps: [followUps, setFollowUps],
+  });
   const [instructions] = useState<DischargeInstruction[]>([
     { category: 'Wound Care', instructions: [] },
     { category: 'Activity', instructions: [] },
@@ -226,7 +238,9 @@ function DischargePage() {
   const fetchPatients = useCallback(async () => {
     if (!user) return;
     try {
-      setPatients(await getPatients());
+      // Only the connection badge reads this; patients are chosen through the
+      // server-searched picker, so one row is enough.
+      await getPatients({ limit: 1 });
       setApiConnected(true);
     } catch {
       setApiConnected(false);
@@ -281,6 +295,7 @@ function DischargePage() {
     }]);
   };
 
+  const { entry: selectedPatientEntry, resolve: resolveSelectedPatient } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -288,18 +303,28 @@ function DischargePage() {
       setError(t('docDischarge.errorSelectPatient'));
       return;
     }
+    if (!formData.discharge_condition) {
+      setError(t('docDischarge.errorConditionRequired'));
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
 
     try {
-      const patient = patients.find(p => p.patient_id === selectedPatient);
+      // Resolved on the server: the first page of the directory held nobody past the fiftieth.
+      // Usually already resolved when the patient was chosen; awaiting only when it
+      // is not keeps a double press from slipping past the pending-save guard.
+      const patient = selectedPatientEntry ?? await resolveSelectedPatient();
       const payload = {
         patient_id: selectedPatient,
         patient_name: patient?.full_name || '',
-        admission_date: patient?.admission_date || new Date().toISOString().split('T')[0],
         discharge_date: new Date().toISOString().split('T')[0],
         discharge_disposition: formData.discharge_disposition,
+        // Local midnight of the chosen day as an instant; absent when not entered.
+        admission_datetime: formData.admission_date
+          ? new Date(`${formData.admission_date}T00:00`).toISOString()
+          : undefined,
         primary_diagnosis: formData.primary_diagnosis,
         secondary_diagnoses: formData.secondary_diagnoses.split('\n').filter(Boolean),
         procedures_performed: formData.procedures_performed.split('\n').filter(Boolean),
@@ -311,17 +336,35 @@ function DischargePage() {
         diet_instructions: formData.diet_instructions,
         warning_signs: formData.warning_signs.split('\n').filter(Boolean),
         emergency_contact_instructions: formData.emergency_instructions,
-        prepared_by: user.walletAddress,
+        prepared_by: user.userId,
       };
 
+      // The summary is filed once per submission. When the take-home
+      // instructions failed after it, Save again files only the instructions,
+      // against the summary already on record, instead of a second summary.
+      const fingerprint = contentFingerprint(payload);
       let created: { summary_id?: string };
-      try {
-        created = await createDischargeSummary(payload);
-      } catch (err) {
-        // A failure used to be written into the SUCCESS banner, so a discharge
-        // that was never filed appeared in green.
-        setError(getApiErrorMessage(err, t('docDischarge.errorCreateFailed')));
-        return;
+      if (filedSummary.current?.fingerprint === fingerprint) {
+        created = { summary_id: filedSummary.current.summaryId };
+      } else {
+        try {
+          const outcome = await submitForReply(summarySubmission, payload, () => createDischargeSummary(payload));
+          if (outcome.kind === 'busy') return;
+          if (outcome.kind !== 'saved') {
+            // An earlier attempt filed this summary and its answer never
+            // arrived, so there is no id to attach the instructions to.
+            setError(t('docDischarge.errorSummaryAlreadyFiled'));
+            fetchDischarges();
+            return;
+          }
+          created = outcome.value;
+          filedSummary.current = { fingerprint, summaryId: created.summary_id };
+        } catch (err) {
+          // A failure used to be written into the SUCCESS banner, so a discharge
+          // that was never filed appeared in green.
+          setError(getApiErrorMessage(err, t('docDischarge.errorCreateFailed')));
+          return;
+        }
       }
 
       // The take-home document, as its own record.
@@ -338,9 +381,9 @@ function DischargePage() {
       // Filed after the summary and linked to it, so the two cannot disagree
       // about which admission they describe.
       try {
-        // The client mints this mutation its own Idempotency-Key, so it is not
-        // refused as a replay of the summary it follows.
-        await createDischargeInstructions({
+        // Its own submission, so it is not refused as a replay of the summary
+        // it follows, and a retry of it cannot file the instructions twice.
+        const instructionsBody = {
           patient_id: selectedPatient,
           discharge_summary_id: created.summary_id ?? null,
           visit_date: payload.discharge_date,
@@ -351,7 +394,9 @@ function DischargePage() {
           follow_up_appointments: followUps,
           return_precautions: payload.warning_signs,
           emergency_instructions: formData.emergency_instructions,
-        });
+        };
+        const sent = await submitOnce(instructionsSubmission, instructionsBody, () => createDischargeInstructions(instructionsBody));
+        if (sent === 'busy') return;
       } catch (err) {
         // Say which half failed. The summary is filed; the patient's copy is
         // not, and a clinician who is told only "saved" will not go back for it.
@@ -360,6 +405,7 @@ function DischargePage() {
         return;
       }
 
+      filedSummary.current = null;
       setSuccess(t('docDischarge.successCreated'));
       setShowForm(false);
       fetchDischarges();
@@ -377,12 +423,13 @@ function DischargePage() {
       primary_diagnosis: '',
       secondary_diagnoses: '',
       procedures_performed: '',
-      discharge_disposition: 'home',
-      discharge_condition: 'stable',
-      diet_instructions: 'Resume regular diet as tolerated',
+      discharge_disposition: '',
+      discharge_condition: '',
+      admission_date: '',
+      diet_instructions: '',
       activity_restrictions: '',
       warning_signs: '',
-      emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: t('common.emergencyNumber') }),
+      emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: getEmergencyNumber() }),
     });
     setMedications([]);
     setFollowUps([]);
@@ -427,8 +474,8 @@ function DischargePage() {
           },
         ].filter(section => section.lines.length > 0),
       });
-    } catch (err) {
-      console.error('Failed to export discharge summary PDF:', err);
+    } catch {
+      setError(t('docDischarge.errorExportPdf'));
     } finally {
       setExportingId(null);
     }
@@ -591,7 +638,7 @@ function DischargePage() {
                     </div>
                     <div>
                       <h3 className="font-bold text-content">{discharge.patient_name}</h3>
-                      <p className="text-sm text-content-muted">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date })}</p>
+                      <p className="text-sm text-content-muted">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date ? formatDateOnly(discharge.admission_date) : t('docDischarge.admissionNotRecorded') })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -691,9 +738,9 @@ function DischargePage() {
                       <Download size={16} />
                       {exportingId === discharge.id ? t('docDischarge.exportingPdf') : t('docDischarge.exportPdf')}
                     </button>
-                    <Link to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1 min-h-[24px] py-1">
+                    <MotionLink opensPatient to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1 min-h-[24px] py-1">
                       {t('docDischarge.viewPatientLink')} <ChevronRight size={16} />
-                    </Link>
+                    </MotionLink>
                   </div>
                 </div>
               </div>
@@ -711,10 +758,9 @@ function DischargePage() {
 
       {/* New Discharge Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="discharge-dialog-title" closeOnBackdrop={false} onClose={() => setShowForm(false)} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-surface border-b border-border p-6 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-content">{t('docDischarge.createModalTitle')}</h2>
+              <h2 id="discharge-dialog-title" className="text-xl font-bold text-content">{t('docDischarge.createModalTitle')}</h2>
               <button onClick={() => setShowForm(false)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
@@ -757,7 +803,9 @@ function DischargePage() {
                     value={formData.discharge_disposition}
                     onChange={(e) => setFormData({ ...formData, discharge_disposition: e.target.value })}
                     className="w-full p-3 border border-border-interactive rounded-lg"
+                    required
                   >
+                    <option value="">{t('docDischarge.selectDisposition')}</option>
                     <option value="home">{t('docDischarge.disposition_home')}</option>
                     <option value="home_health">{t('docDischarge.disposition_homeHealth')}</option>
                     <option value="snf">{t('docDischarge.disposition_snf')}</option>
@@ -767,6 +815,19 @@ function DischargePage() {
                     <option value="ama">{t('docDischarge.disposition_ama')}</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label htmlFor="dc-admission-date" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.admissionDateLabel')}</label>
+                <input
+                  id="dc-admission-date"
+                  type="date"
+                  value={formData.admission_date}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setFormData({ ...formData, admission_date: e.target.value })}
+                  className="w-full p-3 border border-border-interactive rounded-lg"
+                />
+                <p className="text-xs text-content-muted mt-1">{t('docDischarge.admissionDateHint')}</p>
               </div>
 
               <div>
@@ -785,14 +846,16 @@ function DischargePage() {
               <div>
                 <label id="dc-discharge-condition-label" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.dischargeConditionLabel')}</label>
                 <div className="grid grid-cols-4 gap-2" role="group" aria-labelledby="dc-discharge-condition-label">
-                  {['improved', 'stable', 'unchanged', 'declined'].map((condition) => (
+                  {/* `deteriorated` is the stored value; the button reads "declined". */}
+                  {(['improved', 'stable', 'unchanged', 'deteriorated'] as const).map((condition) => (
                     <button
                       key={condition}
                       type="button"
                       onClick={() => setFormData({ ...formData, discharge_condition: condition })}
+                      aria-pressed={formData.discharge_condition === condition}
                       className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-brand bg-brand-subtle text-brand-subtle-fg' : 'border-border hover:bg-surface-sunken'}`}
                     >
-                      {t(`docDischarge.condition_${condition}`)}
+                      {t(`docDischarge.condition_${condition === 'deteriorated' ? 'declined' : condition}`)}
                     </button>
                   ))}
                 </div>
@@ -971,16 +1034,15 @@ function DischargePage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 flex items-center gap-2"
+                  aria-disabled={submitting || undefined}
+                  className="aria-disabled:cursor-wait px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
                   {t('docDischarge.createSummaryBtn')}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

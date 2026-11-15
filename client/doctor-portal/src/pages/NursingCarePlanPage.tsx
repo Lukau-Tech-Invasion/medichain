@@ -24,7 +24,7 @@ import {
   useValidatedForm,
   carePlanSchema,
   createCarePlan,
-} from '@medichain/shared';
+  notifySuccess, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -115,7 +115,8 @@ export const mapNursingCarePlan = (plan: CarePlanApiRecord): CarePlan => ({
   mrn: plan.patient_id,
   room: '',
   diagnosis: plan.plan_name,
-  priority: (plan.care_level === 'high' || plan.care_level === 'low' ? plan.care_level : 'medium'),
+  // A plan filed without a priority reads as unset (priorityLabel says so), not medium.
+  priority: (plan.care_level ?? '') as Priority,
   status: (plan.status === 'on-hold' || plan.status === 'completed' || plan.status === 'discontinued' ? plan.status : 'active'),
   goals: planItems(plan.goals, 'goal') as Goal[],
   interventions: planItems(plan.interventions, 'intervention') as Intervention[],
@@ -141,14 +142,18 @@ const NursingCarePlanPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [form, setForm] = useState({
-    patientId: '', diagnosis: '', priority: 'medium' as Priority, goals: '', interventions: '',
+    // Unchosen until the nurse sets it (rule 9).
+    patientId: '', diagnosis: '', priority: '' as Priority | '', goals: '', interventions: '',
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const nursingCarePlanDraft = useDraftFields('nursing-care-plan', form.patientId || undefined, t('docNursingCarePlan.formLabel'),
+    draftFieldsOf(form, setForm, ['diagnosis', 'priority', 'goals', 'interventions']));
   const { user } = useAuthStore();
 
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
 
   const createPlan = async () => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId || saving) return;
     // Was a banner naming both fields at once. A banner cannot say which
     // control is wrong -- that association is the whole of WCAG 3.3.1 -- and it
     // reported two problems when the nurse had one. `validate` puts the message
@@ -160,16 +165,18 @@ const NursingCarePlanPage: React.FC = () => {
     setSaveMessage(null);
     try {
       await createCarePlan({
-        patient_id: form.patientId,
+        patientId: form.patientId,
         diagnosis: form.diagnosis.trim(),
-        priority: form.priority,
+        priority: form.priority as Priority,
         goals: form.goals.split('\n').map(value => value.trim()).filter(Boolean)
           .map((description, index) => ({ id: `goal-${index + 1}`, description })),
         interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
           .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
       });
+      nursingCarePlanDraft.markSaved();
       setSaveMessage(t('docNursingCarePlan.savedOk'));
-      setForm({ patientId: '', diagnosis: '', priority: 'medium', goals: '', interventions: '' });
+      setForm({ patientId: '', diagnosis: '', priority: '', goals: '', interventions: '' });
+      notifySuccess('Care plan saved.');
     } catch (err) {
       console.error('Failed to create care plan:', err);
       setSaveMessage(t('docNursingCarePlan.errSaveFailed'));
@@ -294,7 +301,7 @@ const NursingCarePlanPage: React.FC = () => {
     { id: 'T6', name: t('docNursingCarePlan.tpl6Name'), diagnosis: t('docNursingCarePlan.tpl6Dx'), priority: 'medium', goals: [t('docNursingCarePlan.tplMobilityGoal')], interventions: [t('docNursingCarePlan.tplMobilityIntervention1'), t('docNursingCarePlan.tplMobilityIntervention2')] },
   ];
 
-  const useTemplate = (template: CarePlanTemplate) => {
+  const applyTemplate = (template: CarePlanTemplate) => {
     setForm(current => ({
       ...current,
       diagnosis: template.diagnosis,
@@ -464,6 +471,7 @@ const NursingCarePlanPage: React.FC = () => {
         <div className="p-4">
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
+            <form onSubmit={(event) => { event.preventDefault(); void createPlan(); }} noValidate>
             <div className="space-y-4">
               <PatientSelect
                 id="ncp-patient"
@@ -508,27 +516,30 @@ const NursingCarePlanPage: React.FC = () => {
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
                 <div className="flex gap-2">
                   {(['high', 'medium', 'low'] as const).map(p => (
-                    <button
+                    <button type="button"
                       key={p}
-                      onClick={() => setForm(f => ({ ...f, priority: p }))}
+                      onClick={() => { clearField('priority'); setForm(f => ({ ...f, priority: f.priority === p ? '' : p })); }}
                       aria-pressed={form.priority === p}
                       className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-critical-subtle border-critical text-critical-subtle-fg' : p === 'medium' ? 'bg-surface-sunken border-orange-300 text-content-secondary' : 'bg-surface-sunken border-border-strong'}`}>
                       {priorityLabel(p)}
                     </button>
                   ))}
                 </div>
+                {errors.priority && (
+                  <p className="mt-1 text-sm text-critical-subtle-fg" role="alert">{errors.priority}</p>
+                )}
               </div>
               {saveMessage && (
                 <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
-              <button
-                onClick={createPlan}
-                disabled={saving}
-                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+              <button type="submit"
+                aria-disabled={saving || undefined}
+                className="aria-disabled:cursor-wait w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" /> {t('docNursingCarePlan.createCarePlan')}
               </button>
             </div>
+            </form>
           </div>
         </div>
       )}
@@ -545,7 +556,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
                   <p className="text-xs text-content-muted">{t('docNursingCarePlan.goalsCount', { count: tpl.goals.length })} · {t('docNursingCarePlan.interventionsCount', { count: tpl.interventions.length })}</p>
                 </div>
-                <button type="button" onClick={() => useTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
+                <button type="button" onClick={() => applyTemplate(tpl)} className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>
             ))}
           </div>

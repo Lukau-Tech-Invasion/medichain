@@ -14,9 +14,38 @@ impl From<AccessLogEntry> for crate::repositories::traits::AccessLogEntity {
             is_emergency_access: entry.emergency,
             ip_address: None,
             user_agent: None,
-            blockchain_tx_hash: None,
             accessed_at: entry.timestamp,
             facility_id: entry.location,
+            authority_type: None,
+            authority_id: None,
+        }
+    }
+}
+
+/// Build the patient-facing view of a stored access-log row.
+///
+/// # Parameters
+/// * `entity` - the row as stored by the repository.
+///
+/// # Returns
+/// An [`AccessLogView`] carrying who, when, why, what and seal state.
+impl From<crate::repositories::traits::AccessLogEntity> for AccessLogView {
+    fn from(entity: crate::repositories::traits::AccessLogEntity) -> Self {
+        Self {
+            access_id: entity.id,
+            patient_id: entity.patient_id.unwrap_or_default(),
+            accessor_id: entity.accessor_id,
+            accessor_role: entity.accessor_role,
+            access_type: entity.action,
+            access_reason: entity.access_reason,
+            resource_type: entity.resource_type,
+            resource_id: entity.resource_id,
+            location: entity.facility_id,
+            timestamp: entity.accessed_at,
+            emergency: entity.is_emergency_access,
+            seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
+            authority_type: entity.authority_type,
+            authority_id: entity.authority_id,
         }
     }
 }
@@ -82,8 +111,6 @@ impl From<(String, crate::ipfs::MedicalRecordReference)>
             ipfs_content_hash: Some(r.content_hash),
             ipfs_metadata_hash: Some(r.metadata_hash),
             content_checksum: Some(r.content_checksum),
-            on_chain_hash: None,
-            blockchain_tx_hash: None,
             summary_encrypted: None,
             record_date,
             created_at: record_date,
@@ -107,6 +134,7 @@ impl From<crate::repositories::traits::MedicalRecordEntity>
             record_type: entity.record_type,
             uploaded_at: entity.record_date.timestamp(),
             content_checksum: entity.content_checksum.unwrap_or_default(),
+            seal_status: crate::audit_batching::STATUS_PENDING.to_string(),
         }
     }
 }
@@ -120,6 +148,7 @@ impl From<(String, crate::clinical::VitalSignsReading)>
         Self {
             id: r.reading_id,
             patient_id,
+            notes: r.notes,
             heart_rate: r.heart_rate.map(|v| v as i32),
             respiratory_rate: r.respiratory_rate.map(|v| v as i32),
             blood_pressure_systolic: r.systolic_bp.map(|v| v as i32),
@@ -147,6 +176,7 @@ impl From<(String, crate::clinical::VitalSignsReading)>
             recorded_by: r.recorded_by,
             facility_id: None,
             created_at: recorded_at,
+            consciousness: None,
         }
     }
 }
@@ -164,7 +194,7 @@ impl From<crate::repositories::traits::VitalSignsEntity> for crate::clinical::Vi
             temperature_celsius: e.temperature.map(|v| v as f32),
             pain_scale: e.pain_scale.map(|v| v as u8),
             recorded_by: e.recorded_by,
-            notes: None,
+            notes: e.notes,
         }
     }
 }
@@ -651,7 +681,7 @@ pub fn med_rem_pack_extras(r: &crate::clinical::MedicationReminder) -> serde_jso
 /// **no medication reminder could be stored on a real database at all.**
 ///
 /// Two things hid it. The in-memory backend enforces no CHECK constraint, so
-/// development never saw it; and the handler's ownership test compared a wallet
+/// development never saw it; and the handler's ownership test compared a user id
 /// address to a `PAT-` id, so every patient was refused with a 403 before the
 /// insert was ever attempted.
 ///
@@ -1261,7 +1291,7 @@ impl From<crate::clinical::AnesthesiaRecord>
             operative_note_id: None,
             anesthesiologist_id: r.anesthesiologist,
             crna_id: r.crna,
-            anesthesia_type: anesthesia_type_column(&r.anesthesia_type),
+            anesthesia_type: Some(anesthesia_type_column(&r.anesthesia_type)),
             asa_classification: asa_class_column(&r.asa_class),
             airway_management: serde_json::to_value(&r.airway).ok(),
             induction_agents: serde_json::to_value(&r.induction).ok(),
@@ -1427,7 +1457,9 @@ impl From<crate::clinical::RadiologyReport> for crate::repositories::traits::Rad
             order_id: r.order_id,
             patient_id: r.patient_id,
             radiologist_id: r.radiologist,
-            study_datetime: utc_from_unix(r.study_datetime),
+            study_datetime: r
+                .study_datetime
+                .and_then(|timestamp| chrono::DateTime::from_timestamp(timestamp, 0)),
             report_datetime: now,
             comparison_studies: r.comparison,
             technique: Some(r.technique),

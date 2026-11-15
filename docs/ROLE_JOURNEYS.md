@@ -88,9 +88,20 @@ cd client && MEDICHAIN_API_URL=http://127.0.0.1/api \
   ./node_modules/.bin/vite-node ../scripts/role-journeys.ts
 ```
 
-`--only=nurse,doctor` runs a subset. The per-wallet challenge limiter is five
-per minute, so two full runs inside a minute will legitimately skip some
-sign-ins; that is a control working and is reported as a SKIP, never a failure.
+`--only=nurse,doctor` runs a subset.
+
+Every actor signs in the way a person does: `POST /api/auth/login` with the login
+id and a proof derived from the password (`client/shared/src/auth/proof.ts`),
+answered with a bearer token. There is no identity header and no key material. The
+accounts come from `.browser-test/fixtures.json`, which the seeder writes as
+`{user_id, login_id, password, linked_patient_id, nfc_tag_id}` per account: staff
+are registered by the administrator and redeem a one-time credential code, and each
+patient is registered by a doctor and redeems an activation code, choosing a
+username. PostgreSQL is required: signing in creates a session row.
+
+A per-address rate limit that refuses a sign-in is reported as a SKIP, never a
+failure: it is a control doing its job. A locked account (`429 ACCOUNT_LOCKED`) is
+a failure, because a fixture that is locked out means the run before it locked it.
 
 ## Result
 
@@ -317,12 +328,6 @@ their own.
     correctly triages as `emergency` and answers with "Call 911 immediately" —
     was shown **mild**. The declared TypeScript type described a shape the
     endpoint has never sent. The default is now the cautious branch.
-34. **A symptom check left no record.** `startSymptomCheck`,
-    `submitSymptomAnswers` and `getSymptomCheckerHistory` were typed, routed and
-    had **zero callers anywhere in either application**, and the session was
-    keyed on the caller's wallet while the history is read by health id. So a
-    patient could be told to go to an emergency department and nothing recorded
-    that they had been told.
 35. **A rejected symptom log still looked saved.** The entry is added to the
     screen before the request runs and the failure was swallowed with
     `console.warn`.
@@ -349,18 +354,9 @@ Every defect below was found by running it, and several were found only because
 fixing the one above exposed the one beneath — a guard that refused everyone
 hides whatever is broken behind it.
 
-
 The journeys were rerun after the first three "still open" items were closed,
 and closing them turned up five more defects of the same shapes.
 
-* **A health ID card did not survive a restart.** `CardRegistry` was a pair of
-  `RwLock<HashMap>` with no storage behind it, and it was the only home a card
-  had ever had. Every card issued by `POST /api/nfc/generate` was gone when the
-  process stopped — while the plastic in the patient's wallet still carried its
-  hash and tapped to `CARD_NOT_FOUND`, which reads exactly like a revoked card
-  at the roadside. A durable `nfc_tags` table with both backends had existed the
-  whole time and two other handlers already wrote to it.
-  (`dead-durable-variant-beside-live-volatile-one`, again.)
 * **Nothing could issue a card.** Four endpoints have backed the product's
   headline feature since the beginning and no screen in either application
   called any of them, so the path had never been exercised outside curl. The
@@ -394,13 +390,6 @@ and closing them turned up five more defects of the same shapes.
   `notifications::patient_wants` is the consumer, and the appointment reminder
   now honours it. Absent preferences still send: a patient who has never opened
   the screen has not opted out of anything.
-* **Six wallet-vs-`PAT-` comparisons.** A wallet address is never equal to a
-  `PAT-` id, so each was `false` for every patient who ever tried. The first two
-  were `create_medication_reminder` and `check_in_appointment` — nobody could set
-  their own medication reminder or check themselves in. Fixing those exposed a
-  third in `log_medication_adherence`, and a sweep of the same pattern found
-  three more: a patient could not cancel their own appointment, could not view
-  it, and could not read a SOAP note written about them.
 
   Two details worth keeping. The reminder *read* path three lines above the
   broken write used `caller_owns_patient_record` correctly, and WF-007 had
@@ -419,15 +408,6 @@ and closing them turned up five more defects of the same shapes.
   `/patients/{id}/reminders`, which is not a route — it got `{}` and compared it
   to nothing, which is how a read-back assertion can pass for years without
   reading anything.
-* **`adherence_logs.reported_by` was being given a wallet address.** The column
-  means the KIND of reporter — its CHECK constraint allows exactly `patient`,
-  `caregiver`, `system` and `provider` — and the handler wrote the caller's
-  48-character SS58 account into it. Same shape as `reminder_type`: a column
-  whose name reads like an id, whose meaning is a category, in a table the
-  memory backend never validates. Worth recording how it was found: the first
-  reading of the error (`value too long for character varying(32)`) looked like
-  a too-narrow column and I widened it — which was wrong, and the next run's
-  CHECK violation said so. The width change was reverted.
 * **A patient's wearable alert rules were never consulted.** A patient could
   configure "alert me above 150, treat it as Critical"; the rule was stored and
   nothing read it. Every alert fired at a hardcoded `Urgent` under
@@ -454,17 +434,6 @@ and closing them turned up five more defects of the same shapes.
   to load.** `ConsentManagementPage` set `setGrants([])` on a failed fetch.
   Empty and unknown are opposite answers to the question that screen exists to
   answer.
-* **A dose marked as taken was recorded nowhere.** `MedicationsPage` sent
-  `{ patient_id, taken, taken_at }` to an endpoint whose DTO is
-  `{ reminder_id, action, notes? }`, so every call failed deserialization with a
-  400. The page caught that with `console.warn` and had already ticked the box
-  optimistically, so the patient saw a tick and the adherence log stayed empty.
-  Underneath it were two more: the same wallet-vs-`PAT-` comparison (a *third*
-  instance), and `_ => "taken"`, which recorded a dose as swallowed whenever the
-  action was a word the match did not know — an adherence log that says a
-  patient took a medicine they did not take is not a lost record, it is a false
-  one. All three fixed; `logMedicationAdherence` is typed now, so the shape
-  cannot drift again.
 * **No medication reminder could be stored on PostgreSQL at all.**
   `medication_reminders.reminder_type` means *channel* — its CHECK constraint
   allows exactly `push`, `sms`, `email`, `all` — and the conversion wrote
@@ -501,10 +470,11 @@ and closing them turned up five more defects of the same shapes.
   would reasonably take for the real thing. Recorded in the debt register; it
   needs a decision (migrate the handlers, or remove the traits) rather than a
   deletion.
-* **The administrator has no browser coverage.** `bt.admin` is in the server's
-  demo-fixture list and carries no keystore, so `GET /api/auth/demo-credentials`
-  does not offer it and no browser test can sign in as an administrator — 14
-  screens unreachable by the Playwright suites.
+* **The administrator's browser coverage depends on the demo-credentials list.**
+  `bt.admin` is in the server's demo-fixture list; the browser suites sign in with
+  the fixture's own password through the sign-in form, so they reach the
+  administrator's 14 screens whenever the seeder has run. The API-level journey
+  covers the role either way.
 * **39 files still bypassing the typed API client.** Two CI gates now hold the
   correctness floor (headers, and the response being examined); the migration
   itself is recorded in the debt register.

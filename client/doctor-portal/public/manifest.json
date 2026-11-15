@@ -1,7 +1,7 @@
 {
   "name": "MediChain Doctor Portal",
   "short_name": "MediChain",
-  "description": "Blockchain-based Medical Records System",
+  "description": "Medical Records System",
   "start_url": "./",
   "display": "standalone",
   "orientation": "portrait-primary",

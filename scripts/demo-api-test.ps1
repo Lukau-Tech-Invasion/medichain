@@ -26,17 +26,25 @@ function Write-TestResult {
     }
 }
 
+# Accounts: the seeded fixtures (scripts/seed-browser-test-fixtures.ts), signed in
+# through POST /api/auth/login. A call runs as `$DoctorSession` unless it names
+# another session; there is no identity header.
+. "$PSScriptRoot/lib/MediChainAuth.ps1"
+$DoctorSession = Connect-FixtureRole -ApiBase $BaseUrl -Role Doctor
+$NurseSession = Connect-FixtureRole -ApiBase $BaseUrl -Role Nurse
+$AdminSession = Connect-FixtureRole -ApiBase $BaseUrl -Role Admin
+
 function Invoke-ApiCall {
     param(
         [string]$Method,
         [string]$Endpoint,
         [object]$Body = $null,
-        [string]$UserId = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+        [hashtable]$Session = $DoctorSession
     )
-    
+
     $headers = @{
         "Content-Type" = "application/json"
-        "X-User-Id" = $UserId
+        "Authorization" = "Bearer $($Session.Token)"
     }
     
     $uri = "$BaseUrl$Endpoint"
@@ -487,7 +495,7 @@ Write-Host "--- Messaging System ---" -ForegroundColor Yellow
 
 # Send message from doctor to patient
 $messageData = @{
-    recipient_id = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+    recipient_id = $NurseSession.UserId
     subject = "Follow-up Appointment Reminder"
     content = "Dear John, This is a reminder about your follow-up appointment scheduled for next week. Please bring your medication list and any questions you may have. Best regards, Dr. Chen"
     priority = "normal"
@@ -504,7 +512,7 @@ if ($sendMessage.Success -and $sendMessage.Data.message_id) {
 
 # Send urgent message
 $urgentMessageData = @{
-    recipient_id = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
+    recipient_id = $NurseSession.UserId
     subject = "URGENT: Lab Results Require Attention"
     content = "Critical lab values detected. Please contact the cardiology department immediately. Your troponin levels are elevated."
     priority = "urgent"
@@ -603,7 +611,7 @@ $nurseDashboard = Invoke-ApiCall -Method "GET" -Endpoint "/api/dashboard/nurse"
 Write-TestResult -Name "Nurse Dashboard" -Success $nurseDashboard.Success -Details $nurseDashboard.Error
 
 # Admin Dashboard
-$adminDashboard = Invoke-ApiCall -Method "GET" -Endpoint "/api/dashboard/admin" -UserId "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+$adminDashboard = Invoke-ApiCall -Method "GET" -Endpoint "/api/dashboard/admin" -Session $AdminSession
 Write-TestResult -Name "Admin Dashboard" -Success $adminDashboard.Success -Details $adminDashboard.Error
 
 # Lab Dashboard

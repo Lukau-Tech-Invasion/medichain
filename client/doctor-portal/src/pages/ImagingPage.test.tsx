@@ -1,3 +1,4 @@
+import * as shared from '@medichain/shared';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
@@ -20,6 +21,7 @@ vi.mock('@medichain/shared', async importOriginal => {
   const actual = await importOriginal<typeof import('@medichain/shared')>();
   return {
     ...actual,
+  openAccessContext: vi.fn(),
     createRadiologyOrder: vi.fn(),
     getPatients: vi.fn(),
     listRadiologyOrders: vi.fn(),
@@ -28,12 +30,16 @@ vi.mock('@medichain/shared', async importOriginal => {
 
 describe('ImagingPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.openAccessContext).mockResolvedValue({
+      access_context_id: 'CTX-PAGE-QA',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    } as Awaited<ReturnType<typeof shared.openAccessContext>>);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
@@ -90,12 +96,24 @@ describe('ImagingPage', () => {
     const readsBeforeSubmit = vi.mocked(listRadiologyOrders).mock.calls.length;
     await selectPatient(/Patient/i, 'Test Patient');
     fireEvent.change(screen.getByLabelText(/Clinical Indication/i), { target: { value: 'Persistent abdominal pain' } });
+    // Nothing is pre-chosen: it opened as a routine chest X-ray, and an order
+    // nobody finished went out as one.
+    fireEvent.click(screen.getByRole('button', { name: /Submit Imaging Order/i }));
+    expect(createRadiologyOrder).not.toHaveBeenCalled();
+    fireEvent.change(document.getElementById('imaging-modality')!, { target: { value: 'ct' } });
+    fireEvent.change(document.getElementById('imaging-body-part')!, { target: { value: 'Abdomen' } });
+    fireEvent.click(document.querySelector('#imaging-laterality input[value="na"]')!);
+    fireEvent.click(document.querySelector('#imaging-priority input[value="urgent"]')!);
     fireEvent.click(screen.getByRole('button', { name: /Submit Imaging Order/i }));
 
     await waitFor(() => expect(createRadiologyOrder).toHaveBeenCalledWith(expect.objectContaining({
       patient_id: 'PAT-001',
       indication: 'Persistent abdominal pain',
-      ordering_provider: mockUser.walletAddress,
+      ordering_provider: mockUser.userId,
+      study_type: 'CT',
+      body_part: 'Abdomen',
+      laterality: 'NA',
+      priority: 'Urgent',
     })));
     expect(vi.mocked(listRadiologyOrders).mock.calls.length).toBeGreaterThan(readsBeforeSubmit);
   });

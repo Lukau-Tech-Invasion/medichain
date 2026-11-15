@@ -1,59 +1,19 @@
-# Developer Auth & Demo Seed Guidance
+# Developer authentication and demo fixtures
 
-This document explains how the API authenticates clients during development, how demo data is seeded, and safe steps to enable demo endpoints for local testing.
+MediChain uses account IDs internally and a login ID with a password proof for
+sign-in. Patients receive a one-time activation code at registration; staff
+receive one from an administrator. Redeem the code at
+`POST /api/auth/credentials/redeem` to choose a password, then sign in at
+`POST /api/auth/login`. If the account has TOTP enabled, include the code.
 
-## Wallet-based auth (X-User-Id)
+Send the access token as `Authorization: Bearer <access-token>` on protected
+requests. The API binds the token to a durable, revocable login session.
 
-- MediChain authenticates with Substrate-style SS58 wallet addresses.
-- The API expects callers to set `X-User-Id` header to a wallet address (48-char Substrate address starting with `5`).
+For synthetic browser fixtures, use the repository's
+`scripts/seed-browser-test-fixtures.ts` with an isolated development database.
+`GET /api/auth/demo-credentials` is available only when both
+`MEDICHAIN_DEV_MODE=true` and `IS_DEMO=true`; it returns only the named fixture
+accounts. It is not an account-creation or authentication bypass.
 
-Example request header:
-
-```
-X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
-```
-
-Notes:
-- Do not expose real production wallet keys during development; use demo or generated addresses.
-- The API uses the header to look up the user and enforce RBAC. Many endpoints also honor `X-Provider-Role` and `X-Health-Id` when applicable.
-
-## Demo endpoints & seeding
-
-Files and locations:
-- Demo users JSON: `api/data/demo_users.json`
-- Seed logic: `api/src/services/user_service.rs` (function `seed_demo_users`)
-- Demo endpoints: `/api/demo`, `/api/auth/demo-login` (used by client auth stores)
-
-By default, demo endpoints are only intended for development. To enable and seed demo data locally:
-
-1. Ensure you are on a development environment and not pointed at production databases.
-2. Set a local Postgres `DATABASE_URL` pointing to a dev DB.
-3. Start the API with demo seed enabled (example pattern used in repo):
-
-PowerShell example:
-
-```powershell
-# From repo root
-# Ensure you have a local Postgres and DATABASE_URL set
-$env:DATABASE_URL = "postgres://medichain_dev:password@localhost:5432/medichain_dev"
-# Run API which will seed demo users if configured
-cd api
-cargo run
-```
-
-If the project exposes an explicit feature or env var to gate demo endpoints (e.g., `ENABLE_DEMO_ENDPOINTS`), prefer toggling that rather than altering code.
-
-## Safe workflow suggestions
-
-- Create a disposable local DB (docker/postgres) before seeding demo data.
-- Seed only in development branch or with an explicit branch/flag.
-- If you need CI-level demo seeds, ensure the pipeline uses ephemeral DB instances and secrets are not stored in repo.
-
-## Quick checks
-
-- Confirm demo wallets exist in `api/data/demo_users.json` and match `seed_demo_users` in `api/src/services/user_service.rs`.
-- Use `GET /api/demo` after starting the API to verify demo endpoints are available.
-
----
-
-If you want, I can now draft the PR with these doc changes and include the `docs/frontend-backend-mapping.csv` as an artifact. Would you like me to open that PR?
+Never point fixture scripts at a production database. Verify the normal login,
+patient access, and logout flow with an isolated database before using the demo.

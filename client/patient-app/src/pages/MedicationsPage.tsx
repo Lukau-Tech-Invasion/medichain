@@ -1,16 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
+  getPatient,
   getPatientEPrescriptions,
   getPatientPharmacyDecisions,
   getPatientReminders,
   getPatientAdherence,
+  getPatientRefillRequests,
   logMedicationAdherence,
   useTranslation,
   formatTimestamp,
 } from '@medichain/shared';
-import type { PharmacyDecision } from '@medichain/shared';
+import type { PharmacyDecision, RefillRequest, MedicationReminder as StoredReminder } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { RefillRequestPanel, type RefillLoadState } from '../components/RefillRequestPanel';
 import {
   Pill,
   Clock,
@@ -24,6 +27,8 @@ import {
   WifiOff,
   RefreshCw,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
+import { MedicineReminders, reminderMatches, type DoseToday } from '../components/MedicineReminders';
 
 interface Medication {
   id: string;
@@ -61,23 +66,74 @@ interface MedicationReminder {
  * - Track doses taken
  * - Refill requests
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
-/** A prescription row, in either of the two casings it is stored under. */
+/**
+ * A prescription as `GET /api/e-prescriptions/patient/{id}` returns it: the
+ * medicine is NESTED under `medication`. The page used to read only flat
+ * `medication_name`/`name`, found neither, and dropped every prescription, so
+ * a patient's medicines list was empty whatever had been prescribed. The flat
+ * fields stay as a fallback for older rows.
+ */
 interface RawPrescription {
   prescription_id?: string; medication_id?: string;
+  medication?: {
+    name?: string;
+    strength?: string;
+    form?: string;
+    directions?: string;
+  };
   medication_name?: string; name?: string;
   dosage?: string;
   frequency?: string;
   prescriber_name?: string; prescribed_by?: string;
   prescribed_date?: string; start_date?: string;
+  /** Unix seconds. */
+  signed_at?: number | null;
+  /** Unix seconds. */
+  created_at?: number;
   end_date?: string;
   refills_remaining?: number;
   instructions?: string;
+  patient_instructions?: string;
   side_effects?: string[];
   interactions?: string[];
-  status?: Medication['status'];
+  status?: string;
 }
+
+/**
+ * The server's prescription status as the patient reads it. A signed or
+ * dispensed prescription is one they are on; one that was never issued
+ * (`Draft`, `Error`) has no status to show rather than a guessed one.
+ */
+function patientFacingStatus(status: string | undefined): string | undefined {
+  switch (status) {
+    case 'Pending':
+    case 'Signed':
+    case 'Transmitted':
+    case 'Received':
+    case 'InProgress':
+    case 'Dispensed':
+    case 'PartialFill':
+      return 'active';
+    case 'Cancelled':
+      return 'cancelled';
+    case 'Expired':
+      return 'expired';
+    case 'Draft':
+    case 'Error':
+    case undefined:
+    case '':
+      return undefined;
+    default:
+      return status;
+  }
+}
+
+const isoDate = (seconds: number | null | undefined): string =>
+  typeof seconds === 'number' && Number.isFinite(seconds)
+    ? new Date(seconds * 1000).toISOString().slice(0, 10)
+    : '';
 
 /**
  * Maps a persisted prescription without inventing clinical directions when a
@@ -85,23 +141,46 @@ interface RawPrescription {
  */
 export function mapPrescription(m: RawPrescription): Medication | null {
   const id = m.prescription_id || m.medication_id;
-  const name = m.medication_name || m.name;
+  const name = m.medication?.name || m.medication_name || m.name;
   if (!id || !name) return null;
+
+  const strength = m.medication?.strength;
+  const dosage = strength
+    ? [strength, m.medication?.form].filter(Boolean).join(' ')
+    : m.dosage ?? '';
+  const instructions = m.medication?.directions
+    ? [m.medication.directions, m.patient_instructions].filter(Boolean).join(' — ')
+    : m.instructions ?? '';
 
   return {
     id,
     name,
-    dosage: m.dosage ?? '',
+    dosage,
+    // A prescription carries its frequency inside the directions; nothing is
+    // parsed out of them here.
     frequency: m.frequency ?? '',
     prescribedBy: m.prescriber_name || m.prescribed_by || '',
-    startDate: m.prescribed_date || m.start_date || '',
+    startDate: m.prescribed_date || m.start_date || isoDate(m.signed_at ?? m.created_at),
     endDate: m.end_date,
     refillsRemaining: m.refills_remaining ?? 0,
-    instructions: m.instructions ?? '',
+    instructions,
     sideEffects: m.side_effects ?? [],
     interactions: m.interactions ?? [],
-    status: m.status || undefined,
+    status: patientFacingStatus(m.status),
   };
+}
+
+/**
+ * Medicines recorded on the patient's profile (`emergency_info.current_medications`)
+ * that no prescription in the list already names. The profile is where a
+ * clinician records what the patient takes, prescribed here or not, so a page
+ * that read prescriptions alone told a patient on two medicines that they had none.
+ */
+export function profileOnlyMedicines(profile: string[], prescribed: Medication[]): string[] {
+  const names = prescribed.map((m) => m.name.toLowerCase());
+  return profile
+    .map((entry) => entry.trim())
+    .filter((entry) => entry && !names.some((name) => entry.toLowerCase().includes(name)));
 }
 
 export function MedicationsPage() {
@@ -112,11 +191,18 @@ export function MedicationsPage() {
     ({ active: t('medications.statusActive'), completed: t('medications.statusCompleted'), paused: t('medications.statusPaused') }[s] ||
       s.charAt(0).toUpperCase() + s.slice(1));
   const [medications, setMedications] = useState<Medication[]>([]);
+  const [profileMedicines, setProfileMedicines] = useState<string[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
+  // The reminders as stored, so each medicine can show and stop its own.
+  const [storedReminders, setStoredReminders] = useState<StoredReminder[]>([]);
   // A pharmacist's decision about this patient's medicine -- why something
   // they were prescribed did not arrive. Recorded on the pharmacy side and,
   // until this, readable only by clinical staff.
   const [pharmacyNotes, setPharmacyNotes] = useState<PharmacyDecision[]>([]);
+  // Refill requests load on their own: if they fail, the medicines list still
+  // shows, and each card says the refill status could not be read.
+  const [refillRequests, setRefillRequests] = useState<RefillRequest[]>([]);
+  const [refillLoad, setRefillLoad] = useState<RefillLoadState>('loading');
   const [loading, setLoading] = useState(true);
   // Said out loud when a dose could not be recorded. Silence plus a tick is the
   // worst of both: the patient believes the record exists and it does not.
@@ -131,32 +217,12 @@ export function MedicationsPage() {
     }
   }, [isAuthenticated, patient, navigate]);
 
-  const loadMedications = useCallback(async () => {
-    if (!patient) return;
-    
-    setLoading(true);
-    try {
-      const patientId = patient.healthId;
-
-      // Fetch prescriptions from correct endpoint
-      const [prescData, remindersData, adherenceData] = await Promise.all([
-        getPatientEPrescriptions(patientId),
-        getPatientReminders(patientId),
-        getPatientAdherence(patientId),
-      ]);
-
-      setApiConnected(true);
-      getPatientPharmacyDecisions(patientId)
-        .then((body) => setPharmacyNotes(body.decisions ?? []))
-        .catch(() => setPharmacyNotes([]));
-
-      const meds = (((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions ||
-        (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []) as RawPrescription[])
-        .map(mapPrescription)
-        .filter((medication): medication is Medication => medication !== null);
-
-      setMedications(meds);
-        
+  /** Today's doses from the stored reminders, ticked from today's adherence log. */
+  const applyReminders = useCallback((
+    remindersData: Awaited<ReturnType<typeof getPatientReminders>>,
+    adherenceData: Awaited<ReturnType<typeof getPatientAdherence>>,
+  ) => {
+    setStoredReminders(remindersData.reminders ?? []);
         const today = new Date().toISOString().slice(0, 10);
         const dosesTakenToday = new Map(
           (adherenceData.logs ?? [])
@@ -184,6 +250,62 @@ export function MedicationsPage() {
           })
         );
       setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
+  }, []);
+
+  /** Reload reminders alone: adding or stopping one must not blank the page. */
+  const reloadReminders = useCallback(async () => {
+    if (!patient) return;
+    const [remindersData, adherenceData] = await Promise.all([
+      getPatientReminders(patient.healthId),
+      getPatientAdherence(patient.healthId),
+    ]);
+    applyReminders(remindersData, adherenceData);
+  }, [patient, applyReminders]);
+
+  const loadMedications = useCallback(async () => {
+    if (!patient) return;
+    
+    setLoading(true);
+    try {
+      const patientId = patient.healthId;
+
+      // Fetch prescriptions from correct endpoint
+      const [prescData, remindersData, adherenceData] = await Promise.all([
+        getPatientEPrescriptions(patientId),
+        getPatientReminders(patientId),
+        getPatientAdherence(patientId),
+      ]);
+
+      setApiConnected(true);
+      setRefillLoad('loading');
+      getPatientRefillRequests(patientId)
+        .then((body) => {
+          setRefillRequests(body.requests ?? []);
+          setRefillLoad('ready');
+        })
+        .catch((err: unknown) => {
+          console.error('Refill requests could not be loaded:', err);
+          setRefillLoad('error');
+        });
+      getPatientPharmacyDecisions(patientId)
+        .then((body) => setPharmacyNotes(body.decisions ?? []))
+        .catch(() => setPharmacyNotes([]));
+
+      const meds = (((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions ||
+        (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []) as RawPrescription[])
+        .map(mapPrescription)
+        .filter((medication): medication is Medication => medication !== null);
+
+      setMedications(meds);
+      // The profile read is separate: if it fails, prescriptions still show.
+      getPatient(patientId)
+        .then((data) => setProfileMedicines(profileOnlyMedicines(data.emergency_info?.current_medications ?? [], meds)))
+        .catch((err: unknown) => {
+          console.error('Profile medicines could not be loaded:', err);
+          setProfileMedicines([]);
+        });
+        
+      applyReminders(remindersData, adherenceData);
     } catch (error) {
       console.error('Error loading medications:', error);
       setApiConnected(false);
@@ -191,7 +313,7 @@ export function MedicationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [patient]);
+  }, [patient, applyReminders]);
 
   useEffect(() => {
     if (patient) {
@@ -199,8 +321,12 @@ export function MedicationsPage() {
     }
   }, [patient, loadMedications]);
 
-  const markAsTaken = async (reminderId: string) => {
+  const markAsTaken = async (doseId: string) => {
     if (!patient) return;
+    // A dose's id is `<reminder_id>:<time>`; the endpoint wants the reminder's
+    // own id. Sending the per-time key named a reminder that does not exist.
+    const reminderId = reminders.find((r) => r.id === doseId)?.medicationId;
+    if (!reminderId) return;
 
     try {
       // `{ reminder_id, action }` is what the endpoint reads. This used to send
@@ -220,12 +346,38 @@ export function MedicationsPage() {
     // dose" and "we drew a tick".
     const takenAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     setReminders(prev => prev.map(r =>
-      r.id === reminderId
+      r.id === doseId
         ? { ...r, taken: true, takenAt }
         : r
     ));
     setAdherenceError('');
   };
+
+  /** Put the server's copy of a refill request first, replacing any older copy. */
+  const upsertRefillRequest = (request: RefillRequest) => {
+    setRefillRequests((prev) => [request, ...prev.filter((existing) => existing.id !== request.id)]);
+  };
+
+  const dosesOf = (matched: StoredReminder[]): DoseToday[] => reminders
+    .filter((dose) => matched.some((m) => m.reminder_id === dose.medicationId))
+    .map((dose) => ({ id: dose.id, reminderId: dose.medicationId, scheduledTime: dose.scheduledTime, taken: dose.taken, takenAt: dose.takenAt }));
+  const remindersFor = (name: string) => storedReminders.filter((r) => reminderMatches(r.medication_name, name));
+  const medicineNames = [...medications.map((m) => m.name), ...profileMedicines];
+  // Reminders for no listed medicine are shown on their own, grouped by name.
+  const otherReminderNames = [...new Set(storedReminders
+    .filter((r) => !medicineNames.some((name) => reminderMatches(r.medication_name, name)))
+    .map((r) => r.medication_name))];
+  const remindersBlock = (name: string, dosage?: string, matched = remindersFor(name)) => patient && (
+    <MedicineReminders
+      medicine={name}
+      dosage={dosage}
+      reminders={matched}
+      doses={dosesOf(matched)}
+      patientId={patient.healthId}
+      onChanged={reloadReminders}
+      onTaken={(dose) => void markAsTaken(dose.id)}
+    />
+  );
 
   const pendingReminders = reminders.filter(r => !r.taken);
   const completedReminders = reminders.filter(r => r.taken);
@@ -243,7 +395,7 @@ export function MedicationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('medications.pageTitle')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('medications.pageTitle')}</PageTitle>
           <p className="text-content-muted">{t('medications.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -453,15 +605,53 @@ export function MedicationsPage() {
                 </div>
               )}
 
-              {med.refillsRemaining <= 1 && (
-                <p className="mt-3 text-sm text-caution-subtle-fg">
-                  {t('medications.refillRequestUnavailable')}
-                </p>
-              )}
+              <RefillRequestPanel
+                prescriptionId={med.id}
+                refillsRemaining={med.refillsRemaining}
+                isActive={med.status === 'active'}
+                latest={refillRequests.find((request) => request.prescription_id === med.id)}
+                loadState={refillLoad}
+                onChanged={upsertRefillRequest}
+              />
+
+              {remindersBlock(med.name, med.dosage)}
             </div>
           ))}
 
-          {medications.length === 0 && (
+          {profileMedicines.length > 0 && (
+            <section className="patient-card" data-testid="profile-medicines">
+              <h3 className="font-semibold text-content">{t('medications.profileHeading')}</h3>
+              <p className="text-sm text-content-muted mb-3">{t('medications.profileNote')}</p>
+              <ul className="space-y-2">
+                {profileMedicines.map((entry) => (
+                  <li key={entry}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-brand-subtle rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Pill className="w-5 h-5 text-brand" />
+                      </div>
+                      <span className="text-sm font-medium text-content">{entry}</span>
+                    </div>
+                    {remindersBlock(entry)}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {otherReminderNames.length > 0 && (
+            <section className="patient-card" data-testid="other-reminders">
+              <h3 className="font-semibold text-content">{t('medications.otherReminders')}</h3>
+              <p className="text-sm text-content-muted">{t('medications.otherRemindersNote')}</p>
+              {otherReminderNames.map((name) => (
+                <div key={name} className="mt-3">
+                  <p className="text-sm font-medium text-content">{name}</p>
+                  {remindersBlock(name, undefined, storedReminders.filter((r) => r.medication_name === name))}
+                </div>
+              ))}
+            </section>
+          )}
+
+          {medications.length === 0 && profileMedicines.length === 0 && (
             <div className="text-center py-12">
               <Pill className="w-12 h-12 text-content-muted mx-auto mb-3" />
               <p className="text-content-muted">{t('medications.noneActive')}</p>

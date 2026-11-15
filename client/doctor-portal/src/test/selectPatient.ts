@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 /**
  * Choose a patient through the searchable picker.
@@ -29,6 +29,22 @@ export async function selectPatient(
     screen.getByRole('button', { name: new RegExp(fullName, 'i') })
   );
   fireEvent.click(option);
+
+  // WP10: the first time a patient is picked in a tab, the clinician says why
+  // and the server opens an access context. Answer the way a clinician does.
+  // The calling test's fetch mock answers the access-context POST.
+  // The picker may itself sit in a page's dialog, so find the reason prompt by
+  // what it asks rather than by being the only dialog.
+  // The innermost match: the prompt renders inside the picker, so an enclosing
+  // dialog contains its buttons too.
+  const reasonDialog = screen
+    .queryAllByRole('dialog')
+    .filter((dialog) => within(dialog).queryByRole('button', { name: 'Treatment' }))
+    .pop();
+  if (reasonDialog) {
+    fireEvent.click(within(reasonDialog).getByRole('button', { name: 'Treatment' }));
+    await waitFor(() => expect(reasonDialog).not.toBeInTheDocument());
+  }
 
   // `getAllBy`: a page may echo the chosen patient's name elsewhere (the AMA
   // form shows it under the picker), and one match is enough to prove the

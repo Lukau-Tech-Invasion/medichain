@@ -41,7 +41,7 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
     async fn create_with_audit(
         &self,
         relationship: GuardianRelationshipEntity,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         self.create(relationship).await
     }
@@ -62,14 +62,14 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
 
     async fn get_by_guardian(
         &self,
-        guardian_wallet: &str,
+        guardian_user_id: &str,
     ) -> RepositoryResult<Vec<GuardianRelationshipEntity>> {
         let relationships = self.relationships.read().map_err(|_| {
             RepositoryError::Internal("guardian relationship store poisoned".into())
         })?;
         Ok(relationships
             .values()
-            .filter(|r| r.guardian_wallet == guardian_wallet)
+            .filter(|r| r.guardian_user_id == guardian_user_id)
             .cloned()
             .collect())
     }
@@ -103,7 +103,7 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         id: &str,
         permissions: Vec<String>,
         expires_at: Option<chrono::DateTime<Utc>>,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
         self.update_permissions(id, permissions, expires_at).await
     }
@@ -125,7 +125,7 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         &self,
         id: &str,
         reason: Option<String>,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<()> {
         self.revoke(id, reason).await
     }
@@ -140,11 +140,11 @@ mod tests {
     fn new_relationship(permissions: Vec<&str>) -> GuardianRelationshipEntity {
         GuardianRelationshipEntity {
             id: Uuid::new_v4().to_string(),
-            guardian_wallet: "guardian_wallet".into(),
+            guardian_user_id: "guardian_user_id".into(),
             ward_patient_id: "ward_patient_id".into(),
             relationship_type: "parent_or_guardian".into(),
             permissions: permissions.into_iter().map(String::from).collect(),
-            verified_by: "admin_wallet".into(),
+            verified_by: "admin_user".into(),
             verified_at: Utc::now(),
             active: true,
             expires_at: None,
@@ -232,7 +232,7 @@ mod tests {
         other_ward.ward_patient_id = "another_ward".into();
         repo.create(other_ward).await.unwrap();
 
-        let children = repo.get_by_guardian("guardian_wallet").await.unwrap();
+        let children = repo.get_by_guardian("guardian_user_id").await.unwrap();
         assert_eq!(children.len(), 2);
     }
 }

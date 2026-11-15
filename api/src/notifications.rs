@@ -617,14 +617,14 @@ pub async fn dispatch_breach_notification(
 /// nobody anything. Only an explicit `false` suppresses.
 ///
 /// Keyed by patient id because that is what a dispatcher has; settings are
-/// stored against the wallet, and `linked_patient_id` is the bridge.
+/// stored against the user id, and `linked_patient_id` is the bridge.
 pub async fn patient_wants(data: &crate::AppState, patient_id: &str, keys: &[&str]) -> bool {
-    let Some(wallet) = wallet_for_patient(data, patient_id) else {
+    let Some(user_id) = user_id_for_patient(data, patient_id) else {
         // No account is linked to this record, so there is no one to have
         // expressed a preference. Send.
         return true;
     };
-    let Ok(settings) = crate::handlers::load_settings(data, &wallet).await else {
+    let Ok(settings) = crate::handlers::load_settings(data, &user_id).await else {
         // Storage is unavailable. Failing loud (sending) beats failing silent
         // (not sending): a missed appointment reminder has a cost and a
         // duplicate one does not.
@@ -647,9 +647,9 @@ pub async fn patient_wants(data: &crate::AppState, patient_id: &str, keys: &[&st
 /// a message can reach one, and every dispatcher used to get at least one of
 /// them wrong:
 ///
-///   1. **Namespace.** Device tokens are registered under the caller's wallet
+///   1. **Namespace.** Device tokens are registered under the caller's user id
 ///      address (`register_device` stores `require_registered_caller(..)
-///      .wallet_address`). A dispatcher holds a `PAT-...` record id. Passing
+///      .user_id`). A dispatcher holds a `PAT-...` record id. Passing
 ///      the record id to `send_push_to_user` matches no token, logs
 ///      "No device tokens for user", and returns `Ok(())` -- indistinguishable
 ///      from a delivered message, which is why five dispatchers did it and the
@@ -671,7 +671,7 @@ pub async fn notify_patient(
     body: &str,
     kind: &str,
 ) -> bool {
-    let Some(wallet) = wallet_for_patient(data, patient_id) else {
+    let Some(user_id) = user_id_for_patient(data, patient_id) else {
         // Said out loud rather than dropped. A patient record with no linked
         // account has nobody to notify, and an operator asking "why was this
         // patient not told" needs to be able to find that out.
@@ -683,7 +683,7 @@ pub async fn notify_patient(
         return false;
     }
     let notification = PushNotification {
-        user_id: wallet,
+        user_id,
         title: title.to_string(),
         body: body.to_string(),
         data: Some([("type".to_string(), kind.to_string())].into()),
@@ -695,17 +695,17 @@ pub async fn notify_patient(
     true
 }
 
-/// The wallet address of the account linked to this patient record.
+/// The user id of the account linked to this patient record.
 ///
 /// Reads the authorization cache rather than the database: it is already in
 /// memory, it holds exactly the active accounts, and a dispatcher running every
 /// minute should not open a connection to answer this.
-fn wallet_for_patient(data: &crate::AppState, patient_id: &str) -> Option<String> {
+fn user_id_for_patient(data: &crate::AppState, patient_id: &str) -> Option<String> {
     let users = data.users.read().ok()?;
     users
         .values()
         .find(|user| user.linked_patient_id.as_deref() == Some(patient_id))
-        .map(|user| user.wallet_address.clone())
+        .map(|user| user.id.clone())
 }
 
 pub async fn notify_critical_alert(
@@ -992,10 +992,10 @@ mod preference_tests {
     use crate::{AppState, Role, User};
     use actix_web::web;
 
-    fn state_with_linked_patient(wallet: &str, patient_id: &str) -> web::Data<AppState> {
+    fn state_with_linked_patient(user_id: &str, patient_id: &str) -> web::Data<AppState> {
         let state = AppState::new();
         let user = User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Journey Patient".to_string(),
             role: Role::Patient,
@@ -1014,14 +1014,14 @@ mod preference_tests {
             .users
             .write()
             .unwrap()
-            .insert(wallet.to_string(), user);
+            .insert(user_id.to_string(), user);
         web::Data::new(state)
     }
 
     /// A patient who has never opened the settings screen has not opted out.
     #[actix_rt::test]
     async fn absent_preferences_do_not_suppress() {
-        let data = state_with_linked_patient("5Wallet-A", "PAT-PREF-A");
+        let data = state_with_linked_patient("5User-A", "PAT-PREF-A");
         assert!(patient_wants(&data, "PAT-PREF-A", &["appointmentReminders"]).await);
     }
 
@@ -1029,7 +1029,7 @@ mod preference_tests {
     /// preference, so it must not be treated as an opt-out.
     #[actix_rt::test]
     async fn an_unlinked_patient_record_still_receives() {
-        let data = state_with_linked_patient("5Wallet-B", "PAT-PREF-B");
+        let data = state_with_linked_patient("5User-B", "PAT-PREF-B");
         assert!(patient_wants(&data, "PAT-NOBODY", &["appointmentReminders"]).await);
     }
 
@@ -1037,10 +1037,10 @@ mod preference_tests {
     /// behaviour the settings screen has been promising and nothing delivered.
     #[actix_rt::test]
     async fn an_explicit_opt_out_suppresses() {
-        let data = state_with_linked_patient("5Wallet-C", "PAT-PREF-C");
+        let data = state_with_linked_patient("5User-C", "PAT-PREF-C");
         crate::handlers::persist_settings_for_test(
             &data,
-            "5Wallet-C",
+            "5User-C",
             serde_json::json!({"notifications": {"appointmentReminders": false}}),
         )
         .await;

@@ -12,7 +12,7 @@ use std::future::{ready, Ready};
 
 /// Routes exempt from the encryption-required check: infra probes hit directly
 /// by container orchestration (bypassing the TLS-terminating reverse proxy) and
-/// the pre-auth challenge endpoint, mirroring `signature_auth::BYPASS_ROUTES`.
+/// public metadata. Authentication endpoints still require HTTPS.
 ///
 /// Deliberately a small deny-list rather than an allow-list of "sensitive"
 /// prefixes: an allow-list silently stops covering new clinical routes unless
@@ -27,7 +27,6 @@ const HTTP_EXEMPT_ROUTES: &[&str] = &[
     "/api/health",
     "/api/metrics",
     "/api/version",
-    "/api/auth/challenge",
     "/api/fhir/r4/metadata",
 ];
 

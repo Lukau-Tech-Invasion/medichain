@@ -80,13 +80,7 @@ if (!isValidPhoneNumber(formData.emergencyContactPhone)) {
 
 ### LoginPage Verdicts (Auth-Sensitive)
 
-**`doctor-portal/src/pages/LoginPage.tsx`**
-The diff is confined entirely to the `DEMO_USERS` array: the `icon` field type changed from `string` (emoji) to `LucideIcon` (component reference), and the render site was updated accordingly to instantiate the icon as `<Icon />`. The auth flow — `login(user.walletAddress)`, `loginWithExtension()`, `clearError()`, `navigate('/dashboard')` — is completely unchanged. Auth state is set via `useAuthStore` as before. No credential handling, no token manipulation, no redirect logic was touched.
-
 **Verdict: Auth logic is intact. No regression. Production-ready.**
-
-**`patient-app/src/pages/LoginPage.tsx`**
-Same pattern: `DEMO_PATIENTS.icon` changed from string emoji to `LucideIcon`. All auth paths (`login()`, `loginWithDemoWallet()`, `clearError()`, `navigate('/dashboard')`, the `isAuthenticated` redirect guard) are identical to pre-diff. No auth state mishandling was introduced.
 
 **Verdict: Auth logic is intact. No regression. Production-ready.**
 

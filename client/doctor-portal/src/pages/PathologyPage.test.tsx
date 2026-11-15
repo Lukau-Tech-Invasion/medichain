@@ -43,7 +43,7 @@ const SPECIMEN = {
 
 describe('PathologyPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Pathologist',
   };
 
@@ -64,6 +64,16 @@ describe('PathologyPage', () => {
     expect(screen.getByText(/Surgical Pathology & Cytology/i)).toBeInTheDocument();
   });
 
+  it('labels an unrecorded collection time without inventing midnight', async () => {
+    vi.mocked(shared.listPathology).mockResolvedValue({ success: true, total: 1,
+      items: [{ ...SPECIMEN, collectionTime: '' }] });
+    render(<PathologyPage />);
+    await waitFor(() => expect(screen.getByText('Not recorded')).toBeInTheDocument());
+    expect(screen.queryByText('00:00')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /View\/Report/i }));
+    expect(screen.getByText('2026-08-11 Not recorded')).toBeInTheDocument();
+  });
+
   // The report view belongs to a selected specimen; the page opens on the
   // worklist, so these tests open the seeded specimen's report first.
   const openReport = async () => {
@@ -80,6 +90,21 @@ describe('PathologyPage', () => {
     expect(screen.getAllByText(/Specimen Information/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Gross Examination/i)).toBeInTheDocument();
     expect(screen.getByText(/Microscopic Examination/i)).toBeInTheDocument();
+  });
+
+  it('keeps finalized observations and save actions read-only while allowing return to worklist', async () => {
+    vi.mocked(shared.listPathology).mockResolvedValue({ success: true, total: 1,
+      items: [{ ...SPECIMEN, status: 'final' }] });
+    render(<PathologyPage />);
+    await openReport();
+    expect(screen.getByText('This report is finalized and cannot be edited.')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Gross Examination/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Add Tissue Blocks/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Save Preliminary/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Finalize Report/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+    expect(screen.getByRole('textbox', { name: /^Search$/i })).toBeInTheDocument();
+    expect(shared.updatePathologyReport).not.toHaveBeenCalled();
   });
 
   it('allows entering gross description', async () => {

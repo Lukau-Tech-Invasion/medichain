@@ -1,0 +1,115 @@
+/* ---------------------------------------------------------------------------
+ * Motion — tokens and the only animations the product uses.
+ *
+ * Rules (docs/FRONTEND_WORKFLOW_AND_MOTION_PLAN.md §4; library
+ * frontend-motion-and-animation.md §§1–6, 9):
+ *   - motion only for continuity, feedback or a change of state;
+ *   - animate transform and opacity only (everything else reflows the page);
+ *   - frequent actions get ≤ 150 ms or nothing;
+ *   - prefers-reduced-motion SUBSTITUTES a short fade, never just deletes:
+ *     WCAG 2.3.3 does not count opacity changes as motion;
+ *   - nothing flashes, nothing moves on its own for more than 5 s.
+ *
+ * Values: Material 3 "standard" easing and duration tokens
+ * (frontend-material-design-and-android.md §7).
+ * ------------------------------------------------------------------------ */
+:root {
+  --motion-press: 100ms;
+  --motion-short: 150ms;
+  --motion-medium: 250ms;
+  --motion-long: 350ms;
+  --motion-exit: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 1, 1);
+}
+
+@keyframes mc-enter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mc-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mc-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mc-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes mc-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mc-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Something new arrived in a list ("This visit", an incoming ambulance). */
+.mc-enter { animation: mc-enter var(--motion-medium) var(--ease-enter) both; }
+/* An alert or summary that appears once and then stays still. */
+.mc-rise { animation: mc-rise var(--motion-exit) var(--ease-enter) both; }
+/* A row arriving from the side (live boards). */
+.mc-slide-in { animation: mc-slide-in var(--motion-medium) var(--ease-enter) both; }
+/* A bottom sheet. */
+.mc-sheet { animation: mc-sheet-up var(--motion-medium) var(--ease-enter) both; }
+/* A tick confirming a save. */
+.mc-pop { animation: mc-pop var(--motion-short) var(--ease-enter) both; }
+/* Press feedback on very frequent controls. */
+.mc-press { transition: transform var(--motion-press) var(--ease-standard); }
+.mc-press:active { transform: scale(0.98); }
+
+/* Shared-element continuity for the open patient (View Transitions). */
+.mc-patient-identity { view-transition-name: patient-identity; }
+::view-transition-group(patient-identity) {
+  animation-duration: var(--motion-long);
+  animation-timing-function: var(--ease-standard);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-medium);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-enter, .mc-rise, .mc-slide-in, .mc-sheet, .mc-pop {
+    animation: mc-fade var(--motion-short) linear both;
+  }
+  .mc-press, .mc-press:active { transition: none; transform: none; }
+  /* Nothing moves: the identity does not glide, the page cross-fades. */
+  ::view-transition-group(*) { animation: none !important; }
+  ::view-transition-old(*) { animation: mc-fade var(--motion-short) linear reverse both !important; }
+  ::view-transition-new(*) { animation: mc-fade var(--motion-short) linear both !important; }
+}
+
+/* --------------------------------------------------------------------------
+ * Every other animation in the apps (about 170 Tailwind `animate-*` and
+ * `transition` uses written before this file) also honours reduced motion:
+ * it runs once and near-instantly instead of looping or sliding. A spinner
+ * becomes a still icon beside its "Loading" text. The mc-* classes above are
+ * excluded because they already substitute a fade.
+ * ------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.mc-enter):not(.mc-rise):not(.mc-slide-in):not(.mc-sheet):not(.mc-pop),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto !important; }
+}
+
+/* --------------------------------------------------------------------------
+ * Focus and scrolling land where they can be seen. Moving focus to the first
+ * invalid field, or following a `#section` link, scrolls the element to the
+ * top edge — underneath the sticky app header and patient banner. The margin
+ * keeps it below them (WCAG 2.4.11 Focus Not Obscured).
+ * ------------------------------------------------------------------------ */
+:where(input, select, textarea, button, a, [id], [tabindex]) {
+  scroll-margin-top: 9rem;
+  scroll-margin-bottom: 6rem;
+}

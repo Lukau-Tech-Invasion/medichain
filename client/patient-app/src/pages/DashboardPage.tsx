@@ -1,404 +1,239 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getAccessLogs, getPatient, useTranslation, formatTimestamp } from '@medichain/shared';
+import type { AccessLogEntry } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
-import {
-  Heart,
-  FileText,
-  Shield,
-  QrCode,
-  Clock,
-  AlertTriangle,
-  ChevronRight,
-  Activity,
-  Bell,
-  Droplets,
-  Pill,
-  Wifi,
-  WifiOff,
-  LogOut,
-} from 'lucide-react';
+import { AlertTriangle, ChevronRight, Droplets, Eye, QrCode } from 'lucide-react';
+import { HomeToday } from '../components/HomeToday';
+import { groupAccessSessions, type AccessKind } from './accessHistoryGrouping';
 
 interface PatientData {
-  patientId: string;
-  name: string;
-  healthId: string;
-  bloodType: string;
+  bloodType: string | null;
   allergies: string[];
-  medications: string[];
-  conditions: string[];
-  lastVisit: string;
-  upcomingAppointments: number;
-  unreadMessages: number;
 }
 
-interface RecentActivity {
-  id: string;
-  type: 'access' | 'update' | 'consent';
-  description: string;
-  timestamp: string;
-  accessor?: string;
+/** Everything one person did in the record lately, as one line. */
+export interface AccessGroup {
+  key: string;
+  who: string;
+  /** The parts of the record, in plain words, most recent first. */
+  what: string;
+  kinds: AccessKind[];
+  /** Separate visits (access-history sessions), not rows. */
+  count: number;
+  first: string;
+  last: string;
+}
+
+const BLOOD_TYPES: Record<string, string> = {
+  APositive: 'A+', ANegative: 'A-', BPositive: 'B+', BNegative: 'B-',
+  ABPositive: 'AB+', ABNegative: 'AB-', OPositive: 'O+', ONegative: 'O-',
+};
+
+/** The blood group as a patient writes it, or null when it was never recorded. */
+export function formatBloodType(bt: string | undefined | null): string | null {
+  if (!bt || bt === 'Unknown') return null;
+  return BLOOD_TYPES[bt] ?? bt;
 }
 
 /**
- * Patient Dashboard Page
- * 
- * Main hub for patients to:
- * - View health summary
- * - Quick access to emergency card
- * - See recent activity
- * - Navigate to key features
- * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * The server's internal names for parts of a record, as a patient would say
+ * them. Anything not listed is still shown -- in words, never dropped: every
+ * access stays visible to the person it is about (Security Engineering 3e,
+ * ch. 10, p. 15, "Consent and notification", "Attribution").
+ */
+const PLAIN_RESOURCE: Record<string, string> = {
+  ems_run: 'ambulance record',
+  offline_summary: 'summary, saved for use without signal',
+  emergency_info: 'emergency information',
+  emergency_record: 'emergency record',
+  patient_record: 'record',
+  patient_chart: 'chart',
+  medical_document: 'documents',
+  handoff_draft: 'handover notes',
+  triage: 'triage assessment',
+  telehealth_session: 'video visit',
+  gcs: 'coma scale assessment',
+  research_export: 'research export',
+};
+
+/** A stored category in words: `medical_document` reads "documents". */
+export function plainResource(resource: string): string {
+  const known = PLAIN_RESOURCE[resource];
+  if (known) return known;
+  if (!resource.includes('_')) return resource.toLowerCase();
+  return resource.replace(/_/g, ' ').toLowerCase();
+}
+
+/** "a, b and 2 more" -- the list stays one line on a phone. */
+function shortList(items: string[]): string {
+  if (items.length <= 2) return items.join(' and ');
+  return `${items.slice(0, 2).join(', ')} and ${items.length - 2} more`;
+}
+
+/**
+ * Who has looked at the record lately: one line per person, at most `limit`
+ * people, newest first. Sessions are the access history's own
+ * (`groupAccessSessions`), so Home and the full history agree on what one visit
+ * is. A nurse who opened the ambulance record, the emergency information and the
+ * handover notes is one line, not three -- and each of those visits is still
+ * listed, separately, behind the line in the full history. The patient's own
+ * reads are not news to them and are left out.
+ */
+export function groupAccess(logs: AccessLogEntry[], selfId: string | undefined, limit: number): AccessGroup[] {
+  const byPerson = new Map<string, AccessGroup & { parts: string[] }>();
+  for (const s of groupAccessSessions(logs)) {
+    if (s.accessorId === selfId) continue;
+    let g = byPerson.get(s.accessorId);
+    if (!g) {
+      if (byPerson.size === limit) continue;
+      g = { key: s.accessorId, who: s.accessorName, what: '', kinds: [], parts: [], count: 0, first: s.startedAt, last: s.endedAt };
+      byPerson.set(s.accessorId, g);
+    }
+    g.count += 1;
+    g.first = s.startedAt;
+    if (!g.kinds.includes(s.kind)) g.kinds.push(s.kind);
+    for (const r of s.resources.map(plainResource)) if (!g.parts.includes(r)) g.parts.push(r);
+  }
+  return [...byPerson.values()].map(({ parts, ...g }) => ({ ...g, what: shortList(parts) }));
+}
+
+/**
+ * Home (mockup p1): the emergency card first, then what is due today, then
+ * who has recently looked at the record.
+ *
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function DashboardPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { patient, isAuthenticated, logout } = usePatientAuthStore();
+  const { patient, isAuthenticated } = usePatientAuthStore();
   const [patientData, setPatientData] = useState<PatientData | null>(null);
-  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
+  const [profileFailed, setProfileFailed] = useState(false);
+  const [access, setAccess] = useState<AccessGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [apiConnected, setApiConnected] = useState(false);
 
-  // Redirect if not authenticated
   useEffect(() => {
-    if (!isAuthenticated || !patient) {
-      navigate('/login');
-    }
+    if (!isAuthenticated || !patient) navigate('/login');
   }, [isAuthenticated, patient, navigate]);
 
   useEffect(() => {
-    // Load patient data from API
-    const loadData = async () => {
-      if (!patient) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        const patientId = patient.healthId;
-        try {
-          const data = await getPatient(patientId);
-          const emergencyInfo = data.emergency_info || {};
-          setApiConnected(true);
-          
-          setPatientData({
-            patientId: data.patient_id,
-            name: data.full_name || patient.fullName,
-            healthId: patient.healthId,
-            bloodType: formatBloodType(emergencyInfo.blood_type) || patient.bloodType || 'Unknown',
-            allergies: (emergencyInfo.allergies || []).map((allergy: string | { name: string }) =>
-              typeof allergy === 'string' ? allergy : allergy.name
-            ),
-            medications: emergencyInfo.current_medications || [],
-            conditions: emergencyInfo.chronic_conditions || [],
-            // This profile endpoint has no visit, appointment, or message
-            // counters. Keep those fields empty rather than inventing values
-            // from a client clock or an undocumented response shape.
-            lastVisit: '',
-            upcomingAppointments: 0,
-            unreadMessages: 0,
-          });
-
-          // Fetch access logs for recent activity
-          const logsData = await getAccessLogs(patientId);
-          const activities: RecentActivity[] = (logsData.access_logs || []).slice(0, 5).map((log) => ({
-            id: log.access_id,
-            type: log.access_type === 'view' ? 'access' : log.access_type === 'consent' ? 'consent' : 'update',
-            // The clinician's name, falling back to the wallet only when the
-            // server could not resolve it. A patient reading "5GnPcTux4PX1F8..."
-            // learns nothing about who opened their record.
-            description: `${log.accessor_name || log.accessor_id} ${log.access_type === 'view' ? t('dashboard.accessedYourRecords') : log.access_type}`,
-            timestamp: log.timestamp,
-            accessor: log.accessor_name || log.accessor_id,
-          }));
-          setRecentActivity(activities);
-        } catch {
-          // An unavailable profile must not be replaced by a plausible clinical
-          // summary. Identity from the authenticated session is safe to show;
-          // clinical fields stay explicitly empty until the record loads.
-          setApiConnected(false);
-          setPatientData({
-            patientId: patient.healthId,
-            name: patient.fullName,
-            healthId: patient.healthId,
-            bloodType: 'Unknown',
-            allergies: [],
-            medications: [],
-            conditions: [],
-            lastVisit: '',
-            upcomingAppointments: 0,
-            unreadMessages: 0,
-          });
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (patient) {
-      loadData();
+    if (!patient) {
+      setIsLoading(false);
+      return;
     }
-  }, [patient, t]);
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
-  const formatBloodType = (bt: string | undefined): string => {
-    if (!bt) return 'Unknown';
-    const map: Record<string, string> = {
-      'APositive': 'A+', 'ANegative': 'A-',
-      'BPositive': 'B+', 'BNegative': 'B-',
-      'ABPositive': 'AB+', 'ABNegative': 'AB-',
-      'OPositive': 'O+', 'ONegative': 'O-',
-    };
-    return map[bt] || bt;
-  };
-
-  const formatDate = (dateString: string) => {
-    return formatTimestamp(dateString, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const formatTime = (dateString: string) => {
-    return formatTimestamp(dateString, {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  };
+    let cancelled = false;
+    const patientId = patient.healthId;
+    getPatient(patientId)
+      .then((data) => {
+        if (cancelled) return;
+        const info = data.emergency_info || {};
+        setPatientData({
+          bloodType: formatBloodType(info.blood_type) ?? formatBloodType(patient.bloodType),
+          allergies: (info.allergies || []).map((a: string | { name: string }) => (typeof a === 'string' ? a : a.name)),
+        });
+        setProfileFailed(false);
+      })
+      // An unavailable profile is said to be unavailable; no plausible card is drawn.
+      .catch(() => { if (!cancelled) setProfileFailed(true); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    getAccessLogs(patientId)
+      .then((logs) => { if (!cancelled) setAccess(groupAccess(logs.access_logs || [], patient.userId, 3)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [patient]);
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-6 animate-pulse">
+      <div className="p-4 space-y-4">
         <div className="h-8 bg-surface-sunken rounded w-48" />
-        <div className="h-40 bg-surface-sunken rounded-xl" />
-        <div className="grid grid-cols-2 gap-4">
-          <div className="h-24 bg-surface-sunken rounded-xl" />
-          <div className="h-24 bg-surface-sunken rounded-xl" />
-        </div>
+        <div className="h-36 bg-surface-sunken rounded-2xl" />
+        <div className="h-40 bg-surface-sunken rounded-2xl" />
       </div>
     );
   }
 
+  const firstName = patient?.firstName || patient?.fullName?.split(' ')[0] || '';
+  const accessLine = (g: AccessGroup) => {
+    const day = (at: string) => formatTimestamp(at, { day: 'numeric', month: 'short' });
+    const viewed = g.kinds.includes('viewed');
+    const changed = g.kinds.includes('changed');
+    const verb = viewed && changed ? t('home.viewedAndChanged') : changed ? t('home.changed') : t('accessHistory.viewed');
+    const what = t('home.accessWhat', { verb, what: g.what });
+    let when = formatTimestamp(g.last, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    if (g.count > 1) {
+      when = day(g.first) === day(g.last)
+        ? t('home.timesOn', { n: String(g.count), day: day(g.last) })
+        : t('home.timesBetween', { n: String(g.count), from: day(g.first), to: day(g.last) });
+    }
+    return `${what} · ${when}`;
+  };
+
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      {/* Welcome Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-content">
-            {t('dashboard.greeting', {
-              name: patient?.firstName || patientData?.name.split(' ')[0] || '',
-            })}
-          </h1>
-          <p className="text-content-muted">
-            {t('dashboard.tagline')}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* API Status */}
-          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
-          }`}>
-            {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? t('dashboard.live') : t('dashboard.dataUnavailable')}
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate('/notifications')}
-            className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell className="w-6 h-6" />
-            {(patientData?.unreadMessages || 0) > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-700 text-white text-xs rounded-full flex items-center justify-center">
-                {patientData?.unreadMessages}
+    <div className="mx-auto max-w-2xl space-y-5 p-4 pb-8 md:p-5">
+      <div>
+        <h1 className="text-3xl font-bold text-content">{t('dashboard.greeting', { name: firstName })}</h1>
+        <p className="text-content-muted">{formatTimestamp(new Date().toISOString(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+      </div>
+
+      {/* The emergency card first (mockup p1): the screen a patient may need to
+          show a stranger in a hurry, with the two facts a paramedic asks first. */}
+      <Link to="/emergency-card"
+        className="block rounded-2xl border-2 border-critical bg-critical-subtle p-4 text-critical-subtle-fg hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+        <span className="flex items-center gap-4">
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-black/20" aria-hidden="true">
+            <QrCode className="h-7 w-7" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-lg font-bold">{t('dashboard.emergencyCard')}</span>
+            <span className="block text-sm">{t('home.showParamedic')}</span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0" aria-hidden="true" />
+        </span>
+        {patientData && (patientData.bloodType || patientData.allergies.length > 0) && (
+          <span className="mt-3 flex flex-wrap gap-2">
+            {patientData.bloodType && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/20 px-3 py-1 text-sm font-semibold">
+                <Droplets className="h-4 w-4" aria-hidden="true" />
+                <span className="sr-only">{t('dashboard.bloodType')}: </span>{patientData.bloodType}
               </span>
             )}
-          </button>
-          <button 
-            onClick={handleLogout}
-            className="p-2 text-content-muted hover:bg-critical-subtle hover:text-critical-subtle-fg rounded-xl transition-colors"
-            title={t('dashboard.disconnectWallet')}
-          >
-            <LogOut className="w-6 h-6" />
-          </button>
-        </div>
-      </div>
-
-      {/* Health Status Card */}
-      <div className="bg-gradient-to-r from-primary-700 to-primary-800 rounded-2xl p-6 text-white">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-surface/20 rounded-xl flex items-center justify-center">
-              <Heart className="w-7 h-7" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-lg">{t('dashboard.healthIdActive')}</h2>
-              <p className="text-white text-sm">{patientData?.healthId}</p>
-            </div>
-          </div>
-          <div className="health-indicator !bg-surface" />
-        </div>
-
-        <div className="grid grid-cols-3 gap-4 mt-4">
-          <div className="bg-surface/10 rounded-xl p-3 text-center">
-            <Droplets className="w-5 h-5 mx-auto mb-1" />
-            <div className="font-bold">{patientData?.bloodType}</div>
-            <div className="text-xs text-white">{t('dashboard.bloodType')}</div>
-          </div>
-          <div className="bg-surface/10 rounded-xl p-3 text-center">
-            <AlertTriangle className="w-5 h-5 mx-auto mb-1" />
-            <div className="font-bold">{patientData?.allergies.length}</div>
-            <div className="text-xs text-white">{t('dashboard.allergies')}</div>
-          </div>
-          <div className="bg-surface/10 rounded-xl p-3 text-center">
-            <Pill className="w-5 h-5 mx-auto mb-1" />
-            <div className="font-bold">{patientData?.medications.length}</div>
-            <div className="text-xs text-white">{t('dashboard.medications')}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-4">
-        <Link
-          to="/emergency-card"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
-        >
-          <div className="w-14 h-14 bg-critical-subtle rounded-2xl flex items-center justify-center">
-            <QrCode className="w-7 h-7 text-critical-subtle-fg" />
-          </div>
-          <div className="text-center">
-            <div className="font-medium text-content">{t('dashboard.emergencyCard')}</div>
-            <div className="text-sm text-content-muted">{t('dashboard.showQrNfc')}</div>
-          </div>
-        </Link>
-
-        <Link
-          to="/records"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
-        >
-          <div className="w-14 h-14 bg-brand-subtle rounded-2xl flex items-center justify-center">
-            <FileText className="w-7 h-7 text-brand-subtle-fg" />
-          </div>
-          <div className="text-center">
-            <div className="font-medium text-content">{t('dashboard.myRecords')}</div>
-            <div className="text-sm text-content-muted">{t('dashboard.viewAll')}</div>
-          </div>
-        </Link>
-
-        <Link
-          to="/consent"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
-        >
-          <div className="w-14 h-14 bg-ok-subtle rounded-2xl flex items-center justify-center">
-            <Shield className="w-7 h-7 text-ok-subtle-fg" />
-          </div>
-          <div className="text-center">
-            <div className="font-medium text-content">{t('dashboard.accessControl')}</div>
-            <div className="text-sm text-content-muted">{t('dashboard.manageConsent')}</div>
-          </div>
-        </Link>
-
-        <Link
-          to="/profile"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
-        >
-          <div className="w-14 h-14 bg-notice-subtle rounded-2xl flex items-center justify-center">
-            <Activity className="w-7 h-7 text-notice-subtle-fg" />
-          </div>
-          <div className="text-center">
-            <div className="font-medium text-content">{t('dashboard.myProfile')}</div>
-            <div className="text-sm text-content-muted">{t('dashboard.healthInfo')}</div>
-          </div>
-        </Link>
-      </div>
-
-      {/* Critical Alerts */}
-      {patientData?.allergies && patientData.allergies.length > 0 && (
-        <div className="critical-card">
-          <div className="flex items-center gap-3 mb-3">
-            <AlertTriangle className="w-5 h-5 text-critical-subtle-fg" />
-            <span className="font-medium text-critical-subtle-fg">{t('dashboard.criticalAllergies')}</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {patientData.allergies.map((allergy, idx) => (
-              // Solid, not subtle: the card behind these is already the subtle
-              // tint, so a subtle chip on it is the same colour as the card and
-              // the allergy stops looking like a discrete item.
-              <span
-                key={idx}
-                className="px-3 py-1 bg-critical text-critical-fg rounded-full text-sm font-medium"
-              >
-                {allergy}
+            {patientData.allergies.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/20 px-3 py-1 text-sm font-semibold">
+                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                <span className="sr-only">{t('dashboard.allergies')}: </span>{patientData.allergies.join(', ')}
               </span>
-            ))}
-          </div>
-        </div>
+            )}
+          </span>
+        )}
+      </Link>
+      {profileFailed && (
+        <p role="status" className="rounded-xl bg-caution-subtle p-3 text-sm text-caution-subtle-fg">{t('dashboard.dataUnavailable')}</p>
       )}
 
-      {/* Recent Activity */}
-      <div className="patient-card">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-content flex items-center gap-2">
-            <Clock className="w-5 h-5 text-content-muted" />
-            {t('dashboard.recentActivity')}
-          </h3>
-          <Link to="/consent" className="text-sm text-brand hover:text-brand font-medium inline-flex items-center min-h-[24px] py-1">
-            {t('dashboard.viewAll')}
-          </Link>
-        </div>
+      {patient && <HomeToday patientId={patient.healthId} />}
 
-        <div className="space-y-3">
-          {recentActivity.length === 0 && <p className="text-sm text-content-muted">{t('dashboard.noRecentActivity')}</p>}
-          {recentActivity.map((activity) => (
-            <div
-              key={activity.id}
-              className="flex items-center gap-3 p-3 bg-surface-sunken rounded-xl"
-            >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                activity.type === 'access' ? 'bg-brand-subtle text-brand-subtle-fg' :
-                activity.type === 'update' ? 'bg-ok-subtle text-ok-subtle-fg' :
-                'bg-notice-subtle text-notice-subtle-fg'
-              }`}>
-                {activity.type === 'access' ? <Shield className="w-5 h-5" /> :
-                 activity.type === 'update' ? <FileText className="w-5 h-5" /> :
-                 <Activity className="w-5 h-5" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-content truncate">
-                  {activity.description}
-                </p>
-                <p className="text-xs text-content-muted">
-                  {formatTime(activity.timestamp)}
-                </p>
-              </div>
-              <ChevronRight className="w-5 h-5 text-content-muted" />
-            </div>
+      <section aria-labelledby="home-privacy" className="space-y-1.5">
+        <h2 id="home-privacy" className="px-1 text-sm font-semibold text-content-secondary">{t('home.privacy')}</h2>
+        <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+          {access.length === 0 && <li className="px-4 py-3 text-sm text-content-muted">{t('dashboard.noRecentActivity')}</li>}
+          {access.map((g) => (
+            <li key={g.key}>
+              <Link to="/privacy?view=viewed"
+                className="flex min-h-[64px] items-center gap-3 px-4 py-3 hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-sunken text-brand" aria-hidden="true">
+                  <Eye className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold text-content">{g.who}</span>
+                  <span className="block text-sm text-content-muted">{accessLine(g)}</span>
+                </span>
+                <ChevronRight className="h-4 w-4 text-content-muted" aria-hidden="true" />
+              </Link>
+            </li>
           ))}
-        </div>
-      </div>
-
-      {/* Last Visit Info */}
-      <div className="info-card flex items-center justify-between">
-        <div>
-          <p className="text-sm text-notice-subtle-fg font-medium inline-flex items-center min-h-[24px] py-1">{t('dashboard.lastVisit')}</p>
-          <p className="text-notice-subtle-fg">{patientData?.lastVisit ? formatDate(patientData.lastVisit) : 'N/A'}</p>
-        </div>
-        <Link
-          to="/records"
-          className="text-sm text-notice-subtle-fg font-medium hover:underline flex items-center gap-1 inline-flex items-center min-h-[24px] py-1"
-        >
-          {t('dashboard.viewDetails')} <ChevronRight className="w-4 h-4" />
-        </Link>
-      </div>
+        </ul>
+      </section>
     </div>
   );
 }

@@ -12,7 +12,10 @@ import { fireEvent, waitFor, within } from '@testing-library/react';
 async function openDialog(): Promise<HTMLElement> {
   // Either role: a destructive confirmation is an `alertdialog`.
   return waitFor(() => {
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"]');
+    // The topmost: a confirmation can open over a page's own dialog (a form
+    // drawn in a ModalPanel), and the confirmation host mounts last.
+    const open = document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]');
+    const dialog = open[open.length - 1];
     if (!dialog) throw new Error('no dialog is open');
     return dialog;
   });

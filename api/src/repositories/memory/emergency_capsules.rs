@@ -38,9 +38,9 @@ impl EmergencyCapsuleRepository for MemoryEmergencyCapsuleRepository {
             .map_err(|e| RepositoryError::Database(e.to_string()))?;
         let versions = capsules.entry(capsule.patient_id.clone()).or_default();
 
-        // Mirrors the pallet's rule. Without this the off-chain store would
-        // accept a stale capsule the chain would reject, and the two would
-        // silently disagree about which version is current.
+        // Versions only increase. Without this a stale capsule could be stored
+        // and the store would disagree with PostgreSQL about which version is
+        // current.
         if let Some(newest) = versions.last() {
             if capsule.version <= newest.version {
                 return Err(RepositoryError::Validation(format!(
@@ -126,32 +126,6 @@ impl EmergencyCapsuleRepository for MemoryEmergencyCapsuleRepository {
         Ok(capsule.clone())
     }
 
-    async fn record_chain_result(
-        &self,
-        patient_id: &str,
-        version: i32,
-        tx_hash: &str,
-        finalized: bool,
-    ) -> RepositoryResult<()> {
-        let mut capsules = self
-            .capsules
-            .write()
-            .map_err(|e| RepositoryError::Database(e.to_string()))?;
-        let capsule = capsules
-            .get_mut(patient_id)
-            .and_then(|versions| versions.iter_mut().find(|c| c.version == version))
-            .ok_or_else(|| {
-                RepositoryError::NotFound(format!(
-                    "Emergency capsule {}/v{} not found",
-                    patient_id, version
-                ))
-            })?;
-
-        capsule.chain_tx_hash = Some(tx_hash.to_string());
-        capsule.chain_finalized = finalized;
-        Ok(())
-    }
-
     async fn log_access(
         &self,
         access: EmergencyCapsuleAccessEntity,
@@ -202,8 +176,7 @@ mod tests {
             revoked_at: None,
             revoked_by: None,
             revocation_reason: None,
-            chain_tx_hash: None,
-            chain_finalized: false,
+            seal_status: "pending".to_string(),
         }
     }
 
@@ -217,8 +190,8 @@ mod tests {
         assert_eq!(current.version, 2);
     }
 
-    /// The pallet rejects a non-increasing version; the off-chain store must
-    /// too, or the two disagree about which capsule is current.
+    /// A non-increasing version is rejected, as it is on PostgreSQL, or the two
+    /// backends disagree about which capsule is current.
     #[tokio::test]
     async fn stale_version_is_rejected() {
         let repo = MemoryEmergencyCapsuleRepository::new();
@@ -288,7 +261,7 @@ mod tests {
     }
 
     /// A revoked version number must never be reissued — otherwise two
-    /// different capsules would share a version, and the on-chain commitment
+    /// different capsules would share a version, and the sealed commitment
     /// could not distinguish them.
     #[tokio::test]
     async fn latest_version_counts_revoked_versions() {

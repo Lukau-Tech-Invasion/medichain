@@ -7,6 +7,8 @@ import {
 import type { NationalIdManualReview } from '@medichain/shared';
 import { Check, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
 
+// ux-allow(no-form): Approve and Reject are separate deliberate presses; Enter in the note must not decide a review.
+
 function formatTimestamp(value: string | null): string {
   if (!value) return 'Not decided';
   const date = new Date(value);

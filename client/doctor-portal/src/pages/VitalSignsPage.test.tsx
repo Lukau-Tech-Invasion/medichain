@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import VitalSignsPage from './VitalSignsPage';
 import { useAuthStore } from '../store';
+import { clearAllDrafts } from '@medichain/shared';
 
 // Mock the stores
 vi.mock('../store', () => ({
@@ -15,7 +16,7 @@ global.fetch = mockFetch;
 
 describe('VitalSignsPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Nurse',
   };
 
@@ -34,6 +35,8 @@ describe('VitalSignsPage', () => {
         blood_pressure_diastolic: 80,
         temperature_celsius: 37.0,
         oxygen_saturation: 98,
+        weight_kg: 62,
+        notes: 'Synthetic vital observation retained',
       }
     ],
   };
@@ -46,6 +49,8 @@ describe('VitalSignsPage', () => {
   };
 
   beforeEach(() => {
+    // The form keeps a draft for the tab; each test starts from an empty one.
+    clearAllDrafts();
     vi.clearAllMocks();
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
@@ -108,22 +113,20 @@ describe('VitalSignsPage', () => {
       // 72 appears in both the latest-reading card and the flowsheet row.
       expect(screen.getAllByText('72').length).toBeGreaterThan(0); // heart rate
       expect(screen.getAllByText('120/80').length).toBeGreaterThan(0); // BP
+      expect(screen.getByText('62')).toBeInTheDocument();
+      expect(screen.getByText('Synthetic vital observation retained')).toBeInTheDocument();
     });
   });
 
-  it('allows opening the add new vitals form', async () => {
+  it('opens the form at once when opened for a patient', async () => {
     render(
       <MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}>
         <VitalSignsPage />
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      const addButton = screen.getByText(/Record Vitals/i);
-      fireEvent.click(addButton);
-    });
-
-    expect(screen.getByText(/Record New Vital Signs/i)).toBeInTheDocument();
+    // Opened for a patient, the form is the task: it is open without a click.
+    expect(await screen.findByText(/Record New Vital Signs/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Heart Rate/i)).toBeInTheDocument();
   });
 
@@ -148,8 +151,12 @@ describe('VitalSignsPage', () => {
     );
 
     await waitFor(() => {
-      const cell = screen.getAllByText('85/50').find((el) => el.tagName === 'TD');
+      const cell = screen.getAllByText(/^85\/50/).find((el) => el.tagName === 'TD');
       expect(cell?.className).toContain('bg-critical-subtle');
+      // In words too, not only in colour (WCAG 1.4.1): the flowsheet cell and
+      // the latest-reading tile both say it.
+      expect(cell?.textContent).toContain('Critical');
+      expect(screen.getAllByText('Critical').length).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -160,10 +167,7 @@ describe('VitalSignsPage', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      fireEvent.click(screen.getByText(/Record Vitals/i));
-    });
-    fireEvent.change(screen.getByLabelText(/Systolic/i), { target: { value: '80' } });
+    fireEvent.change(await screen.findByLabelText(/Systolic/i), { target: { value: '80' } });
     fireEvent.change(screen.getByLabelText(/Diastolic/i), { target: { value: '120' } });
     fireEvent.submit(screen.getByLabelText(/Systolic/i).closest('form')!);
 
@@ -172,5 +176,49 @@ describe('VitalSignsPage', () => {
       ([url, init]) => String(url).endsWith('/api/clinical/vitals') && init?.method === 'POST',
     );
     expect(posted).toBe(false);
+  });
+
+  it('shows the server\'s NEWS2 and how much was measured, and sends alertness and oxygen as chosen', async () => {
+    const base = mockFetch.getMockImplementation()!;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => url.includes('/api/clinical/scoring/news2')
+      ? Promise.resolve({ ok: true, headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ total: 3, band: 'low_medium', parameters_measured: 1, complete: false,
+            not_measured: ['respiratory_rate', 'oxygen_saturation', 'supplemental_oxygen', 'systolic_bp', 'heart_rate', 'temperature'] }) })
+      : base(url, init));
+    render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByLabelText('New confusion'));
+    // The panel shows what the server scored; the page adds nothing up (rule 8).
+    expect(await screen.findByText('Low–medium: urgent ward review', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText(/1 of 7 measured/)).toBeInTheDocument();
+    const [, init] = mockFetch.mock.calls.find(([url]) => String(url).includes('/scoring/news2'))!;
+    expect(JSON.parse(init.body)).toMatchObject({ consciousness: 'new_confusion', on_oxygen: null, heart_rate: null });
+    fireEvent.click(screen.getByLabelText('On oxygen'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([url, o]) => String(url).endsWith('/api/clinical/vitals') && o?.method === 'POST')).toBe(true));
+    const [, saved] = mockFetch.mock.calls.find(([url, o]) => String(url).endsWith('/api/clinical/vitals') && o?.method === 'POST')!;
+    expect(JSON.parse(saved.body)).toMatchObject({ consciousness: 'new_confusion', on_oxygen: true });
+  });
+
+  it('keeps a half-filled form as a draft when the clinician is called away', async () => {
+    const first = render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    fireEvent.change(await screen.findByLabelText(/Heart Rate/i), { target: { value: '104' } });
+    expect(screen.getByText('Draft kept on this tab')).toBeInTheDocument();
+    first.unmount();
+    render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    expect(await screen.findByDisplayValue('104')).toBeInTheDocument();
+  });
+
+  it('refuses blank and notes-only readings but accepts an explicitly entered zero pain score', async () => {
+    render(<MemoryRouter initialEntries={['/vitals?patientId=PAT-001']}><VitalSignsPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Save Vitals' }));
+    expect(await screen.findByText('Enter at least one measured vital sign before saving.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Notes/i), { target: { value: 'Synthetic note only' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    expect(mockFetch.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText('Pain Scale (0-10)'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vitals' }));
+    await waitFor(() => expect(mockFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true));
+    const [, init] = mockFetch.mock.calls.find(([, options]) => options?.method === 'POST')!;
+    expect(JSON.parse(init.body)).toMatchObject({ pain_scale: 0, heart_rate: null, temperature_celsius: null });
   });
 });

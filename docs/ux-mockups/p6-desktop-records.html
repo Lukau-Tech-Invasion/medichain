@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Records desktop</title><link rel="stylesheet" href="mock.css">
+<style>.rec{display:flex;gap:12px;align-items:center;min-height:56px;padding:8px 16px;border-top:1px solid rgb(var(--border))}.rec:first-child{border-top:0}
+.rec.sel{background:rgb(var(--primary-sub));color:rgb(var(--primary-sub-fg))}.rec .ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:rgb(var(--sunken));color:rgb(var(--primary))}</style></head>
+<body><div class="desk">
+  <header class="topbar">
+    <div class="logo"><span class="mk"><i data-i="heart" class="sm"></i></span>MediChain</div>
+    <nav class="toplinks" aria-label="Main">
+      <a class="toplink"><i data-i="home" class="sm"></i>Home</a>
+      <a class="toplink on" aria-current="page"><i data-i="heart" class="sm"></i>My health</a>
+      <a class="toplink"><i data-i="calendar" class="sm"></i>Visits</a>
+      <a class="toplink"><i data-i="message" class="sm"></i>Messages <span class="badge danger">2</span></a>
+      <a class="toplink"><i data-i="user" class="sm"></i>Me</a>
+    </nav>
+    <a class="btn sm" style="border-color:#b91c1c;color:#fecaca"><i data-i="qr" class="sm"></i>Emergency card</a>
+  </header>
+  <div style="display:grid;grid-template-columns:240px 1fr 460px;height:736px">
+    <aside style="padding:20px 12px;border-right:1px solid rgb(var(--border))" class="col">
+      <p class="xs muted" style="padding:0 12px">My health</p>
+      <a class="side on"><i data-i="file" class="sm"></i>Records</a>
+      <a class="side"><i data-i="flask" class="sm"></i>Lab results</a>
+      <a class="side"><i data-i="pill" class="sm"></i>Medications</a>
+      <a class="side"><i data-i="bell" class="sm"></i>Medicine reminders</a>
+      <a class="side"><i data-i="pulse" class="sm"></i>Vital signs</a>
+      <a class="side"><i data-i="trend" class="sm"></i>Lab trends</a>
+      <a class="side"><i data-i="thermo" class="sm"></i>Symptom diary</a>
+      <a class="side"><i data-i="clipboard" class="sm"></i>Check a symptom</a>
+      <a class="side"><i data-i="watch" class="sm"></i>Wearables</a>
+      <a class="side"><i data-i="book" class="sm"></i>Medical history</a>
+    </aside>
+    <section style="padding:20px 24px;overflow:hidden" class="col">
+      <div class="row between"><h1>Records</h1><div class="input ph" style="width:280px;gap:8px"><i data-i="search" class="sm"></i>Search records</div></div>
+      <div class="row" style="gap:8px"><span class="chip on">All</span><span class="chip">Lab</span><span class="chip">Imaging</span><span class="chip">Prescriptions</span><span class="chip">Visits</span><span class="chip">Vaccinations</span></div>
+      <h3>October 2026 · 12</h3>
+      <div class="card list">
+        <div class="rec"><span class="ic"><i data-i="flask" class="sm"></i></span><div class="grow"><p class="b">HbA1c result</p><p class="xs muted">13 Oct · Dr Mokoena</p></div><span class="badge info">New</span></div>
+        <div class="rec sel" aria-current="true"><span class="ic"><i data-i="file" class="sm"></i></span><div class="grow"><p class="b">Imaging report</p><p class="xs">12 Oct · Dr Mokoena</p></div></div>
+        <div class="rec"><span class="ic"><i data-i="pill" class="sm"></i></span><div class="grow"><p class="b">Prescription · Metformin</p><p class="xs muted">10 Oct · Dr Mokoena</p></div></div>
+        <div class="rec"><span class="ic"><i data-i="clipboard" class="sm"></i></span><div class="grow"><p class="b">Visit note</p><p class="xs muted">10 Oct · Soweto Clinic</p></div></div>
+      </div>
+      <h3>September 2026 · 9</h3>
+      <div class="card list">
+        <div class="rec"><span class="ic"><i data-i="pulse" class="sm"></i></span><div class="grow"><p class="b">Vital signs</p><p class="xs muted">28 Sep · Nurse Dlamini</p></div></div>
+        <div class="rec"><span class="ic"><i data-i="shield" class="sm"></i></span><div class="grow"><p class="b">Vaccination · Influenza</p><p class="xs muted">15 Sep · Soweto Clinic</p></div></div>
+      </div>
+    </section>
+    <!-- On a wide screen the document opens beside the list: no pop-up at all. -->
+    <aside style="border-left:1px solid rgb(var(--border));background:rgb(var(--surface));display:flex;flex-direction:column">
+      <div class="row between" style="padding:18px 20px;border-bottom:1px solid rgb(var(--border))">
+        <div><p class="bb" style="font-size:19px">Imaging report</p><p class="xs muted">12 Oct 2026 · Dr Lindiwe Mokoena · <span class="badge ok">Sealed</span></p></div>
+        <span class="iconbtn"><i data-i="x"></i></span>
+      </div>
+      <div style="padding:18px 20px;display:flex;flex-direction:column;gap:14px;flex:1">
+        <div class="note"><p class="xs muted b">Impression</p><p>No acute abnormality seen.</p></div>
+        <div class="note" style="border-color:rgb(var(--border-int));background:transparent"><p class="xs muted b">Findings</p><p class="t2">Lungs clear. Heart size normal. No effusion.</p></div>
+        <dl class="kv"><dt>Study</dt><dd>Chest X-ray, 2 views</dd><dt>Status</dt><dd><span class="badge warn">Not finalised</span></dd><dt>Critical</dt><dd>No</dd><dt>Reported</dt><dd>12 Oct 2026, 06:25</dd><dt>Radiologist</dt><dd>Dr S. Pillay</dd></dl>
+        <div class="card pad-sm"><p class="small b">Not recorded (9)</p><p class="xs muted" style="margin-top:4px">Addendum · Addendum by · Addendum time · Communicated at · Communicated to · Communication method · Comparison studies · Contrast · Technique</p></div>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid rgb(var(--border))"><span class="btn primary" style="width:100%"><i data-i="download" class="sm"></i>Download PDF</span></div>
+    </aside>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

@@ -15,8 +15,10 @@ import {
   type DashboardMetricsResponse,
   type OperationalMetrics as SharedOperationalMetrics,
   type QualityMetricsResponse,
+  useLatestRequest,
 } from '@medichain/shared';
 import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, Calendar, Loader2 } from 'lucide-react';
+import { PatientName } from '../components/PatientName';
 
 type MetricPeriod = 'today' | 'week' | 'month' | 'year';
 type DepartmentType = 'emergency' | 'surgery' | 'medicine' | 'pediatrics' | 'radiology' | 'laboratory';
@@ -127,6 +129,8 @@ const AnalyticsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [operations, setOperations] = useState<OperationalMetrics | null>(null);
+  const [opsError, setOpsError] = useState('');
+
   const [recentEvents, setRecentEvents] = useState<RecentEvent[]>([]);
 
   /**
@@ -200,11 +204,14 @@ const AnalyticsPage: React.FC = () => {
       .catch(() => setPopulationUnknown(true));
   }, [isAdministrator]);
 
+  const beginAnalyticsRead = useLatestRequest();
   useEffect(() => {
+    // Switching period while one is loading: only the period now selected may answer.
+    const current = beginAnalyticsRead();
     const fetchAnalytics = async () => {
       // Skip the fetch rather than skip the hook: a non-administrator would
       // otherwise spend a request to be told 403 on a screen they cannot see.
-      if (!user?.walletAddress || !isAdministrator) {
+      if (!user?.userId || !isAdministrator) {
         setLoading(false);
         return;
       }
@@ -247,6 +254,7 @@ const AnalyticsPage: React.FC = () => {
 
         // Clinical-alert counts live on the quality endpoint.
         const quality: Partial<QualityMetricsResponse> = await getQualityMetrics().catch(() => ({}));
+        if (!current()) return;
 
         const telehealthPct = appts.telehealth_percentage;
 
@@ -316,9 +324,12 @@ const AnalyticsPage: React.FC = () => {
         // aggregated over the selected period, and a failure here must not
         // blank the metrics above.
         try {
-          setOperations(await getOperationalMetrics());
+          const operations = await getOperationalMetrics();
+          if (!current()) return;
+          setOperations(operations);
 
           const { items } = await listCriticalValues();
+          if (!current()) return;
           const rows = items as Array<Record<string, unknown>>;
           setRecentEvents(
             rows
@@ -334,23 +345,24 @@ const AnalyticsPage: React.FC = () => {
                 };
               })
           );
-        } catch (opsError) {
-          console.error('Error fetching operational metrics:', opsError);
+        } catch {
+          if (current()) setOpsError(t('docAnalytics.errorOperations'));
         }
 
       } catch (err) {
         console.error('Error fetching analytics:', err);
+        if (!current()) return;
         setError(err instanceof Error ? err.message : t('docAnalytics.errorTitle'));
         setMetrics([]);
         setDepartmentData([]);
         setPatientFlow([]);
       } finally {
-        setLoading(false);
+        if (current()) setLoading(false);
       }
     };
 
     fetchAnalytics();
-  }, [user, selectedPeriod, isAdministrator, t]);
+  }, [user, selectedPeriod, isAdministrator, t, beginAnalyticsRead]);
 
   const getColorClasses = (color: string) => {
     switch (color) {
@@ -406,10 +418,11 @@ const AnalyticsPage: React.FC = () => {
   };
 
   const getOccupancyStatus = (occupancy: number) => {
-    if (occupancy >= 90) return { color: 'red', label: t('docAnalytics.occupancy_Critical') };
-    if (occupancy >= 75) return { color: 'orange', label: t('docAnalytics.occupancy_High') };
-    if (occupancy >= 50) return { color: 'green', label: t('docAnalytics.occupancy_Optimal') };
-    return { color: 'blue', label: t('docAnalytics.occupancy_Low') };
+    // Full class names: ones assembled from a colour at runtime never compile.
+    if (occupancy >= 90) return { box: 'bg-critical-subtle', text: 'text-critical-subtle-fg', label: t('docAnalytics.occupancy_Critical') };
+    if (occupancy >= 75) return { box: 'bg-caution-subtle', text: 'text-caution-subtle-fg', label: t('docAnalytics.occupancy_High') };
+    if (occupancy >= 50) return { box: 'bg-ok-subtle', text: 'text-ok-subtle-fg', label: t('docAnalytics.occupancy_Optimal') };
+    return { box: 'bg-notice-subtle', text: 'text-notice-subtle-fg', label: t('docAnalytics.occupancy_Low') };
   };
 
   // Every hook above has run by now, so this early return is safe: the hook
@@ -604,9 +617,9 @@ const AnalyticsPage: React.FC = () => {
                       <div className="text-ok-subtle-fg text-lg font-bold">{t('docAnalytics.minutesSuffix', { count: dept.avgWaitTime })}</div>
                     </div>
                     {dept.bedOccupancy > 0 ? (
-                      <div className={`bg-${occupancyStatus.color}-50 rounded p-2`}>
-                        <div className={`text-${occupancyStatus.color}-700 font-medium`}>{t('docAnalytics.lblOccupancy')}</div>
-                        <div className={`text-${occupancyStatus.color}-900 text-lg font-bold flex items-center gap-1`}>
+                      <div className={`${occupancyStatus.box} rounded p-2`}>
+                        <div className={`${occupancyStatus.text} font-medium`}>{t('docAnalytics.lblOccupancy')}</div>
+                        <div className={`${occupancyStatus.text} text-lg font-bold flex items-center gap-1`}>
                           {dept.bedOccupancy}%
                           <span className="text-xs font-normal">({occupancyStatus.label})</span>
                         </div>
@@ -790,8 +803,8 @@ const AnalyticsPage: React.FC = () => {
                   are the actual outstanding events this system knows about. */}
               {recentEvents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-content-muted">
-                    {t('docAnalytics.noRecentActivity')}
+                  <td colSpan={5} className="px-4 py-8 text-center text-content-muted" role={opsError ? 'alert' : undefined}>
+                    {opsError || t('docAnalytics.noRecentActivity')}
                   </td>
                 </tr>
               ) : (
@@ -799,7 +812,7 @@ const AnalyticsPage: React.FC = () => {
                   <tr key={event.id}>
                     <td className="px-4 py-3 text-sm text-content">{event.when}</td>
                     <td className="px-4 py-3 text-sm text-content">{event.label}</td>
-                    <td className="px-4 py-3 text-sm text-content-muted">{event.patientId}</td>
+                    <td className="px-4 py-3 text-sm"><PatientName id={event.patientId} /></td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 text-xs font-medium rounded-full bg-critical-subtle text-critical-subtle-fg">
                         {t('docAnalytics.impactHigh')}

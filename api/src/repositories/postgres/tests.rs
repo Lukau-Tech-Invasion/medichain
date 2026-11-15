@@ -12,11 +12,195 @@ use std::sync::{
     OnceLock,
 };
 
+/// Nullable pediatric observations preserve unknown, negative and positive values in PostgreSQL.
+#[tokio::test]
+async fn test_pg_pediatric_unknown_observations_round_trip() {
+    use crate::repositories::traits::{PediatricAssessmentEntity, PediatricAssessmentRepository};
+    let pool = get_test_pool().await;
+    let patient_id = format!("PEDS-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Doctor', 'Synthetic Pediatric Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let repo = crate::repositories::postgres::PgPediatricAssessmentRepository::new(pool.clone());
+    for observation in [None, Some(false), Some(true)] {
+        let record = PediatricAssessmentEntity {
+            id: format!("PEDS-{}", uuid::Uuid::new_v4()),
+            patient_id: patient_id.clone(),
+            assessed_by: user_id.to_string(),
+            weight_estimated: observation,
+            parent_guardian_present: observation,
+            child_protective_concerns: observation,
+            cps_notified: observation,
+            age_months: observation.map(|_| 0),
+            data: serde_json::json!({"synthetic":true}),
+            ..Default::default()
+        };
+        let created = repo.create(record.clone()).await.unwrap();
+        let stored = repo.get_by_id(&created.id).await.unwrap();
+        assert_eq!(stored.age_months, record.age_months);
+        assert_eq!(stored.weight_estimated, observation);
+        assert_eq!(stored.parent_guardian_present, observation);
+        assert_eq!(stored.child_protective_concerns, observation);
+        assert_eq!(stored.cps_notified, observation);
+        assert_eq!(stored.appearance_score, None);
+        assert_eq!(stored.work_of_breathing, None);
+        assert_eq!(stored.circulation_to_skin, None);
+        assert_eq!(stored.data, record.data);
+    }
+    pool.close().await;
+}
+
+/// PostgreSQL distinguishes missing psychiatric observations from documented negative findings.
+#[tokio::test]
+async fn test_pg_psychiatric_unknown_observations_round_trip() {
+    use crate::repositories::traits::{
+        PsychiatricAssessmentEntity, PsychiatricAssessmentRepository,
+    };
+    let pool = get_test_pool().await;
+    let patient_id = format!("PSY-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Doctor', 'Synthetic Psychiatry Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let repo = crate::repositories::postgres::PgPsychiatricAssessmentRepository::new(pool.clone());
+    for observed in [None, Some(false), Some(true)] {
+        let record = PsychiatricAssessmentEntity {
+            id: format!("PSY-{}", uuid::Uuid::new_v4()),
+            patient_id: patient_id.clone(),
+            assessed_by: user_id.to_string(),
+            suicidal_ideation: observed,
+            presenting_symptoms: serde_json::json!([]),
+            mental_status_exam: serde_json::json!({}),
+            data: serde_json::json!({"suicide_risk":{"ideation":observed,"attempt_count":0}}),
+            ..Default::default()
+        };
+        let created = repo.create(record.clone()).await.unwrap();
+        let stored = repo.get_by_id(&created.id).await.unwrap();
+        assert_eq!(stored.suicidal_ideation, observed);
+        assert_eq!(stored.suicidal_plan, None);
+        assert_eq!(stored.suicidal_intent, None);
+        assert_eq!(stored.suicidal_means_access, None);
+        assert_eq!(stored.homicidal_ideation, None);
+        assert_eq!(stored.risk_level, None);
+        assert_eq!(stored.involuntary_hold, None);
+        assert_eq!(stored.sitter_required, None);
+        assert_eq!(stored.one_to_one_observation, None);
+        assert_eq!(stored.psychiatry_consulted, None);
+        assert_eq!(stored.data, record.data);
+    }
+    pool.close().await;
+}
+
+/// Unknown technique and partial observations survive PostgreSQL without inferred clinical values.
+#[tokio::test]
+async fn test_pg_anesthesia_unknown_and_recorded_techniques_round_trip() {
+    use crate::repositories::traits::{AnesthesiaRecordEntity, AnesthesiaRecordRepository};
+    let pool = get_test_pool().await;
+    let patient_id = format!("ANES-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Doctor', 'Synthetic Anesthesia Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let repo = crate::repositories::postgres::PgAnesthesiaRecordRepository::new(pool.clone());
+    for technique in [None, Some("general"), Some("spinal"), Some("epidural")] {
+        let record = AnesthesiaRecordEntity {
+            id: format!("ANES-{}", uuid::Uuid::new_v4()),
+            patient_id: patient_id.clone(),
+            anesthesiologist_id: user_id.to_string(),
+            anesthesia_type: technique.map(str::to_owned),
+            vital_signs_timeline: Some(serde_json::json!([{"time": "10:00", "hr": 75}])),
+            data: serde_json::json!({"ebl": 0, "vitals": [{"time": "10:00", "hr": 75}]}),
+            ..Default::default()
+        };
+        let created = repo.create(record.clone()).await.unwrap();
+        let stored = repo.get_by_id(&created.id).await.unwrap();
+        assert_eq!(stored.anesthesia_type, record.anesthesia_type);
+        assert!(stored.asa_classification.is_none());
+        assert!(stored.airway_management.is_none());
+        assert_eq!(stored.vital_signs_timeline, record.vital_signs_timeline);
+        assert_eq!(stored.data, record.data);
+        assert!(stored.data.get("urineOutput").is_none());
+    }
+    pool.close().await;
+}
+
 #[tokio::test]
 async fn test_pg_shared_json_repository_parity_contract() {
     let pool = get_test_pool().await;
     let repo = crate::repositories::postgres::PgEPrescriptionV2Repository::new(pool.clone());
     crate::repositories::parity_contract::run_json_record_contract(&repo, "postgres").await;
+    pool.close().await;
+}
+
+/// Re-saving a cannula must retain the bedside history and removal attribution.
+#[tokio::test]
+async fn test_pg_iv_update_preserves_history_and_attribution() {
+    use crate::repositories::traits::{IVAssessmentEntity, IVAssessmentRepository};
+    let pool = get_test_pool().await;
+    let patient_id = format!("IV-PAT-{}", uuid::Uuid::new_v4());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .unwrap();
+    let repo = crate::repositories::postgres::PgIVAssessmentRepository::new(pool.clone());
+    let original = IVAssessmentEntity {
+        id: format!("IV-{}", uuid::Uuid::new_v4()),
+        patient_id,
+        site_id: "SITE-1".into(),
+        site_location: "left-forearm".into(),
+        assessed_by: "FIRST-NURSE".into(),
+        assessed_at: Utc::now(),
+        data: serde_json::json!({"assessments": []}),
+        ..Default::default()
+    };
+    let mut changed = repo.create(original).await.unwrap();
+    changed.assessed_by = "SECOND-NURSE".into();
+    changed.assessed_at = Utc::now();
+    changed.site_discontinued = Some(true);
+    changed.data = serde_json::json!({"assessments": [{"notes": "site assessed"}],
+        "discontinuedAt": changed.assessed_at.to_rfc3339(), "discontinuedBy": "SECOND-NURSE"});
+    repo.update(changed.clone()).await.unwrap();
+    let stored = repo.get_by_id(&changed.id).await.unwrap();
+    assert_eq!(stored.data, changed.data);
+    assert_eq!(stored.assessed_by, changed.assessed_by);
+    assert_eq!(
+        stored.assessed_at.timestamp_micros(),
+        changed.assessed_at.timestamp_micros()
+    );
+    assert_eq!(stored.site_discontinued, Some(true));
+    pool.close().await;
+}
+
+/// Recovery is idempotent when a known account has no authenticator enrollment.
+#[tokio::test]
+async fn test_pg_absent_mfa_enrollment_can_be_reset_twice() {
+    let pool = get_test_pool().await;
+    let user_id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, role, name, status) VALUES ($1, 'Nurse', 'Recovery Fixture', 'active')")
+        .bind(user_id).execute(&pool).await.unwrap();
+    let state = crate::AppState::new_with_pool(Some(pool.clone()));
+    state
+        .delete_mfa_enrollment(&user_id.to_string())
+        .await
+        .unwrap();
+    state
+        .delete_mfa_enrollment(&user_id.to_string())
+        .await
+        .unwrap();
+    assert!(state
+        .delete_mfa_enrollment("invalid-account-id")
+        .await
+        .is_err());
     pool.close().await;
 }
 
@@ -73,9 +257,10 @@ async fn test_pg_prescription_mutation_rolls_back_when_audit_insert_fails() {
         is_emergency_access: false,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: now,
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     repositories
         .access_logs
@@ -200,7 +385,7 @@ pub(crate) async fn get_test_pool() -> PgPool {
 /// deployment's `IS_DEMO=true` and `JITSI_PUBLIC_URL`. Seven step-up tests
 /// (demo mode exempts the gate they measure) and a telehealth URL test then
 /// failed or passed depending on which test the scheduler ran first.
-fn test_database_url() -> String {
+pub(crate) fn test_database_url() -> String {
     if let Ok(url) = env::var("DATABASE_URL") {
         return url;
     }
@@ -216,7 +401,7 @@ fn test_database_url() -> String {
         })
 }
 
-async fn create_test_pool() -> PgPool {
+pub(crate) async fn create_test_pool() -> PgPool {
     let database_url = test_database_url();
     let schema = format!(
         "medichain_test_{}_{}_{}",
@@ -347,7 +532,7 @@ fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
-fn create_test_patient(id: &str) -> PatientEntity {
+pub(crate) fn create_test_patient(id: &str) -> PatientEntity {
     PatientEntity {
         id: id.to_string(),
         health_id: health_id_for(id),
@@ -370,7 +555,6 @@ fn create_test_patient(id: &str) -> PatientEntity {
         dnr_verified_at: None,
         dnr_document_ref: None,
         primary_provider_id: None,
-        wallet_address: Some(format!("0x{}", id)),
         created_at: Utc::now(),
         updated_at: Utc::now(),
         registered_by: None,
@@ -408,13 +592,6 @@ async fn test_pg_patient_repository() {
         .await
         .expect("Failed to get patient by ID");
     assert_eq!(fetched.health_id, health_id_for(&patient_id));
-
-    // Test Get by Wallet
-    let fetched_wallet = repo
-        .get_by_wallet(&format!("0x{}", patient_id))
-        .await
-        .expect("Failed to get by wallet");
-    assert_eq!(fetched_wallet.id, patient_id);
 
     // Test Update
     let mut updated_patient = fetched.clone();
@@ -480,8 +657,6 @@ async fn test_pg_medical_record_repository() {
         ipfs_content_hash: Some("QmTest123".to_string()),
         ipfs_metadata_hash: None,
         content_checksum: Some("abc123def".to_string()),
-        on_chain_hash: None,
-        blockchain_tx_hash: None,
         summary_encrypted: None,
         record_date: Utc::now(),
         created_at: Utc::now(),
@@ -753,24 +928,22 @@ async fn test_pg_sepsis_round_trip_survives_restart() {
 // See .horizon/evidence-private/HZ-H1-PERSISTENCE/inventory.md
 // =============================================================================
 
-/// A synthetic SS58-shaped wallet; the `valid_wallet` constraint requires
-/// >= 45 chars starting with '5'.
-fn synthetic_wallet(suffix: &str) -> String {
-    let base = "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw";
-    format!("{}{}", &base[..base.len() - suffix.len()], suffix)
+/// A fresh `users.id`. The suffix only keeps a test's intent readable.
+fn synthetic_user_id(_suffix: &str) -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// A fully-populated staff user — every optional field set, so anything that
 /// fails to round-trip surfaces as a concrete difference rather than a silent
 /// `None`.
-fn complete_staff_user(wallet: &str) -> crate::User {
+fn complete_staff_user(account_id: &str) -> crate::User {
     crate::User {
-        wallet_address: wallet.to_string(),
+        id: account_id.to_string(),
         username: Some("dr_round_trip".to_string()),
         name: "Dr Round Trip".to_string(),
         role: crate::Role::Doctor,
         created_at: Utc::now(),
-        created_by: Some("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string()),
+        created_by: None,
         linked_patient_id: None,
         email: Some("round.trip@example.test".to_string()),
         phone: Some("+27115550000".to_string()),
@@ -785,11 +958,11 @@ fn complete_staff_user(wallet: &str) -> crate::User {
 #[tokio::test]
 async fn test_logical_user_round_trips_across_restart() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("aa01");
+    let account_id = synthetic_user_id("aa01");
 
     // --- write through one AppState ---
     let before = crate::AppState::new_with_pool(Some(pool.clone()));
-    let original = complete_staff_user(&wallet);
+    let original = complete_staff_user(&account_id);
     before
         .persist_user(&original)
         .await
@@ -819,12 +992,12 @@ async fn test_logical_user_round_trips_across_restart() {
         .users
         .read()
         .unwrap()
-        .get(&wallet)
+        .get(&account_id)
         .cloned()
         .expect("user was lost across the restart");
 
     // --- fields that MUST survive ---
-    assert_eq!(reloaded.wallet_address, original.wallet_address);
+    assert_eq!(reloaded.id, original.id);
     assert_eq!(reloaded.username, original.username);
     assert_eq!(reloaded.name, original.name);
     assert_eq!(reloaded.role, original.role, "role must survive");
@@ -868,9 +1041,9 @@ async fn test_logical_user_round_trips_across_restart() {
     let plaintext: Option<String> = sqlx::query_scalar(
         "SELECT p.phone FROM user_profiles p
          INNER JOIN users u ON u.id = p.user_id
-         WHERE u.wallet_address = $1",
+         WHERE u.id = $1::text::uuid",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("the profile row must exist");
@@ -883,9 +1056,9 @@ async fn test_logical_user_round_trips_across_restart() {
     let sealed: Option<Vec<u8>> = sqlx::query_scalar(
         "SELECT p.contact_encrypted FROM user_profiles p
          INNER JOIN users u ON u.id = p.user_id
-         WHERE u.wallet_address = $1",
+         WHERE u.id = $1::text::uuid",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("the profile row must exist");
@@ -906,10 +1079,10 @@ async fn test_logical_user_round_trips_across_restart() {
 #[tokio::test]
 async fn test_suspended_account_is_not_resurrected_as_active() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("bb02");
+    let account_id = synthetic_user_id("bb02");
 
     let before = crate::AppState::new_with_pool(Some(pool.clone()));
-    let mut suspended = complete_staff_user(&wallet);
+    let mut suspended = complete_staff_user(&account_id);
     suspended.status = "suspended".to_string();
     before
         .persist_user(&suspended)
@@ -918,8 +1091,8 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
 
     // The stored row must record the suspension, not a boolean that loses it.
     let (stored_status, stored_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
-            .bind(&wallet)
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("suspended user row missing");
@@ -932,7 +1105,7 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
     // After a restart it must not be usable as an active account.
     let after = crate::AppState::new_with_pool(Some(pool.clone()));
     after.load_demo_users_from_db().await.expect("load failed");
-    let reloaded = after.users.read().unwrap().get(&wallet).cloned();
+    let reloaded = after.users.read().unwrap().get(&account_id).cloned();
     assert!(
         reloaded.as_ref().is_none_or(|u| u.status != "active"),
         "D-1: a suspended account came back ACTIVE after a restart"
@@ -946,16 +1119,16 @@ async fn test_suspended_account_is_not_resurrected_as_active() {
 #[tokio::test]
 async fn test_pending_account_is_not_promoted_by_restart() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("cc03");
+    let account_id = synthetic_user_id("cc03");
 
     let state = crate::AppState::new_with_pool(Some(pool.clone()));
-    let mut pending = complete_staff_user(&wallet);
+    let mut pending = complete_staff_user(&account_id);
     pending.status = "pending".to_string();
     state.persist_user(&pending).await.expect("persist failed");
 
     let (stored_status, stored_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
-            .bind(&wallet)
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("pending user row missing");
@@ -974,21 +1147,21 @@ async fn test_pending_account_is_not_promoted_by_restart() {
 #[tokio::test]
 async fn test_deactivate_keeps_status_and_is_active_consistent() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("dd04");
+    let account_id = synthetic_user_id("dd04");
 
     let state = crate::AppState::new_with_pool(Some(pool.clone()));
     state
-        .persist_user(&complete_staff_user(&wallet))
+        .persist_user(&complete_staff_user(&account_id))
         .await
         .expect("persist failed");
     state
-        .deactivate_user_in_db(&wallet)
+        .deactivate_user_in_db(&account_id)
         .await
         .expect("deactivate failed");
 
     let (status, is_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
-            .bind(&wallet)
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("row missing after deactivate");
@@ -1004,10 +1177,10 @@ async fn test_deactivate_keeps_status_and_is_active_consistent() {
 #[tokio::test]
 async fn test_unknown_status_coerces_to_inactive_not_active() {
     let pool = get_test_pool().await;
-    let wallet = synthetic_wallet("ee05");
+    let account_id = synthetic_user_id("ee05");
 
     let state = crate::AppState::new_with_pool(Some(pool.clone()));
-    let mut odd = complete_staff_user(&wallet);
+    let mut odd = complete_staff_user(&account_id);
     odd.status = "banana".to_string();
     state
         .persist_user(&odd)
@@ -1015,8 +1188,8 @@ async fn test_unknown_status_coerces_to_inactive_not_active() {
         .expect("an unknown status must not fail the upsert");
 
     let (status, is_active): (String, bool) =
-        sqlx::query_as("SELECT status, is_active FROM users WHERE wallet_address = $1")
-            .bind(&wallet)
+        sqlx::query_as("SELECT status, is_active FROM users WHERE id = $1::text::uuid")
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("row missing");
@@ -1041,9 +1214,10 @@ fn pg_patient_access(pool: &PgPool) -> crate::patient_access::PatientAccessServi
     ))
 }
 
-fn test_provider() -> crate::patient_access::RequestingProvider {
+/// A provider that exists: `patient_access_*.provider_id` references `users`.
+async fn test_provider_in(pool: &PgPool) -> crate::patient_access::RequestingProvider {
     crate::patient_access::RequestingProvider {
-        provider_id: "5DoctorWallet".to_string(),
+        provider_id: crate::test_fixtures::insert_pg_user(pool, "Doctor").await,
         provider_name: "Dr Synthetic".to_string(),
         provider_role: "Doctor".to_string(),
         organization: "Synthetic General Hospital".to_string(),
@@ -1078,7 +1252,7 @@ async fn test_pg_guardian_revocation_rolls_back_when_audit_outbox_insert_fails()
 
     let pool = get_test_pool().await;
     let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO guardian_relationships (id, guardian_wallet, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
+    sqlx::query("INSERT INTO guardian_relationships (id, guardian_user_id, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
         .bind(&relationship_id)
         .bind("guardian-audit")
         .bind("ward-audit")
@@ -1096,7 +1270,7 @@ async fn test_pg_guardian_revocation_rolls_back_when_audit_outbox_insert_fails()
         Utc::now(),
     )
     .expect("prepare audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1135,7 +1309,7 @@ async fn test_pg_guardian_creation_rolls_back_when_audit_outbox_insert_fails() {
     let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
     let relationship = GuardianRelationshipEntity {
         id: relationship_id.clone(),
-        guardian_wallet: "guardian-audit".into(),
+        guardian_user_id: "guardian-audit".into(),
         ward_patient_id: "ward-audit".into(),
         relationship_type: "parent_or_guardian".into(),
         permissions: vec!["view_records".into()],
@@ -1166,7 +1340,7 @@ async fn test_pg_guardian_creation_rolls_back_when_audit_outbox_insert_fails() {
         Utc::now(),
     )
     .expect("prepare audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
         .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).execute(&pool).await
         .expect("reserve audit event ID");
@@ -1196,7 +1370,7 @@ async fn test_pg_guardian_permission_update_rolls_back_when_audit_outbox_insert_
 
     let pool = get_test_pool().await;
     let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO guardian_relationships (id, guardian_wallet, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
+    sqlx::query("INSERT INTO guardian_relationships (id, guardian_user_id, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
         .bind(&relationship_id).bind("guardian-audit").bind("ward-audit")
         .bind(vec!["view_records"]).bind("admin-audit").bind(Utc::now())
         .execute(&pool).await.expect("seed guardian relationship");
@@ -1208,7 +1382,7 @@ async fn test_pg_guardian_permission_update_rolls_back_when_audit_outbox_insert_
         Utc::now(),
     )
     .expect("prepare audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
         .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).execute(&pool).await
         .expect("reserve audit event ID");
@@ -1340,14 +1514,13 @@ async fn test_pg_emergency_grant_and_audit_commit_together() {
         )
         .await
         .expect("grant and audit must commit");
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1 AND aggregate_id = $2",
-    )
-    .bind(&event.id)
-    .bind(&grant.id)
-    .fetch_one(&pool)
-    .await
-    .expect("read audit event");
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1 AND aggregate_id = $2")
+            .bind(&event.id)
+            .bind(&grant.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read audit event");
     assert_eq!(
         count, 1,
         "committed grant must have its durable audit event"
@@ -1365,7 +1538,7 @@ async fn test_pg_emergency_grant_rolls_back_when_audit_insert_fails() {
     let pool = get_test_pool().await;
     sqlx::query("CREATE FUNCTION reject_emergency_grant_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install isolated audit failure function");
-    sqlx::query("CREATE TRIGGER reject_emergency_grant_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_audit()")
+    sqlx::query("CREATE TRIGGER reject_emergency_grant_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_audit()")
         .execute(&pool).await.expect("install isolated audit failure trigger");
     let suffix = uuid::Uuid::new_v4().to_string();
     let (organization_id, facility_id, device_id) =
@@ -1434,7 +1607,7 @@ async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails()
         .expect("seed active grant");
     sqlx::query("CREATE FUNCTION reject_emergency_grant_revoke_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install isolated audit failure function");
-    sqlx::query("CREATE TRIGGER reject_emergency_grant_revoke_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_revoke_audit()")
+    sqlx::query("CREATE TRIGGER reject_emergency_grant_revoke_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_revoke_audit()")
         .execute(&pool).await.expect("install isolated audit failure trigger");
     assert!(store
         .revoke_with_audit(
@@ -1471,33 +1644,33 @@ async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails()
 #[tokio::test]
 async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
     let pool = get_test_pool().await;
-    let wallet = format!("PAT-claim-{}", uuid::Uuid::new_v4());
+    let account_id = uuid::Uuid::new_v4().to_string();
     let patient_id = format!("claim-patient-{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO users (wallet_address, role, name, username, email, is_active, status, created_at) VALUES ($1,'Patient',$2,$3,$4,TRUE,'active',NOW())")
-        .bind(&wallet).bind("Claim Test").bind(&wallet).bind(format!("{wallet}@example.test"))
+    sqlx::query("INSERT INTO users (id, role, name, username, email, is_active, status, created_at) VALUES ($1::text::uuid,'Patient',$2,$3,$4,TRUE,'active',NOW())")
+        .bind(&account_id).bind("Claim Test").bind(&account_id).bind(format!("{account_id}@example.test"))
         .execute(&pool).await.expect("seed claim user");
     sqlx::query("CREATE FUNCTION reject_identity_claim_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
         .execute(&pool).await.expect("install audit failure function");
-    sqlx::query("CREATE TRIGGER reject_identity_claim_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_identity_claim_audit()")
+    sqlx::query("CREATE TRIGGER reject_identity_claim_audit BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_identity_claim_audit()")
         .execute(&pool).await.expect("install audit failure trigger");
     let event = crate::audit_outbox::AuditOutbox::prepare_event(
         "medical_identity_claimed".into(),
         "patient".into(),
         patient_id.clone(),
-        serde_json::json!({"claimed_by": wallet}),
+        serde_json::json!({"claimed_by": account_id}),
         Utc::now(),
     )
     .expect("prepare event");
     let mut transaction = pool.begin().await.expect("begin transaction");
     assert!(
-        crate::link_user_with_audit(&mut transaction, &wallet, &patient_id, &event,)
+        crate::link_user_with_audit(&mut transaction, &account_id, &patient_id, &event,)
             .await
             .is_err()
     );
     drop(transaction);
     let linked: Option<String> =
-        sqlx::query_scalar("SELECT linked_patient_id FROM users WHERE wallet_address = $1")
-            .bind(&wallet)
+        sqlx::query_scalar("SELECT linked_patient_id FROM users WHERE id = $1::text::uuid")
+            .bind(&account_id)
             .fetch_one(&pool)
             .await
             .expect("read claim user");
@@ -1588,14 +1761,14 @@ async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
         "access_request_created".into(),
         "access_request".into(),
         request_id.clone(),
-        serde_json::json!({"provider_id": "5DoctorWallet"}),
+        serde_json::json!({"provider_id": "a-doctor"}),
         now,
     )
     .expect("valid audit event");
 
     // Reserve the event ID. The transactional method must then reject its
     // duplicate outbox insert and roll back the preceding request insert.
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1610,7 +1783,7 @@ async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
     let result = pg_patient_access(&pool)
         .create_request_with_audit(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             event,
             now,
         )
@@ -1643,7 +1816,7 @@ async fn test_pg_access_approval_rolls_back_when_audit_outbox_insert_fails() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1657,7 +1830,7 @@ async fn test_pg_access_approval_rolls_back_when_audit_outbox_insert_fails() {
         now,
     )
     .expect("valid audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1709,7 +1882,7 @@ async fn test_pg_access_approval_with_audit_commits_grant_and_event() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1731,12 +1904,11 @@ async fn test_pg_access_approval_with_audit_commits_grant_and_event() {
         .expect("approve with audit");
     assert_eq!(approved.status, "approved");
     assert_eq!(grant.id, grant_id);
-    let event_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
-            .bind(&event_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count audit events");
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+        .bind(&event_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count audit events");
     assert_eq!(event_count, 1, "approval must commit its audit event");
     pool.close().await;
 }
@@ -1749,7 +1921,7 @@ async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1762,7 +1934,7 @@ async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
         now,
     )
     .expect("valid audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1802,7 +1974,7 @@ async fn test_pg_access_denial_with_audit_commits_request_and_event() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1822,12 +1994,11 @@ async fn test_pg_access_denial_with_audit_commits_request_and_event() {
         .await
         .expect("deny with audit");
     assert_eq!(denied.status, "denied");
-    let event_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
-            .bind(&event_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count audit events");
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+        .bind(&event_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count audit events");
     assert_eq!(event_count, 1, "denial must commit its audit event");
     pool.close().await;
 }
@@ -1842,7 +2013,7 @@ async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1859,7 +2030,7 @@ async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
         now,
     )
     .expect("valid audit event");
-    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+    sqlx::query("INSERT INTO audit_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7)")
         .bind(&event.id)
         .bind(&event.event_type)
         .bind(&event.aggregate_type)
@@ -1901,7 +2072,7 @@ async fn test_pg_access_revocation_with_audit_commits_grant_and_event() {
     let request = service
         .create_request(
             format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
-            test_provider(),
+            test_provider_in(&pool).await,
             now,
         )
         .await
@@ -1925,12 +2096,11 @@ async fn test_pg_access_revocation_with_audit_commits_grant_and_event() {
         .await
         .expect("revoke with audit");
     assert_eq!(revoked.status, "revoked");
-    let event_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
-            .bind(&event_id)
-            .fetch_one(&pool)
-            .await
-            .expect("count audit events");
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE id = $1")
+        .bind(&event_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count audit events");
     assert_eq!(event_count, 1, "revocation must commit its audit event");
     pool.close().await;
 }
@@ -1946,7 +2116,7 @@ async fn test_pg_patient_access_grant_survives_restart() {
     // Write through the first service instance.
     let writer = pg_patient_access(&pool);
     let request = writer
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     let (_, grant) = writer
@@ -1994,7 +2164,7 @@ async fn test_pg_revocation_survives_restart() {
 
     let writer = pg_patient_access(&pool);
     let request = writer
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     let (_, grant) = writer
@@ -2040,7 +2210,7 @@ async fn test_pg_approve_is_not_replayable() {
 
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     svc.approve_request(&request.id, AccessType::Limited, None, now)
@@ -2074,7 +2244,7 @@ async fn test_pg_concurrent_approvals_mint_exactly_one_grant() {
     let now = Utc::now();
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
 
@@ -2113,9 +2283,10 @@ async fn test_pg_concurrent_access_requests_create_exactly_one_pending_request()
     let now = Utc::now();
     let service = pg_patient_access(&pool);
 
+    let provider = test_provider_in(&pool).await;
     let (first, second) = tokio::join!(
-        service.create_request(patient_id.clone(), test_provider(), now),
-        service.create_request(patient_id.clone(), test_provider(), now)
+        service.create_request(patient_id.clone(), provider.clone(), now),
+        service.create_request(patient_id.clone(), provider, now)
     );
     assert_eq!(
         [first.is_ok(), second.is_ok()]
@@ -2148,7 +2319,7 @@ async fn test_pg_approval_and_denial_race_resolves_once() {
     let now = Utc::now();
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
 
@@ -2191,7 +2362,7 @@ async fn test_pg_denial_survives_restart() {
 
     let writer = pg_patient_access(&pool);
     let request = writer
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     writer
@@ -2237,7 +2408,7 @@ async fn test_pg_expiry_is_applied_and_lapsed_grants_are_not_revocable() {
 
     let svc = pg_patient_access(&pool);
     let request = svc
-        .create_request(patient_id.clone(), test_provider(), now)
+        .create_request(patient_id.clone(), test_provider_in(&pool).await, now)
         .await
         .expect("create_request failed");
     let (_, grant) = svc
@@ -2308,8 +2479,8 @@ async fn test_pg_pre_op_assessment_survives_restart_with_checklist_intact() {
         patient_id: patient_id.clone(),
         scheduled_procedure: "Left inguinal hernia repair".to_string(),
         procedure_datetime: "2026-08-12T09:00:00Z".to_string(),
-        surgeon: "5SurgeonWallet".to_string(),
-        anesthesiologist: Some("5AnaesthetistWallet".to_string()),
+        surgeon: "surgeon-account".to_string(),
+        anesthesiologist: Some("anaesthetist-account".to_string()),
         npo_status: NPOStatus {
             last_solid: Some("2026-08-11T20:00:00Z".to_string()),
             last_liquid: Some("2026-08-12T05:00:00Z".to_string()),
@@ -2337,7 +2508,7 @@ async fn test_pg_pre_op_assessment_survives_restart_with_checklist_intact() {
         iv_access: true,
         checklist_complete: true,
         notes: Some("Patient counselled; consent witnessed.".to_string()),
-        assessed_by: "5SurgeonWallet".to_string(),
+        assessed_by: "surgeon-account".to_string(),
         assessed_at: 1_754_982_000,
     };
 
@@ -2356,7 +2527,7 @@ async fn test_pg_pre_op_assessment_survives_restart_with_checklist_intact() {
     // The typed projection is queryable...
     assert_eq!(stored.patient_id, patient_id);
     assert_eq!(stored.procedure_name, "Left inguinal hernia repair");
-    assert_eq!(stored.surgeon_id, "5SurgeonWallet");
+    assert_eq!(stored.surgeon_id, "surgeon-account");
     assert_eq!(stored.asa_classification.as_deref(), Some("III"));
     assert_eq!(stored.mallampati_score, Some(2));
     assert_eq!(stored.npo_status.as_deref(), Some("compliant"));
@@ -2636,7 +2807,7 @@ async fn test_pg_radiology_order_survives_restart_with_contrast_checks_intact() 
         indication: "Right lower quadrant pain, query appendicitis".to_string(),
         // Exercises the widened priority CHECK.
         priority: OrderPriority::Scheduled,
-        ordering_provider: "5OrderingDoctorWallet".to_string(),
+        ordering_provider: "orderingdoctor-account".to_string(),
         order_time: 1_755_000_000,
         contrast: true,
         allergies_reviewed: true,
@@ -2664,7 +2835,7 @@ async fn test_pg_radiology_order_survives_restart_with_contrast_checks_intact() 
     assert_eq!(stored.priority, "scheduled");
     assert_eq!(stored.status, "preliminary");
     assert_eq!(stored.contrast_required, Some(true));
-    assert_eq!(stored.ordering_provider_id, "5OrderingDoctorWallet");
+    assert_eq!(stored.ordering_provider_id, "orderingdoctor-account");
 
     let back = RadiologyOrder::try_from(stored).expect("stored payload could not be read back");
     assert_eq!(
@@ -2724,7 +2895,7 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         laterality: Some(Laterality::NA),
         indication: "Sudden severe headache".to_string(),
         priority: OrderPriority::Stat,
-        ordering_provider: "5EDDoctorWallet".to_string(),
+        ordering_provider: "eddoctor-account".to_string(),
         order_time: 1_755_000_000,
         contrast: false,
         allergies_reviewed: true,
@@ -2747,7 +2918,7 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         accession_number: "ACC-2026-7781".to_string(),
         study_type: RadiologyStudyType::CT,
         body_part: "Head".to_string(),
-        study_datetime: 1_755_003_600,
+        study_datetime: Some(1_755_003_600),
         technique: "Non-contrast axial CT of the brain".to_string(),
         contrast: None,
         comparison: Some("No prior imaging available".to_string()),
@@ -2763,13 +2934,13 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         critical_finding: true,
         // The read-back record this test exists for.
         critical_communicated: Some(CriticalCommunication {
-            communicated_to: "5EDDoctorWallet".to_string(),
-            communicated_by: "5RadiologistWallet".to_string(),
+            communicated_to: "eddoctor-account".to_string(),
+            communicated_by: "radiologist-account".to_string(),
             communication_time: 1_755_004_200,
             method: "Telephone".to_string(),
             read_back: true,
         }),
-        radiologist: "5RadiologistWallet".to_string(),
+        radiologist: "radiologist-account".to_string(),
         status: RadiologyReportStatus::Final,
         preliminary_time: Some(1_755_003_900),
         final_time: Some(1_755_004_500),
@@ -2790,7 +2961,7 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
     assert_eq!(stored.patient_id, patient_id);
     assert!(stored.critical_finding);
     assert_eq!(stored.status, "final");
-    assert_eq!(stored.radiologist_id, "5RadiologistWallet");
+    assert_eq!(stored.radiologist_id, "radiologist-account");
     // The projection joins the impression list.
     assert!(stored.impression.contains("Subarachnoid haemorrhage"));
 
@@ -2800,12 +2971,40 @@ async fn test_pg_radiology_report_survives_restart_with_critical_readback_intact
         .as_ref()
         .expect("critical-finding communication record was lost");
     assert!(comms.read_back, "critical-finding read-back flag was lost");
-    assert_eq!(comms.communicated_to, "5EDDoctorWallet");
+    assert_eq!(comms.communicated_to, "eddoctor-account");
     assert_eq!(comms.communication_time, 1_755_004_200);
     assert_eq!(comms.method, "Telephone");
     assert_eq!(back.impression.len(), 3, "impression list was flattened");
     assert_eq!(back.preliminary_time, Some(1_755_003_900));
     assert_eq!(back.final_time, Some(1_755_004_500));
+    assert_eq!(back.study_datetime, Some(1_755_003_600));
+
+    // Missing acquisition time must survive the same durable round trip without changing the first row.
+    let mut unknown = back;
+    unknown.report_id = format!("{id}-UNKNOWN");
+    unknown.study_datetime = None;
+    writer
+        .create(unknown.clone().into())
+        .await
+        .expect("unknown study time must be storable");
+    let unknown_stored = reader.get_by_id(&unknown.report_id).await.unwrap();
+    assert_eq!(unknown_stored.study_datetime, None);
+    assert_eq!(
+        RadiologyReport::try_from(unknown_stored)
+            .unwrap()
+            .study_datetime,
+        None
+    );
+    assert_eq!(
+        reader
+            .get_by_id(&id)
+            .await
+            .unwrap()
+            .study_datetime
+            .unwrap()
+            .timestamp(),
+        1_755_003_600
+    );
 
     pool.close().await;
 }
@@ -2885,7 +3084,7 @@ async fn test_pg_pathology_report_survives_restart_with_cancer_staging_intact() 
             ajcc_stage: "IIA".to_string(),
         }),
         comment: Some("Discussed at breast MDT.".to_string()),
-        pathologist: "5PathologistWallet".to_string(),
+        pathologist: "pathologist-account".to_string(),
         report_date: "2026-08-05".to_string(),
         // Exercises the widened status CHECK.
         status: PathologyStatus::Pending,
@@ -2904,7 +3103,7 @@ async fn test_pg_pathology_report_survives_restart_with_cancer_staging_intact() 
 
     assert_eq!(stored.patient_id, patient_id);
     assert_eq!(stored.status, "pending");
-    assert_eq!(stored.pathologist_id, "5PathologistWallet");
+    assert_eq!(stored.pathologist_id, "pathologist-account");
     // The date columns parsed rather than defaulting to now.
     assert_eq!(
         stored.collection_date.format("%Y-%m-%d").to_string(),
@@ -3084,15 +3283,16 @@ async fn test_pg_telehealth_event_types_are_all_accepted_by_the_schema() {
 ///
 /// These tests run against a throwaway schema with migrations freshly applied,
 /// so nothing exists yet. `appointments.provider_id` references
-/// `users(wallet_address)` and `patient_id` references `patients(id)`.
+/// `users(id_text)` and `patient_id` references `patients(id)`.
+/// `provider` and `filed_by` are `users.id` UUIDs.
 async fn seed_appointment_fks(pool: &PgPool, provider: &str, filed_by: &str, patient: &str) {
-    for wallet in [provider, filed_by] {
+    for account_id in [provider, filed_by] {
         sqlx::query(
-            "INSERT INTO users (wallet_address, role, name, status)
-             VALUES ($1, 'Doctor', 'Test Provider', 'active')
-             ON CONFLICT (wallet_address) DO NOTHING",
+            "INSERT INTO users (id, role, name, status)
+             VALUES ($1::text::uuid, 'Doctor', 'Test Provider', 'active')
+             ON CONFLICT (id) DO NOTHING",
         )
-        .bind(wallet)
+        .bind(account_id)
         .execute(pool)
         .await
         .expect("seeding a user failed");
@@ -3114,7 +3314,7 @@ async fn seed_appointment_fks(pool: &PgPool, provider: &str, filed_by: &str, pat
 ///
 /// It did not, and that absence hid a total feature outage. `provider_id`,
 /// `created_by` and `cancelled_by` were `uuid` columns while the application
-/// binds SS58 wallet strings, and the status writer emitted Rust `Debug`
+/// binds account-id strings, and the status writer emitted Rust `Debug`
 /// output ("Scheduled") against a CHECK expecting snake_case ('scheduled'). So
 /// **every** booking failed on the production storage backend and
 /// `SELECT count(*) FROM appointments` was 0 — while the whole suite stayed
@@ -3131,11 +3331,10 @@ async fn test_pg_appointment_round_trip_survives_restart() {
     let id = format!("APT-{}", uuid::Uuid::new_v4());
     let now = Utc::now();
 
-    // A wallet address, not a uuid — the identifier the application actually
-    // uses for providers everywhere else.
-    let provider = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string();
+    // A user id: the identifier the application uses for providers everywhere.
+    let provider = uuid::Uuid::new_v4().to_string();
     // Distinct from `provider_id`: an administrator scheduling for a colleague.
-    let filed_by = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string();
+    let filed_by = uuid::Uuid::new_v4().to_string();
 
     let entity = AppointmentEntity {
         id: id.clone(),
@@ -3184,7 +3383,7 @@ async fn test_pg_appointment_round_trip_survives_restart() {
         .expect("appointment lost on restart");
     assert_eq!(
         fetched.provider_id, provider,
-        "provider must survive as a wallet address"
+        "provider must survive as an account id"
     );
     assert_eq!(
         fetched.created_by, filed_by,
@@ -3212,7 +3411,8 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
     use crate::repositories::traits::AppointmentRepository;
     let pool = get_test_pool().await;
     let repo = crate::repositories::postgres::PgAppointmentRepository::new(pool.clone());
-    let provider = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+    let provider_owned = uuid::Uuid::new_v4().to_string();
+    let provider = provider_owned.as_str();
     seed_appointment_fks(&pool, provider, provider, "PAT-APPT-STATUS").await;
 
     for status in [
@@ -3232,7 +3432,7 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
         let entity = crate::repositories::traits::AppointmentEntity {
             id: id.clone(),
             patient_id: "PAT-APPT-STATUS".into(),
-            provider_id: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
+            provider_id: provider.into(),
             appointment_type: "FollowUp".into(),
             scheduled_datetime: now,
             duration_minutes: 15,
@@ -3256,7 +3456,7 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
             cancellation_reason: None,
             cancelled_by: None,
             notes: None,
-            created_by: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
+            created_by: provider.into(),
             created_at: now,
             updated_at: now,
             data: serde_json::json!({}),
@@ -3302,7 +3502,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
         id: consult_id.clone(),
         patient_id: patient_id.clone(),
         consultation_type: "cardiology".to_string(),
-        requesting_provider: "5EDDoctorWallet".to_string(),
+        requesting_provider: "eddoctor-account".to_string(),
         consulting_provider: String::new(),
         reason_for_consultation: "Chest pain on exertion".to_string(),
         clinical_question: Some("Is this stable angina?".to_string()),
@@ -3343,7 +3543,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
     answered.examination_findings = Some("No acute ischaemia; troponin negative.".to_string());
     answered.recommendations = "Outpatient stress test; aspirin 75mg daily.".to_string();
     answered.follow_up_plan = Some("Cardiology clinic in 2 weeks".to_string());
-    answered.consulting_provider = "5EDCardiologistWallet".to_string();
+    answered.consulting_provider = "edcardiologist-account".to_string();
     answered.status = Some("completed".to_string());
     answered.completed_at = Some(completed_at);
     if let Some(blob) = answered.data.as_object_mut() {
@@ -3358,7 +3558,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
         );
         blob.insert(
             "consulting_provider".into(),
-            serde_json::json!("5EDCardiologistWallet"),
+            serde_json::json!("edcardiologist-account"),
         );
     }
     repo.update(answered).await.expect("response must persist");
@@ -3376,7 +3576,7 @@ async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_bl
         reloaded.recommendations,
         "Outpatient stress test; aspirin 75mg daily."
     );
-    assert_eq!(reloaded.consulting_provider, "5EDCardiologistWallet");
+    assert_eq!(reloaded.consulting_provider, "edcardiologist-account");
     assert!(reloaded.completed_at.is_some());
 
     // The blob the read handler serves must agree with the columns. This is the
@@ -3564,8 +3764,8 @@ async fn test_pg_pathology_specimen_accessions_with_a_workflow_status() {
         // Left unset: the lab has not logged a collection record for this
         // accession, which is the ordinary case at booking-in time.
         specimen_id: None,
-        ordering_provider_id: "5EDDoctorWallet".to_string(),
-        pathologist_id: "5EDPathologistWallet".to_string(),
+        ordering_provider_id: "eddoctor-account".to_string(),
+        pathologist_id: "edpathologist-account".to_string(),
         specimen_type: "biopsy".to_string(),
         specimen_source: "Left breast".to_string(),
         collection_date: now,
@@ -3647,78 +3847,32 @@ async fn test_pg_pathology_specimen_accessions_with_a_workflow_status() {
     }
 }
 
-/// An administrator must be able to find, and undo, a deactivation.
-///
-/// `GET /api/users` used to serve the admin directory from `AppState.users` —
-/// the *authorization* cache, hydrated with `WHERE is_active = true AND status
-/// = 'active'`. Correct for deciding who may act; wrong for deciding who
-/// exists. The consequence was that deactivating an account removed it from the
-/// only list an administrator can see: the "Inactive" filter could never match
-/// a row, the Reactivate control was unreachable, and undoing a mistaken
-/// deactivation meant hand-written SQL against production.
-///
-/// This pins the query the directory now runs: every account comes back
-/// regardless of status, carrying the `status` an administrator has to act on.
+/// Inactive accounts remain in the administrator directory for reactivation.
 #[tokio::test]
 async fn test_pg_user_directory_lists_deactivated_accounts() {
     let pool = get_test_pool().await;
-
-    // `valid_wallet` requires an SS58-shaped address: `5`-prefixed and at least
-    // 45 characters. A short fixture is rejected before the test can say
-    // anything, so build one the constraint accepts.
-    let ss58 = |tag: &str| {
-        let raw = format!("5{tag}{}", uuid::Uuid::new_v4().simple());
-        format!("{raw:5<48}")
-    };
-    let active = ss58("Act");
-    let gone = ss58("Gone");
-
-    for (wallet, is_active, status) in [(&active, true, "active"), (&gone, false, "inactive")] {
-        sqlx::query(
-            "INSERT INTO users (id, wallet_address, role, name, is_active, status)
-             VALUES ($1, $2, 'Doctor', 'Directory Fixture', $3, $4)",
-        )
-        .bind(uuid::Uuid::new_v4())
-        .bind(wallet)
-        .bind(is_active)
-        .bind(status)
-        .execute(&pool)
-        .await
-        .unwrap_or_else(|e| panic!("fixture {wallet} must insert: {e}"));
+    let active = uuid::Uuid::new_v4();
+    let gone = uuid::Uuid::new_v4();
+    for (id, is_active, status) in [(active, true, "active"), (gone, false, "inactive")] {
+        sqlx::query("INSERT INTO users (id, role, name, is_active, status) VALUES ($1, 'Doctor', 'Directory Fixture', $2, $3)")
+            .bind(id).bind(is_active).bind(status).execute(&pool).await.unwrap();
     }
-
-    // The directory query, exactly as `list_users` runs it.
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT u.wallet_address, u.status
-         FROM users u
-         LEFT JOIN user_profiles p ON p.user_id = u.id
-         ORDER BY u.created_at DESC",
-    )
-    .fetch_all(&pool)
-    .await
-    .expect("directory query runs");
-
-    let found: std::collections::HashMap<String, String> = rows.into_iter().collect();
-
-    assert_eq!(
-        found.get(&active).map(String::as_str),
-        Some("active"),
-        "an active account is listed"
-    );
-    assert_eq!(
-        found.get(&gone).map(String::as_str),
-        Some("inactive"),
-        "a DEACTIVATED account must still be listed, and must carry its status --          otherwise deactivation is a one-way door with no path back through the product"
-    );
-
+    let rows: Vec<(uuid::Uuid, String)> =
+        sqlx::query_as("SELECT id, status FROM users WHERE id = ANY($1) ORDER BY created_at DESC")
+            .bind(vec![active, gone])
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let found: std::collections::HashMap<_, _> = rows.into_iter().collect();
+    assert_eq!(found.get(&active).map(String::as_str), Some("active"));
+    assert_eq!(found.get(&gone).map(String::as_str), Some("inactive"));
     pool.close().await;
 }
-
 /// The audit outbox must survive a restart.
 ///
 /// `AuditOutbox::record` writes to an in-process `RwLock<HashMap>` and nothing
 /// else. `record_durable` writes the same event *and* persists it to
-/// `audit_outbox_events`. Until 2026-08-20 every one of the 14 call sites --
+/// `audit_events`. Until 2026-08-20 every one of the 14 call sites --
 /// emergency break-glass grants, access-control changes, RBAC changes, device
 /// lifecycle, identity claims, mobile record access -- called `record`, and
 /// discarded the result with `let _ =`.
@@ -3749,13 +3903,13 @@ async fn test_pg_audit_outbox_event_survives_a_restart() {
     // in-memory map is empty, so anything readable now came from PostgreSQL.
     let after_restart = crate::audit_outbox::AuditOutbox::new();
     assert!(
-        after_restart.pending().is_empty(),
+        after_restart.recorded().is_empty(),
         "a fresh outbox starts empty -- otherwise this test proves nothing"
     );
 
     let (event_type, aggregate_type, payload_hash): (String, String, String) = sqlx::query_as(
         "SELECT event_type, aggregate_type, payload_hash
-         FROM audit_outbox_events WHERE id = $1",
+         FROM audit_events WHERE id = $1",
     )
     .bind(&event.id)
     .fetch_one(&pool)
@@ -3797,99 +3951,6 @@ async fn test_pg_audit_outbox_rejects_an_event_with_no_identity() {
     pool.close().await;
 }
 
-/// Concurrent challenge issuance across pools must share one durable budget.
-#[tokio::test]
-async fn test_pg_auth_challenge_throttle_is_atomic_across_concurrent_requests() {
-    let pool = get_test_pool().await;
-    let wallet = "5F3sa2TJAWMqDhXG6jhV4N8ko9PFRFQ7X3g7Q9W5D8F6A2V7".to_string();
-    let mut tasks = tokio::task::JoinSet::new();
-
-    for _ in 0..(crate::auth_challenges::MAX_CHALLENGES_PER_WALLET_PER_MINUTE + 1) {
-        let pool = pool.clone();
-        let wallet = wallet.clone();
-        tasks.spawn(async move { crate::auth_challenges::issue(&pool, &wallet).await });
-    }
-
-    let mut issued = 0;
-    let mut limited = 0;
-    while let Some(result) = tasks.join_next().await {
-        match result.expect("challenge task must not panic") {
-            Ok(_) => issued += 1,
-            Err(crate::auth_challenges::IssueError::RateLimited) => limited += 1,
-            Err(crate::auth_challenges::IssueError::Database(error)) => {
-                panic!("unexpected challenge database error: {error}")
-            }
-        }
-    }
-
-    assert_eq!(
-        issued,
-        crate::auth_challenges::MAX_CHALLENGES_PER_WALLET_PER_MINUTE
-    );
-    assert_eq!(limited, 1);
-    pool.close().await;
-}
-
-/// A durable login challenge is single-use even when a later request has the
-/// same wallet, nonce, and challenge identifier.
-#[tokio::test]
-async fn test_pg_auth_challenge_cannot_be_replayed() {
-    let pool = get_test_pool().await;
-    let wallet = "5F3sa2TJAWMqDhXG6jhV4N8ko9PFRFQ7X3g7Q9W5D8F6A2V7";
-    let challenge = crate::auth_challenges::issue(&pool, wallet)
-        .await
-        .expect("issue challenge");
-
-    assert!(crate::auth_challenges::consume(
-        &pool,
-        &challenge.challenge_id,
-        wallet,
-        &challenge.nonce,
-    )
-    .await
-    .expect("first consume"));
-    assert!(!crate::auth_challenges::consume(
-        &pool,
-        &challenge.challenge_id,
-        wallet,
-        &challenge.nonce,
-    )
-    .await
-    .expect("replayed consume"));
-    pool.close().await;
-}
-
-/// Expired challenges must remain unusable even when their nonce still matches.
-#[tokio::test]
-async fn test_pg_auth_challenge_expiry_is_enforced() {
-    let pool = get_test_pool().await;
-    let wallet = "5F3sa2TJAWMqDhXG6jhV4N8ko9PFRFQ7X3g7Q9W5D8F6A2V7";
-    let challenge_id = uuid::Uuid::new_v4();
-    let nonce = "expired-challenge-nonce";
-    let nonce_hash = {
-        use sha3::{Digest, Sha3_256};
-        format!("{:x}", Sha3_256::digest(nonce.as_bytes()))
-    };
-
-    sqlx::query(
-        "INSERT INTO auth_challenges (id, wallet_address, nonce_hash, created_at, expires_at) \
-         VALUES ($1, $2, $3, NOW() - INTERVAL '2 seconds', NOW() - INTERVAL '1 second')",
-    )
-    .bind(challenge_id)
-    .bind(wallet)
-    .bind(nonce_hash)
-    .execute(&pool)
-    .await
-    .expect("insert expired challenge");
-
-    assert!(
-        !crate::auth_challenges::consume(&pool, &challenge_id.to_string(), wallet, nonce)
-            .await
-            .expect("expired consume")
-    );
-    pool.close().await;
-}
-
 /// ADR-0008: the login session outlives the refresh generations beneath it.
 ///
 /// This is the property the whole split exists for. Before it, rotation revoked
@@ -3900,14 +3961,11 @@ async fn test_pg_auth_challenge_expiry_is_enforced() {
 #[tokio::test]
 async fn test_pg_login_session_survives_refresh_rotation() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "sid-survives-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let first_jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "generation-one",
         &first_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -3919,7 +3977,7 @@ async fn test_pg_login_session_survives_refresh_rotation() {
     let second_jti = uuid::Uuid::new_v4().to_string();
     let after_first = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "generation-one",
         &first_jti,
         "generation-two",
@@ -3934,7 +3992,7 @@ async fn test_pg_login_session_survives_refresh_rotation() {
     let third_jti = uuid::Uuid::new_v4().to_string();
     let after_second = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "generation-two",
         &second_jti,
         "generation-three",
@@ -3982,14 +4040,11 @@ async fn test_pg_login_session_survives_refresh_rotation() {
 #[tokio::test]
 async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "sid-logout-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "live-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4024,7 +4079,7 @@ async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
     let replacement_jti = uuid::Uuid::new_v4().to_string();
     let resurrected = crate::auth_sessions::rotate(
         &pool,
-        &wallet,
+        &account_id,
         "live-generation",
         &jti,
         "should-not-exist",
@@ -4050,13 +4105,12 @@ async fn test_pg_logout_revokes_session_and_blocks_later_rotation() {
         .ok();
 }
 
-/// Logout-all ends every login for one wallet and leaves other wallets alone.
+/// Logout-all ends every login for one account and leaves other accounts alone.
 #[tokio::test]
-async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
+async fn test_pg_logout_all_revokes_every_session_for_one_account() {
     let pool = get_test_pool().await;
-    let stamp = Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    let wallet = format!("sid-logout-all-{stamp}");
-    let bystander = format!("sid-bystander-{stamp}");
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let bystander = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
 
     let mut sids = Vec::new();
     for index in 0..3 {
@@ -4064,7 +4118,7 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
         sids.push(
             crate::auth_sessions::create(
                 &pool,
-                &wallet,
+                &account_id,
                 &format!("device-{index}"),
                 &jti,
                 Utc::now() + chrono::Duration::hours(1),
@@ -4084,10 +4138,10 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
     .await
     .expect("open bystander session");
 
-    let ended = crate::auth_sessions::revoke_all_for_wallet(&pool, &wallet, "logout_all")
+    let ended = crate::auth_sessions::revoke_all_for_user(&pool, &account_id, "logout_all")
         .await
         .expect("logout all");
-    assert_eq!(ended, 3, "every active login for the wallet ends");
+    assert_eq!(ended, 3, "every active login for the account ends");
 
     for sid in &sids {
         assert!(!crate::auth_sessions::is_session_active(&pool, *sid)
@@ -4098,7 +4152,7 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
         crate::auth_sessions::is_session_active(&pool, other_sid)
             .await
             .expect("bystander state"),
-        "another wallet's session must be untouched"
+        "another account's session must be untouched"
     );
 
     for sid in sids.iter().chain(std::iter::once(&other_sid)) {
@@ -4115,20 +4169,17 @@ async fn test_pg_logout_all_revokes_every_session_for_one_wallet() {
     }
 }
 
-/// Two independent logins for the same wallet get different sids, so revoking
+/// Two independent logins for the same account get different sids, so revoking
 /// one device does not end the other.
 #[tokio::test]
 async fn test_pg_independent_logins_get_distinct_sessions() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "sid-distinct-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let phone_jti = uuid::Uuid::new_v4().to_string();
     let desk_jti = uuid::Uuid::new_v4().to_string();
     let phone = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "phone-generation",
         &phone_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4137,7 +4188,7 @@ async fn test_pg_independent_logins_get_distinct_sessions() {
     .expect("phone login");
     let desk = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "desk-generation",
         &desk_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4173,637 +4224,6 @@ async fn test_pg_independent_logins_get_distinct_sessions() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ADR-0008 Class B / Class C: exact transaction authorization
-//
-// These drive the real protocol with real sr25519 signatures, because the whole
-// point of the mechanism is what it refuses. Each negative case below is a way
-// an attacker or a stale client could try to reuse a signature, and each must
-// fail closed.
-// ---------------------------------------------------------------------------
-
-use crate::transaction_authorization as txn;
-
-/// A real dev keypair and the SS58 address that owns it.
-fn txn_keypair() -> (sp_core::sr25519::Pair, String) {
-    use sp_core::crypto::Ss58Codec;
-    use sp_core::Pair as _;
-    let pair = sp_core::sr25519::Pair::from_string("//Alice", None).expect("dev key");
-    let wallet = pair.public().to_ss58check();
-    (pair, wallet)
-}
-
-fn txn_sign(pair: &sp_core::sr25519::Pair, message: &str) -> String {
-    use sp_core::Pair as _;
-    hex::encode(pair.sign(message.as_bytes()).0.as_slice())
-}
-
-fn txn_intent() -> txn::TransactionIntent {
-    txn::TransactionIntent {
-        action: "patient_access.approve".to_string(),
-        method: "POST".to_string(),
-        path: "/api/access/requests/req-1/approve".to_string(),
-        body_digest: txn::body_digest(b"{}"),
-        resource_id: Some("req-1".to_string()),
-        expected_state: Some("pending".to_string()),
-        idempotency_key: Some("idem-1".to_string()),
-    }
-}
-
-/// Open a login session owned by the dev keypair.
-async fn txn_session(pool: &sqlx::PgPool, wallet: &str) -> uuid::Uuid {
-    crate::auth_sessions::create(
-        pool,
-        wallet,
-        &format!("txn-generation-{}", uuid::Uuid::new_v4()),
-        &uuid::Uuid::new_v4().to_string(),
-        Utc::now() + chrono::Duration::hours(1),
-    )
-    .await
-    .expect("open login session")
-}
-
-async fn txn_cleanup(pool: &sqlx::PgPool, sid: uuid::Uuid) {
-    sqlx::query("DELETE FROM auth_transaction_challenges WHERE login_session_id = $1")
-        .bind(sid)
-        .execute(pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM auth_sessions WHERE login_session_id = $1")
-        .bind(sid)
-        .execute(pool)
-        .await
-        .ok();
-    sqlx::query("DELETE FROM auth_login_sessions WHERE id = $1")
-        .bind(sid)
-        .execute(pool)
-        .await
-        .ok();
-}
-
-/// The happy path, and the single-use guarantee that follows it: a correct
-/// signature authorizes exactly once, and the same proof replayed is refused.
-#[tokio::test]
-async fn test_pg_transaction_authorization_succeeds_once_then_refuses_replay() {
-    let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
-    let sid = txn_session(&pool, &wallet).await;
-    let intent = txn_intent();
-
-    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
-        .await
-        .expect("issue challenge");
-    let signature = txn_sign(&pair, &challenge.message);
-    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
-
-    txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await
-    .expect("first authorization must succeed");
-
-    // The identical proof, presented again.
-    let replay = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert_eq!(
-        replay.unwrap_err(),
-        txn::AuthorizationFailure::AlreadyConsumed,
-        "a consumed challenge must not authorize a second mutation"
-    );
-
-    txn_cleanup(&pool, sid).await;
-}
-
-/// Every way of presenting a different request than the one that was authorized.
-/// A valid signature for one mutation must not carry over to another.
-#[tokio::test]
-async fn test_pg_transaction_authorization_refuses_a_changed_request() {
-    let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
-    let intent = txn_intent();
-
-    // Each case gets its own session and challenge, so a refusal in one cannot
-    // be an artefact of a challenge another case consumed.
-    /// One way of presenting a different request than the one authorized:
-    /// a label, the mutation, and the refusal it must produce.
-    type TamperCase = (
-        &'static str,
-        Box<dyn Fn(&mut txn::TransactionIntent)>,
-        txn::AuthorizationFailure,
-    );
-
-    let cases: Vec<TamperCase> = vec![
-        (
-            "path",
-            Box::new(|i: &mut txn::TransactionIntent| {
-                i.path = "/api/access/requests/req-2/approve".to_string()
-            }),
-            txn::AuthorizationFailure::IntentMismatch,
-        ),
-        (
-            "body",
-            Box::new(|i: &mut txn::TransactionIntent| {
-                i.body_digest = txn::body_digest(b"{\"escalate\":true}")
-            }),
-            txn::AuthorizationFailure::IntentMismatch,
-        ),
-        (
-            "method",
-            Box::new(|i: &mut txn::TransactionIntent| i.method = "DELETE".to_string()),
-            txn::AuthorizationFailure::IntentMismatch,
-        ),
-        (
-            "action",
-            Box::new(|i: &mut txn::TransactionIntent| i.action = "patient_access.deny".to_string()),
-            txn::AuthorizationFailure::IntentMismatch,
-        ),
-        (
-            "resource",
-            Box::new(|i: &mut txn::TransactionIntent| i.resource_id = Some("req-2".to_string())),
-            txn::AuthorizationFailure::IntentMismatch,
-        ),
-        (
-            // The TOCTOU case: approval of version N must not authorize N+1.
-            "resource state",
-            Box::new(|i: &mut txn::TransactionIntent| {
-                i.expected_state = Some("approved".to_string())
-            }),
-            txn::AuthorizationFailure::StateChanged,
-        ),
-    ];
-
-    for (label, mutate, expected) in cases {
-        let sid = txn_session(&pool, &wallet).await;
-        let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
-            .await
-            .expect("issue challenge");
-        let signature = txn_sign(&pair, &challenge.message);
-        let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
-
-        let mut tampered = intent.clone();
-        mutate(&mut tampered);
-
-        let outcome = txn::authorize_transaction(
-            &pool,
-            txn::TransactionProof {
-                challenge_id,
-                subject: &wallet,
-                login_session_id: sid,
-                nonce: &challenge.nonce,
-                signature_hex: &signature,
-                authenticator: txn::AuthenticatorType::PolkadotExtension,
-            },
-            &tampered,
-            true,
-        )
-        .await;
-        assert_eq!(
-            outcome.unwrap_err(),
-            expected,
-            "changing the {label} must invalidate the authorization"
-        );
-
-        txn_cleanup(&pool, sid).await;
-    }
-}
-
-/// A signature is only good for the session it was issued under, and only while
-/// that session lives.
-#[tokio::test]
-async fn test_pg_transaction_authorization_is_bound_to_its_session() {
-    let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
-    let intent = txn_intent();
-
-    // Presented against a different session belonging to the same subject.
-    let sid = txn_session(&pool, &wallet).await;
-    let other_sid = txn_session(&pool, &wallet).await;
-    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
-        .await
-        .expect("issue challenge");
-    let signature = txn_sign(&pair, &challenge.message);
-    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
-
-    let wrong_session = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: other_sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert_eq!(
-        wrong_session.unwrap_err(),
-        txn::AuthorizationFailure::WrongSession,
-        "an authorization must not transfer between sessions"
-    );
-
-    // And after that session is revoked, even the correct one is refused.
-    crate::auth_sessions::revoke_session(&pool, sid, "logout")
-        .await
-        .expect("revoke");
-    let after_logout = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert_eq!(
-        after_logout.unwrap_err(),
-        txn::AuthorizationFailure::WrongSession,
-        "a revoked session must not complete an authorization it started"
-    );
-
-    txn_cleanup(&pool, sid).await;
-    txn_cleanup(&pool, other_sid).await;
-}
-
-/// A wrong nonce, a wrong signature, and a signature from a different key are
-/// all refused. The last is the case the architecture exists to prevent: the
-/// signature is checked against the wallet resolved from the stored subject,
-/// never against an address the request supplies.
-#[tokio::test]
-async fn test_pg_transaction_authorization_refuses_bad_proofs() {
-    let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
-    let intent = txn_intent();
-
-    let sid = txn_session(&pool, &wallet).await;
-    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
-        .await
-        .expect("issue challenge");
-    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
-    let signature = txn_sign(&pair, &challenge.message);
-
-    let wrong_nonce = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: "not-the-nonce",
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert_eq!(
-        wrong_nonce.unwrap_err(),
-        txn::AuthorizationFailure::BadSignature
-    );
-
-    // Signed by a different key entirely.
-    use sp_core::Pair as _;
-    let attacker = sp_core::sr25519::Pair::from_string("//Bob", None).expect("dev key");
-    let forged = txn_sign(&attacker, &challenge.message);
-    let wrong_key = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &forged,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert_eq!(
-        wrong_key.unwrap_err(),
-        txn::AuthorizationFailure::BadSignature,
-        "only the subject's own key may authorize"
-    );
-
-    // None of those failures may have spent the challenge.
-    let still_valid = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::PolkadotExtension,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert!(
-        still_valid.is_ok(),
-        "a rejected attempt must not burn a legitimate authorization"
-    );
-
-    txn_cleanup(&pool, sid).await;
-}
-
-/// An action whose purpose is explicit human confirmation refuses an
-/// authenticator that can sign without prompting. The signature is
-/// cryptographically valid either way; what differs is what it evidences.
-#[tokio::test]
-async fn test_pg_interactive_intent_is_required_where_declared() {
-    let pool = get_test_pool().await;
-    let (pair, wallet) = txn_keypair();
-    let intent = txn_intent();
-
-    let sid = txn_session(&pool, &wallet).await;
-    let challenge = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
-        .await
-        .expect("issue challenge");
-    let challenge_id = uuid::Uuid::parse_str(&challenge.challenge_id).expect("challenge id");
-    let signature = txn_sign(&pair, &challenge.message);
-
-    let silent = txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::EncryptedKeystore,
-        },
-        &intent,
-        true,
-    )
-    .await;
-    assert_eq!(
-        silent.unwrap_err(),
-        txn::AuthorizationFailure::NonInteractiveAuthenticator,
-        "key possession must not satisfy a requirement for human intent"
-    );
-
-    // The same authenticator is acceptable where the action does not demand it.
-    txn::authorize_transaction(
-        &pool,
-        txn::TransactionProof {
-            challenge_id,
-            subject: &wallet,
-            login_session_id: sid,
-            nonce: &challenge.nonce,
-            signature_hex: &signature,
-            authenticator: txn::AuthenticatorType::EncryptedKeystore,
-        },
-        &intent,
-        false,
-    )
-    .await
-    .expect("possession suffices where intent is not required");
-
-    txn_cleanup(&pool, sid).await;
-}
-
-/// The issuance budget is per session and bounded in both directions: at most a
-/// few live challenges, and a capped rate. An authenticated client must not be
-/// able to mint unbounded authorization objects.
-#[tokio::test]
-async fn test_pg_challenge_budget_is_bounded_per_session() {
-    let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
-    let intent = txn_intent();
-    let sid = txn_session(&pool, &wallet).await;
-
-    for index in 0..txn::MAX_LIVE_CHALLENGES_PER_SESSION {
-        txn::issue_transaction_challenge(&pool, &wallet, sid, &intent)
-            .await
-            .unwrap_or_else(|_| panic!("challenge {index} within the live cap"));
-    }
-
-    let over = txn::issue_transaction_challenge(&pool, &wallet, sid, &intent).await;
-    assert!(
-        matches!(over, Err(txn::ChallengeError::TooManyLive)),
-        "unconsumed challenges must be capped"
-    );
-
-    txn_cleanup(&pool, sid).await;
-}
-
-/// A revoked session cannot mint new authority, even before anything is signed.
-#[tokio::test]
-async fn test_pg_revoked_session_cannot_issue_challenges() {
-    let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
-    let sid = txn_session(&pool, &wallet).await;
-    crate::auth_sessions::revoke_session(&pool, sid, "logout")
-        .await
-        .expect("revoke");
-
-    let issued = txn::issue_transaction_challenge(&pool, &wallet, sid, &txn_intent()).await;
-    assert!(
-        matches!(issued, Err(txn::ChallengeError::SessionNotActive)),
-        "a session that has ended must not mint authorization"
-    );
-
-    txn_cleanup(&pool, sid).await;
-}
-
-/// Class B elevation lives on the login session, so it survives a refresh-token
-/// rotation and does not survive logout.
-#[tokio::test]
-async fn test_pg_step_up_survives_rotation_and_dies_with_the_session() {
-    let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
-
-    let jti = uuid::Uuid::new_v4().to_string();
-    let sid = crate::auth_sessions::create(
-        &pool,
-        &wallet,
-        "step-up-generation",
-        &jti,
-        Utc::now() + chrono::Duration::hours(1),
-    )
-    .await
-    .expect("open login session");
-
-    assert!(
-        !txn::has_active_step_up(&pool, sid)
-            .await
-            .expect("assurance"),
-        "a fresh session is not elevated"
-    );
-
-    assert!(
-        txn::record_step_up(&pool, sid, txn::AuthenticatorType::PolkadotExtension)
-            .await
-            .expect("record step-up")
-    );
-    assert!(txn::has_active_step_up(&pool, sid)
-        .await
-        .expect("assurance"));
-
-    // This is why elevation lives on the parent: rotating underneath it must not
-    // extend or drop it.
-    let next_jti = uuid::Uuid::new_v4().to_string();
-    let rotated = crate::auth_sessions::rotate(
-        &pool,
-        &wallet,
-        "step-up-generation",
-        &jti,
-        "step-up-generation-2",
-        &next_jti,
-        Utc::now() + chrono::Duration::hours(1),
-    )
-    .await
-    .expect("rotate")
-    .expect("rotation wins");
-    assert_eq!(rotated, sid);
-    assert!(
-        txn::has_active_step_up(&pool, sid)
-            .await
-            .expect("assurance"),
-        "elevation must survive a token rotation"
-    );
-
-    // And a revoked session is never elevated, whatever the column says.
-    txn::record_step_up(&pool, sid, txn::AuthenticatorType::PolkadotExtension)
-        .await
-        .expect("re-elevate");
-    crate::auth_sessions::revoke_session(&pool, sid, "logout")
-        .await
-        .expect("revoke");
-    assert!(
-        !txn::has_active_step_up(&pool, sid)
-            .await
-            .expect("assurance"),
-        "step-up state must not survive logout"
-    );
-
-    txn_cleanup(&pool, sid).await;
-}
-
-/// Rejected proofs are recorded, because they are the half of this protocol that
-/// otherwise leaves no trace -- and the record carries no secret material.
-#[tokio::test]
-async fn test_pg_rejected_authorizations_are_recorded_without_secrets() {
-    let pool = get_test_pool().await;
-    let (_, wallet) = txn_keypair();
-    let sid = txn_session(&pool, &wallet).await;
-
-    txn::record_security_event(
-        &pool,
-        txn::SecurityEvent::SignatureSubjectMismatch,
-        Some(&wallet),
-        Some(sid),
-        None,
-        Some("patient_access.approve"),
-    )
-    .await;
-
-    let (event_type, action): (String, Option<String>) = sqlx::query_as(
-        "SELECT event_type, action FROM auth_security_events
-         WHERE login_session_id = $1
-         ORDER BY occurred_at DESC LIMIT 1",
-    )
-    .bind(sid)
-    .fetch_one(&pool)
-    .await
-    .expect("read security event");
-    assert_eq!(event_type, "SIGNATURE_SUBJECT_MISMATCH");
-    assert_eq!(action.as_deref(), Some("patient_access.approve"));
-
-    // The table has no column that could carry a token, signature or body, so a
-    // leak of it discloses no secret material.
-    let sensitive: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM information_schema.columns
-         WHERE table_name = 'auth_security_events'
-           AND column_name IN ('signature', 'token', 'body', 'nonce', 'patient_id')",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("inspect columns");
-    assert_eq!(
-        sensitive, 0,
-        "security events must not store secret material"
-    );
-
-    sqlx::query("DELETE FROM auth_security_events WHERE login_session_id = $1")
-        .bind(sid)
-        .execute(&pool)
-        .await
-        .ok();
-    txn_cleanup(&pool, sid).await;
-}
-
-/// Repeated identical failures are deduplicated, so an attacker cannot turn
-/// invalid signatures into unbounded log volume.
-#[tokio::test]
-async fn test_pg_security_event_logging_is_itself_bounded() {
-    let pool = get_test_pool().await;
-    let wallet = format!(
-        "flood-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
-
-    for _ in 0..25 {
-        txn::record_security_event(
-            &pool,
-            txn::SecurityEvent::ChallengeReplay,
-            Some(&wallet),
-            None,
-            None,
-            Some("patient_access.approve"),
-        )
-        .await;
-    }
-
-    let written: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM auth_security_events WHERE wallet_address = $1")
-            .bind(&wallet)
-            .fetch_one(&pool)
-            .await
-            .expect("count events");
-    assert!(
-        written < 25,
-        "logging must not become the resource-exhaustion vector it exists to detect (wrote {written})"
-    );
-
-    sqlx::query("DELETE FROM auth_security_events WHERE wallet_address = $1")
-        .bind(&wallet)
-        .execute(&pool)
-        .await
-        .ok();
-}
-
 /// The parent row is genuinely the serialization point between rotation and
 /// logout -- proven by lock contention, not by hoping two futures interleave.
 ///
@@ -4815,14 +4235,11 @@ async fn test_pg_security_event_logging_is_itself_bounded() {
 #[tokio::test]
 async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "lock-proof-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "locked-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4836,10 +4253,10 @@ async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
         "SELECT s.id
          FROM auth_login_sessions AS s
          JOIN auth_sessions AS g ON g.login_session_id = s.id
-         WHERE g.wallet_address = $1
+         WHERE g.user_id = $1::text::uuid
          FOR UPDATE OF s",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&mut *holder)
     .await
     .expect("take parent lock");
@@ -4888,14 +4305,11 @@ async fn test_pg_parent_session_lock_blocks_concurrent_revocation() {
 #[tokio::test]
 async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "race-logout-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "contested-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4907,7 +4321,7 @@ async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
     let (rotated, revoked) = tokio::join!(
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             "contested-generation",
             &jti,
             "successor",
@@ -4958,14 +4372,11 @@ async fn test_pg_rotation_racing_logout_cannot_outlive_the_session() {
 #[tokio::test]
 async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "race-logout-all-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let jti = uuid::Uuid::new_v4().to_string();
     let sid = crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         "contested-generation",
         &jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -4977,14 +4388,14 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     let (rotated, revoked) = tokio::join!(
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             "contested-generation",
             &jti,
             "successor",
             &replacement_jti,
             Utc::now() + chrono::Duration::hours(1),
         ),
-        crate::auth_sessions::revoke_all_for_wallet(&pool, &wallet, "logout_all"),
+        crate::auth_sessions::revoke_all_for_user(&pool, &account_id, "logout_all"),
     );
     let rotated = rotated.expect("rotation call");
     revoked.expect("bulk revocation call");
@@ -4997,9 +4408,9 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
     );
     let live: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM auth_sessions
-         WHERE wallet_address = $1 AND revoked_at IS NULL",
+         WHERE user_id = $1::text::uuid AND revoked_at IS NULL",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("count live generations");
@@ -5008,13 +4419,13 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
         "no refresh generation may survive logout-all (rotation returned {rotated:?})"
     );
 
-    sqlx::query("DELETE FROM auth_sessions WHERE wallet_address = $1")
-        .bind(&wallet)
+    sqlx::query("DELETE FROM auth_sessions WHERE user_id = $1::text::uuid")
+        .bind(&account_id)
         .execute(&pool)
         .await
         .ok();
-    sqlx::query("DELETE FROM auth_login_sessions WHERE wallet_address = $1")
-        .bind(&wallet)
+    sqlx::query("DELETE FROM auth_login_sessions WHERE user_id = $1::text::uuid")
+        .bind(&account_id)
         .execute(&pool)
         .await
         .ok();
@@ -5026,9 +4437,8 @@ async fn test_pg_rotation_racing_logout_all_cannot_outlive_the_session() {
 #[tokio::test]
 async fn test_pg_session_is_bound_to_its_own_subject() {
     let pool = get_test_pool().await;
-    let stamp = Utc::now().timestamp_nanos_opt().unwrap_or_default();
-    let alice = format!("sid-alice-{stamp}");
-    let bob = format!("sid-bob-{stamp}");
+    let alice = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let bob = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
 
     let alice_sid = crate::auth_sessions::create(
         &pool,
@@ -5041,7 +4451,7 @@ async fn test_pg_session_is_bound_to_its_own_subject() {
     .expect("alice login");
 
     let owner: String =
-        sqlx::query_scalar("SELECT wallet_address FROM auth_login_sessions WHERE id = $1")
+        sqlx::query_scalar("SELECT user_id::text FROM auth_login_sessions WHERE id = $1")
             .bind(alice_sid)
             .fetch_one(&pool)
             .await
@@ -5066,15 +4476,12 @@ async fn test_pg_session_is_bound_to_its_own_subject() {
 #[tokio::test]
 async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor() {
     let pool = get_test_pool().await;
-    let wallet = format!(
-        "refresh-race-{}",
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
     let previous_token = "refresh-token-under-test";
     let previous_jti = uuid::Uuid::new_v4().to_string();
     crate::auth_sessions::create(
         &pool,
-        &wallet,
+        &account_id,
         previous_token,
         &previous_jti,
         Utc::now() + chrono::Duration::hours(1),
@@ -5087,7 +4494,7 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
     let (first, second) = tokio::join!(
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             previous_token,
             &previous_jti,
             "replacement-one",
@@ -5096,7 +4503,7 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
         ),
         crate::auth_sessions::rotate(
             &pool,
-            &wallet,
+            &account_id,
             previous_token,
             &previous_jti,
             "replacement-two",
@@ -5113,9 +4520,9 @@ async fn test_pg_refresh_token_rotation_allows_exactly_one_concurrent_successor(
     .collect();
     assert_eq!(winners.len(), 1, "exactly one rotation may win");
     let (total, active): (i64, i64) = sqlx::query_as(
-        "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE wallet_address = $1",
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE revoked_at IS NULL) FROM auth_sessions WHERE user_id = $1::text::uuid",
     )
-    .bind(&wallet)
+    .bind(&account_id)
     .fetch_one(&pool)
     .await
     .expect("read refresh sessions");
@@ -5265,7 +4672,7 @@ async fn lab_review_guard_admits_exactly_one_concurrent_reviewer() {
 ///
 /// `CardRegistry` was a pair of `RwLock<HashMap>` with nothing behind it, so
 /// every card issued was gone at the next restart while the plastic in the
-/// patient's wallet kept its hash and started reading as `CARD_NOT_FOUND`.
+/// patient's account kept its hash and started reading as `CARD_NOT_FOUND`.
 /// This asserts the durable half of the fix: the row survives, and it carries
 /// the status rather than collapsing it into `is_active`.
 #[tokio::test]
@@ -5399,4 +4806,117 @@ async fn test_pg_history_physical_update_if_unchanged_refuses_a_stale_copy() {
 
     repo.delete(&id).await.ok();
     pool.close().await;
+}
+
+/// WP12: a refresh token presented again after its rotation (beyond the
+/// race window) is reuse. The whole login is ended, so neither the replayed
+/// copy nor the legitimate successor can continue it.
+#[tokio::test]
+async fn test_pg_refresh_token_reuse_revokes_the_login() {
+    let pool = get_test_pool().await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let first_jti = uuid::Uuid::new_v4().to_string();
+    let sid = crate::auth_sessions::create(
+        &pool,
+        &account_id,
+        "stolen-generation",
+        &first_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("open login session");
+    let second_jti = uuid::Uuid::new_v4().to_string();
+    crate::auth_sessions::rotate(
+        &pool,
+        &account_id,
+        "stolen-generation",
+        &first_jti,
+        "legitimate-successor",
+        &second_jti,
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("rotation")
+    .expect("first rotation wins");
+    // Age the rotation past the race window, as a replay later on would be.
+    sqlx::query(
+        "UPDATE auth_sessions SET revoked_at = NOW() - INTERVAL '1 minute'
+         WHERE login_session_id = $1 AND revocation_reason = 'rotated'",
+    )
+    .bind(sid)
+    .execute(&pool)
+    .await
+    .expect("age rotation");
+
+    let replay = crate::auth_sessions::rotate(
+        &pool,
+        &account_id,
+        "stolen-generation",
+        &first_jti,
+        "attacker-successor",
+        &uuid::Uuid::new_v4().to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("replay call");
+    assert!(replay.is_none(), "a replayed generation never rotates");
+    assert!(
+        !crate::auth_sessions::is_session_active(&pool, sid)
+            .await
+            .expect("session state"),
+        "reuse ends the whole login"
+    );
+    let successor = crate::auth_sessions::rotate(
+        &pool,
+        &account_id,
+        "legitimate-successor",
+        &second_jti,
+        "next",
+        &uuid::Uuid::new_v4().to_string(),
+        Utc::now() + chrono::Duration::hours(1),
+    )
+    .await
+    .expect("successor call");
+    assert!(successor.is_none(), "the successor dies with the login");
+    pool.close().await;
+}
+
+/// A sign-in is recorded, and a later profile save carrying the stale cached
+/// value cannot erase it. Nothing wrote `last_login_at`, and every user save
+/// overwrote it, so user management said "Never" for everyone.
+#[tokio::test]
+async fn test_pg_sign_in_is_recorded_and_survives_a_profile_save() {
+    let pool = get_test_pool().await;
+    let account_id = crate::test_fixtures::insert_pg_user(&pool, "Doctor").await;
+    let uuid = uuid::Uuid::parse_str(&account_id).unwrap();
+    let state = crate::AppState::new_with_pool(Some(pool.clone()));
+    let read = || async {
+        sqlx::query_scalar::<_, Option<chrono::DateTime<Utc>>>(
+            "SELECT last_login_at FROM users WHERE id = $1",
+        )
+        .bind(uuid)
+        .fetch_one(&pool)
+        .await
+        .expect("read last_login_at")
+    };
+    assert_eq!(read().await, None, "a new account has never signed in");
+
+    crate::credentials::record_sign_in(&state, &pool, uuid).await;
+    let recorded = read().await.expect("the sign-in was not recorded");
+
+    // A profile save from a cache that never saw the sign-in.
+    let stale = crate::test_fixtures::staff(&account_id, crate::Role::Doctor);
+    assert_eq!(stale.last_login, None);
+    state.persist_user(&stale).await.expect("profile save");
+    assert_eq!(
+        read().await,
+        Some(recorded),
+        "a profile save erased the sign-in"
+    );
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(uuid)
+        .execute(&pool)
+        .await
+        .ok();
 }

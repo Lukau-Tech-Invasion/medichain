@@ -1,5 +1,6 @@
 //! In-memory IV assessment repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     IVAssessmentEntity, IVAssessmentRepository, PaginatedResult, Pagination, RepositoryError,
     RepositoryResult,
@@ -28,7 +29,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
         &self,
         mut assessment: IVAssessmentEntity,
     ) -> RepositoryResult<IVAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&assessment.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -46,7 +47,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<IVAssessmentEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("IV assessment with ID {} not found", id))
         })
@@ -57,7 +58,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<IVAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<IVAssessmentEntity> = storage
             .values()
@@ -80,7 +81,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
         site_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<IVAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<IVAssessmentEntity> = storage
             .values()
@@ -102,7 +103,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
         &self,
         mut assessment: IVAssessmentEntity,
     ) -> RepositoryResult<IVAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&assessment.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -120,7 +121,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Vec<IVAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let active_sites: Vec<IVAssessmentEntity> = storage
             .values()
@@ -132,7 +133,7 @@ impl IVAssessmentRepository for MemoryIVAssessmentRepository {
     }
 
     async fn get_sites_needing_attention(&self) -> RepositoryResult<Vec<IVAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let needing_attention: Vec<IVAssessmentEntity> = storage
             .values()

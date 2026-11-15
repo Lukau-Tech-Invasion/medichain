@@ -1,66 +1,5 @@
 use super::*;
 
-// ============================================================================
-// Wallet-Based Authentication Request/Response Types
-// ============================================================================
-
-/// Request to register a new user with their wallet address
-#[derive(Debug, Deserialize)]
-pub struct WalletRegisterRequest {
-    /// SS58 encoded wallet address
-    pub wallet_address: String,
-    /// Full name
-    pub name: String,
-    /// Optional username for display
-    pub username: Option<String>,
-    /// Role (only Admin can register healthcare providers)
-    pub role: String,
-    /// Work email used for account communication.
-    pub email: Option<String>,
-    /// Work contact number.
-    pub phone: Option<String>,
-    /// Facility department or service line.
-    pub department: Option<String>,
-    /// Professional specialty, for example Pediatrics or Radiology.
-    pub specialty: Option<String>,
-    /// Professional council or licence registration number.
-    pub license_number: Option<String>,
-}
-
-/// Response for wallet registration
-#[derive(Debug, Serialize)]
-pub struct WalletRegisterResponse {
-    pub success: bool,
-    pub wallet_address: String,
-    pub role: String,
-    /// Account status the user was created with.
-    ///
-    /// Registration deliberately creates a `pending` account: `support::get_user`
-    /// resolves only `active` users, so a newly registered clinician cannot sign
-    /// in or be looked up until an Admin activates them via
-    /// `PUT /api/users/{wallet_address}`. Reporting it here stops the caller
-    /// reading "registered successfully" as "ready to use" — the account is
-    /// otherwise indistinguishable from one that was never created.
-    pub status: String,
-    /// Whether an Admin must activate the account before it can be used.
-    pub activation_required: bool,
-    pub message: String,
-}
-
-/// User info returned on login.
-///
-/// Deliberately thin: this shape is also used to describe *other* people (the
-/// admin bootstrap response, wallet lookup), so it carries no contact details.
-/// For the caller's own identity see [`CurrentUserResponse`].
-#[derive(Debug, Serialize)]
-pub struct WalletUserInfo {
-    pub wallet_address: String,
-    pub name: String,
-    pub username: Option<String>,
-    pub role: String,
-    pub linked_patient_id: Option<String>,
-}
-
 /// The authenticated caller's own identity, in full — the response of
 /// `GET /api/auth/me`.
 ///
@@ -69,14 +8,14 @@ pub struct WalletUserInfo {
 /// auth store, re-derived whichever attributes it needed, and turned anything
 /// it lacked into a form field for the clinician to type — which is how the
 /// appointment scheduler ended up asking a logged-in doctor to enter their own
-/// 48-character wallet address. Any attribute a form might otherwise demand
+/// account identifier. Any attribute a form might otherwise demand
 /// belongs here.
 ///
 /// Self-scoped by construction — it only ever describes the caller — so unlike
-/// [`WalletUserInfo`] it may carry contact and credentialing details.
+/// the public provider listing it may carry contact and credentialing details.
 #[derive(Debug, Serialize)]
 pub struct CurrentUserResponse {
-    pub wallet_address: String,
+    pub user_id: String,
     pub name: String,
     pub username: Option<String>,
     pub role: String,
@@ -128,8 +67,8 @@ impl From<&crate::Role> for UserPermissions {
 
 #[derive(Debug, Deserialize)]
 pub struct AssignRoleRequest {
-    /// Wallet address of the user to assign role to
-    pub wallet_address: String,
+    /// The user to assign the role to
+    pub user_id: String,
     /// Full name of the user
     pub name: String,
     /// Optional username
@@ -141,20 +80,20 @@ pub struct AssignRoleRequest {
 #[derive(Debug, Serialize)]
 pub struct AssignRoleResponse {
     pub success: bool,
-    pub wallet_address: String,
+    pub user_id: String,
     pub role: String,
     pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct RevokeRoleRequest {
-    pub wallet_address: String,
+    pub user_id: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RevokeRoleResponse {
     pub success: bool,
-    pub wallet_address: String,
+    pub user_id: String,
     pub message: String,
 }
 

@@ -64,6 +64,7 @@ function SecurityIncidentsPage() {
 
   const submitDeclaration = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (declaring) return;
     setError('');
     setNotice('');
     const text = description.trim();
@@ -202,8 +203,8 @@ function SecurityIncidentsPage() {
           </div>
           <button
             type="submit"
-            disabled={declaring}
-            className="px-4 py-2 rounded-lg font-medium bg-critical text-critical-fg disabled:opacity-60 min-h-[24px]"
+            aria-disabled={declaring || undefined}
+            className="px-4 py-2 rounded-lg font-medium bg-critical text-critical-fg min-h-[24px]"
           >
             {declaring ? t('docSecurity.declaring') : t('docSecurity.declareBtn')}
           </button>

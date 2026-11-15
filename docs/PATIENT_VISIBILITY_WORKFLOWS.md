@@ -37,7 +37,7 @@ Priority is "how badly does the patient need this", not how hard it is.
 | 5 | **Consult (specialist opinion)** | Doctor, `ConsultPage` | Now yes | **DONE** |
 | 6 | **Care plan** | Nurse, `CarePlanPage` | Now yes | **DONE** |
 | 7 | **Transfusion + blood type** | Lab, blood bank | Now yes | **DONE** |
-| 8 | **Procedure records** — operative note, anaesthesia, intubation, laceration repair, splint/cast, burn | Doctor | Now yes | **DONE** |
+| 8 | **Procedure records** — pre-operative assessment, operative note, post-operative note, anaesthesia, intubation, laceration repair, splint/cast, burn | Doctor | Now yes — surgical stages added to the library on 2026-10-11 | **DONE for patient list/view/download; clinical policy review remains open** |
 | 9 | **AMA discharge** | Doctor, `AMAPage` | Now yes | **DONE** |
 | 10 | **Intake/output** | Nurse | Now yes | **DONE** |
 | 11 | **Pharmacy allergy decisions** — refused to dispense, prescriber queried | Pharmacist, `PharmacistDashboardPage` | Now yes (2026-09-25, `MedicationsPage`) | **DONE** |
@@ -60,6 +60,28 @@ SOAP notes, e-prescriptions, triage, history & physical, progress notes, wound
 assessments, vitals, fall risk, MAR, IV sites, appointments, messages,
 consents, telehealth, symptom checker, medication reminders, adherence,
 emergency card.
+
+> **Correction, 2026-10-18.** "MAR" in this list was also wrong. The patient
+> application read no medication-administration data at all; the doses lived
+> only behind the ward-wide, clinical-staff `GET /api/emergency/mar/administrations`.
+> Closed the same day: `GET /api/clinical/patient/{patient_id}/medication-administrations`,
+> a `medication-administrations` records-summary section, and "Medication
+> given / held / refused" entries on My Records.
+>
+> Same day, the emergency team's records: code blue, trauma, stroke, cardiac
+> events and sepsis screens were readable only through clinician-facing lists,
+> and the code-blue list refused the patient outright. Closed with
+> `GET /api/clinical/patient/{patient_id}/emergency-care`, an `emergency-care`
+> records-summary section, and the matching entries on My Records.
+>
+> **Correction, 2026-11-13.** "IV sites" was wrong from 2026-11-04. The
+> patient surface (`middleware/patient_surface.rs`) closed
+> `GET /api/clinical/iv-sites/{patient_id}` to patient sessions and nothing
+> replaced it, so a patient could not read their own cannula record; the
+> synthetic e2e harness found it on a fresh database. Closed with
+> `GET /api/clinical/patient/{patient_id}/iv-sites`, an `iv-sites`
+> records-summary section, and "IV cannula" entries on My Records, where a
+> site nobody assessed reads "Site not yet assessed", not grade 0.
 
 > **Correction, 2026-09-15.** This list previously included **GCS**, and that
 > was wrong — an unverified claim in my own document. `createGCS`, `getGCS` and
@@ -137,7 +159,7 @@ cannot open it is the plainest possible version of the problem.
 together, because a discharge is one event with two halves and returning them
 separately makes the screen do the joining — which is how one of the two gets
 forgotten. Authorised for the patient themselves (resolved through
-`linked_patient_id`, not by comparing a wallet address to a `PAT-` id) or any
+`linked_patient_id`, not by comparing the caller's `users.id` to a `PAT-` id) or any
 clinician who may view medical records.
 
 `MyRecordsPage` now loads it alongside the rest, so it needs no id.
@@ -182,10 +204,10 @@ against a status code:
 * `a_patients_card_carries_nobody_elses_doses` — two patients, two doses, one
   card.
 * `an_unlinked_staff_caller_gets_their_own_empty_card` — a staff account has no
-  `linked_patient_id`, so the scope falls back to their wallet, which matches
+  `linked_patient_id`, so the scope falls back to their `users.id`, which matches
   nothing rather than matching everything.
-* `an_unknown_caller_is_refused` — a forged `X-User-Id` is resolved against the
-  user store and rejected before any scoping decision.
+* `an_unknown_caller_is_refused` — a caller identity that matches no account is
+  resolved against the user store and rejected before any scoping decision.
 
 `runImmunisationVisibilitySteps` does the same across the wire, including the
 leak check. Passed live 2026-09-12.

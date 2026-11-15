@@ -244,7 +244,7 @@ pub async fn get_eligibility_checks(
     path: web::Path<String>,
 ) -> impl Responder {
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
     let current_user = match require_known_user(&data, &current_user_id) {
@@ -288,7 +288,7 @@ pub async fn check_insurance_eligibility(
     http_req: HttpRequest,
     req: web::Json<crate::clinical::EligibilityCheckRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
+    let current_user_id = match require_caller_id(&http_req) {
         Ok(id) => id,
         Err(resp) => return resp,
     };

@@ -3,6 +3,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import DeathCertificatePage from './DeathCertificatePage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { fieldValue } from '../test/fields';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -39,7 +40,7 @@ const goToCauseOfDeathStep = () => {
 
 describe('DeathCertificatePage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -52,11 +53,48 @@ describe('DeathCertificatePage', () => {
     vi.mocked(shared.listDeathCertificates).mockResolvedValue([]);
   });
 
+  it('offers an unsigned partial draft immediately and leaves sex unrecorded', () => {
+    render(<DeathCertificatePage />);
+    fireEvent.click(screen.getByRole('button', { name: /New Certificate/i }));
+    // Pressed with no patient chosen, nothing is drafted.
+    fireEvent.click(screen.getByRole('button', { name: /Save as Draft/i }));
+    expect(fieldValue(/^Sex/i)).toBe('');
+    expect(shared.createDeathCertificate).not.toHaveBeenCalled();
+    expect(shared.fileDeathCertificate).not.toHaveBeenCalled();
+  });
+
   it('renders death certificate page', () => {
     render(<DeathCertificatePage />);
 
     expect(screen.getAllByText(/Death Certificate/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Create and manage official death certificates/i)).toBeInTheDocument();
+  });
+
+  it('restores every retained draft section and saves those details without filing', async () => {
+    const formSections = {
+      decedent: { firstName: 'Thandiwe', middleName: 'QA', lastName: 'Ndlovu', sex: 'female', occupation: 'QA educator', residence: 'QA address' },
+      death: { facilityName: 'QA training facility', pronouncedBy: 'QA simulated clinician' },
+      cause: { immediateDuration: 'QA duration', underlyingCauses: [{ cause: 'QA cause', duration: 'QA interval' }] },
+      certifier: { certifierTitle: 'QA title', certifierAddress: 'QA office' },
+    };
+    vi.mocked(shared.listDeathCertificates).mockResolvedValue([
+      { certificate_id: 'DC-fields', patient_id: 'PAT-1', status: 'draft', deceased_name: 'Thandiwe QA Ndlovu', form_sections: formSections },
+    ]);
+    vi.mocked(shared.updateDeathCertificateDraft).mockResolvedValue({ success: true, id: 'DC-fields', status: 'draft' });
+    render(<DeathCertificatePage />);
+    fireEvent.click(await screen.findByTitle('Edit'));
+    expect(screen.getByLabelText('Middle Name')).toHaveValue('QA');
+    expect(fieldValue(/^Sex/)).toBe('female');
+    expect(screen.getByLabelText('Occupation')).toHaveValue('QA educator');
+    expect(screen.getByLabelText('Residence Address')).toHaveValue('QA address');
+    fireEvent.click(screen.getByRole('button', { name: 'Save as Draft' }));
+    await waitFor(() => expect(shared.updateDeathCertificateDraft).toHaveBeenCalledWith('DC-fields', expect.objectContaining({
+      deceased_name: 'Thandiwe QA Ndlovu', form_sections: expect.objectContaining({
+        decedent: expect.objectContaining(formSections.decedent), death: expect.objectContaining(formSections.death),
+        cause: expect.objectContaining(formSections.cause), certifier: expect.objectContaining(formSections.certifier),
+      }),
+    })));
+    expect(shared.fileDeathCertificate).not.toHaveBeenCalled();
   });
 
   it('displays cause of death sections', () => {
@@ -66,6 +104,21 @@ describe('DeathCertificatePage', () => {
 
     expect(screen.getByText(/Cause of Death/i)).toBeInTheDocument();
     expect(screen.getByText(/Part I:/i)).toBeInTheDocument();
+  });
+
+  it('starts a new certificate without carrying over the previously edited draft', async () => {
+    vi.mocked(shared.listDeathCertificates).mockResolvedValue([
+      { certificate_id: 'DC-OLD', patient_id: 'PAT-1', status: 'draft', deceased_name: 'Thandiwe Ndlovu' },
+    ]);
+    render(<DeathCertificatePage />);
+    fireEvent.click(await screen.findByTitle('Edit'));
+    expect(screen.getByLabelText('First Name *')).toHaveValue('Thandiwe');
+    fireEvent.click(screen.getByRole('button', { name: 'Certificates' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New Certificate' }));
+    expect(screen.getByLabelText('First Name *')).toHaveValue('');
+    expect(screen.getByLabelText('Last Name *')).toHaveValue('');
+    expect(fieldValue(/^Sex/)).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Save as Draft' }));
   });
 
   it('allows entering immediate cause', () => {

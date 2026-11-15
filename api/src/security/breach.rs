@@ -2,7 +2,7 @@
 //!
 //! Two lightweight, allocation-bounded detectors run inline on the request path:
 //!
-//! 1. **Failed-auth burst** — N failed signature/MFA verifications from one actor
+//! 1. **Failed-auth burst** — N failed password/MFA verifications from one actor
 //!    inside a short window suggests credential stuffing or a stolen device.
 //! 2. **Abnormal access** — one provider touching an unusually large number of
 //!    distinct patient records inside a short window suggests bulk exfiltration.
@@ -48,7 +48,7 @@ pub struct SecurityAlert {
     pub kind: String,
     /// One of [`severity`].
     pub severity: String,
-    /// Wallet address / actor implicated, if known.
+    /// Account or actor implicated, if known.
     pub actor: Option<String>,
     /// Human-readable description.
     pub message: String,

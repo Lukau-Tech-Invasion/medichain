@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { signIn, settle, fixturePatientId, ROLES, type RoleName } from './support';
+import { fixtureArtifactPath } from './fixture-manifest';
 import {
   auditContrast,
   freezeMotion,
@@ -11,7 +12,7 @@ import {
 
 // Outside `test-results/`, which Playwright empties at the start of every run --
 // running one role at a time would otherwise delete the others' reports.
-const REPORT_DIR = '../../.browser-test/colour-sweep';
+const REPORT_DIR = fixtureArtifactPath('colour-sweep');
 
 /**
  * Every screen each role is offered, measured in both themes.

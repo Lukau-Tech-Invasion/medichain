@@ -102,8 +102,8 @@ pub async fn book_appointment(
 
     // User must be booking for themselves or be a healthcare provider/authorized relative.
     // Resolve the caller from the server-side account registry instead of trusting a
-    // legacy ID prefix: production wallet addresses do not encode a user's role.
-    // `current_user_id` is an SS58 wallet and `patient_id` is a `PAT-…` record
+    // legacy ID prefix: account IDs do not encode a user's role.
+    // `current_user_id` is an user id and `patient_id` is a `PAT-…` record
     // ID, so the direct comparison this used to make was never true for a real
     // patient account: booking for yourself fell through to the provider and
     // family-access checks and returned 403. Patients could not book at all.
@@ -121,8 +121,17 @@ pub async fn book_appointment(
             let has_family_access = stored_groups.into_iter().any(|rec| {
                 if let Ok(g) = serde_json::from_value::<crate::clinical::FamilyGroup>(rec.data) {
                     g.members.iter().any(|m| {
+                        // Members are user ids; the appointment names a patient
+                        // RECORD. Compared directly, the second test could never
+                        // hold, so a family delegate could never book for anyone.
                         m.patient_id == current_user_id
-                            && g.members.iter().any(|m2| m2.patient_id == req.patient_id)
+                            && g.members.iter().any(|m2| {
+                                crate::support::caller_owns_patient_record(
+                                    &data,
+                                    &m2.patient_id,
+                                    &req.patient_id,
+                                )
+                            })
                             && m.can_book_appointments
                     })
                 } else {
@@ -265,6 +274,11 @@ pub async fn book_appointment(
     let telehealth_session_id = appointment.telehealth_session_id.clone();
     let appointment_patient_id = appointment.patient_id.clone();
     let appointment_provider_name = appointment.provider_name.clone();
+    let appointment_provider_id = appointment.provider_id.clone();
+    let appointment_at = appointment
+        .scheduled_time
+        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
+        .unwrap_or_else(chrono::Utc::now);
     let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
     // Atomically checks for an overlapping booking and inserts in the same
     // transaction (11.1 TOCTOU) so two concurrent requests can't double-book
@@ -283,6 +297,16 @@ pub async fn book_appointment(
             }),
         };
     }
+
+    // The booked clinician may now open this patient's chart (WP9).
+    crate::care_access::record_encounter(
+        &data,
+        &appointment_patient_id,
+        &appointment_provider_id,
+        &appointment_id,
+        appointment_at,
+    )
+    .await;
 
     // FCM push: appointment booking confirmation. Fire-and-forget, and
     // addressed to the patient's account rather than their record id -- see
@@ -324,7 +348,7 @@ pub async fn get_patient_appointments(
     let patient_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -369,7 +393,7 @@ pub async fn get_provider_appointments(
     let provider_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -415,7 +439,7 @@ pub async fn get_appointment(
     let appointment_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -464,7 +488,7 @@ pub async fn check_in_appointment(
     let appointment_id = path.into_inner();
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -491,7 +515,7 @@ pub async fn check_in_appointment(
     // portal's Check in button always returned 403 (docs/WORKFLOW_AUDIT.md,
     // WF-007).
     // Resolved through `linked_patient_id`, not compared directly: the caller id
-    // is a wallet address and `appointment.patient_id` is a `PAT-` id, so a
+    // is a user id and `appointment.patient_id` is a `PAT-` id, so a
     // bare `==` is false for every patient who has ever tried to check
     // themselves in. Clinical staff were unaffected, which is why the patient
     // half of this went unnoticed after WF-007 fixed the clinician half.
@@ -526,6 +550,11 @@ pub async fn check_in_appointment(
     appointment.status = crate::clinical::AppointmentStatus::CheckedIn;
     appointment.check_in_time = Some(chrono::Utc::now().timestamp());
     appointment.updated_at = chrono::Utc::now().timestamp();
+    let encounter = (
+        appointment.patient_id.clone(),
+        appointment.provider_id.clone(),
+        appointment.appointment_id.clone(),
+    );
 
     if let Err(e) = data
         .repositories
@@ -538,6 +567,16 @@ pub async fn check_in_appointment(
             code: "INTERNAL_ERROR".to_string(),
         });
     }
+
+    // Arrival refreshes the encounter relationship from today (WP9).
+    crate::care_access::record_encounter(
+        &data,
+        &encounter.0,
+        &encounter.1,
+        &encounter.2,
+        chrono::Utc::now(),
+    )
+    .await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -711,17 +750,12 @@ pub async fn transition_appointment(
         });
     };
 
-    let is_provider_of_record = caller.wallet_address == appointment.provider_id;
-    // `patient_id` is a record ID (`PAT-…`) and `wallet_address` is an SS58
-    // account — comparing them directly can never be true, so the patient arm
-    // below was unreachable and every patient got "you are not a party to this
-    // appointment" on their own booking. `caller_owns_patient_record` is the
-    // function that actually bridges the two namespaces.
-    let is_patient = crate::support::caller_owns_patient_record(
-        &data,
-        &caller.wallet_address,
-        &appointment.patient_id,
-    );
+    let is_provider_of_record = caller.id == appointment.provider_id;
+    // Appointment patient IDs identify clinical records, while caller IDs
+    // identify accounts. Resolve record ownership before authorizing a patient
+    // to change their own appointment.
+    let is_patient =
+        crate::support::caller_owns_patient_record(&data, &caller.id, &appointment.patient_id);
     let is_admin = caller.role.is_admin();
     if !is_provider_of_record && !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -795,7 +829,7 @@ pub async fn transition_appointment(
         return match data
             .repositories
             .appointments
-            .cancel(&appointment_id, &reason, &caller.wallet_address)
+            .cancel(&appointment_id, &reason, &caller.id)
             .await
         {
             Ok(_) => HttpResponse::Ok().json(serde_json::json!({

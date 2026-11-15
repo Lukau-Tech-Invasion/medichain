@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Record sheet</title><link rel="stylesheet" href="mock.css"></head>
+<body><div class="phone" data-tab="health">
+  <header class="appbar"><h2>Records</h2><span></span></header>
+  <main class="content"><div class="card" style="height:120px"></div><div class="card" style="height:220px"></div></main>
+  <div class="scrim"></div>
+  <!-- One sheet, never two. Opens straight on the document; the actions stay pinned. -->
+  <section class="sheet" role="dialog" aria-labelledby="t" style="max-height:88%">
+    <div class="grab"></div>
+    <div class="row between" style="padding:10px 16px 12px;border-bottom:1px solid rgb(var(--border))">
+      <div><p id="t" class="bb" style="font-size:18px">Imaging report</p><p class="xs muted">12 Oct 2026 · Dr Lindiwe Mokoena · <span class="badge ok">Sealed</span></p></div>
+      <span class="iconbtn" aria-label="Close"><i data-i="x"></i></span>
+    </div>
+    <div style="overflow:hidden;padding:14px 16px;display:flex;flex-direction:column;gap:14px">
+      <div class="note"><p class="xs muted b">Impression</p><p>No acute abnormality seen.</p></div>
+      <div class="note" style="border-color:rgb(var(--border-int));background:transparent"><p class="xs muted b">Findings</p><p class="t2">Lungs clear. Heart size normal. No effusion.</p></div>
+      <dl class="kv">
+        <dt>Study</dt><dd>Chest X-ray, 2 views</dd>
+        <dt>Status</dt><dd><span class="badge warn">Not finalised</span></dd>
+        <dt>Critical</dt><dd>No</dd>
+        <dt>Reported</dt><dd>12 Oct 2026, 06:25</dd>
+        <dt>Radiologist</dt><dd>Dr S. Pillay</dd>
+      </dl>
+      <!-- Rule 12: still says what was not measured, in one line instead of three screens. -->
+      <details class="card pad-sm" open><summary class="small b row between" style="list-style:none">Not recorded (9) <i data-i="chevDown" class="sm"></i></summary>
+        <p class="xs muted" style="margin-top:6px">Addendum · Addendum by · Addendum time · Communicated at · Communicated to · Communication method · Comparison studies · Contrast · Technique</p></details>
+    </div>
+    <div class="row" style="padding:12px 16px 20px;border-top:1px solid rgb(var(--border));gap:10px;background:rgb(var(--raised))">
+      <span class="btn primary grow"><i data-i="download" class="sm"></i>Download PDF</span>
+    </div>
+  </section>
+  <span class="mock-tag" style="top:8px">Mockup · synthetic data</span>
+</div><script src="chrome.js"></script><script src="icons.js"></script></body></html>

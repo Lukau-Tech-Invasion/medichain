@@ -107,7 +107,7 @@ export async function labTechJourney(
       specimenDescription: 'Two EDTA tubes, one clotted',
       collectionDate: today(),
       collectionTime: '08:15',
-      collectedBy: lab.wallet,
+      collectedBy: lab.userId,
       collectionLocation: 'Ward 3',
       purpose: 'clinical',
       caseNumber: '',
@@ -215,7 +215,7 @@ export async function labTechJourney(
       thresholdExceeded: 6.0,
       reportedBy: lab.userId,
       reportedAt: iso(),
-      orderingProvider: reviewer.wallet,
+      orderingProvider: reviewer.userId,
       notificationStatus: 'pending',
     },
   });
@@ -390,7 +390,7 @@ export async function labTechJourney(
       j.record(
         'the approved submission shows who approved it and when',
         mine !== undefined &&
-          fieldAt(mine, 'reviewed_by') === reviewer.wallet &&
+          fieldAt(mine, 'reviewed_by') === reviewer.userId &&
           Boolean(fieldAt(mine, 'reviewed_at')),
         `an approved result with no reviewer and no time on it cannot be audited. ` +
           `Stored: ${JSON.stringify(mine ?? null).slice(0, 300)}`

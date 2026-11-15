@@ -27,7 +27,7 @@ impl MedicalRecordRepository for PgMedicalRecordRepository {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO medical_records (
                 id, patient_id, record_type, category, ipfs_content_hash, ipfs_metadata_hash,
-                content_checksum, on_chain_hash, blockchain_tx_hash, summary_encrypted,
+                content_checksum, summary_encrypted,
                 record_date, created_by, last_modified_by, facility_id, is_active, is_locked
             ) ",
         );
@@ -40,8 +40,6 @@ impl MedicalRecordRepository for PgMedicalRecordRepository {
                 .push_bind(&e.ipfs_content_hash)
                 .push_bind(&e.ipfs_metadata_hash)
                 .push_bind(&e.content_checksum)
-                .push_bind(&e.on_chain_hash)
-                .push_bind(&e.blockchain_tx_hash)
                 .push_bind(&e.summary_encrypted)
                 .push_bind(e.record_date)
                 .push_bind(&e.created_by)
@@ -169,10 +167,6 @@ impl MedicalRecordRepository for PgMedicalRecordRepository {
             .push_bind(&record.ipfs_metadata_hash);
         qb.push(", content_checksum = ")
             .push_bind(&record.content_checksum);
-        qb.push(", on_chain_hash = ")
-            .push_bind(&record.on_chain_hash);
-        qb.push(", blockchain_tx_hash = ")
-            .push_bind(&record.blockchain_tx_hash);
         qb.push(", summary_encrypted = ")
             .push_bind(&record.summary_encrypted);
         qb.push(", record_date = ").push_bind(record.record_date);

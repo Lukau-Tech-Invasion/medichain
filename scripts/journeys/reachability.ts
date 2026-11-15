@@ -72,7 +72,12 @@ export async function reachabilityJourney(
     }
 
     for (const screen of screens) {
-      const response = await http('GET', screen.path, { token: session.token });
+      const response = await http('GET', screen.path, {
+        token: session.token,
+        ...(screen.path.startsWith('/patients?')
+          ? { headers: { 'X-Access-Reason': 'Patient directory lookup for treatment' } }
+          : {}),
+      });
       // 200 is the bar. A 403 means the navigation offers a screen the server
       // refuses; a 404 means it offers one that does not exist. Both are the
       // same defect from the clinician's side: a menu entry that does nothing.

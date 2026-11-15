@@ -65,7 +65,8 @@ pub async fn get_all_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
+    let mut paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
+    apply_seal_status(&data, &mut paginated_logs).await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "access_logs": paginated_logs,
@@ -82,6 +83,94 @@ pub async fn get_all_access_logs(
 /// Get access logs for a patient (paginated)
 /// Requires authentication: Only healthcare providers and the patient themselves can view logs
 /// Query params: ?page=1&limit=20
+/// Set each entry's `seal_status` from the batch that holds it. An entry no batch
+/// holds yet keeps `pending`; on the memory backend nothing is ever sealed.
+async fn apply_seal_status(data: &web::Data<AppState>, logs: &mut [AccessLogView]) {
+    let ids: Vec<String> = logs.iter().map(|log| log.access_id.clone()).collect();
+    let statuses = crate::audit_batching::seal_statuses_or_pending(
+        data.db_pool.as_ref(),
+        crate::audit_batching::SOURCE_ACCESS_LOG,
+        &ids,
+    )
+    .await;
+    for log in logs {
+        if let Some(status) = statuses.get(&log.access_id) {
+            log.seal_status = status.clone();
+        }
+    }
+}
+
+/// The user behind each accessor key on `logs`. Every row carries a user id; a
+/// key the in-memory cache misses is looked up in the durable users table. An
+/// accessor nobody can resolve is simply absent: it is never rendered as
+/// somebody else's name.
+async fn accessors_by_key(
+    data: &web::Data<AppState>,
+    logs: &[AccessLogView],
+) -> std::collections::HashMap<String, User> {
+    let mut found = std::collections::HashMap::new();
+    let mut unknown = Vec::new();
+    for log in logs {
+        if found.contains_key(&log.accessor_id) || unknown.contains(&log.accessor_id) {
+            continue;
+        }
+        match get_user(data, &log.accessor_id) {
+            Some(user) => {
+                found.insert(log.accessor_id.clone(), user);
+            }
+            None => unknown.push(log.accessor_id.clone()),
+        }
+    }
+    let Some(pool) = data.db_pool.as_ref().filter(|_| !unknown.is_empty()) else {
+        return found;
+    };
+    match crate::actor_directory::user_ids_for_keys(pool, &unknown).await {
+        Ok(mapped) => {
+            for (key, user_id) in mapped {
+                if let Some(user) = get_user(data, &user_id) {
+                    found.insert(key, user);
+                }
+            }
+        }
+        Err(error) => log::warn!("actor directory unreadable for access history: {error}"),
+    }
+    found
+}
+
+/// The source (`encounter`, `referral`, …) of each care relationship cited by
+/// `logs`, looked up once per relationship. A relationship that cannot be read
+/// is left out and logged: the row still says "care relationship".
+async fn relationship_sources(
+    data: &web::Data<AppState>,
+    logs: &[AccessLogView],
+) -> std::collections::HashMap<String, String> {
+    let mut sources = std::collections::HashMap::new();
+    let ids = logs
+        .iter()
+        .filter(|log| log.authority_type.as_deref() == Some("care_relationship"))
+        .filter_map(|log| log.authority_id.clone());
+    for id in ids {
+        if sources.contains_key(&id) {
+            continue;
+        }
+        match data
+            .repositories
+            .care_relationships
+            .get_relationship(&id)
+            .await
+        {
+            Ok(Some(row)) => {
+                sources.insert(id, row.source);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                log::warn!("care relationship {id} unreadable for access history: {error}")
+            }
+        }
+    }
+    sources
+}
+
 #[get("/api/access-logs/{patient_id}")]
 pub async fn get_access_logs(
     data: web::Data<AppState>,
@@ -114,8 +203,7 @@ pub async fn get_access_logs(
 
     // Healthcare providers can view any patient's logs
     // Patients can only view their own logs
-    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id)
-        || current_user.wallet_address == patient_id;
+    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id);
 
     if current_user.role == Role::Patient && !is_own_record {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -156,26 +244,37 @@ pub async fn get_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
+    let mut paginated_logs: Vec<AccessLogView> = result.items.into_iter().map(Into::into).collect();
+    apply_seal_status(&data, &mut paginated_logs).await;
     // Who looked, in words.
     //
     // This is the POPIA transparency control: the screen a patient opens to see
-    // who has touched their record. It returned the accessor's SS58 wallet and
+    // who has touched their record. It returned the accessor's user id and
     // the patient app rendered it verbatim -- "5GnPcTux4PX1F8RchBGn9QBgS3fPu3An...
     // accessed your records", which tells the person nothing and cannot
     // distinguish one clinician from another. A patient cannot resolve it
     // themselves: the provider directory is staff-only, and rightly so.
     //
-    // The name is added here, beside the wallet rather than instead of it, and
+    // The name is added here, beside the user id rather than instead of it, and
     // an accessor who is not a known user keeps only their address -- an
     // unresolvable identity must never be rendered as somebody else's name.
+    let sources = relationship_sources(&data, &paginated_logs).await;
+    let accessors = accessors_by_key(&data, &paginated_logs).await;
     let named_logs: Vec<serde_json::Value> = paginated_logs
         .iter()
         .map(|entry| {
             let mut value = serde_json::to_value(entry).unwrap_or_default();
-            let name = get_user(&data, &entry.accessor_id).map(|user| user.name);
+            let accessor = accessors.get(&entry.accessor_id).cloned();
+            let name = accessor.as_ref().map(|user| user.name.clone());
+            // Department is what a patient recognises ("Casualty", "Radiology")
+            // when no facility name is on record for the clinician.
+            let department = accessor.and_then(|user| user.department);
             if let Some(object) = value.as_object_mut() {
                 object.insert("accessor_name".into(), serde_json::json!(name));
+                object.insert("accessor_department".into(), serde_json::json!(department));
+                // "via referral" / "via an appointment": the relationship's source.
+                let source = entry.authority_id.as_ref().and_then(|id| sources.get(id));
+                object.insert("authority_source".into(), serde_json::json!(source));
             }
             value
         })
@@ -199,9 +298,9 @@ mod pagination_tests {
     use super::*;
     use actix_web::{test, App};
 
-    fn patient_user(wallet: &str, patient_id: &str) -> crate::User {
+    fn patient_user(user_id: &str, patient_id: &str) -> crate::User {
         crate::User {
-            wallet_address: wallet.to_string(),
+            id: user_id.to_string(),
             username: None,
             name: "Log Patient".to_string(),
             role: Role::Patient,
@@ -274,7 +373,7 @@ mod pagination_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/access-logs/PAT-LOGS")
-                .insert_header(("x-user-id", "log_patient"))
+                .insert_header(crate::test_fixtures::as_user("log_patient"))
                 .to_request(),
         )
         .await;
@@ -315,7 +414,7 @@ mod pagination_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/access-logs/PAT-LOGS2?page=2&limit=5")
-                .insert_header(("x-user-id", "log_patient"))
+                .insert_header(crate::test_fixtures::as_user("log_patient"))
                 .to_request(),
         )
         .await;

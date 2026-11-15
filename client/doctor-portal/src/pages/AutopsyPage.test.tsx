@@ -31,7 +31,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
  */
 describe('AutopsyPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 

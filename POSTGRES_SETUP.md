@@ -1,331 +1,69 @@
-# PostgreSQL Setup for MediChain
+# PostgreSQL setup for MediChain
 
-This guide explains how to set up persistent demo users using PostgreSQL for your hackathon submission.
+This guide covers the current PostgreSQL-backed API. For the full environment
+contract and quality commands, see [CLAUDE.md](CLAUDE.md). For account creation
+and sign-in, see [docs/DEV_AUTH.md](docs/DEV_AUTH.md).
 
-## 🎯 Why PostgreSQL?
+## Configure an isolated development database
 
-Without a database, the API uses **in-memory storage**. This means:
-- ❌ All users and data are lost when the server restarts
-- ❌ Judges have to re-create demo accounts each time
-- ❌ Testing workflow is tedious and error-prone
+Copy `.env.example` to `.env` and set the database connection, PostgreSQL
+credentials, session secret, JWT secret, encryption keyring, patient-search
+index key, and `MEDICHAIN_BOOTSTRAP_KEY` for your environment. Keep real values
+out of source control. The bootstrap key must contain at least 32 bytes. The
+example file documents the remaining production requirements.
 
-With PostgreSQL:
-- ✅ **12 pre-configured demo users** persist across restarts
-- ✅ Judges can immediately test with real accounts
-- ✅ Professional-grade infrastructure for hackathon demo
+`docker-compose.yml` defines PostgreSQL 16 and the API. It sets
+`MEDICHAIN_STORAGE=postgres` for the containerized API and passes the bootstrap
+key from the environment. The API listens on port 8080 inside its container;
+the Compose reverse proxy exposes the API on port 80. A locally run API uses
+its configured `PORT` (default 8090) and the local `DATABASE_URL`.
 
----
+To start only PostgreSQL when you are ready to run services:
 
-## 🚀 Quick Start (One Command)
-
-For the fastest setup, use the quick-start script:
-
-```batch
-quick-start.bat
-```
-
-This automatically:
-1. Starts PostgreSQL in Docker
-2. Waits for the database to be ready
-3. Starts the API server with demo users
-
----
-
-## 🐳 Manual Setup (Docker)
-
-### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
-
-### Step 1: Start PostgreSQL
-```bash
-cd medichain
+```powershell
 docker compose up -d postgres
+docker compose ps postgres
 ```
 
-This starts:
-- **PostgreSQL 16** on port 5432
-- **pgAdmin** on port 5050 (optional web UI)
+To inspect migrations and health after starting the API:
 
-### Step 2: Verify Database
-```bash
-docker compose ps
-# Service should show "running"
+```powershell
+docker compose exec postgres psql -U medichain -d medichain -c "SELECT version, success FROM _sqlx_migrations ORDER BY version;"
+curl.exe http://localhost/health/db
 ```
 
-### Step 3: Start the API
-```bash
-cd api
-cargo run
-```
+Adjust the `psql` user and database if you changed `POSTGRES_USER` or
+`POSTGRES_DB`. Do not use `docker compose down -v` on a database you intend to
+keep: it removes the named PostgreSQL volume.
 
-You should see:
-```
-  🗄️  Connecting to PostgreSQL database...
-  ✅ Database connection established
-  📋 Running database migrations...
-  ✅ Migrations completed
-  👥 Loading demo users from database...
-  ✅ Loaded 12 demo users
-  🚀 Server ready!
-```
+## Provision accounts
 
----
+The first administrator is created through `POST /api/auth/bootstrap` with the
+operator-supplied `MEDICHAIN_BOOTSTRAP_KEY`. Redeem the returned one-time code at
+`POST /api/auth/credentials/redeem`, then sign in through the portal or
+`POST /api/auth/login`. Protected API requests use
+`Authorization: Bearer <access-token>`. Administrators create staff accounts;
+clinical registration creates patient accounts and activation codes.
 
-## 🧪 Verify Setup
+**Current first-run limitation (2026-10-05):** the historical migrations still
+insert credentialless demo accounts and patients. Those rows cause first-admin
+bootstrap to be refused on a fresh database. A provisional source repair exists,
+but a rebuilt runtime and the requested cleanup of existing databases are not
+yet verified. Do not treat this guide as proof that new account provisioning is
+working. Current status is in `docs/TECHNICAL_DEBT_REGISTER.md`; the October
+verification report is archived at
+[docs/archive/FULL_APPLICATION_VERIFICATION_REPORT-2026-10.md](docs/archive/FULL_APPLICATION_VERIFICATION_REPORT-2026-10.md).
 
-Run the integration test to verify everything works:
+For synthetic browser testing, use an isolated development database and
+`scripts/seed-browser-test-fixtures.ts`. The script requires a configured
+bootstrap key for a fresh database or credentials for an existing administrator.
+It writes test accounts and is not a production seeding step.
 
-```bash
-./scripts/test-postgres-integration.sh
-```
+## Verify persistence
 
-Or use curl to test manually:
-```bash
-# Health check
-curl http://localhost:8080/health
-
-# Database health
-curl http://localhost:8080/health/db
-
-# List users (as admin)
-curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" http://localhost:8080/api/users
-```
-
----
-
-## � Configuration
-
-### Environment Variables (.env)
-
-```bash
-# Database Connection
-DATABASE_URL=postgresql://medichain:medichain_dev_2024@localhost:5432/medichain
-
-# Connection Pool Settings
-DB_MAX_CONNECTIONS=20
-DB_MIN_CONNECTIONS=5
-DB_ACQUIRE_TIMEOUT_SECS=3
-DB_IDLE_TIMEOUT_SECS=600
-DB_MAX_LIFETIME_SECS=1800
-
-# Connection Retry (for Docker startup timing)
-DB_MAX_RETRIES=5
-
-# API Settings
-PORT=8080
-HOST=127.0.0.1
-RUST_LOG=info
-
-# Security
-JWT_SECRET=your-super-secret-key-change-in-production
-```
-
-### Fallback Mode
-
-If `DATABASE_URL` is not set, the API runs in **in-memory mode**:
-```
-  ℹ️  No DATABASE_URL set - using in-memory storage
-       Set DATABASE_URL for persistent demo users
-```
-
----
-
-## 📊 Database Management
-
-### pgAdmin Web Interface
-1. Open http://localhost:5050
-2. Login: `admin@medichain.local` / `admin`
-3. Add Server:
-   - Host: `postgres` (container name)
-   - Port: `5432`
-   - Database: `medichain`
-   - Username: `medichain`
-   - Password: `medichain_dev_2024`
-
-### Direct PostgreSQL Access
-```bash
-# Connect to database
-docker compose exec postgres psql -U medichain -d medichain
-
-# List users
-SELECT wallet_address, username, role, name FROM users;
-
-# Check user count
-SELECT role, COUNT(*) FROM users GROUP BY role;
-```
-
-### View Active Sessions
-```bash
-docker compose exec postgres psql -U medichain -d medichain -c "SELECT * FROM v_active_users;"
-```
-
----
-
-## 🔄 Commands Reference
-
-### Docker Commands
-```bash
-# Start services
-docker compose up -d
-
-# Stop services
-docker compose down
-
-# View logs
-docker compose logs -f
-
-# Reset database (deletes all data)
-docker compose down -v
-docker compose up -d
-```
-
-### API Health Check
-```bash
-# Basic health
-curl http://localhost:8080/health
-
-# Database health (shows connection status and user count)
-curl http://localhost:8080/health/db
-```
-
-Expected response:
-```json
-{
-  "status": "healthy",
-  "database_connected": true,
-  "users_loaded": 12,
-  "demo_users_available": true,
-  "message": "PostgreSQL connected - demo users persist across restarts"
-}
-```
-
----
-
-## 🔐 Testing with Demo Users
-
-### Using curl
-```bash
-# Login as admin
-curl -X GET http://localhost:8080/api/auth/me \
-  -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-
-# Login as doctor
-curl -X GET http://localhost:8080/api/auth/me \
-  -H "X-User-Id: 5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
-
-# List all users (as admin)
-curl http://localhost:8080/api/users \
-  -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-```
-
-### Using the Doctor Portal
-1. Start frontend: `cd client/doctor-portal && npm run dev`
-2. Open http://localhost:5173
-3. Enter wallet address: `5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty`
-4. Access doctor dashboard with full functionality
-
----
-
-## 🐛 Troubleshooting
-
-### "Connection refused" Error
-```bash
-# Check if PostgreSQL is running
-docker compose ps
-
-# If not running, start it
-docker compose up -d
-
-# Wait for healthy status
-docker ps --filter "name=medichain_postgres" --format "{{.Status}}"
-# Should show: "Up X seconds (healthy)"
-```
-
-### "Database does not exist" Error
-```bash
-# Reset everything
-docker compose down -v
-docker compose up -d
-```
-
-### "Pool timed out" Error
-The API has automatic retry logic with exponential backoff. If you see this:
-```
-Database connection attempt 1 failed: pool timed out...
-```
-This is normal during startup - the API will retry up to 5 times. If it continues to fail:
-
-```bash
-# Check database is accessible
-docker exec medichain_postgres psql -U medichain -d medichain -c "SELECT 1"
-```
-
-### Migrations Fail
-```bash
-# Check migration status
-docker compose exec postgres psql -U medichain -d medichain \
-  -c "SELECT * FROM _sqlx_migrations ORDER BY installed_on;"
-
-# Force re-run (WARNING: drops all data)
-docker compose down -v
-docker compose up -d
-```
-
-### WSL Users (Windows)
-If running the API in WSL with Docker on Windows:
-
-1. **Docker Desktop Settings:**
-   - Docker Desktop → Settings → Resources → WSL Integration
-   - Enable integration with your distro (e.g., Ubuntu-22.04)
-
-2. **Use `localhost` for DATABASE_URL:**
-   ```bash
-   # Correct - WSL can reach Docker via localhost
-   DATABASE_URL='postgresql://medichain:medichain_dev_2024@localhost:5432/medichain'
-   
-   # Wrong - 172.17.0.1 is not reachable from WSL
-   # DATABASE_URL='postgresql://medichain:medichain_dev_2024@172.17.0.1:5432/medichain'
-   ```
-
-3. **Start API from WSL:**
-   ```bash
-   wsl -d Ubuntu-22.04 -- bash -c "cd '/path/to/medichain' && \
-     DATABASE_URL='postgresql://medichain:medichain_dev_2024@localhost:5432/medichain' \
-     ./target/release/medichain-api"
-   ```
-
----
-
-## 📁 File Structure
-
-```
-medichain/
-├── docker-compose.yml          # PostgreSQL + pgAdmin containers
-├── .env                        # Database credentials (not in git)
-├── .env.example                # Template for .env
-├── POSTGRES_SETUP.md           # This file
-└── api/
-    ├── src/
-    │   ├── db/                 # Database connection pool
-    │   ├── models/             # Database models (DbUser, etc.)
-    │   └── services/           # User service with CRUD operations
-    └── migrations/
-        └── 20240121000001_initial_schema.sql  # Schema + demo data
-```
-
----
-
-## ✅ Verification Checklist
-
-Before submitting for judging:
-
-- [ ] `docker compose up -d` shows both services running
-- [ ] `curl http://localhost:8080/health/db` shows `database_connected: true`
-- [ ] `users_loaded: 12` in health check response
-- [ ] Can login with admin wallet: `5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY`
-- [ ] Doctor portal shows user info after login
-- [ ] Server restart preserves all users
-
----
-
-© 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026
+After a successful credentialed create/read flow, restart the API process and
+repeat the authenticated read. Compare the returned record identifiers and
+content. A healthy `/health/db` response confirms connectivity only; it does
+not prove that records, encryption keys, sessions, or workflows survive a
+restart. Run the appropriate role journeys and browser tests described in
+`CLAUDE.md` before claiming end-to-end verification.

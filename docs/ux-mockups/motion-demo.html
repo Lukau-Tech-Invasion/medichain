@@ -1,0 +1,118 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Motion demo</title><link rel="stylesheet" href="mock.css">
+<style>
+/* Motion tokens — the same values the plan specifies (Material 3 "standard" scheme). */
+:root { --motion-short: 150ms; --motion-medium: 250ms; --motion-long: 350ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1); --ease-enter: cubic-bezier(0, 0, 0, 1); --ease-exit: cubic-bezier(0.3, 0, 1, 1); }
+body { padding: 24px; max-width: 1100px; margin: 0 auto; }
+.stage { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
+.demo { position: relative; overflow: hidden; min-height: 300px; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+button.btn { cursor: pointer; font-family: inherit; }
+button.btn:active { transform: scale(0.98); transition: transform 100ms var(--ease-standard); }
+.prow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgb(var(--border)); margin-bottom: 8px; background: rgb(var(--surface)); cursor: pointer; }
+.banner { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: rgb(var(--surface)); border: 1px solid rgb(var(--primary)); }
+.who { view-transition-name: patient; }
+::view-transition-group(patient) { animation-duration: var(--motion-long); animation-timing-function: var(--ease-standard); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--motion-medium); }
+.visit-item { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid rgb(var(--border)); }
+.visit-item.new { animation: slideIn var(--motion-medium) var(--ease-enter); }
+@keyframes slideIn { from { transform: translateY(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+.save .tick { display: none; } .save.done .tick { display: inline; animation: pop var(--motion-short) var(--ease-enter); } .save.done .lbl { display: none; }
+@keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: none; opacity: 1; } }
+.amb { animation: slideRow var(--motion-medium) var(--ease-enter); }
+@keyframes slideRow { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.alert-crit { animation: rise 200ms var(--ease-enter); }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* Reduced motion: substitute a short fade for every movement (WCAG 2.3.3 counts fades as non-motion). */
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.reduce .visit-item.new, .reduce .amb, .reduce .alert-crit, .reduce .save.done .tick { animation: fade var(--motion-short) linear; }
+.reduce ::view-transition-group(patient) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .visit-item.new, .amb, .alert-crit, .save.done .tick { animation: fade var(--motion-short) linear; }
+  ::view-transition-group(patient) { animation: none; }
+}
+.pill-toggle { display:inline-flex; align-items:center; gap:8px; font-size:14px; }
+</style></head>
+<body>
+  <h1>MediChain motion — live demo</h1>
+  <p class="small t2" style="max-width:820px;margin-top:6px">Click the buttons. Every motion uses the plan's tokens (150 / 250 / 350 ms, standard easing), moves only position and opacity, and has a reduced-motion version. Tick "Reduce motion" (or turn it on in your operating system) to see the substitute fades.</p>
+  <label class="pill-toggle" style="margin-top:12px"><input type="checkbox" id="reduce"> Reduce motion</label>
+
+  <div class="stage">
+    <section class="card pad demo" id="ws">
+      <h3>1 · Open a patient</h3>
+      <div id="list" style="margin-top:10px">
+        <div class="prow" data-name="Thandiwe Ndlovu" data-sub="F · 34 · born 12 Mar 1992"><span class="avatar">TN</span><div><p class="b">Thandiwe Ndlovu</p><p class="xs muted">F · 34 · Bed 12</p></div></div>
+        <div class="prow" data-name="Sipho Mabaso" data-sub="M · 61 · born 3 Jan 1965"><span class="avatar">SM</span><div><p class="b">Sipho Mabaso</p><p class="xs muted">M · 61 · Bed 14</p></div></div>
+      </div>
+      <div id="workspace" hidden>
+        <div class="banner"><span class="avatar who" id="wsAvatar">TN</span><div><p class="bb" id="wsName">Thandiwe Ndlovu</p><p class="xs t2" id="wsSub"></p></div><button class="btn sm" id="closeBtn" style="margin-left:auto">Close patient</button></div>
+        <p class="small muted" style="margin-top:12px">The name and photo glide from the list into the banner — you see <em>which</em> patient you opened.</p>
+      </div>
+    </section>
+
+    <section class="card pad demo">
+      <h3>2 · Save a form</h3>
+      <div class="row" style="margin-top:10px"><button class="btn primary save" id="saveBtn"><span class="lbl">Save vital signs</span><span class="tick">✓ Saved</span></button></div>
+      <p class="b small" style="margin-top:16px">This visit</p>
+      <div id="visit"><div class="visit-item"><span class="tl-time">08:58</span><span class="small t2">Chart opened · Treatment</span></div></div>
+    </section>
+
+    <section class="card pad demo">
+      <h3>3 · Ambulance arrives on the ED board</h3>
+      <div class="controls"><button class="btn" id="ambBtn">Simulate pre-alert</button></div>
+      <div id="board" style="margin-top:12px"></div>
+    </section>
+
+    <section class="card pad demo">
+      <h3>4 · Critical alert — rises once, never flashes</h3>
+      <div class="controls"><button class="btn" id="alertBtn">Simulate critical result</button></div>
+      <div id="alerts" style="margin-top:12px"></div>
+    </section>
+  </div>
+
+<script>
+const reduceBox = document.getElementById('reduce');
+const reduced = () => reduceBox.checked || matchMedia('(prefers-reduced-motion: reduce)').matches;
+reduceBox.addEventListener('change', () => document.body.classList.toggle('reduce', reduceBox.checked));
+// The helper the plan calls useMotionNavigate: View Transitions when allowed, instant otherwise.
+function transition(update) {
+  if (document.startViewTransition && !reduced()) document.startViewTransition(update);
+  else update();
+}
+const list = document.getElementById('list'), ws = document.getElementById('workspace');
+list.querySelectorAll('.prow').forEach((row) => row.addEventListener('click', () => {
+  row.querySelector('.avatar').style.viewTransitionName = 'patient';
+  transition(() => {
+    row.querySelector('.avatar').style.viewTransitionName = '';
+    document.getElementById('wsName').textContent = row.dataset.name;
+    document.getElementById('wsSub').textContent = row.dataset.sub;
+    document.getElementById('wsAvatar').textContent = row.dataset.name.split(' ').map((w) => w[0]).join('');
+    list.hidden = true; ws.hidden = false;
+  });
+}));
+document.getElementById('closeBtn').addEventListener('click', () => transition(() => { ws.hidden = true; list.hidden = false; }));
+let n = 0;
+document.getElementById('saveBtn').addEventListener('click', (e) => {
+  const b = e.currentTarget; b.classList.add('done');
+  setTimeout(() => {
+    const item = document.createElement('div'); item.className = 'visit-item new';
+    const t = new Date(Date.now() + (n++) * 60000).toTimeString().slice(0, 5);
+    item.innerHTML = `<span class="tl-time">${t}</span><span class="small"><b>Vital signs</b> · BP 128/82 · Pulse 88</span>`;
+    document.getElementById('visit').prepend(item);
+  }, 150);
+  setTimeout(() => b.classList.remove('done'), 1400);
+});
+document.getElementById('ambBtn').addEventListener('click', () => {
+  const r = document.createElement('div'); r.className = 'prow amb';
+  r.innerHTML = '<span class="avatar">?</span><div class="grow"><p class="b">Unknown man, about 40</p><p class="xs muted">Unit 22 · STEMI alert</p></div><span class="badge warn">ETA 14 min</span>';
+  document.getElementById('board').prepend(r);
+});
+document.getElementById('alertBtn').addEventListener('click', () => {
+  const a = document.createElement('div'); a.className = 'card pad-sm alert-crit'; a.style.borderColor = 'rgb(var(--danger))'; a.style.marginBottom = '8px';
+  a.innerHTML = '<p class="b small" style="color:rgb(var(--danger-sub-fg))">Critical result · Thandiwe Ndlovu (F · 34)</p><p class="xs muted">Potassium 6.4 mmol/L · stays until acknowledged</p>';
+  document.getElementById('alerts').prepend(a);
+});
+</script>
+<span class="mock-tag" style="position:fixed;top:auto;bottom:8px">Mockup · synthetic data</span>
+</body></html>

@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
+import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw, Smartphone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import {
   assignRole,
   getUsers,
   revokeRole,
   updateUserProfile,
-  walletRegister,
+  registerStaff,
+  resetUserCredential,
+  resetUserMfa,
   useTranslation,
   useStepUp,
   StepUpDialog,
@@ -17,15 +19,19 @@ import {
   useValidatedForm,
   newUserSchema,
   confirmDialog,
-  formatTimestamp,
+  formatTimestamp, ModalPanel, ChoiceChips,
 } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
+import { OneTimeCodePanel } from '../components/OneTimeCodePanel';
 
-type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
+type UserRole = 'admin' | 'doctor' | 'nurse' | 'paramedic' | 'lab-technician' | 'pharmacist' | 'patient';
 type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 
 interface SystemUser {
   userId: string;
+  linkedPatientId?: string;
+  /** The Employee ID (or username) the person signs in with, when the API reports it. */
+  loginId?: string;
   name: string;
   email: string;
   phone: string;
@@ -57,6 +63,7 @@ function normalizeUserRole(role?: string): UserRole {
     case 'admin':
     case 'doctor':
     case 'nurse':
+    case 'paramedic':
     case 'pharmacist':
     case 'patient':
       return role.toLowerCase() as UserRole;
@@ -64,6 +71,8 @@ function normalizeUserRole(role?: string): UserRole {
       return 'patient';
   }
 }
+
+const USERS_PER_PAGE = 20;
 
 const UserManagementPage: React.FC = () => {
   // This section is administrator-only server-side; without this the page
@@ -89,12 +98,23 @@ const UserManagementPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<UserStatus | 'all'>('all');
+  const [userPage, setUserPage] = useState(0);
+  // A new search or filter starts at the first page.
+  useEffect(() => setUserPage(0), [searchTerm, roleFilter, statusFilter]);
   const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  // A one-time credential code an administrator has just issued. Held only
+  // here, only until dismissed: the server keeps a hash and cannot show it again.
+  const [issuedCode, setIssuedCode] = useState<{
+    identifier: string;
+    isPatient: boolean;
+    code: string;
+    expiresAt: string;
+    kind: 'created' | 'reset';
+  } | null>(null);
   const [newUser, setNewUser] = useState({
-    walletAddress: '',
-    username: '',
+    loginId: '',
     name: '',
     email: '',
     phone: '',
@@ -137,8 +157,10 @@ const UserManagementPage: React.FC = () => {
       }
       
       // Map API response to SystemUser interface
-      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; userId?: string; wallet_address?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
-        userId: u.wallet_address || u.user_id || u.userId || '',
+      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; linked_patient_id?: string; login_id?: string; username?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialty?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
+        userId: u.user_id || '',
+        linkedPatientId: u.linked_patient_id,
+        loginId: u.login_id || u.username,
         name: u.name || '',
         email: u.email || '',
         phone: u.phone || '',
@@ -146,7 +168,7 @@ const UserManagementPage: React.FC = () => {
         status: (u.status as UserStatus) || 'active',
         department: u.department,
         licenseNumber: u.license_number || u.licenseNumber,
-        specialization: u.specialization,
+        specialization: u.specialty || u.specialization,
         createdAt: u.created_at || u.createdAt || new Date().toISOString(),
         lastLogin: u.last_login || u.lastLogin,
         permissions: u.permissions || [],
@@ -187,26 +209,86 @@ const UserManagementPage: React.FC = () => {
       return;
     }
 
+    const loginId = newUser.loginId.trim();
     try {
-      const result = await walletRegister({
-        wallet_address: newUser.walletAddress.trim(),
-        name: newUser.name.trim(),
-        username: newUser.username.trim() || undefined,
-        role: newUser.role,
-        email: newUser.email.trim(),
-        // Omitted when empty rather than sent as '': a field left blank is
-        // absent, not a contact number that happens to be the empty string.
-        phone: newUser.phone.trim() || undefined,
-        department: newUser.department.trim() || undefined,
-        specialty: newUser.specialization.trim() || undefined,
-        license_number: newUser.licenseNumber.trim() || undefined,
+      // Creating an account is a privileged operation (Admin + step-up), so the
+      // whole sequence runs inside the held action: if a code is demanded, the
+      // dialog collects it and this runs again from the top.
+      await stepUp.run(async () => {
+        const created = await registerStaff({
+          name: newUser.name.trim(),
+          role: newUser.role,
+          login_id: loginId,
+          // Omitted when empty rather than sent as '': a field left blank is
+          // absent, not an address that happens to be the empty string.
+          ...(newUser.email.trim() ? { email: newUser.email.trim() } : {}),
+        });
+        const profile = {
+          phone: newUser.phone.trim() || undefined,
+          department: newUser.department.trim() || undefined,
+          specialty: newUser.specialization.trim() || undefined,
+          license_number: newUser.licenseNumber.trim() || undefined,
+        };
+        if (Object.values(profile).some((value) => value !== undefined)) {
+          await updateUserProfile(created.user_id, profile);
+        }
+        setIssuedCode({
+          identifier: loginId,
+          isPatient: false,
+          code: created.credential_code,
+          expiresAt: created.credential_expires_at,
+          kind: 'created',
+        });
+        await fetchUsers();
+        setNewUser({ loginId: '', name: '', email: '', phone: '', role: 'doctor', department: '', licenseNumber: '', specialization: '', emergencyContact: '', notes: '' });
+        setActiveTab('users');
+        showSuccess(t('docUserManagement.userCreatedSuccess', { id: created.user_id }));
       });
-      await fetchUsers();
-      setNewUser({ walletAddress: '', username: '', name: '', email: '', phone: '', role: 'doctor', department: '', licenseNumber: '', specialization: '', emergencyContact: '', notes: '' });
-      setActiveTab('users');
-      showSuccess(t('docUserManagement.userCreatedSuccess', { id: result.wallet_address }));
     } catch (err) {
       showError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
+    }
+  };
+
+  /**
+   * Issue a new credential code for someone who cannot sign in. Ends all of
+   * their sessions on the server; the code is shown once, here.
+   */
+  const handleResetCredential = async (target: SystemUser) => {
+    const confirmed = await confirmDialog({
+      message: t('docUserManagement.confirmResetCredential', { name: target.name }),
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await stepUp.run(async () => {
+        const grant = await resetUserCredential(target.userId);
+        setIssuedCode({
+          identifier: target.role === 'patient' ? (target.linkedPatientId || target.userId) : (target.loginId || target.userId),
+          isPatient: target.role === 'patient',
+          code: grant.credential_code,
+          expiresAt: grant.expires_at,
+          kind: 'reset',
+        });
+      });
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.resetFailed'));
+    }
+  };
+
+  /** Remove someone's authenticator so they can sign in with a password alone and enrol a new device. */
+  const handleResetMfa = async (target: SystemUser) => {
+    const confirmed = await confirmDialog({
+      message: t('docUserManagement.confirmResetMfa', { name: target.name }),
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await stepUp.run(async () => {
+        await resetUserMfa(target.userId);
+        showSuccess(t('docUserManagement.mfaResetSuccess', { name: target.name }));
+      });
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.resetFailed'));
     }
   };
 
@@ -230,7 +312,7 @@ const UserManagementPage: React.FC = () => {
       if (persistedRole !== selectedUser.role) {
         await stepUp.run(() =>
           assignRole({
-            wallet_address: selectedUser.userId,
+            user_id: selectedUser.userId,
             name: selectedUser.name,
             role: selectedUser.role,
           })
@@ -248,7 +330,7 @@ const UserManagementPage: React.FC = () => {
   const handleDeleteUser = async (userId: string) => {
     if (await confirmDialog({ message: t('docUserManagement.confirmDeleteUser'), destructive: true })) {
       try {
-        await stepUp.run(() => revokeRole({ wallet_address: userId }));
+        await stepUp.run(() => revokeRole({ user_id: userId }));
         await fetchUsers();
         showSuccess(t('docUserManagement.userDeletedSuccess'));
       } catch (err) {
@@ -283,6 +365,7 @@ const UserManagementPage: React.FC = () => {
       admin: 'bg-surface-sunken text-content-secondary',
       doctor: 'bg-notice-subtle text-notice-subtle-fg',
       nurse: 'bg-ok-subtle text-ok-subtle-fg',
+      paramedic: 'bg-caution-subtle text-caution-subtle-fg',
       'lab-technician': 'bg-caution-subtle text-caution-subtle-fg',
       pharmacist: 'bg-surface-sunken text-content-secondary',
       patient: 'bg-surface-sunken text-content-secondary',
@@ -327,11 +410,17 @@ const UserManagementPage: React.FC = () => {
     return matchesSearch && matchesRole && matchesStatus;
   });
 
+  // 20 per page (UX plan Phase 7): the full list was 51 screens on a phone.
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
+  const currentPage = Math.min(userPage, pageCount - 1);
+  const pageUsers = filteredUsers.slice(currentPage * USERS_PER_PAGE, (currentPage + 1) * USERS_PER_PAGE);
+
   const getRolePermissions = (role: UserRole): Permission[] => {
     const rolePermissionIds: { [key in UserRole]: string[] } = {
       admin: ['view_patients', 'edit_patients', 'manage_users', 'manage_roles', 'view_audit_logs', 'manage_settings', 'system_admin'],
       doctor: ['view_patients', 'edit_patients', 'prescribe_medications', 'order_labs', 'order_imaging', 'view_lab_results', 'document_notes', 'emergency_access'],
       nurse: ['view_patients', 'edit_patients', 'view_lab_results', 'document_notes'],
+      paramedic: ['emergency_access'],
       'lab-technician': ['view_patients', 'view_lab_results', 'document_notes'],
       pharmacist: ['view_patients', 'prescribe_medications', 'view_lab_results'],
       patient: ['view_patients'],
@@ -358,6 +447,32 @@ const UserManagementPage: React.FC = () => {
         <h1 className="text-3xl font-bold mb-2">{t('docUserManagement.title')}</h1>
         <p className="text-white">{t('docUserManagement.subtitle')}</p>
       </div>
+
+      {/* A credential code just issued. Shown once: the server keeps only a hash,
+          so this panel is the only place it will ever appear. Hand it to its
+          owner (copy, or print a slip); they redeem it at /activate and choose
+          their own password, which nobody here ever sees. */}
+      {issuedCode && (
+        <div className="mb-6">
+          <OneTimeCodePanel
+            code={issuedCode.code}
+            expiresAt={issuedCode.expiresAt}
+            identifier={issuedCode.identifier}
+            identifierLabel={issuedCode.isPatient ? t('activate.patientIdLabel') : t('docUserManagement.employeeIdLabel')}
+            title={issuedCode.kind === 'created' ? t('docUserManagement.credentialCodeTitle') : t('docUserManagement.resetCodeTitle')}
+            body={t('docUserManagement.credentialCodeBody')}
+            printTitle={t('docUserManagement.credentialPrintTitle')}
+            printBody={t('docUserManagement.credentialPrintBody')}
+          />
+          <button
+            type="button"
+            onClick={() => setIssuedCode(null)}
+            className="mt-3 px-4 py-2 rounded-lg border border-border-interactive text-content-secondary min-h-[44px]"
+          >
+            {t('docUserManagement.credentialCodeDone')}
+          </button>
+        </div>
+      )}
 
       {/* The page already tracked this; it just never showed it. A failed
           save left the screen unchanged, which reads as success. */}
@@ -413,6 +528,15 @@ const UserManagementPage: React.FC = () => {
 
       {activeTab === 'users' && (
         <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => void fetchUsers()}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg border border-border-interactive px-3 py-2 text-content-secondary disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {t('common.refresh')}
+          </button>
           <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -441,30 +565,31 @@ const UserManagementPage: React.FC = () => {
                   <option value="admin">{t('docUserManagement.role_admin')}</option>
                   <option value="doctor">{t('docUserManagement.role_doctor')}</option>
                   <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                  <option value="paramedic">{t('docUserManagement.role_paramedic')}</option>
                   <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                   <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
                 </select>
               </div>
               <div>
-                <label htmlFor="user-status-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.statusLabel')}</label>
-                <select
+                <ChoiceChips
                   id="user-status-filter"
+                  label={t('docUserManagement.statusLabel')}
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as UserStatus | 'all')}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="all">{t('docUserManagement.allStatuses')}</option>
-                  <option value="active">{t('docUserManagement.status_active')}</option>
-                  <option value="inactive">{t('docUserManagement.status_inactive')}</option>
-                  <option value="suspended">{t('docUserManagement.status_suspended')}</option>
-                  <option value="pending">{t('docUserManagement.status_pending')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setStatusFilter(next as UserStatus | 'all'); }}
+                  options={[
+                    { value: 'all', label: t('docUserManagement.allStatuses') },
+                    { value: 'active', label: t('docUserManagement.status_active') },
+                    { value: 'inactive', label: t('docUserManagement.status_inactive') },
+                    { value: 'suspended', label: t('docUserManagement.status_suspended') },
+                    { value: 'pending', label: t('docUserManagement.status_pending') },
+                  ]}
+                />
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {filteredUsers.map((systemUser) => (
+            {pageUsers.map((systemUser) => (
               <div key={systemUser.userId} className="border border-border-strong rounded-lg shadow-sm bg-surface p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-4">
@@ -514,6 +639,22 @@ const UserManagementPage: React.FC = () => {
                       <Shield className="w-5 h-5" />
                     </button>
                     <button
+                      onClick={() => handleResetCredential(systemUser)}
+                      className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
+                      title={t('docUserManagement.resetCredentialTitle')}
+                      aria-label={t('docUserManagement.resetCredentialTitle')}
+                    >
+                      <Key className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => handleResetMfa(systemUser)}
+                      className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
+                      title={t('docUserManagement.resetMfaTitle')}
+                      aria-label={t('docUserManagement.resetMfaTitle')}
+                    >
+                      <Smartphone className="w-5 h-5" />
+                    </button>
+                    <button
                       onClick={() => handleDeleteUser(systemUser.userId)}
                       className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       title={t('docUserManagement.deleteUserTitle')}
@@ -524,7 +665,7 @@ const UserManagementPage: React.FC = () => {
                 </div>
 
                 {/* `grid-cols-4` was fixed at every breakpoint and the cells
-                    had no `min-w-0`. A wallet address is 48 unbreakable
+                    had no `min-w-0`. A user id is 36 unbreakable
                     characters, and a grid track cannot shrink below its
                     content's intrinsic width without `min-w-0` — so the first
                     column pushed past its share and the four values rendered
@@ -537,7 +678,7 @@ const UserManagementPage: React.FC = () => {
                     <p className="text-sm text-content-secondary font-semibold mb-1">{t('docUserManagement.userIdLabel')}</p>
                     {/* Monospaced and selectable: this is an identifier someone
                         copies, and proportional type makes a transposed
-                        character in an SS58 address genuinely hard to spot. */}
+                        character in a UUID genuinely hard to spot. */}
                     <p
                       className="font-mono text-xs text-content break-all select-all"
                       title={systemUser.userId}
@@ -645,6 +786,22 @@ const UserManagementPage: React.FC = () => {
               </div>
             ))}
 
+            {pageCount > 1 && (
+              <nav aria-label={t('docUserManagement.pagesLabel')} className="flex flex-wrap items-center justify-between gap-2">
+                <button type="button" onClick={() => currentPage > 0 && setUserPage(currentPage - 1)} aria-disabled={currentPage === 0 || undefined}
+                  className="min-h-[44px] rounded-lg border border-border-interactive px-4 text-content hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:text-content-muted aria-disabled:hover:bg-transparent">
+                  {t('docUserManagement.previousPage')}
+                </button>
+                <span className="text-sm text-content-secondary" aria-live="polite">
+                  {t('docUserManagement.pageOf', { page: currentPage + 1, pages: pageCount, total: filteredUsers.length })}
+                </span>
+                <button type="button" onClick={() => currentPage < pageCount - 1 && setUserPage(currentPage + 1)} aria-disabled={currentPage >= pageCount - 1 || undefined}
+                  className="min-h-[44px] rounded-lg border border-border-interactive px-4 text-content hover:bg-surface-sunken aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:text-content-muted aria-disabled:hover:bg-transparent">
+                  {t('docUserManagement.nextPage')}
+                </button>
+              </nav>
+            )}
+
             {!error && !isLoading && filteredUsers.length === 0 && (
               <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
                 <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
@@ -656,24 +813,29 @@ const UserManagementPage: React.FC = () => {
       )}
 
       {activeTab === 'new-user' && (
+        <form onSubmit={(event) => { event.preventDefault(); void handleCreateUser(); }} noValidate>
         <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold text-content mb-6">{t('docUserManagement.createNewUserTitle')}</h2>
 
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="new-user-wallet" className="block text-sm font-semibold text-content-secondary mb-2">
-                  Wallet address <span className="text-critical-subtle-fg">*</span>
+                <label htmlFor="new-user-login-id" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docUserManagement.employeeIdLabel')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <input
-                  id="new-user-wallet"
+                  id="new-user-login-id"
                   type="text"
-                  value={newUser.walletAddress}
-                  onChange={(e) => setNewUser({ ...newUser, walletAddress: e.target.value })}
-                  placeholder="SS58 wallet address"
+                  value={newUser.loginId}
+                  onChange={(e) => { clearField('loginId'); setNewUser({ ...newUser, loginId: e.target.value }); }}
+                  onBlur={() => validateField('loginId', newUser)}
+                  placeholder={t('docUserManagement.employeeIdPlaceholder')}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
+                  autoComplete="off"
                   required
                 />
+                {errors.loginId && <p className="mt-1 text-sm text-critical-subtle-fg">{errors.loginId}</p>}
+                <p className="mt-1 text-xs text-content-muted">{t('docUserManagement.employeeIdHint')}</p>
               </div>
               <div>
                 <label htmlFor="new-user-name" className="block text-sm font-semibold text-content-secondary mb-2">
@@ -691,31 +853,19 @@ const UserManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="new-user-username" className="block text-sm font-semibold text-content-secondary mb-2">Username</label>
-                <input
-                  id="new-user-username"
-                  type="text"
-                  value={newUser.username}
-                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                />
-              </div>
-              <div>
-                <label htmlFor="new-user-role" className="block text-sm font-semibold text-content-secondary mb-2">
-                  {t('docUserManagement.roleLabel')} <span className="text-critical-subtle-fg">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="new-user-role"
+                  label={t('docUserManagement.roleLabel')}
                   value={newUser.role}
-                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  required
-                >
-                  <option value="doctor">{t('docUserManagement.role_doctor')}</option>
-                  <option value="nurse">{t('docUserManagement.role_nurse')}</option>
-                  <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
-                  <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewUser({ ...newUser, role: next as UserRole }); }}
+                  options={[
+                    { value: 'doctor', label: t('docUserManagement.role_doctor') },
+                    { value: 'nurse', label: t('docUserManagement.role_nurse') },
+                    { value: 'paramedic', label: t('docUserManagement.role_paramedic') },
+                    { value: 'lab-technician', label: t('docUserManagement.role_lab-technician') },
+                    { value: 'pharmacist', label: t('docUserManagement.role_pharmacist') },
+                  ]}
+                />
               </div>
             </div>
 
@@ -806,16 +956,18 @@ const UserManagementPage: React.FC = () => {
               <label htmlFor="new-user-notes" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.notesLabel')}</label>
               <textarea
                 id="new-user-notes"
+                disabled
+                aria-describedby="new-user-notes-unavailable"
                 value={newUser.notes}
                 onChange={(e) => setNewUser({ ...newUser, notes: e.target.value })}
                 placeholder={t('docUserManagement.notesPlaceholder')}
                 rows={3}
                 className="w-full border border-border-interactive rounded-lg px-3 py-2"
               />
+              <p id="new-user-notes-unavailable" className="text-sm text-content-muted mt-1">{t('docUserManagement.staffNotesUnavailable')}</p>
             </div>
 
-            <button
-              onClick={handleCreateUser}
+            <button type="submit"
               className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
@@ -823,6 +975,7 @@ const UserManagementPage: React.FC = () => {
             </button>
           </div>
         </div>
+        </form>
       )}
       {activeTab === 'roles' && (
         <div className="space-y-6">
@@ -833,7 +986,7 @@ const UserManagementPage: React.FC = () => {
             </p>
 
             <div className="space-y-6">
-              {(['admin', 'doctor', 'nurse', 'lab-technician', 'pharmacist', 'patient'] as UserRole[]).map((role) => (
+              {(['admin', 'doctor', 'nurse', 'paramedic', 'lab-technician', 'pharmacist', 'patient'] as UserRole[]).map((role) => (
                 <div key={role} className="border border-border-strong rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -902,10 +1055,9 @@ const UserManagementPage: React.FC = () => {
       )}
 
       {showEditModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="user-management-dialog-title" closeOnBackdrop={false} onClose={() => { setShowEditModal(false); setSelectedUser(null); }} overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" className="bg-surface rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-content">{t('docUserManagement.editUserTitle')}</h2>
+              <h2 id="user-management-dialog-title" className="text-xl font-bold text-content">{t('docUserManagement.editUserTitle')}</h2>
               <button
                 onClick={() => {
                   setShowEditModal(false);
@@ -930,19 +1082,20 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="usermgmt-role" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.roleLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="usermgmt-role"
+                    label={t('docUserManagement.roleLabel')}
                     value={selectedUser.role}
-                    onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })}
-                    className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                  >
-                    <option value="admin">{t('docUserManagement.role_admin')}</option>
-                    <option value="doctor">{t('docUserManagement.role_doctor')}</option>
-                    <option value="nurse">{t('docUserManagement.role_nurse')}</option>
-                    <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
-                    <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; setSelectedUser({ ...selectedUser, role: next as UserRole }); }}
+                    options={[
+                      { value: 'admin', label: t('docUserManagement.role_admin') },
+                      { value: 'doctor', label: t('docUserManagement.role_doctor') },
+                      { value: 'nurse', label: t('docUserManagement.role_nurse') },
+                      { value: 'paramedic', label: t('docUserManagement.role_paramedic') },
+                      { value: 'lab-technician', label: t('docUserManagement.role_lab-technician') },
+                      { value: 'pharmacist', label: t('docUserManagement.role_pharmacist') },
+                    ]}
+                  />
                 </div>
               </div>
 
@@ -1007,11 +1160,14 @@ const UserManagementPage: React.FC = () => {
                 <label htmlFor="usermgmt-notes" className="block text-sm font-semibold text-content-secondary mb-2">{t('docUserManagement.notesLabel')}</label>
                 <textarea
                   id="usermgmt-notes"
+                  disabled
+                  aria-describedby="usermgmt-notes-unavailable"
                   value={selectedUser.notes || ''}
                   onChange={(e) => setSelectedUser({ ...selectedUser, notes: e.target.value })}
                   rows={3}
                   className="w-full border border-border-interactive rounded-lg px-3 py-2"
                 />
+                <p id="usermgmt-notes-unavailable" className="text-sm text-content-muted mt-1">{t('docUserManagement.staffNotesUnavailable')}</p>
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -1032,15 +1188,13 @@ const UserManagementPage: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
 
       {showPermissionsModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-surface rounded-lg shadow-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <ModalPanel labelledBy="user-permissions-dialog-title" closeOnBackdrop={false} onClose={() => { setShowPermissionsModal(false); setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u))); setSelectedUser(null); }} overlayClassName="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" className="bg-surface rounded-lg shadow-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-content">{t('docUserManagement.managePermissionsModalTitle', { name: selectedUser.name })}</h2>
+              <h2 id="user-permissions-dialog-title" className="text-xl font-bold text-content">{t('docUserManagement.managePermissionsModalTitle', { name: selectedUser.name })}</h2>
               <button
                 onClick={() => {
                   setShowPermissionsModal(false);
@@ -1059,6 +1213,9 @@ const UserManagementPage: React.FC = () => {
               </p>
               <p className="text-sm text-content-secondary mt-1">
                 {t('docUserManagement.selectedPermissionsCount', { selected: selectedUser.permissions.length, total: availablePermissions.length })}
+              </p>
+              <p role="status" className="text-sm text-content-secondary mt-2">
+                {t('docUserManagement.permissionOverridesUnavailable')}
               </p>
             </div>
 
@@ -1080,6 +1237,7 @@ const UserManagementPage: React.FC = () => {
                           </div>
                           <button
                             onClick={() => handleTogglePermission(perm.id)}
+                            disabled
                             className={`ml-4 px-4 py-2 rounded-lg font-semibold transition-colors ${
                               selectedUser.permissions.includes(perm.id)
                                 ? 'bg-green-700 text-white hover:bg-green-800'
@@ -1109,17 +1267,15 @@ const UserManagementPage: React.FC = () => {
               <button
                 onClick={() => {
                   setShowPermissionsModal(false);
-                  setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
                   setSelectedUser(null);
-                  showSuccess(t('docUserManagement.permissionsUpdatedSuccess'));
+                  showError(t('docUserManagement.permissionOverridesUnavailable'));
                 }}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors"
               >
                 {t('docUserManagement.savePermissionsButton')}
               </button>
             </div>
-          </div>
-        </div>
+          </ModalPanel>
       )}
 
       <StepUpDialog state={stepUp} />

@@ -42,11 +42,36 @@ export async function nurseJourney(
   j: Journal,
   nurse: Session,
   incoming: Session,
+  patientSession: Session,
   m: Manifest
 ): Promise<void> {
   j.journey('Nurse — one shift, handed over to the next');
   const patient = m.patient.linked_patient_id;
   const stamp = Date.now();
+
+  // Chart reads require patient authority. The fixture patient explicitly
+  // approves this nurse's request before the shift starts.
+  const existing = await http('GET', `/access/patient/${patient}/grants`, { token: patientSession.token });
+  const grants = rowsOf(existing.json, 'grants');
+  const hasGrant = Array.isArray(grants) && grants.some((grant) => fieldAt(grant, 'provider_id') === nurse.userId);
+  if (!hasGrant) {
+    const request = await http('POST', `/access/patient/${patient}/requests`, {
+      token: nurse.token,
+      body: { reason: 'Nursing care during this verification shift' },
+    });
+    const requestId = String(fieldAt(request.json, 'request.id') ?? '');
+    if (request.status !== 201 || !requestId) {
+      j.record('the patient authorizes this nurse to read their chart', false, JSON.stringify(request.json));
+    } else {
+      const approval = await http('POST', `/access/requests/${requestId}/approve`, {
+        token: patientSession.token,
+        body: { expires_at: new Date(Date.now() + 86400000).toISOString() },
+      });
+      j.status('the patient authorizes this nurse to read their chart', approval.status, 200, approval.json);
+    }
+  } else {
+    j.record('the patient authorizes this nurse to read their chart', true, 'existing effective grant');
+  }
 
   // --- Triage -------------------------------------------------------------
   // TriagePage.tsx: POST /api/clinical/triage
@@ -64,7 +89,7 @@ export async function nurseJourney(
     oxygen_saturation: 94,
     pain_scale: 6,
     gcs_score: 15,
-    blood_glucose: 110,
+    blood_glucose: 6.1, // mmol/L
     weight_kg: 68.5,
   };
   const triage = await http('POST', '/clinical/triage', {
@@ -104,7 +129,7 @@ export async function nurseJourney(
       'vital_signs.oxygen_saturation': 94,
       'vital_signs.pain_scale': 6,
       'vital_signs.gcs_score': 15,
-      'vital_signs.blood_glucose': 110,
+      'vital_signs.blood_glucose': 6.1,
       'vital_signs.weight_kg': 68.5,
       pain_scale: 6,
     });
@@ -135,7 +160,7 @@ export async function nurseJourney(
     oxygen_saturation: 94,
     pain_scale: 6,
     gcs_total: 15,
-    blood_glucose: 110,
+    blood_glucose: 6.1, // mmol/L
   };
   const vitals = await http('POST', '/clinical/vitals', { token: nurse.token, body: vitalsBody });
   const recorded = j.status('a set of observations is accepted', vitals.status, [200, 201], vitals.json);
@@ -143,7 +168,14 @@ export async function nurseJourney(
   if (recorded) {
     const fs = await http('GET', `/clinical/vitals/flowsheet/${patient}`, { token: nurse.token });
     const cols = rowsOf(fs.json, 'readings', 'columns', 'entries', 'items');
-    const latest = Array.isArray(cols) ? (cols[cols.length - 1] as any) : undefined;
+    // The newest reading by its own timestamp, not by position. The flowsheet
+    // is newest-first (VitalSignsPage reads readings[0] as the latest); this
+    // took the LAST element, which was right only while each run began on a
+    // patient with no earlier readings.
+    const when = (r: any) => Number(r?.timestamp ?? Date.parse(r?.recorded_at ?? '') ?? 0);
+    const latest = Array.isArray(cols) && cols.length
+      ? (cols.reduce((a: any, b: any) => (when(b) > when(a) ? b : a)) as any)
+      : undefined;
     // The flowsheet is what a clinician actually reads; a value that survives
     // the write but not the flowsheet is invisible in practice.
     const bad = discrepancies(latest, {
@@ -343,9 +375,10 @@ export async function nurseJourney(
   // `phlebitisScore` is deliberately absent: the page posts one and the server
   // ignores it, recomputing the VIP score from `conditions`, because a score
   // that decides whether a cannula stays in is not a number a client asserts.
+  // A new cannula carries no id: the server issues one and returns it, and
+  // refuses an id it never issued (the page used to mint `IV-${Date.now()}`).
   const ivSites = [
     {
-      id: `SITE-${stamp}`,
       patientId: patient,
       location: 'forearm',
       locationDetail: 'Left forearm, mid',
@@ -386,13 +419,14 @@ export async function nurseJourney(
     },
   });
   const ivOk = j.status('an IV site assessment is accepted', iv.status, [200, 201], iv.json);
+  const issuedSiteId: string = (iv.json as any)?.sites?.[0]?.site_id ?? '';
 
   if (ivOk) {
     const read = await http('GET', `/clinical/iv-sites/${patient}`, { token: nurse.token });
     const rows = rowsOf(read.json, 'assessments', 'items');
     const mine = findBy(rows, 'record_id', ivRecordId) ?? (Array.isArray(rows) ? rows[0] : rows);
     const stored: any[] = Array.isArray(rows) ? rows : ((rows as any)?.sites ?? []);
-    const site = stored.find((x: any) => JSON.stringify(x ?? null).includes(`SITE-${stamp}`));
+    const site = issuedSiteId ? stored.find((x: any) => x?.site_id === issuedSiteId) : undefined;
     j.record(
       'the cannula is on the record with its gauge and site',
       site !== undefined && JSON.stringify(site ?? null).includes('20G'),
@@ -464,11 +498,9 @@ export async function nurseJourney(
 
   // --- Care plan ----------------------------------------------------------
   // CarePlanPage.tsx: POST /api/emergency/care-plan
-  const planId = `CP-${stamp}`;
   const plan = await http('POST', '/emergency/care-plan', {
     token: nurse.token,
     body: {
-      care_plan_id: planId,
       patient_id: patient,
       // CarePlanPage's `NursingDiagnosis[]`, `Goal[]` and `Intervention[]`,
       // camelCase and cross-referenced by id the way the page builds them.
@@ -503,19 +535,17 @@ export async function nurseJourney(
           responsibleParty: 'nursing',
         },
       ],
-      created_by: nurse.userId,
-      created_at: epoch(),
-      updated_at: epoch(),
     },
   });
+  // The server mints the id; the page never chose one that could collide.
+  const planId = (plan.json as { id?: string } | undefined)?.id;
   const planOk = j.status('a nursing care plan is accepted', plan.status, [200, 201], plan.json);
 
   if (planOk) {
     const list = await http('GET', '/nursing/care-plans', { token: nurse.token });
     const rows = rowsOf(list.json, 'plans', 'items');
     const mine =
-      findBy(rows, 'care_plan_id', planId) ??
-      findBy(rows, 'id', planId) ??
+      (planId ? findBy(rows, 'id', planId) : undefined) ??
       (Array.isArray(rows)
         ? (rows as any[]).find((r) => JSON.stringify(r ?? null).includes(`ND-${stamp}`))
         : undefined);

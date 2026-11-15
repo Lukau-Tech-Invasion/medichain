@@ -15,8 +15,12 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog } from '@medichain/shared';
+import { createInsuranceCard, deleteInsuranceCard, downloadInsuranceCardImage, EobDocumentList, getInsuranceCards, getPatientInsuranceClaims, uploadInsuranceCardImage, useTranslation, formatCurrency, DEFAULT_CURRENCY, confirmDialog, ModalPanel,
+  notifySuccess, ChoiceChips
+} from '@medichain/shared';
+import type { EobDocument } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { PageBanner, useEmbedded } from '../components/MergedScreen';
 
 /**
  * InsurancePage
@@ -44,20 +48,20 @@ export interface InsuranceCard {
   /** ISO 4217 code for every monetary field on this card (copay/deductible/oopMax). */
   currency: string;
   copay: {
-    primaryCare: number;
-    specialist: number;
-    urgentCare: number;
-    emergency: number;
+    primaryCare: number | null;
+    specialist: number | null;
+    urgentCare: number | null;
+    emergency: number | null;
   };
   deductible: {
-    individual: number;
-    family: number;
-    met: number;
+    individual: number | null;
+    family: number | null;
+    met: number | null;
   };
   outOfPocketMax: {
-    individual: number;
-    family: number;
-    met: number;
+    individual: number | null;
+    family: number | null;
+    met: number | null;
   };
   frontImageUrl: string | null;
   backImageUrl: string | null;
@@ -65,6 +69,18 @@ export interface InsuranceCard {
   providerPortalUrl: string;
   isPrimary: boolean;
   lastVerified: string;
+}
+
+/** Parse a patient-entered optional amount; missing or invalid values remain unknown. */
+function optionalAmount(value: string): number | null {
+  if (!value.trim()) return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
+/** Format a recorded amount without turning an unknown benefit into zero coverage. */
+function amountLabel(value: number | null, currency: string, locale: Parameters<typeof formatCurrency>[2]): string {
+  return value == null ? 'Not recorded' : formatCurrency(value, currency, locale);
 }
 
 export interface InsuranceClaim {
@@ -83,7 +99,8 @@ export interface InsuranceClaim {
   status: ClaimStatus;
   submittedDate: string;
   processedDate: string | null;
-  eobUrl: string | null;
+  /** The payer's explanation-of-benefits documents filed on this claim. */
+  eobDocuments: EobDocument[];
 }
 
 /** ClaimStatus values the backend's richer `ClaimStatus` enum collapses into. */
@@ -106,9 +123,9 @@ const CLAIM_STATUS_MAP: Record<string, ClaimStatus> = {
 /**
  * Maps the backend's `InsuranceClaim` (line-item claim with a nested
  * `PatientInsurance`) onto this page's flatter display shape. The backend has
- * no single "allowed amount" concept distinct from `total_charge`, and no EOB
- * document URL (only an `eob_received` flag) — both fall back honestly rather
- * than being fabricated.
+ * no single "allowed amount" concept distinct from `total_charge`, which falls
+ * back honestly rather than being fabricated. EOB documents come with the
+ * claim (`eob_documents`); an empty list reads as "No EOB received yet".
  */
 function mapApiClaim(raw: Record<string, unknown>): InsuranceClaim {
   const insurance = (raw.insurance as Record<string, unknown>) ?? {};
@@ -137,7 +154,7 @@ function mapApiClaim(raw: Record<string, unknown>): InsuranceClaim {
     status: CLAIM_STATUS_MAP[String(raw.status ?? '')] ?? 'submitted',
     submittedDate: toIsoDate(raw.submitted_at) ?? String(raw.service_date ?? ''),
     processedDate: toIsoDate(raw.adjudicated_at),
-    eobUrl: null,
+    eobDocuments: Array.isArray(raw.eob_documents) ? (raw.eob_documents as EobDocument[]) : [],
   };
 }
 
@@ -155,6 +172,7 @@ async function loadCardImage(cardId: string, side: 'front' | 'back'): Promise<st
 
 const InsurancePage: React.FC = () => {
   const { t, locale } = useTranslation();
+  const embedded = useEmbedded();
   const [activeTab, setActiveTab] = useState<'cards' | 'claims' | 'add'>('cards');
   const [insuranceCards, setInsuranceCards] = useState<InsuranceCard[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
@@ -167,6 +185,8 @@ const InsurancePage: React.FC = () => {
   const [uploadSide, setUploadSide] = useState<'front' | 'back'>('front');
   const [verifying, setVerifying] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Set when a read failed: what is shown may be incomplete, not empty.
+  const [loadNotice, setLoadNotice] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
@@ -184,10 +204,10 @@ const InsurancePage: React.FC = () => {
     subscriberId: '',
     effectiveDate: '',
     customerServicePhone: '',
-    copayPrimary: '25',
-    copaySpecialist: '50',
-    deductible: '1500',
-    outOfPocketMax: '6000'
+    copayPrimary: '',
+    copaySpecialist: '',
+    deductible: '',
+    outOfPocketMax: ''
   });
 
   const loadInsuranceData = useCallback(async () => {
@@ -217,8 +237,8 @@ const InsurancePage: React.FC = () => {
 
         setLoading(false);
         return;
-      } catch (err) {
-        console.warn('No insurance data from API:', err);
+      } catch {
+        setLoadNotice(t('kit.listLoadFailed'));
       }
     }
 
@@ -240,8 +260,8 @@ const InsurancePage: React.FC = () => {
       setClaims(prev => [...prev, ...(response.claims ?? []).map(mapApiClaim)]);
       setClaimsCursor(response.next_cursor ?? null);
       setClaimsHasMore(!!response.next_cursor);
-    } catch (err) {
-      console.warn('Failed to load more claims:', err);
+    } catch {
+      setLoadNotice(t('kit.moreLoadFailed'));
     } finally {
       setLoadingMoreClaims(false);
     }
@@ -301,6 +321,7 @@ const InsurancePage: React.FC = () => {
       setInsuranceCards(prev => prev.map(card =>
         card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
       ));
+      notifySuccess('Coverage check complete.');
     } catch (err) {
       console.warn('Insurance verification failed:', err);
       setCardError(t('insurance.verificationFailed'));
@@ -346,6 +367,7 @@ const InsurancePage: React.FC = () => {
           : card
       ));
       setShowUploadModal(false);
+      notifySuccess('Card image uploaded.');
     } catch (err) {
       console.error('Insurance card image upload failed:', err);
       setUploadError(t('insurance.uploadFailed'));
@@ -355,7 +377,8 @@ const InsurancePage: React.FC = () => {
   };
 
   const handleAddInsurance = async () => {
-    if (!patient?.healthId || !newInsurance.providerName || !newInsurance.memberId) return;
+    if (!patient?.healthId || savingCard) return;
+    if (!newInsurance.providerName || !newInsurance.memberId) { setCardError(t('insurance.errProviderAndMember')); return; }
     setSavingCard(true);
     setCardError(null);
 
@@ -375,20 +398,20 @@ const InsurancePage: React.FC = () => {
       // platform's own default currency rather than silently omitting it.
       currency: DEFAULT_CURRENCY,
       copay: {
-        primaryCare: parseInt(newInsurance.copayPrimary) || 0,
-        specialist: parseInt(newInsurance.copaySpecialist) || 0,
-        urgentCare: 75,
-        emergency: 250
+        primaryCare: optionalAmount(newInsurance.copayPrimary),
+        specialist: optionalAmount(newInsurance.copaySpecialist),
+        urgentCare: null,
+        emergency: null
       },
       deductible: {
-        individual: parseInt(newInsurance.deductible) || 0,
-        family: (parseInt(newInsurance.deductible) || 0) * 2,
-        met: 0
+        individual: optionalAmount(newInsurance.deductible),
+        family: null,
+        met: null
       },
       outOfPocketMax: {
-        individual: parseInt(newInsurance.outOfPocketMax) || 0,
-        family: (parseInt(newInsurance.outOfPocketMax) || 0) * 2,
-        met: 0
+        individual: optionalAmount(newInsurance.outOfPocketMax),
+        family: null,
+        met: null
       },
       frontImageUrl: null,
       backImageUrl: null,
@@ -404,6 +427,7 @@ const InsurancePage: React.FC = () => {
         patient_id: patient.healthId,
       });
       setInsuranceCards(prev => [...prev, response.card as unknown as InsuranceCard]);
+      notifySuccess('Insurance card added.');
     } catch (error) {
       setCardError(error instanceof Error ? error.message : t('insurance.addFailed'));
       return;
@@ -420,10 +444,10 @@ const InsurancePage: React.FC = () => {
       subscriberId: '',
       effectiveDate: '',
       customerServicePhone: '',
-      copayPrimary: '25',
-      copaySpecialist: '50',
-      deductible: '1500',
-      outOfPocketMax: '6000'
+      copayPrimary: '',
+      copaySpecialist: '',
+      deductible: '',
+      outOfPocketMax: ''
     });
     setActiveTab('cards');
   };
@@ -441,9 +465,12 @@ const InsurancePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface-sunken">
+      {loadNotice && (
+        <p role="alert" className="m-4 rounded-xl border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{loadNotice}</p>
+      )}
       {/* Loading State */}
       {loading && (
-        <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-16">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('insurance.loadingInsurance')}</span>
@@ -452,16 +479,11 @@ const InsurancePage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-700 to-cyan-800 text-white p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <CreditCard className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">{t('insurance.title')}</h1>
-        </div>
-        <p className="text-white">{t('insurance.subtitle')}</p>
-      </div>
+      <PageBanner title={t('insurance.title')} subtitle={t('insurance.subtitle')}
+        icon={<CreditCard className="w-8 h-8" />} gradient="from-teal-700 to-cyan-800" />
 
       {/* Summary Cards */}
-      <div className="p-4 -mt-4">
+      <div className={embedded ? 'p-4' : 'p-4 -mt-4'}>
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-surface rounded-lg shadow p-4 text-center">
             <div className="text-2xl font-bold text-content-secondary">{insuranceCards.filter(c => c.status === 'active').length}</div>
@@ -571,19 +593,19 @@ const InsurancePage: React.FC = () => {
                         <h4 className="text-xs font-semibold text-content-muted mb-2">{t('insurance.copaysHeading')}</h4>
                         <div className="grid grid-cols-4 gap-2 text-center text-xs">
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.primaryCare, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.primaryCare, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayPrimaryLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.specialist, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.specialist, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copaySpecialistLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.urgentCare, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.urgentCare, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayUrgentLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.emergency, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{amountLabel(card.copay.emergency, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayErLabel')}</div>
                           </div>
                         </div>
@@ -595,12 +617,12 @@ const InsurancePage: React.FC = () => {
                       <div className="mb-4">
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-content-muted">{t('insurance.deductibleProgressLabel')}</span>
-                          <span className="font-medium">{formatCurrency(card.deductible.met, card.currency, locale)} / {formatCurrency(card.deductible.individual, card.currency, locale)}</span>
+                          <span className="font-medium">{amountLabel(card.deductible.met, card.currency, locale)} / {amountLabel(card.deductible.individual, card.currency, locale)}</span>
                         </div>
                         <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
                           <div
                             className="h-full bg-teal-500 transition-all"
-                            style={{ width: `${Math.min((card.deductible.met / card.deductible.individual) * 100, 100)}%` }}
+                            style={{ width: `${card.deductible.met !== null && card.deductible.individual !== null && card.deductible.individual > 0 ? Math.min((card.deductible.met / card.deductible.individual) * 100, 100) : 0}%` }}
                           />
                         </div>
                       </div>
@@ -652,12 +674,15 @@ const InsurancePage: React.FC = () => {
                         )}
                       </button>
                       <a
-                        href={`tel:${card.customerServicePhone}`}
+                        aria-label={card.customerServicePhone ? `Call ${card.providerName}` : `No contact number recorded for ${card.providerName}`}
+                        aria-disabled={!card.customerServicePhone}
+                        href={card.customerServicePhone ? `tel:${card.customerServicePhone}` : undefined}
                         className="flex items-center justify-center gap-2 px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm hover:bg-surface-sunken transition-colors"
                       >
                         <Phone className="w-4 h-4" />
                       </a>
                       <button
+                        aria-label={`Remove insurance card ${card.providerName}`}
                         onClick={() => void handleDeleteCard(card.id)}
                         className="flex items-center justify-center px-3 py-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       >
@@ -709,6 +734,11 @@ const InsurancePage: React.FC = () => {
                       </span>
                     </div>
                   </div>
+
+                  <div className="pt-3 mt-3 border-t border-border space-y-1">
+                    <p className="text-xs font-medium text-content-secondary">{t('insurance.eobHeading')}</p>
+                    <EobDocumentList documents={claim.eobDocuments} />
+                  </div>
                 </div>
               ))
             )}
@@ -730,26 +760,25 @@ const InsurancePage: React.FC = () => {
 
         {/* Add New Tab */}
         {activeTab === 'add' && (
+          <form onSubmit={(event) => { event.preventDefault(); void handleAddInsurance(); }} noValidate>
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-content mb-4">{t('insurance.addNewInsuranceTitle')}</h2>
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
-                  {t('insurance.insuranceTypeLabel')} <span className="text-critical">*</span>
-                </label>
-                <select
+                <ChoiceChips
                   id="insurance-type"
+                  label={t('insurance.insuranceTypeLabel')}
                   value={newInsurance.type}
-                  onChange={(e) => setNewInsurance(prev => ({ ...prev, type: e.target.value as InsuranceType }))}
-                  className="w-full border border-border-interactive rounded-lg px-3 py-2"
-                >
-                  <option value="medical">{t('insurance.type_medical')}</option>
-                  <option value="dental">{t('insurance.type_dental')}</option>
-                  <option value="vision">{t('insurance.type_vision')}</option>
-                  <option value="pharmacy">{t('insurance.type_pharmacy')}</option>
-                  <option value="supplemental">{t('insurance.type_supplemental')}</option>
-                </select>
+                  onChange={(next) => { if (next === undefined) return; setNewInsurance(prev => ({ ...prev, type: next as InsuranceType })); }}
+                  options={[
+                    { value: 'medical', label: t('insurance.type_medical') },
+                    { value: 'dental', label: t('insurance.type_dental') },
+                    { value: 'vision', label: t('insurance.type_vision') },
+                    { value: 'pharmacy', label: t('insurance.type_pharmacy') },
+                    { value: 'supplemental', label: t('insurance.type_supplemental') },
+                  ]}
+                />
               </div>
 
               <div>
@@ -897,25 +926,36 @@ const InsurancePage: React.FC = () => {
                 </div>
               </div>
 
-              <button
-                onClick={() => void handleAddInsurance()}
-                disabled={savingCard || !newInsurance.providerName || !newInsurance.memberId}
-                className="w-full py-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg font-medium hover:from-teal-800 hover:to-cyan-900 transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100 disabled:cursor-not-allowed"
+              <button type="submit"
+                aria-disabled={savingCard || undefined}
+                className="w-full py-3 bg-gradient-to-r from-teal-700 to-cyan-800 text-white rounded-lg font-medium hover:from-teal-800 hover:to-cyan-900 transition-colors"
               >
                 {t('insurance.addInsuranceCardButton')}
               </button>
             </div>
           </div>
+          </form>
         )}
       </div>
 
       {/* Upload Modal */}
       {showUploadModal && selectedCard && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-surface rounded-xl w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">
+        <ModalPanel labelledBy="insurance-dialog-2-title" onClose={() => { if (!uploadingImage) { setShowUploadModal(false); setUploadError(null); } }} overlayClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" className="bg-surface rounded-xl w-full max-w-md p-6">
+            <h3 id="insurance-dialog-2-title" className="text-lg font-semibold mb-4">
               {t('insurance.uploadCardTitle', { side: uploadSide === 'front' ? t('insurance.sideFront') : t('insurance.sideBack') })}
             </h3>
+
+            {(() => {
+              // "View Front" opens this dialog: show what is stored before offering to replace it.
+              const stored = uploadSide === 'front' ? selectedCard.frontImageUrl : selectedCard.backImageUrl;
+              const side = uploadSide === 'front' ? t('insurance.sideFront') : t('insurance.sideBack');
+              return stored ? (
+                <figure className="mb-4">
+                  <img src={stored} alt={t('insurance.storedCardPhoto', { side })} className="w-full rounded-lg border border-border" />
+                  <figcaption className="mt-2 text-sm text-content-muted">{t('insurance.replaceCardPhoto')}</figcaption>
+                </figure>
+              ) : null;
+            })()}
 
             <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-4">
               {uploadingImage ? (
@@ -975,8 +1015,7 @@ const InsurancePage: React.FC = () => {
             >
               {t('insurance.cancelButton')}
             </button>
-          </div>
-        </div>
+          </ModalPanel>
       )}
     </div>
   );

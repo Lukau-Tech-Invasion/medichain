@@ -46,6 +46,20 @@ describe('Toast Component', () => {
     expect(screen.getByText('Test content')).toBeInTheDocument();
   });
 
+  it('clears an error once the person changes a field to fix it', () => {
+    render(
+      <TestWrapper>
+        <ToastTestComponent />
+        <label>Route<input /></label>
+      </TestWrapper>
+    );
+
+    fireEvent.click(screen.getByText('Show Error'));
+    expect(screen.getByText('Error message')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Route'), { target: { value: 'PO' } });
+    expect(screen.queryByText('Error message')).not.toBeInTheDocument();
+  });
+
   it('shows success toast when triggered', () => {
     render(
       <TestWrapper>
@@ -153,10 +167,25 @@ describe('Toast Component', () => {
     );
 
     fireEvent.click(screen.getByText('Show Success'));
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
 
-    const toast = screen.getByRole('alert');
-    expect(toast).toBeInTheDocument();
-    expect(toast).toHaveAttribute('aria-live', 'polite');
+    fireEvent.click(screen.getByText('Show Error'));
+    expect(screen.getByRole('alert')).toHaveAttribute('aria-live', 'assertive');
+  });
+
+  it('keeps an error until it is dismissed', () => {
+    render(
+      <TestWrapper>
+        <ToastTestComponent />
+      </TestWrapper>
+    );
+
+    fireEvent.click(screen.getByText('Show Error'));
+    act(() => {
+      vi.advanceTimersByTime(60000);
+    });
+
+    expect(screen.getByText('Error message')).toBeInTheDocument();
   });
 });
 

@@ -6,12 +6,12 @@
  * Screens used to reach into `useAuthStore` and re-derive whatever identity
  * they needed, so anything a screen failed to derive became a form field for
  * the clinician to fill in. The appointment scheduler asking a signed-in doctor
- * to type their own 48-character SS58 address into a "Provider ID" box was the
+ * to type their own account id into a "Provider ID" box was the
  * visible symptom; the cause was the absence of this module
  * (`docs/WORKFLOW_AUDIT.md`, RC-1).
  *
  * The rule this hook exists to enforce: **if the session knows it, never ask
- * for it.** Any new screen needing the current user's id, wallet, role,
+ * for it.** Any new screen needing the current user's id, role,
  * department, specialty or licence reads it here.
  *
  * This is a convenience and correctness layer for the UI only. It carries no
@@ -20,7 +20,6 @@
  */
 
 import { useMemo } from 'react';
-import { shortenAddress } from '@medichain/shared';
 import { useAuthStore, type Role, type User } from '../store/authStore';
 
 export interface CurrentProvider {
@@ -33,13 +32,11 @@ export interface CurrentProvider {
    */
   isHydrated: boolean;
 
-  /** Wallet address; also the provider id the API keys records by. */
+  /** The `user_id` (UUID); also the provider id the API keys records by. */
   providerId: string;
-  /** Same value, named for screens that mean it as a wallet rather than an id. */
-  walletAddress: string;
-  /** `5Grw...utQY` — the only form that belongs in ordinary clinical UI. */
-  shortWallet: string;
-  /** Human name to show. Never an address. */
+  /** Same value, named for screens that mean it as a user id. */
+  userId: string;
+  /** Human name to show. Never a raw id. */
   displayName: string;
   role: Role | null;
   department?: string;
@@ -91,14 +88,13 @@ export function useCurrentProvider(): CurrentProvider {
   return useMemo(() => {
     const role = user?.role ?? null;
     const permissions = user?.permissions ?? fallbackPermissions(role);
-    const walletAddress = user?.walletAddress ?? '';
+    const userId = user?.userId ?? '';
 
     return {
       isAuthenticated,
       isHydrated,
-      providerId: user?.userId ?? walletAddress,
-      walletAddress,
-      shortWallet: walletAddress ? shortenAddress(walletAddress) : '',
+      providerId: user?.userId ?? userId,
+      userId,
       displayName: user?.username ?? '',
       role,
       department: user?.department,

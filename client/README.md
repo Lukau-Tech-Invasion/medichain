@@ -9,7 +9,7 @@ Quick dev:
  - Start patient app: `cd client/patient-app && npm run dev` (port 5174)
 
 Shared API client:
-- `client/shared/src/api/endpoints.ts` and `client/shared/src/api/client.ts` provide canonical API wrappers. Prefer these wrappers over ad-hoc `fetch` calls.
+- `client/shared/src/api/endpoints/` (one module per domain) and `client/shared/src/api/client.ts` provide canonical API wrappers. Prefer these wrappers over ad-hoc `fetch` calls.
 
 Notes:
 - Many pages still include direct `/api/` callsites — see `docs/frontend-backend-mapping.csv` and `docs/frontend-backend-crossref.csv` for locations.

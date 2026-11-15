@@ -1,36 +1,37 @@
 #!/usr/bin/env python3
 """Fail the build when a sign-in page can hand out an identity nobody proved.
 
-MediChain authenticates by proving control of a key: challenge, signature, JWT.
-A "quick login" list short-circuits that by naming an identity and asking the
-app to become it. Whether that works is beside the point — a control offering
-it is either a bypass or a lie, and the patient app had five of them.
+MediChain authenticates one way: a login id and a password proof, sent to
+`POST /api/auth/login`, answered with a bearer token (a patient's first sign-in
+goes through `POST /api/auth/credentials/redeem` with an activation code). A
+"quick login" list short-circuits that by naming an identity and asking the app
+to become it. Whether that works is beside the point: a control offering it is
+either a bypass or a lie, and the patient app once had five of them.
 
-Those five could not work: each called `login(walletAddress)` with no signer,
-against an SS58 address present in no wallet extension and in no database. The
-label under them said "Click any patient to instantly login with their wallet".
-The clinician portal had already been through this (commits 2e389f7, 91b171f)
-and answered it by removing patient accounts from its sign-in and rebuilding
-quick login on the real credential path behind a demo-gated resolver.
+The demo-account buttons that remain are not that. They ask the server which
+demo accounts exist (`GET /api/auth/demo-credentials`, which answers 403 unless
+both dev mode and demo mode are on) and then sign in with the ORDINARY login
+call, so the server still checks a real credential. This gate enforces the
+properties that keep it that way.
 
-This gate enforces two properties.
+1. **No hardcoded identity or credential on a sign-in path.** An array of
+   accounts (a `*_PATIENTS` / `*_ACCOUNTS` / `*_USERS` constant), a base58
+   account-shaped string, or a password literal inside an auth page or store is
+   a quick-login list by another name. There is no allow-list.
 
-1. **No hardcoded identity list on a sign-in path.** An array of SS58 addresses
-   or a `*_PATIENTS` / `*_ACCOUNTS` / `*_USERS` constant inside an auth page or
-   store is a quick-login list by another name.
+2. **No password-free sign-in.** No production client module may call a
+   demo-login endpoint: that is a way to become an identity without a password.
 
-2. **The development gate fails closed.** `IS_DEVELOPMENT` decides whether the
-   demo-identity paths exist at all, so it must not default to true when
-   `import.meta.env` is absent — a non-Vite bundler, SSR, a test harness or an
+3. **The development gate fails closed.** `IS_DEVELOPMENT` decides whether the
+   demo-account paths exist at all, so it must not default to true when
+   `import.meta.env` is absent: a non-Vite bundler, SSR, a test harness or an
    embedded webview would otherwise silently be a development build. Same for
    `IS_PRODUCTION`, which must default to true.
 
-What this gate deliberately does NOT forbid: `loginWithDemoWallet`, which
-generates a real keypair and runs the genuine challenge/signature flow. That is
-a test fixture, not a bypass, and it is gated on the flag checked above.
+Tests are excluded: a test may name a removed entry point to prove it is gone.
 
 Usage:  python scripts/check-quick-login-identities.py [--list]
-Exit 0 = no ungated quick-login identity path, and the gate fails closed.
+Exit 0 = no ungated quick-login path, and the gate fails closed.
 """
 from __future__ import annotations
 
@@ -46,24 +47,25 @@ CONFIG = CLIENT / "shared" / "src" / "config.ts"
 # storybook fixture, a seeding script) is not a sign-in bypass.
 AUTH_PATH = re.compile(r"(pages/Login|pages/.*Auth|store/authStore|auth/)", re.IGNORECASE)
 
-# An SS58 address: base58, 47-48 chars, conventionally leading '5' on the
-# 42-prefix networks MediChain uses.
-SS58 = re.compile(r"['\"]5[1-9A-HJ-NP-Za-km-z]{46,47}['\"]")
+# An account-shaped string: base58, 47-48 characters, leading '5'. Nothing in
+# the credential model looks like this, so on a sign-in path it is a leftover
+# identity.
+ACCOUNT_SHAPED = re.compile(r"['\"]5[1-9A-HJ-NP-Za-km-z]{46,47}['\"]")
 
 # A named list of identities.
 IDENTITY_LIST = re.compile(
-    r"const\s+[A-Z_]*(PATIENTS|ACCOUNTS|USERS|IDENTITIES|WALLETS)\s*(:[^=]+)?=\s*\[",
+    r"const\s+[A-Z_]*(PATIENTS|ACCOUNTS|USERS|IDENTITIES)\s*(:[^=]+)?=\s*\[",
 )
 
-# Known-safe: the Substrate well-known development keys are published, and the
-# server refuses to boot a non-demo instance holding one in a privileged role
-# (`startup::validate_no_privileged_dev_accounts`). Deriving one is safe
-# *because* production cannot use it.
-ALLOWED_ADDRESSES = {
-    # //Alice
-    "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
-}
+# A password written into the source: `password: 'x'`, `PASSWORD = "x"`. The
+# `\b` and the required `:`/`=` keep `type="password"`, `placeholder=...` and
+# translation keys out.
+PASSWORD_LITERAL = re.compile(
+    r"""\b[A-Za-z_]*[Pp]assword\s*[:=]\s*(['"`])[^'"`\s${}]{6,}\1"""
+)
 
+# An entry point that lets a caller become an identity without a password.
+REMOVED_ENTRY_POINTS = re.compile(r"demo-login")
 
 # Only the workspace sources. Walking `client/` wholesale trips over broken
 # symlinks inside node_modules on this host, and a dependency's fixtures are
@@ -88,9 +90,9 @@ def source_files() -> list[pathlib.Path]:
 
 
 def strip_comments(text: str) -> str:
-    """A block comment explaining why the identities were removed is not a list."""
+    """A block comment explaining why an entry point was removed is not a use of it."""
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    text = re.sub(r"//.*", "", text)
+    text = re.sub(r"(?m)(^|[^:])//.*", r"\1", text)
     return text
 
 
@@ -99,23 +101,38 @@ def scan() -> list[str]:
 
     for path in source_files():
         rel = path.relative_to(ROOT).as_posix()
-        if not AUTH_PATH.search(rel):
-            continue
         body = strip_comments(path.read_text(encoding="utf-8", errors="replace"))
 
-        addresses = [a.strip("'\"") for a in SS58.findall(body)]
-        unexpected = [a for a in addresses if a not in ALLOWED_ADDRESSES]
-        if unexpected:
+        for m in REMOVED_ENTRY_POINTS.finditer(body):
             findings.append(
-                f"{rel} hardcodes {len(unexpected)} wallet address(es) on an "
-                f"authentication path, e.g. {unexpected[0][:12]}…. An identity the "
-                f"app can assume without a signature is a sign-in bypass."
+                f"{rel} names `{m.group(0)}`, a password-free sign-in entry point. "
+                f"Signing in is POST /api/auth/login (or a credential "
+                f"redemption); nothing else may authenticate."
+            )
+            break  # one finding per file is enough to act on
+
+        if not AUTH_PATH.search(rel):
+            continue
+
+        accounts = ACCOUNT_SHAPED.findall(body)
+        if accounts:
+            findings.append(
+                f"{rel} hardcodes {len(accounts)} account-shaped string(s) on an "
+                f"authentication path, e.g. {accounts[0].strip(chr(34) + chr(39))[:12]}…. "
+                f"An identity the app can assume without a password is a sign-in bypass."
             )
 
         for m in IDENTITY_LIST.finditer(body):
             findings.append(
                 f"{rel} declares `{m.group(0).strip()}` on an authentication path. "
                 f"A named identity list on a sign-in page is a quick-login control."
+            )
+
+        literal = PASSWORD_LITERAL.search(body)
+        if literal:
+            findings.append(
+                f"{rel} writes a password into source (`{literal.group(0)[:40]}`). Demo "
+                f"passwords come from GET /api/auth/demo-credentials, never from the bundle."
             )
 
     return findings
@@ -134,9 +151,9 @@ def check_gate_fails_closed() -> list[str]:
     if "?? false" not in dev.group(1):
         findings.append(
             f"IS_DEVELOPMENT is `{dev.group(1).strip()}` — it must default to false. "
-            f"It gates DEMO_WALLET_GENERATION and NFC_SIMULATION, so any context "
+            f"It gates the demo-account and NFC-simulation paths, so any context "
             f"without `import.meta.env` would otherwise become a development build "
-            f"with the demo-identity paths switched on."
+            f"with them switched on."
         )
     if "?? true" not in prod.group(1):
         findings.append(
@@ -162,14 +179,15 @@ def main() -> int:
         for f in findings:
             print(f"  * {f}")
         print(
-            "\nMediChain authenticates by proving control of a key. A control that "
-            "\nnames an identity instead is a bypass, whether or not it currently works."
+            "\nMediChain authenticates with a password proof. A control that names an\n"
+            "identity instead is a bypass, whether or not it currently works."
         )
         return 1
 
     print(
         "Quick-login identity gate OK "
-        "(no hardcoded identity on a sign-in path; the development gate fails closed)."
+        "(no hardcoded identity or password on a sign-in path; no removed entry point; "
+        "the development gate fails closed)."
     )
     return 0
 

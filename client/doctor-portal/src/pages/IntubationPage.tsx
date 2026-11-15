@@ -1,33 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
-import PatientSelect from '../components/PatientSelect';
+import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
 import {
-  getPatients,
   createIntubation,
   fromStoredRecord,
   getApiClient,
   rowsOfResponse,
   useTranslation,
-  formatTimestamp,
-} from '@medichain/shared';
+  formatTimestamp, ChoiceChips, useScoringCatalog, airwayDifficultyPreview, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import type { PatientProfile } from '@medichain/shared';
 
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
 type IntubationMethod = 'oral' | 'nasal' | 'surgical' | 'video';
 type BladeType = 'mac' | 'miller' | 'video' | 'glidescope';
 
+/** What was examined; each field is empty until it was (rule 9). The score is the server's. */
 interface AirwayAssessment {
-  mallampati: MallampatiClass;
-  mouthOpening: number;
-  thyromental: number;
-  neckMobility: 'full' | 'limited' | 'immobile';
-  dentition: 'normal' | 'loose' | 'dentures' | 'edentulous';
+  mallampati: MallampatiClass | '';
+  mouthOpening: number | null;
+  thyromental: number | null;
+  neckMobility: 'full' | 'limited' | 'immobile' | '';
+  dentition: 'normal' | 'loose' | 'dentures' | 'edentulous' | '';
   beardPresent: boolean;
-  obeseNeck: boolean;
-  predictedDifficult: boolean;
-  lemonScore: number;
+  obeseNeck: boolean | null;
 }
 
 interface IntubationRecord {
@@ -39,19 +35,41 @@ interface IntubationRecord {
   indication: string;
   method: IntubationMethod;
   bladeType: BladeType;
-  bladeSize: number;
-  tubeSize: number;
-  tubeDepth: number;
-  cuffPressure: number;
-  attempts: number;
+  bladeSize: number | null;
+  tubeSize: number | null;
+  tubeDepth: number | null;
+  cuffPressure: number | null;
+  attempts: number | null;
   successful: boolean;
   airwayAssessment: AirwayAssessment;
-  preOxygenation: boolean;
-  rsiUsed: boolean;
+  preOxygenation?: boolean;
+  rsiUsed?: boolean;
   medications: { name: string; dose: string; time: string }[];
   complications: string[];
   verification: { etco2: boolean; chestRise: boolean; breathSounds: boolean; xray: boolean };
   notes: string;
+}
+
+/**
+ * A fresh procedure: nothing chosen (rule 9). It used to open on an oral
+ * intubation with a Mac 3 blade, a 7.5 tube at 22 cm, cuff 25, first pass,
+ * pre-oxygenated under RSI -- and filed all of that for whatever was done.
+ */
+function initialProcedureFields() {
+  return {
+    indication: '', method: '' as IntubationMethod | '', bladeType: '' as BladeType | '',
+    bladeSize: null as number | null, tubeSize: null as number | null, tubeDepth: null as number | null,
+    cuffPressure: null as number | null, attempts: null as number | null,
+    preOxygenation: false, rsiUsed: false, notes: '',
+  };
+}
+
+/** Return a fresh airway draft; shared only by initial render and successful reset. */
+function initialAirwayFields(): AirwayAssessment {
+  return {
+    mallampati: '', mouthOpening: null, thyromental: null, neckMobility: '',
+    dentition: '', beardPresent: false, obeseNeck: null,
+  };
 }
 
 const intubationIndications = [
@@ -106,7 +124,6 @@ const IntubationPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError } = useToastActions();
-  const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<IntubationRecord[]>([]);
 
   /**
@@ -141,77 +158,61 @@ const IntubationPage: React.FC = () => {
   }, [loadIntubationRecords]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [selectedPatient, setSelectedPatient] = useState('');
-
-  const [formData, setFormData] = useState({
-    indication: '',
-    method: 'oral' as IntubationMethod,
-    bladeType: 'mac' as BladeType,
-    bladeSize: 3,
-    tubeSize: 7.5,
-    tubeDepth: 22,
-    cuffPressure: 25,
-    attempts: 1,
-    preOxygenation: true,
-    rsiUsed: true,
-    notes: ''
-  });
-
-  const [airway, setAirway] = useState<AirwayAssessment>({
-    mallampati: 'I',
-    mouthOpening: 4,
-    thyromental: 6,
-    neckMobility: 'full',
-    dentition: 'normal',
-    beardPresent: false,
-    obeseNeck: false,
-    predictedDifficult: false,
-    lemonScore: 0
-  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submissionPending = useRef(false);
+  const [formData, setFormData] = useState(initialProcedureFields);
+  const [airway, setAirway] = useState<AirwayAssessment>(initialAirwayFields);
 
   const [medications, setMedications] = useState<{ name: string; dose: string; time: string }[]>([]);
-  const [selectedComplications, setSelectedComplications] = useState<string[]>(['None']);
+  // Nothing ticked until someone says so; 'None' is a finding, sent as one.
+  const [selectedComplications, setSelectedComplications] = useState<string[]>([]);
   const [verification, setVerification] = useState({
     etco2: false, chestRise: false, breathSounds: false, xray: false
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const intubationDraft = useDraftFields('intubation', selectedPatient || undefined, t('docIntubation.formLabel'), {
+    formData: [formData, setFormData],
+    airway: [airway, setAirway],
+    medications: [medications, setMedications],
+    selectedComplications: [selectedComplications, setSelectedComplications],
+    verification: [verification, setVerification],
+  });
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const pts = await getPatients();
-        setPatients(pts);
-      } catch (err) {
-        console.error('Failed to load patients:', err);
-      }
-    };
-    loadData();
-  }, []);
 
-  // Calculate LEMON score
-  useEffect(() => {
-    let score = 0;
-    if (airway.mallampati === 'III') score += 1;
-    if (airway.mallampati === 'IV') score += 2;
-    if (airway.mouthOpening < 3) score += 1;
-    if (airway.thyromental < 6) score += 1;
-    if (airway.neckMobility !== 'full') score += 1;
-    if (airway.obeseNeck) score += 1;
-    setAirway(prev => ({
-      ...prev,
-      lemonScore: score,
-      predictedDifficult: score >= 3
-    }));
-  }, [airway.mallampati, airway.mouthOpening, airway.thyromental, airway.neckMobility, airway.obeseNeck]);
+  // The airway score is the server's (clinical_scoring::airway_difficulty);
+  // this is only its live preview, from the catalog's cut-points (rule 8).
+  const { catalog } = useScoringCatalog();
+  const airwayScore = airwayDifficultyPreview(airway, catalog);
 
   const addMedication = (name: string, dose: string) => {
-    setMedications([...medications, { name, dose, time: new Date().toLocaleTimeString() }]);
+    setMedications(current => [...current, { name, dose, time: new Date().toLocaleTimeString() }]);
   };
 
+  /** Clear completed patient-specific inputs before another procedure is started. */
+  const resetCompletedDraft = () => {
+    setSelectedPatient('');
+    setFormData(initialProcedureFields());
+    setAirway(initialAirwayFields());
+    setMedications([]);
+    setSelectedComplications([]);
+    setVerification({ etco2: false, chestRise: false, breathSounds: false, xray: false });
+    setActiveTab('history');
+  };
+
+  const { entry: selectedPatientEntry } = useDirectoryPatient(selectedPatient);
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+    if (submissionPending.current) return;
     if (!selectedPatient || !formData.indication) {
       showError(t('docIntubation.errorSelectPatientIndication'));
       return;
     }
-    const patient = patients.find(p => p.patient_id === selectedPatient);
+    submissionPending.current = true;
+    setIsSubmitting(true);
+    // Resolved on the server when the patient was chosen (the first page of the
+    // directory held nobody past the fiftieth). Read synchronously: awaiting here,
+    // before the pending-save guard is set, let a double press submit twice.
+    const patient = selectedPatientEntry;
     const newRecord: IntubationRecord = {
       id: `INT-${Date.now()}`,
       patientId: selectedPatient,
@@ -219,8 +220,8 @@ const IntubationPage: React.FC = () => {
       performedBy: user?.userId || 'Unknown',
       performedAt: new Date().toISOString(),
       indication: formData.indication,
-      method: formData.method,
-      bladeType: formData.bladeType,
+      method: formData.method as IntubationMethod,
+      bladeType: formData.bladeType as BladeType,
       bladeSize: formData.bladeSize,
       tubeSize: formData.tubeSize,
       tubeDepth: formData.tubeDepth,
@@ -228,28 +229,29 @@ const IntubationPage: React.FC = () => {
       attempts: formData.attempts,
       successful: verification.etco2 && verification.chestRise,
       airwayAssessment: airway,
-      preOxygenation: formData.preOxygenation,
-      rsiUsed: formData.rsiUsed,
+      // A tick is a record; an unticked box is not "not done".
+      preOxygenation: formData.preOxygenation || undefined,
+      rsiUsed: formData.rsiUsed || undefined,
       medications,
-      complications: selectedComplications.filter(c => c !== 'None'),
+      complications: selectedComplications,
       verification,
       notes: formData.notes
     };
     try {
       await createIntubation(newRecord);
+      await loadIntubationRecords();
+      resetCompletedDraft();
+      intubationDraft.markSaved();
+      showSuccess(t('docIntubation.successDocumented'));
     } catch (err) {
       console.error('Failed to save intubation record:', err);
       // Stop here. Falling through added the record to the local list
       // and toasted success for a write that never happened.
       showError(t('common.saveFailed'));
-      return;
+    } finally {
+      submissionPending.current = false;
+      setIsSubmitting(false);
     }
-    // Re-read through the endpoint rather than pushing the local object.
-    // A row assembled from what this screen just typed proves nothing about
-    // what was stored -- and it vanished on reload, because nothing here
-    // ever read the record back.
-    await loadIntubationRecords();
-    showSuccess(t('docIntubation.successDocumented'));
   };
 
   return (
@@ -284,9 +286,10 @@ const IntubationPage: React.FC = () => {
 
       <div className="p-6">
         {activeTab === 'new' ? (
-          <div className="space-y-6">
+          <form onSubmit={(event) => { event.preventDefault(); void handleSubmit(); }} noValidate>
+          <fieldset disabled={isSubmitting} className="space-y-6">
             {/* Patient Selection */}
-            <div className="bg-surface rounded-lg shadow p-4">
+            <div data-patient-picker-card className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>
@@ -301,7 +304,7 @@ const IntubationPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Stethoscope className="w-5 h-5" /> {t('docIntubation.airwayAssessmentHeading')}
-                {airway.predictedDifficult && (
+                {airwayScore?.predicted_difficult === true && (
                   <span className="ml-2 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs rounded-full flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> {t('docIntubation.difficultAirwayBadge')}
                   </span>
@@ -313,22 +316,23 @@ const IntubationPage: React.FC = () => {
                   <select
                     id="intubation-mallampati"
                     value={airway.mallampati}
-                    onChange={e => setAirway({ ...airway, mallampati: e.target.value as MallampatiClass })}
+                    onChange={e => setAirway({ ...airway, mallampati: e.target.value as MallampatiClass | '' })}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docIntubation.notExamined')}</option>
                     {(['I', 'II', 'III', 'IV'] as MallampatiClass[]).map(c => (
                       <option key={c} value={c}>{t('docIntubation.classOption', { c })}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-content-muted mt-1">{t(`docIntubation.mallampati_${airway.mallampati}`)}</p>
+                  {airway.mallampati && <p className="text-xs text-content-muted mt-1">{t(`docIntubation.mallampati_${airway.mallampati}`)}</p>}
                 </div>
                 <div>
                   <label htmlFor="intubation-mouth-opening" className="text-sm text-content-muted">{t('docIntubation.mouthOpeningLabel')}</label>
                   <input
                     id="intubation-mouth-opening"
                     type="number"
-                    value={airway.mouthOpening}
-                    onChange={e => setAirway({ ...airway, mouthOpening: Number(e.target.value) })}
+                    value={airway.mouthOpening ?? ''}
+                    onChange={e => setAirway({ ...airway, mouthOpening: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                     step="0.5"
                   />
@@ -339,39 +343,39 @@ const IntubationPage: React.FC = () => {
                   <input
                     id="intubation-thyromental"
                     type="number"
-                    value={airway.thyromental}
-                    onChange={e => setAirway({ ...airway, thyromental: Number(e.target.value) })}
+                    value={airway.thyromental ?? ''}
+                    onChange={e => setAirway({ ...airway, thyromental: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                     step="0.5"
                   />
                   <p className="text-xs text-content-muted">{t('docIntubation.thyromentalHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-neck-mobility" className="text-sm text-content-muted">{t('docIntubation.neckMobilityLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intubation-neck-mobility"
-                    value={airway.neckMobility}
-                    onChange={e => setAirway({ ...airway, neckMobility: e.target.value as 'full' | 'limited' | 'immobile' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="full">{t('docIntubation.neckMobility_full')}</option>
-                    <option value="limited">{t('docIntubation.neckMobility_limited')}</option>
-                    <option value="immobile">{t('docIntubation.neckMobility_immobile')}</option>
-                  </select>
+                    label={t('docIntubation.neckMobilityLabel')}
+                    value={airway.neckMobility || undefined}
+                    onChange={(next) => setAirway({ ...airway, neckMobility: (next ?? '') as AirwayAssessment['neckMobility'] })}
+                    options={[
+                      { value: 'full', label: t('docIntubation.neckMobility_full') },
+                      { value: 'limited', label: t('docIntubation.neckMobility_limited') },
+                      { value: 'immobile', label: t('docIntubation.neckMobility_immobile') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="intubation-dentition" className="text-sm text-content-muted">{t('docIntubation.dentitionLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intubation-dentition"
-                    value={airway.dentition}
-                    onChange={e => setAirway({ ...airway, dentition: e.target.value as 'normal' | 'loose' | 'dentures' | 'edentulous' })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="normal">{t('docIntubation.dentition_normal')}</option>
-                    <option value="loose">{t('docIntubation.dentition_loose')}</option>
-                    <option value="dentures">{t('docIntubation.dentition_dentures')}</option>
-                    <option value="edentulous">{t('docIntubation.dentition_edentulous')}</option>
-                  </select>
+                    label={t('docIntubation.dentitionLabel')}
+                    value={airway.dentition || undefined}
+                    onChange={(next) => setAirway({ ...airway, dentition: (next ?? '') as AirwayAssessment['dentition'] })}
+                    options={[
+                      { value: 'normal', label: t('docIntubation.dentition_normal') },
+                      { value: 'loose', label: t('docIntubation.dentition_loose') },
+                      { value: 'dentures', label: t('docIntubation.dentition_dentures') },
+                      { value: 'edentulous', label: t('docIntubation.dentition_edentulous') },
+                    ]}
+                  />
                 </div>
                 <div className="flex items-center gap-4 col-span-2">
                   <label htmlFor="intub-beard-present" className="flex items-center gap-2">
@@ -383,21 +387,28 @@ const IntubationPage: React.FC = () => {
                     />
                     <span className="text-sm">{t('docIntubation.beardPresentCheckbox')}</span>
                   </label>
-                  <label htmlFor="intub-obese-neck" className="flex items-center gap-2">
-                    <input
-                      id="intub-obese-neck"
-                      type="checkbox"
-                      checked={airway.obeseNeck}
-                      onChange={e => setAirway({ ...airway, obeseNeck: e.target.checked })}
-                    />
-                    <span className="text-sm">{t('docIntubation.obeseNeckCheckbox')}</span>
-                  </label>
+                  {/* Scored, so it needs a yes and a no: an unticked box cannot say "not examined". */}
+                  <ChoiceChips
+                    id="intub-obese-neck"
+                    label={t('docIntubation.obeseNeckCheckbox')}
+                    value={airway.obeseNeck === null ? undefined : airway.obeseNeck ? 'yes' : 'no'}
+                    onChange={(next) => setAirway({ ...airway, obeseNeck: next === undefined ? null : next === 'yes' })}
+                    options={[
+                      { value: 'yes', label: t('common.yes') },
+                      { value: 'no', label: t('common.no') },
+                    ]}
+                  />
                 </div>
                 <div className="bg-surface-sunken p-3 rounded">
                   <span className="text-sm font-medium">{t('docIntubation.lemonScoreLabel')}</span>
-                  <span className={`font-bold ${airway.lemonScore >= 3 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
-                    {airway.lemonScore}{t('docIntubation.lemonScoreSuffix')}
-                  </span>
+                  {airwayScore?.score == null ? (
+                    <span className="font-bold text-content-secondary">{t('docIntubation.notExamined')}</span>
+                  ) : (
+                    <span className={`font-bold ${airwayScore.predicted_difficult ? 'text-critical-subtle-fg' : 'text-content'}`}>
+                      {airwayScore.score}{t('docIntubation.lemonScoreSuffix')}
+                      {' '}{t('docIntubation.criteriaExamined', { n: airwayScore.criteria_measured, of: catalog?.airway?.criteria ?? '' })}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -421,41 +432,42 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-method" className="text-sm text-content-muted">{t('docIntubation.methodLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intub-method"
-                    value={formData.method}
-                    onChange={e => setFormData({ ...formData, method: e.target.value as IntubationMethod })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="oral">{t('docIntubation.method_oral')}</option>
-                    <option value="nasal">{t('docIntubation.method_nasal')}</option>
-                    <option value="video">{t('docIntubation.method_video')}</option>
-                    <option value="surgical">{t('docIntubation.method_surgical')}</option>
-                  </select>
+                    label={t('docIntubation.methodLabel')}
+                    value={formData.method || undefined}
+                    onChange={(next) => setFormData({ ...formData, method: (next ?? '') as IntubationMethod | '' })}
+                    options={[
+                      { value: 'oral', label: t('docIntubation.method_oral') },
+                      { value: 'nasal', label: t('docIntubation.method_nasal') },
+                      { value: 'video', label: t('docIntubation.method_video') },
+                      { value: 'surgical', label: t('docIntubation.method_surgical') },
+                    ]}
+                  />
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-type" className="text-sm text-content-muted">{t('docIntubation.bladeTypeLabel')}</label>
-                  <select
+                  <ChoiceChips
                     id="intub-blade-type"
-                    value={formData.bladeType}
-                    onChange={e => setFormData({ ...formData, bladeType: e.target.value as BladeType })}
-                    className="w-full border rounded p-2"
-                  >
-                    <option value="mac">{t('docIntubation.bladeType_mac')}</option>
-                    <option value="miller">{t('docIntubation.bladeType_miller')}</option>
-                    <option value="video">{t('docIntubation.bladeType_video')}</option>
-                    <option value="glidescope">{t('docIntubation.bladeType_glidescope')}</option>
-                  </select>
+                    label={t('docIntubation.bladeTypeLabel')}
+                    value={formData.bladeType || undefined}
+                    onChange={(next) => setFormData({ ...formData, bladeType: (next ?? '') as BladeType | '' })}
+                    options={[
+                      { value: 'mac', label: t('docIntubation.bladeType_mac') },
+                      { value: 'miller', label: t('docIntubation.bladeType_miller') },
+                      { value: 'video', label: t('docIntubation.bladeType_video') },
+                      { value: 'glidescope', label: t('docIntubation.bladeType_glidescope') },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label htmlFor="intub-blade-size" className="text-sm text-content-muted">{t('docIntubation.bladeSizeLabel')}</label>
                   <select
                     id="intub-blade-size"
-                    value={formData.bladeSize}
-                    onChange={e => setFormData({ ...formData, bladeSize: Number(e.target.value) })}
+                    value={formData.bladeSize ?? ''}
+                    onChange={e => setFormData({ ...formData, bladeSize: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docIntubation.selectEllipsis')}</option>
                     {[0, 1, 2, 3, 4].map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
@@ -465,10 +477,11 @@ const IntubationPage: React.FC = () => {
                   <label htmlFor="intub-ett-size" className="text-sm text-content-muted">{t('docIntubation.ettSizeLabel')}</label>
                   <select
                     id="intub-ett-size"
-                    value={formData.tubeSize}
-                    onChange={e => setFormData({ ...formData, tubeSize: Number(e.target.value) })}
+                    value={formData.tubeSize ?? ''}
+                    onChange={e => setFormData({ ...formData, tubeSize: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docIntubation.selectEllipsis')}</option>
                     {[6, 6.5, 7, 7.5, 8, 8.5, 9].map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
@@ -479,8 +492,8 @@ const IntubationPage: React.FC = () => {
                   <input
                     id="intub-depth-at-lip"
                     type="number"
-                    value={formData.tubeDepth}
-                    onChange={e => setFormData({ ...formData, tubeDepth: Number(e.target.value) })}
+                    value={formData.tubeDepth ?? ''}
+                    onChange={e => setFormData({ ...formData, tubeDepth: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -489,8 +502,8 @@ const IntubationPage: React.FC = () => {
                   <input
                     id="intub-cuff-pressure"
                     type="number"
-                    value={formData.cuffPressure}
-                    onChange={e => setFormData({ ...formData, cuffPressure: Number(e.target.value) })}
+                    value={formData.cuffPressure ?? ''}
+                    onChange={e => setFormData({ ...formData, cuffPressure: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                   />
                 </div>
@@ -498,10 +511,11 @@ const IntubationPage: React.FC = () => {
                   <label htmlFor="intub-attempts" className="text-sm text-content-muted">{t('docIntubation.attemptsLabel')}</label>
                   <select
                     id="intub-attempts"
-                    value={formData.attempts}
-                    onChange={e => setFormData({ ...formData, attempts: Number(e.target.value) })}
+                    value={formData.attempts ?? ''}
+                    onChange={e => setFormData({ ...formData, attempts: e.target.value === '' ? null : Number(e.target.value) })}
                     className="w-full border rounded p-2"
                   >
+                    <option value="">{t('docIntubation.selectEllipsis')}</option>
                     {[1, 2, 3, 4, 5].map(a => (
                       <option key={a} value={a}>{a}</option>
                     ))}
@@ -531,15 +545,15 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* RSI Medications */}
-            {formData.rsiUsed && (
+            {(formData.rsiUsed || medications.length > 0) && (
               <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-semibold mb-3">{t('docIntubation.rsiMedicationsHeading')}</h2>
-                <div className="flex flex-wrap gap-2 mb-4">
+                {formData.rsiUsed && <div className="flex flex-wrap gap-2 mb-4">
                   {rsiMedications.map(med => (
                     <div key={med.name} className="flex items-center gap-1">
                       <span className="text-sm font-medium">{med.name}:</span>
                       {med.doses.map(dose => (
-                        <button
+                        <button type="button"
                           key={dose}
                           onClick={() => addMedication(med.name, dose)}
                           className="px-2 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-cyan-200"
@@ -549,7 +563,7 @@ const IntubationPage: React.FC = () => {
                       ))}
                     </div>
                   ))}
-                </div>
+                </div>}
                 {medications.length > 0 && (
                   <div className="border rounded p-2">
                     <h3 className="text-sm font-medium mb-2">{t('docIntubation.medicationsGivenLabel')}</h3>
@@ -559,6 +573,12 @@ const IntubationPage: React.FC = () => {
                         <span>{med.time}</span>
                         <span className="font-medium">{med.name}</span>
                         <span>{med.dose}</span>
+                        <button type="button"
+                          aria-label={t('docIntubation.removeMedication', { name: med.name, dose: med.dose })}
+                          onClick={() => setMedications(current => current.filter((_, index) => index !== i))}
+                          className="ml-auto rounded px-2 py-1 text-critical hover:bg-critical-subtle focus-visible:outline focus-visible:outline-2">
+                          {t('common.remove')}
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -617,7 +637,7 @@ const IntubationPage: React.FC = () => {
             {/* Notes */}
             <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docIntubation.notesHeading')}</h2>
-              <textarea
+              <textarea aria-label={t('docIntubation.notesPh')}
                 value={formData.notes}
                 onChange={e => setFormData({ ...formData, notes: e.target.value })}
                 className="w-full border rounded p-2 h-24"
@@ -626,13 +646,15 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Submit */}
-            <button
-              onClick={handleSubmit}
-              className="w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
+            <button type="submit"
+              aria-disabled={isSubmitting || undefined}
+              aria-busy={isSubmitting}
+              className="aria-disabled:cursor-wait w-full py-3 bg-cyan-700 text-white rounded-lg font-semibold hover:bg-cyan-800 flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>
-          </div>
+          </fieldset>
+          </form>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (

@@ -1,15 +1,3 @@
----
-name: debugging
-description: >
-  Systematic debugging across MediChain's stack — Rust backend, Solana program, TypeScript
-  frontend, NFC reader. Covers reproducing the bug, narrowing the search, reading Rust
-  backtraces, decoding Anchor errors and program logs, debugging failed transactions,
-  React render issues, and the "never guess, always confirm" rule. Activate the moment the
-  user says "it's broken", "I'm getting an error", "not working", "why is this failing",
-  "AccountNotFound", "InstructionError", "Custom program error", "transaction failed",
-  "InvalidProgramId", "ConstraintHasOne", "blockhash not found", "panicked", or pastes any
-  error message or stack trace.
----
 
 # Debugging for MediChain
 
@@ -86,63 +74,6 @@ async tasks.
 
 ---
 
-## Anchor / Solana — Decoding Errors
-
-A failed transaction returns logs. Read them.
-
-```bash
-solana logs <PROGRAM_ID>            # tail logs from a deployed program
-```
-
-```
-Program Med1ChainProgrAm1111... invoke [1]
-Program log: Instruction: GrantConsent
-Program log: AnchorError caused by account: doctor_account.
-  Error Code: ConstraintSeeds. Error Number: 2006.
-  Error Message: A seeds constraint was violated.
-Program log: Left:
-Program log: <pubkey-A>
-Program log: Right:
-Program log: <pubkey-B>
-Program failed to complete: Could not write to account
-Program Med1ChainProgrAm1111... failed: custom program error: 0x7d6
-```
-
-Decoded:
-- The constraint that failed: `seeds` on `doctor_account`
-- The expected PDA (Right) ≠ what the client sent (Left)
-- Likely cause: client computed PDA with wrong seeds, or wrong program ID
-
-Anchor error number ranges:
-- `0x1770` (6000) and up — your program's custom errors
-- `0x7d0` (2000) and up — Anchor's built-in constraint errors
-- `0x0` to `0x6FF` — system program / SPL errors
-
-Map your custom error numbers in the IDL to names so the client sees `DoctorNotVerified`
-not `0x1772`.
-
----
-
-## Anchor — Local Validator + Logs
-
-```bash
-solana-test-validator --reset            # fresh local cluster
-solana logs &                            # tail in another shell
-anchor deploy
-anchor test --skip-local-validator       # use the running one
-```
-
-Now `msg!()` calls in your program show up immediately. Sprinkle them around the
-suspect instruction:
-```rust
-msg!("doctor_account.is_verified = {}", ctx.accounts.doctor_account.is_verified);
-msg!("expected scope = {}, got = {}", patient.required_scope, requested_scope);
-```
-
-Remove before mainnet — `msg!` costs compute units.
-
----
-
 ## Frontend — Failed Transactions
 
 When `program.methods.x().rpc()` throws, the error usually contains:
@@ -158,19 +89,6 @@ Logs: [
 ```
 
 Catch it and inspect:
-```ts
-try {
-  await program.methods.grantConsent(...).rpc();
-} catch (e) {
-  if (e instanceof anchor.AnchorError) {
-    console.error("Anchor error:", e.error.errorCode.code, e.error.errorMessage);
-  }
-  if ("logs" in (e as any)) {
-    console.error("Program logs:", (e as any).logs);
-  }
-  throw e;
-}
-```
 
 The logs array is gold. If you don't see logs, the transaction never reached the
 program — it failed at validation (account ownership, signer missing, insufficient
@@ -208,12 +126,6 @@ mitmproxy -p 8888                       # then point browser/app at proxy
 # What's actually being sent on the wire?
 curl -v https://api.medichain.app/v1/patients/me \
   -H "Authorization: Bearer $JWT"
-```
-
-For Solana RPC:
-```bash
-# What does the cluster see?
-solana confirm -v <signature>           # full transaction details + logs
 ```
 
 ---

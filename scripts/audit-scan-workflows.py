@@ -65,9 +65,9 @@ def main():
 
             # 3. Manually typed internal identifiers.
             for m in re.finditer(
-                r'<input[^>]*?\bid=["\'](?P<id>[^"\']*(?:provider|patient|user|wallet|doctor|'
-                r'staff|clinician|tenant|hospital|facility|org)[^"\']*_?id[^"\']*|[^"\']*wallet'
-                r'[^"\']*)["\'][^>]*>', text, re.I | re.S):
+                r'<input[^>]*?\bid=["\'](?P<id>[^"\']*(?:provider|patient|user|doctor|'
+                r'staff|clinician|tenant|hospital|facility|org)[^"\']*_?id[^"\']*)'
+                r'["\'][^>]*>', text, re.I | re.S):
                 seg = m.group(0)
                 if 'type="hidden"' in seg:
                     continue

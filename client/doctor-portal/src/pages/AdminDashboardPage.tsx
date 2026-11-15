@@ -34,7 +34,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import StaffName from '../components/StaffName';
-import { getAdminDashboard, detailedHealthCheck, useTranslation, type ServiceHealth, RestrictedSection } from '@medichain/shared';
+import { AuditSealStatus } from '../components/AuditSealStatus';
+import { getAdminDashboard, detailedHealthCheck, useTranslation, type AuditSealSummary, type ServiceHealth, RestrictedSection } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
   StatCard,
@@ -60,13 +61,13 @@ interface EmergencyEvents {
   total: number;
 }
 
+/** Card counts by stored status, across every patient. */
 interface NFCCards {
   total: number;
-  cards: Array<{
-    card_id: string;
-    patient_id: string;
-    status: string;
-  }>;
+  active: number;
+  suspended: number;
+  revoked: number;
+  expired: number;
 }
 
 interface LabSubmissions {
@@ -155,6 +156,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [systemStatus, setSystemStatus] = useState<SystemStatus[]>([]);
   const [healthLoading, setHealthLoading] = useState(true);
+  const [auditSeal, setAuditSeal] = useState<AuditSealSummary | null>(null);
   const [lastHealthCheck, setLastHealthCheck] = useState<string>(new Date().toISOString());
 
   useEffect(() => {
@@ -177,16 +179,18 @@ export default function AdminDashboardPage() {
         message: svc.message,
       }));
       setSystemStatus(services);
+      setAuditSeal(healthData.audit_seal ?? null);
       // An absent `timestamp` used to become `new Date(undefined)` and render
       // the literal "Invalid Date" beside the system-status panel.
       setLastHealthCheck(healthData.timestamp ?? new Date().toISOString());
     } catch (error) {
       console.error('Failed to load health status:', error);
       // Fallback to degraded state if health check fails
+      setAuditSeal(null);
       setSystemStatus([
         { name: 'API Server', status: 'offline', lastCheck: new Date().toISOString(), message: 'Health check failed' },
         { name: 'Database', status: 'offline', lastCheck: new Date().toISOString() },
-        { name: 'IPFS Storage', status: 'offline', lastCheck: new Date().toISOString() },
+        { name: 'Encrypted Document Storage', status: 'offline', lastCheck: new Date().toISOString() },
       ]);
     } finally {
       setHealthLoading(false);
@@ -199,6 +203,7 @@ export default function AdminDashboardPage() {
       const response = await getAdminDashboard();
       setData(response as unknown as AdminDashboardData);
     } catch (error) {
+      // ux-allow(console-catch): with no data the page renders docAdmin.loadError instead of the dashboard.
       console.error('Failed to load admin dashboard:', error);
     } finally {
       setLoading(false);
@@ -264,6 +269,8 @@ export default function AdminDashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-sunken">
         <div className="text-center">
+          {/* The page names itself while it loads and when it fails, not only once it has data. */}
+          <h1 className="sr-only">{t('docAdmin.title')}</h1>
           <Loader2 className="mx-auto animate-spin text-content-secondary" size={48} />
           <p className="mt-4 text-content-muted">{t('docAdmin.loading')}</p>
         </div>
@@ -274,7 +281,8 @@ export default function AdminDashboardPage() {
   if (!data) {
     return (
       <div className="p-6 bg-surface-sunken min-h-screen">
-        <div className="bg-critical-subtle border border-critical rounded-lg p-4 text-critical-subtle-fg">
+        <h1 className="text-2xl font-bold text-content mb-4">{t('docAdmin.title')}</h1>
+        <div role="alert" className="bg-critical-subtle border border-critical rounded-lg p-4 text-critical-subtle-fg">
           {t('docAdmin.loadError')}
         </div>
       </div>
@@ -353,6 +361,7 @@ export default function AdminDashboardPage() {
             ))}
           </div>
         )}
+        <AuditSealStatus summary={auditSeal} />
       </div>
 
       {/* Stat Cards */}
@@ -547,18 +556,18 @@ export default function AdminDashboardPage() {
           </h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div className="text-center p-3 bg-surface-sunken rounded-lg">
-              <div className="text-2xl font-bold text-content">{data.nfc_cards?.total || 0}</div>
+              <div className="text-2xl font-bold text-content">{data.nfc_cards?.total ?? 0}</div>
               <div className="text-xs text-content-muted">{t('docAdmin.totalIssued')}</div>
             </div>
             <div className="text-center p-3 bg-ok-subtle rounded-lg">
               <div className="text-2xl font-bold text-ok-subtle-fg">
-                {data.nfc_cards?.cards?.filter(c => c.status === 'active').length || 0}
+                {data.nfc_cards?.active ?? 0}
               </div>
               <div className="text-xs text-ok-subtle-fg">{t('docAdmin.active')}</div>
             </div>
             <div className="text-center p-3 bg-critical-subtle rounded-lg">
               <div className="text-2xl font-bold text-critical-subtle-fg">
-                {data.nfc_cards?.cards?.filter(c => c.status === 'revoked').length || 0}
+                {data.nfc_cards?.revoked ?? 0}
               </div>
               <div className="text-xs text-critical-subtle-fg">{t('docAdmin.revoked')}</div>
             </div>

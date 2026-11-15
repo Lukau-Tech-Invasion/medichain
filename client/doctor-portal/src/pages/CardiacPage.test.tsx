@@ -5,6 +5,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CardiacPage from './CardiacPage';
 import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
+import { selectPatient } from '../test/selectPatient';
 
 // Mock the auth store
 // Spread the real module: it also exports `isHealthcareProvider`,
@@ -19,14 +20,16 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn().mockResolvedValue({ access_context_id: 'CTX-TEST', expires_at: '2099-01-01T00:00:00Z' }),
   getPatients: vi.fn(),
   createCardiac: vi.fn(),
+  getPatientCardiacEvents: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
 describe('CardiacPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -36,10 +39,29 @@ describe('CardiacPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(shared.getPatientCardiacEvents).mockResolvedValue([]);
     vi.mocked(useAuthStore).mockReturnValue({
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue(mockPatients);
+  });
+
+  it('submits unknown measurements as null and preserves a measured zero', async () => {
+    vi.mocked(shared.createCardiac).mockResolvedValue({
+      id: 'CAR-SAVED', success: true, event_type: 'Arrhythmia', timi_score: 0, timi_band: 'low',
+    });
+    render(<MemoryRouter><CardiacPage /></MemoryRouter>);
+    await selectPatient('', 'John Doe', 'cardiac-patient');
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Troponin (ng/mL)' }), {
+      target: { value: '0' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Cardiac Event' }));
+    await waitFor(() => expect(shared.createCardiac).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vital_signs: { heart_rate: null, blood_pressure: '' },
+        lab_values: { troponin: 0, bnp: null },
+      }),
+    ));
   });
 
   it('renders cardiac page', async () => {
@@ -62,11 +84,10 @@ describe('CardiacPage', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      const select = screen.getByPlaceholderText(/Search patients/i);
-      fireEvent.change(select, { target: { value: 'PAT-001' } });
-      expect(select).toHaveValue('PAT-001');
-    });
+    await selectPatient('', 'John Doe', 'cardiac-patient');
+    expect(screen.getByRole('button', { name: 'Clear selected patient John Doe' })).toBeInTheDocument();
+    // Searched on the server rather than filtered from the first page of patients.
+    expect(vi.mocked(shared.getPatients)).toHaveBeenCalledWith(expect.objectContaining({ query: 'John' }));
   });
 
   it('allows entering event details', async () => {

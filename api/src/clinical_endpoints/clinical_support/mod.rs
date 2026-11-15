@@ -13,7 +13,9 @@ pub use super::*;
 mod cds;
 mod lab_trends;
 mod telehealth;
+mod telehealth_recordings;
 
 pub use cds::*;
 pub use lab_trends::*;
 pub use telehealth::*;
+pub use telehealth_recordings::*;

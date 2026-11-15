@@ -1,13 +1,16 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { patientProfile } from '../test/fixtures';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import * as shared from '@medichain/shared';
 import CodeBluePage from './CodeBluePage';
 import { useAuthStore } from '../store/authStore';
 import { selectPatient } from '../test/selectPatient';
+import { patientProfile } from '../test/fixtures';
 
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  openAccessContext: vi.fn(),
+  createCodeBlue: vi.fn(),
+  // The patient chooser searches through this.
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -27,20 +30,21 @@ const startCode = async () => {
 };
 
 beforeEach(() => {
+  vi.mocked(shared.openAccessContext).mockResolvedValue({
+    access_context_id: 'CTX-PAGE-QA',
+    expires_at: new Date(Date.now() + 3600000).toISOString(),
+  } as Awaited<ReturnType<typeof shared.openAccessContext>>);
   // `PatientSelect` only queries while somebody is signed in, so a test that
   // chooses a patient has to be signed in too.
   useAuthStore.setState({
     user: {
-      walletAddress: '5Test',
       username: 'Dr Test',
       role: 'Doctor',
       userId: 'doc-1',
     },
     isAuthenticated: true,
   } as never);
-  vi.mocked(shared.getPatients).mockResolvedValue([
-    patientProfile(),
-  ]);
+  vi.mocked(shared.getPatients).mockResolvedValue([patientProfile()]);
 });
 
 describe('CodeBluePage', () => {
@@ -58,6 +62,25 @@ describe('CodeBluePage', () => {
     expect(screen.getByText(/Quick Actions/i)).toBeInTheDocument();
     expect(screen.getByText(/Stop Code/i)).toBeInTheDocument();
     expect(screen.getByText(/CPR Cycle/i)).toBeInTheDocument();
+  });
+
+  it('finalises only with an outcome the clinician chose, and invents no team member', async () => {
+    vi.mocked(shared.createCodeBlue).mockResolvedValue({ id: 'CB-1' } as never);
+    render(<CodeBluePage />);
+    await startCode();
+    fireEvent.click(screen.getByText(/Stop Code/i));
+
+    const finalize = screen.getByRole('button', { name: /Finalize Record/i });
+    // Pressed before an outcome is chosen, nothing is filed.
+    fireEvent.click(finalize);
+    await waitFor(() => expect(shared.createCodeBlue).not.toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('radio', { name: /ROSC/i }));
+    fireEvent.click(finalize);
+
+    await waitFor(() => expect(shared.createCodeBlue).toHaveBeenCalled());
+    const sent = vi.mocked(shared.createCodeBlue).mock.calls[0][0];
+    expect(sent.outcome).toBe('rosc');
+    expect(sent.team_members).toEqual([]);
   });
 
   it('allows recording medications during code', async () => {

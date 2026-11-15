@@ -238,9 +238,7 @@ fn status_of(record: &crate::repositories::traits::JsonRecordEntity) -> &str {
 fn may_see(user: &crate::User, record: &crate::repositories::traits::JsonRecordEntity) -> bool {
     match status_of(record) {
         STATUS_APPROVED => true,
-        _ => {
-            record.owner_id == user.wallet_address || may_review(&user.role) || user.role.is_admin()
-        }
+        _ => record.owner_id == user.id || may_review(&user.role) || user.role.is_admin(),
     }
 }
 
@@ -271,10 +269,10 @@ pub async fn create_order_set(
     }
     let now = chrono::Utc::now();
     let set_id = format!("OS-USR-{}", uuid::Uuid::new_v4().simple());
-    let order_set = stored_order_set(&req, &set_id, &user.wallet_address, now);
+    let order_set = stored_order_set(&req, &set_id, &user.id, now);
     let record = crate::repositories::traits::JsonRecordEntity {
         id: set_id.clone(),
-        owner_id: user.wallet_address.clone(),
+        owner_id: user.id.clone(),
         data: order_set.clone(),
         created_at: now,
         updated_at: now,
@@ -364,7 +362,7 @@ pub async fn decide_order_set(
     };
     // Maker-checker. A pharmacist may draft an order set; they may not be the
     // second pair of eyes on their own draft.
-    if record.owner_id == user.wallet_address {
+    if record.owner_id == user.id {
         return order_set_error(
             StatusCode::FORBIDDEN,
             "An order set is reviewed by someone other than its author",
@@ -372,7 +370,7 @@ pub async fn decide_order_set(
         );
     }
     let now = chrono::Utc::now();
-    let decided = decided_record(&record, &user.wallet_address, approved, notes, now);
+    let decided = decided_record(&record, &user.id, approved, notes, now);
     match data
         .repositories
         .order_sets
@@ -455,7 +453,7 @@ pub async fn deactivate_order_set(
             );
         }
     };
-    if !(user.role.is_admin() || record.owner_id == user.wallet_address) {
+    if !(user.role.is_admin() || record.owner_id == user.id) {
         return order_set_error(
             StatusCode::FORBIDDEN,
             "Only the order set's author or an administrator can retire it",
@@ -466,7 +464,7 @@ pub async fn deactivate_order_set(
     let mut retired = record.clone();
     retired.data["status"] = serde_json::json!("retired");
     retired.data["isActive"] = serde_json::json!(false);
-    retired.data["retiredBy"] = serde_json::json!(user.wallet_address);
+    retired.data["retiredBy"] = serde_json::json!(user.id);
     retired.data["retiredAt"] = serde_json::json!(now.to_rfc3339());
     retired.data["lastModified"] = serde_json::json!(now.to_rfc3339());
     retired.updated_at = now;
@@ -538,7 +536,7 @@ mod order_set_tests {
                 &$app,
                 test::TestRequest::post()
                     .uri("/api/clinical/order-sets")
-                    .insert_header(("x-user-id", "doctor_a"))
+                    .insert_header(crate::test_fixtures::as_user("doctor_a"))
                     .set_json(draft())
                     .to_request(),
             )
@@ -576,7 +574,7 @@ mod order_set_tests {
             &app,
             test::TestRequest::post()
                 .uri("/api/clinical/order-sets")
-                .insert_header(("x-user-id", "nurse_a"))
+                .insert_header(crate::test_fixtures::as_user("nurse_a"))
                 .set_json(draft())
                 .to_request(),
         )
@@ -600,7 +598,7 @@ mod order_set_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/order-sets/{set_id}/approval"))
-                .insert_header(("x-user-id", "pharm_a"))
+                .insert_header(crate::test_fixtures::as_user("pharm_a"))
                 .set_json(serde_json::json!({ "decision": "approved" }))
                 .to_request(),
         )
@@ -638,7 +636,7 @@ mod order_set_tests {
                 &app,
                 test::TestRequest::post()
                     .uri(&format!("/api/clinical/order-sets/{set_id}/approval"))
-                    .insert_header(("x-user-id", reviewer))
+                    .insert_header(crate::test_fixtures::as_user(reviewer))
                     .set_json(serde_json::json!({ "decision": "rejected", "notes": "Dose wrong" }))
                     .to_request(),
             )
@@ -662,7 +660,7 @@ mod order_set_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/order-sets/{set_id}/approval"))
-                .insert_header(("x-user-id", "pharm_a"))
+                .insert_header(crate::test_fixtures::as_user("pharm_a"))
                 .set_json(serde_json::json!({ "decision": "rejected" }))
                 .to_request(),
         )
@@ -700,7 +698,7 @@ mod order_set_tests {
             &app,
             test::TestRequest::post()
                 .uri(&format!("/api/clinical/order-sets/{set_id}/approval"))
-                .insert_header(("x-user-id", "pharm_a"))
+                .insert_header(crate::test_fixtures::as_user("pharm_a"))
                 .set_json(serde_json::json!({ "decision": "approved" }))
                 .to_request(),
         )

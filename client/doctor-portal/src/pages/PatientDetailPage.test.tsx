@@ -21,11 +21,13 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getGuardiansForWard: vi.fn(),
   updateGuardianPermissions: vi.fn(),
   updatePatient: vi.fn(),
+  getPatientRecords: vi.fn().mockResolvedValue([]),
+  listPedsForPatient: vi.fn().mockResolvedValue([]),
 }));
 
 describe('PatientDetailPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -125,13 +127,69 @@ describe('PatientDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('John Doe')).toBeInTheDocument();
-      expect(screen.getByText(/ID12345/i)).toBeInTheDocument();
-      expect(screen.getByText(/A\+/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument();
+      // Identity and blood group are the workspace banner's, not this page's.
       expect(screen.getByText(/Peanuts/i)).toBeInTheDocument();
       expect(screen.getByText(/Lisinopril/i)).toBeInTheDocument();
       expect(screen.getByText(/Hypertension/i)).toBeInTheDocument();
     });
+  });
+
+  it.each([undefined, { allergies: [], current_medications: [], chronic_conditions: [] }])(
+    'does not infer negative clinical history from absent or empty lists %s', async emergencyInfo => {
+      global.fetch = vi.fn().mockResolvedValue({ ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ...mockPatientData, emergency_info: emergencyInfo }),
+      });
+      render(<MemoryRouter initialEntries={['/patients/PAT-001']}>
+        <Routes><Route path="/patients/:patientId" element={<PatientDetailPage />} /></Routes>
+      </MemoryRouter>);
+      expect(await screen.findByText('Allergy history not recorded')).toBeInTheDocument();
+      expect(screen.getByText('Medication history not recorded')).toBeInTheDocument();
+      expect(screen.getByText('Chronic condition history not recorded')).toBeInTheDocument();
+      expect(screen.queryByText('No known allergies')).not.toBeInTheDocument();
+      expect(screen.queryByText('No current medications')).not.toBeInTheDocument();
+      expect(screen.queryByText('No chronic conditions')).not.toBeInTheDocument();
+    });
+
+  it('shows patient-maintained administrative fields without asserting eligibility', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ ...mockPatientData, phone: '+27000000001',
+        address: { street: 'QA Address', city: 'Johannesburg', country: 'ZA' },
+        insurance: { provider: 'QA Cover', policy_number: 'QA-POLICY', coverage_type: 'Private', is_active: false },
+      }),
+    });
+    render(<MemoryRouter initialEntries={['/patients/PAT-001']}>
+      <Routes><Route path="/patients/:patientId" element={<PatientDetailPage />} /></Routes>
+    </MemoryRouter>);
+    const panel = await screen.findByRole('region', { name: 'Administrative details' });
+    expect(within(panel).getByText('QA Address, Johannesburg, ZA')).toBeVisible();
+    expect(within(panel).getByText('QA Cover')).toBeVisible();
+    expect(within(panel).getByText('QA-POLICY')).toBeVisible();
+    expect(within(panel).getByText('Reported inactive')).toBeVisible();
+    expect(within(panel).getByText(/not verified eligibility/i)).toBeVisible();
+    expect(within(panel).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('warns staff to cross-match when the blood group is unknown', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        ...mockPatientData,
+        emergency_info: { ...mockPatientData.emergency_info, blood_type: 'Unknown' },
+      }),
+    });
+    render(
+      <MemoryRouter initialEntries={['/patients/PAT-001']}>
+        <Routes>
+          <Route path="/patients/:patientId" element={<PatientDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Unknown — type and cross-match before transfusion'))
+      .toBeInTheDocument();
   });
 
   it('shows error message when patient is not found', async () => {
@@ -165,20 +223,20 @@ describe('PatientDetailPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('John Doe')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole('button', { name: /^Records$/i }));
 
     expect(screen.getByRole('heading', { name: /Medical Records/i })).toBeInTheDocument();
-    expect(screen.getByText(/stored encrypted on IPFS/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/No uploaded documents/i)).toBeInTheDocument());
   });
 
   it('saves supported clinical details through the provider update API', async () => {
     vi.mocked(shared.updatePatient).mockResolvedValue({
       success: true,
       patient_id: 'PAT-001',
-      updated_by: mockUser.walletAddress,
+      updated_by: mockUser.userId,
       message: 'Patient record updated successfully',
     });
 
@@ -190,7 +248,7 @@ describe('PatientDetailPage', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /^Edit$/i }));
     fireEvent.change(screen.getByLabelText(/^Allergies$/i), { target: { value: 'Peanuts\nLatex' } });
     fireEvent.click(screen.getByRole('button', { name: /save clinical details/i }));
@@ -224,8 +282,7 @@ describe('PatientDetailPage', () => {
     revoked_at: null,
     revoked_by: null,
     revocation_reason: null,
-    chain_tx_hash: null,
-    chain_finalized: false,
+    seal_status: 'pending',
     ...over,
   });
 
@@ -237,7 +294,7 @@ describe('PatientDetailPage', () => {
         </Routes>
       </MemoryRouter>
     );
-    await waitFor(() => expect(screen.getByText('John Doe')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Export/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /access/i }));
   }
 
@@ -256,22 +313,39 @@ describe('PatientDetailPage', () => {
     );
   });
 
-  it('does not claim an on-chain anchoring for an unfinalized hash', async () => {
-    // A transaction hash with `chain_finalized: false` is a placeholder. Showing
-    // it as an anchoring would assert something that did not happen.
+  it.each([
+    ['pending', 'Sealing pending'],
+    ['sealed', 'Sealed'],
+    ['exported', 'Sealed and exported'],
+  ] as const)('shows a %s capsule version as "%s", from the server-reported seal state', async (status, label) => {
     vi.mocked(shared.getEmergencyCapsuleVersions).mockResolvedValue({
       success: true,
       patient_id: 'PAT-001',
-      current: capsuleVersion({ chain_tx_hash: '0xdeadbeef', chain_finalized: false }),
+      current: capsuleVersion({ seal_status: status }),
       count: 1,
-      versions: [capsuleVersion({ chain_tx_hash: '0xdeadbeef', chain_finalized: false })],
+      versions: [capsuleVersion({ seal_status: status })],
     } as never);
     await openAccessTab();
 
     await waitFor(() =>
-      expect(screen.getByText(/Not anchored on-chain/i)).toBeInTheDocument()
+      expect(screen.getByText(/Version 2 is in force/i)).toBeInTheDocument()
     );
-    expect(screen.queryByText(/0xdeadbeef/)).not.toBeInTheDocument();
+    const list = await screen.findByTestId('capsule-version-list');
+    expect(within(list).getByTestId('seal-badge')).toHaveTextContent(new RegExp(`^${label}$`));
+  });
+
+  it('does not show a seal badge when the server reported no seal state', async () => {
+    vi.mocked(shared.getEmergencyCapsuleVersions).mockResolvedValue({
+      success: true,
+      patient_id: 'PAT-001',
+      current: capsuleVersion({ seal_status: undefined }),
+      count: 1,
+      versions: [capsuleVersion({ seal_status: undefined })],
+    } as never);
+    await openAccessTab();
+
+    await screen.findByTestId('capsule-version-list');
+    expect(screen.queryByTestId('seal-badge')).not.toBeInTheDocument();
   });
 
   it('keeps a revoked version listed and offers no revoke button for it', async () => {
@@ -343,7 +417,7 @@ describe('PatientDetailPage', () => {
       success: true,
       count: 1,
       relationships: [{
-        id: 'GR-1', guardian_wallet: '5Guardian', ward_patient_id: 'PAT-001',
+        id: 'GR-1', guardian_user_id: '5Guardian', ward_patient_id: 'PAT-001',
         relationship_type: 'parent_or_guardian', permissions: ['view_records'],
         verified_by: '5Admin', verified_at: '2026-09-01T00:00:00Z', active: true,
         expires_at: '2027-01-01T00:00:00Z',

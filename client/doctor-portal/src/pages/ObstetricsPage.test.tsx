@@ -34,7 +34,7 @@ vi.mock('../components/Toast', () => ({
 
 describe('ObstetricsPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -71,10 +71,11 @@ describe('ObstetricsPage', () => {
     expect(paraInput).toHaveValue(1);
   });
 
-  it('displays fetal heart baseline', async () => {
+  it('opens with no finding recorded: no baseline, no category', async () => {
     render(<ObstetricsPage />);
-
-    const baselineInput = screen.getByLabelText(/Baseline FHR/i);
-    expect(baselineInput).toHaveValue(140);
+    // It opened on 140 bpm and showed Category I for a tracing nobody read.
+    expect(screen.getByLabelText(/Baseline FHR/i)).toHaveValue(null);
+    expect(screen.getByLabelText(/Gravida/i)).toHaveValue(null);
+    expect(screen.queryByText(/Category I/)).not.toBeInTheDocument();
   });
 });

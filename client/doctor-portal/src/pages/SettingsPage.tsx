@@ -12,9 +12,11 @@ import {
   saveUserSettings,
   setMyAvatar,
   getUserAvatar,
+  getRememberedLoginId,
   useTranslation,
+  ChangePasswordDialog, ChoiceChips
 } from '@medichain/shared';
-import ChangePasswordDialog from '../components/ChangePasswordDialog';
+import { ClinicianContactDetails } from '../components/ClinicianContactDetails';
 import { 
   Settings, 
   User, 
@@ -94,7 +96,7 @@ function SettingsPage() {
   // user's settings blob and nothing else. No secret was generated, no
   // authenticator was paired, and the server's `user_mfa` state was untouched —
   // so the screen said two-factor was on while `mfa_enabled()` returned false
-  // for that wallet. A security control that reports itself enabled when it is
+  // for that account. A security control that reports itself enabled when it is
   // not is worse than one that is plainly absent.
   //
   // This is not cosmetic. `require_privileged_assurance` gates role assignment
@@ -257,9 +259,9 @@ function SettingsPage() {
   };
 
   useEffect(() => {
-    if (!user?.walletAddress) return;
+    if (!user?.userId) return;
     let cancelled = false;
-    getUserAvatar(user.walletAddress)
+    getUserAvatar(user.userId)
       .then((res) => {
         if (!cancelled) setAvatar(res.avatar ?? null);
       })
@@ -268,10 +270,10 @@ function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.walletAddress]);
+  }, [user?.userId]);
 
   const handleSave = async () => {
-    if (!user) return;
+    if (!user || isSaving) return;
 
     setIsSaving(true);
     setSettingsError(null);
@@ -317,6 +319,7 @@ function SettingsPage() {
 
   return (
     <div className="p-8">
+      <form onSubmit={(event) => { event.preventDefault(); void handleSave(); }} noValidate>
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -331,10 +334,9 @@ function SettingsPage() {
           </p>
         </div>
         
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+        {activeTab !== 'profile' && <button type="submit"
+          aria-disabled={isSaving || undefined}
+          className="aria-disabled:cursor-wait flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors"
         >
           {saved ? (
             <>
@@ -347,7 +349,7 @@ function SettingsPage() {
               {isSaving ? t('docSettings.saving') : t('docSettings.saveChanges')}
             </>
           )}
-        </button>
+        </button>}
       </div>
 
       {settingsError && (
@@ -356,12 +358,12 @@ function SettingsPage() {
         </div>
       )}
 
-      <div className="flex gap-8">
+      <div className="flex flex-col lg:flex-row gap-8 min-w-0">
         {/* Tabs */}
-        <div className="w-64 bg-surface rounded-xl shadow p-4">
+        <div className="w-full lg:w-64 lg:shrink-0 bg-surface rounded-xl shadow p-4">
           <nav className="space-y-1">
             {tabs.map((tab) => (
-              <button
+              <button type="button"
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
@@ -378,13 +380,13 @@ function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-surface rounded-xl shadow p-6">
+        <div className="flex-1 min-w-0 bg-surface rounded-xl shadow p-6">
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <div>
               <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.profileInfo')}</h2>
 
-              <div className="flex items-start gap-6 mb-8">
+              <div className="flex flex-col sm:flex-row items-start gap-6 mb-8">
                 <div className="w-20 h-20 bg-brand-subtle rounded-full flex items-center justify-center overflow-hidden">
                   {avatar ? (
                     <img src={avatar} alt="" className="w-full h-full object-cover" />
@@ -430,10 +432,11 @@ function SettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 min-w-0">
                 <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.userId')}</label>
+                  <label htmlFor="settings-account-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.userId')}</label>
                   <input
+                    id="settings-account-id"
                     type="text"
                     value={user?.userId || ''}
                     disabled
@@ -442,8 +445,9 @@ function SettingsPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.role')}</label>
+                  <label htmlFor="settings-account-role" className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.role')}</label>
                   <input
+                    id="settings-account-role"
                     type="text"
                     value={user?.role || ''}
                     disabled
@@ -451,24 +455,8 @@ function SettingsPage() {
                   />
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.email')}</label>
-                  <input
-                    type="email"
-                    defaultValue={`${user?.username || 'user'}@medichain.health`}
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.phone')}</label>
-                  <input
-                    type="tel"
-                    defaultValue="+234-800-000-0000"
-                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  />
-                </div>
               </div>
+              {user && <ClinicianContactDetails key={user.userId} userId={user.userId} />}
 
               <div className="mt-6 pt-6 border-t border-border">
                 <h4 className="font-medium text-content mb-3">{t('docSettings.accountStatus')}</h4>
@@ -571,7 +559,7 @@ function SettingsPage() {
                     The switch that used to sit here wrote
                     `twoFactorEnabled: true` into the settings blob and paired
                     no authenticator, so the screen reported two-factor as on
-                    while the server held no enrolment for that wallet. */}
+                    while the server held no enrolment for that account. */}
                 <div className="py-3 border-b border-border">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
@@ -705,16 +693,17 @@ function SettingsPage() {
                       <p className="text-sm text-content-muted">{t('docSettings.sessionTimeoutDesc')}</p>
                     </div>
                   </div>
-                  <select
-                    value={settings.security.sessionTimeout}
-                    onChange={(e) => updateSecurity('sessionTimeout', Number(e.target.value))}
-                    className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  >
-                    <option value={15}>{t('docSettings.min15')}</option>
-                    <option value={30}>{t('docSettings.min30')}</option>
-                    <option value={60}>{t('docSettings.hour1')}</option>
-                    <option value={120}>{t('docSettings.hour2')}</option>
-                  </select>
+                  <ChoiceChips
+                    label={t('docSettings.sessionTimeout')}
+                    value={String(settings.security.sessionTimeout)}
+                    onChange={(next) => { if (next !== undefined) updateSecurity('sessionTimeout', Number(next)); }}
+                    options={[
+                      { value: '15', label: t('docSettings.min15') },
+                      { value: '30', label: t('docSettings.min30') },
+                      { value: '60', label: t('docSettings.hour1') },
+                      { value: '120', label: t('docSettings.hour2') },
+                    ]}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between py-3 border-b border-border">
@@ -728,7 +717,7 @@ function SettingsPage() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      aria-label={t('docSettings.sessionTimeout')}
+                      aria-label={t('docSettings.pinEmergency')}
                       checked={settings.security.requirePinForEmergency}
                       onChange={(e) => updateSecurity('requirePinForEmergency', e.target.checked)}
                       className="sr-only peer"
@@ -770,7 +759,7 @@ function SettingsPage() {
                       { value: 'dark', label: t('docSettings.themeDark'), icon: Moon },
                       { value: 'system', label: t('docSettings.themeSystem'), icon: Monitor }
                     ].map(({ value, label, icon: Icon }) => (
-                      <button
+                      <button type="button"
                         key={value}
                         onClick={() => {
                           setTheme(value as 'light' | 'dark' | 'system');
@@ -806,18 +795,19 @@ function SettingsPage() {
                       <p className="text-sm text-content-muted">{t('docSettings.languageDesc')}</p>
                     </div>
                   </div>
-                  <select
+                  <ChoiceChips
+                    label={t('docSettings.language')}
                     value={settings.display.language}
-                    onChange={(e) => updateDisplay('language', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  >
-                    <option value="en">{t('docSettings.langEnglish')}</option>
-                    <option value="fr">{t('docSettings.langFrench')}</option>
-                    <option value="sw">{t('docSettings.langSwahili')}</option>
-                    <option value="ha">{t('docSettings.langHausa')}</option>
-                    <option value="yo">{t('docSettings.langYoruba')}</option>
-                    <option value="am">{t('docSettings.langAmharic')}</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; updateDisplay('language', next); }}
+                    options={[
+                      { value: 'en', label: t('docSettings.langEnglish') },
+                      { value: 'fr', label: t('docSettings.langFrench') },
+                      { value: 'sw', label: t('docSettings.langSwahili') },
+                      { value: 'ha', label: t('docSettings.langHausa') },
+                      { value: 'yo', label: t('docSettings.langYoruba') },
+                      { value: 'am', label: t('docSettings.langAmharic') },
+                    ]}
+                  />
                 </div>
 
                 <div className="py-3 border-b border-border">
@@ -828,15 +818,16 @@ function SettingsPage() {
                       <p className="text-sm text-content-muted">{t('docSettings.dateFormatDesc')}</p>
                     </div>
                   </div>
-                  <select
+                  <ChoiceChips
+                    label={t('docSettings.dateFormat')}
                     value={settings.display.dateFormat}
-                    onChange={(e) => updateDisplay('dateFormat', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
-                  >
-                    <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                    <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                    <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                  </select>
+                    onChange={(next) => { if (next === undefined) return; updateDisplay('dateFormat', next); }}
+                    options={[
+                      { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' },
+                      { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' },
+                      { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD' },
+                    ]}
+                  />
                 </div>
 
                 <div className="flex items-center justify-between py-3">
@@ -847,7 +838,7 @@ function SettingsPage() {
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      aria-label={t('docSettings.language')}
+                      aria-label={t('docSettings.compactView')}
                       checked={settings.display.compactView}
                       onChange={(e) => updateDisplay('compactView', e.target.checked)}
                       className="sr-only peer"
@@ -860,10 +851,11 @@ function SettingsPage() {
           )}
         </div>
       </div>
+      </form>
 
       {showPasswordDialog && (
         <ChangePasswordDialog
-          loginId={user?.username || ''}
+          loginId={getRememberedLoginId() ?? ''}
           onClose={() => setShowPasswordDialog(false)}
         />
       )}

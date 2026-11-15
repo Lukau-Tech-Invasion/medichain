@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Shift handoff</title><link rel="stylesheet" href="mock.css">
+<style>.pt{display:flex;align-items:center;gap:12px;min-height:62px;padding:8px 14px;border-top:1px solid rgb(var(--border))}.pt:first-child{border-top:0}.pt.sel{background:rgb(var(--primary-sub))}
+.sec{display:grid;grid-template-columns:118px 1fr;gap:10px;padding:10px 0;border-top:1px solid rgb(var(--border))}.sec:first-of-type{border-top:0}
+.sec .h{font-weight:700;color:rgb(var(--text-2));font-size:14px}.line{display:flex;gap:8px;align-items:baseline;font-size:14.5px;line-height:1.45}
+.todo{display:flex;align-items:center;gap:10px;min-height:40px;font-size:14.5px}</style></head>
+<body><div class="desk" style="display:flex">
+  <aside class="sidebar">
+    <div class="logo" style="padding:4px 12px 12px"><span class="mk"><i data-i="heart" class="sm"></i></span>MediChain</div>
+    <div class="side-h">Favourites</div>
+    <a class="side"><i data-i="home" class="sm"></i>My patients</a>
+    <a class="side"><i data-i="pulse" class="sm"></i>Vital signs</a>
+    <a class="side"><i data-i="pill" class="sm"></i>Medication round (MAR)</a>
+    <a class="side on"><i data-i="swap" class="sm"></i>Shift handoff</a>
+    <div class="side-h">Recent patients</div>
+    <a class="side"><span class="avatar" style="width:26px;height:26px;font-size:11px">TN</span>Thandiwe Nkosi</a>
+    <a class="side"><span class="avatar" style="width:26px;height:26px;font-size:11px">SM</span>Sipho Mabaso</a>
+    <div class="side-h">All tasks <i data-i="chevDown" class="sm"></i></div>
+    <a class="side" style="margin-top:auto"><i data-i="search" class="sm"></i>Find a page…</a>
+  </aside>
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <header class="row between" style="padding:16px 24px;border-bottom:1px solid rgb(var(--border));background:rgb(var(--surface))">
+      <div><h1 style="font-size:22px">Shift handoff</h1><p class="small muted">Ward 4B · Day shift 07:00–19:00 · from <span class="t2 b">you (Nurse Dlamini)</span></p></div>
+      <div class="row"><div class="field" style="width:260px"><span class="label">Handing over to</span><div class="input">Nurse Mthembu (Night)<i data-i="chevDown" class="sm" style="margin-left:auto"></i></div></div></div>
+    </header>
+    <div style="display:grid;grid-template-columns:330px 1fr;gap:20px;padding:18px 24px;flex:1;min-height:0">
+      <section class="col" style="gap:10px">
+        <div class="row between"><p class="b">Patients you cared for today</p><span class="xs muted">from your shift's records</span></div>
+        <div class="row small" style="gap:10px;padding:0 4px"><span class="check on"><i data-i="check" class="sm"></i></span><span class="b">Select all (5 of 6)</span></div>
+        <div class="card list">
+          <div class="pt sel"><span class="check on"><i data-i="check" class="sm"></i></span><div class="grow"><p class="b">Thandiwe Nkosi</p><p class="xs muted">Bed 12 · 14 entries today</p></div><span class="badge warn">Watch</span></div>
+          <div class="pt"><span class="check on"><i data-i="check" class="sm"></i></span><div class="grow"><p class="b">Sipho Mabaso</p><p class="xs muted">Bed 14 · 9 entries</p></div><span class="badge ok">Reviewed</span></div>
+          <div class="pt"><span class="check on"><i data-i="check" class="sm"></i></span><div class="grow"><p class="b">Ayesha Patel</p><p class="xs muted">Bed 15 · 11 entries</p></div><span class="badge ok">Reviewed</span></div>
+          <div class="pt"><span class="check on"><i data-i="check" class="sm"></i></span><div class="grow"><p class="b">Johan van Wyk</p><p class="xs muted">Bed 16 · 6 entries</p></div><span class="badge info">To review</span></div>
+          <div class="pt"><span class="check on"><i data-i="check" class="sm"></i></span><div class="grow"><p class="b">Grace Okafor</p><p class="xs muted">Bed 18 · 8 entries</p></div><span class="badge info">To review</span></div>
+          <div class="pt"><span class="check"></span><div class="grow"><p class="b muted">Lerato Molefe</p><p class="xs muted">Bed 19 · discharged 11:20</p></div></div>
+        </div>
+        <a class="small b" style="color:rgb(var(--primary));padding:4px"><i data-i="plus" class="sm"></i> Add another patient</a>
+      </section>
+      <section class="card pad col" style="gap:4px;min-height:0">
+        <div class="row between"><div><h2>Thandiwe Nkosi · Bed 12</h2><p class="xs muted">Drafted from 14 entries you recorded today · edit anything</p></div>
+          <div class="seg"><span>Stable</span><span class="on">Watch</span><span>Unstable</span></div></div>
+        <div class="sec"><span class="h">Situation</span><div class="col" style="gap:4px">
+          <div class="line">BP 148/92, HR 104 at 16:00 — up from 128/82 at 08:00 <span class="from">Vitals 16:00</span></div>
+          <div class="line">Pain 6/10, given paracetamol 1 g at 14:10 <span class="from">MAR 14:10</span></div></div></div>
+        <div class="sec"><span class="h">Background</span><div class="col" style="gap:4px">
+          <div class="line">Type 2 diabetes · Penicillin and latex allergy · Full code <span class="from">Chart</span></div></div></div>
+        <div class="sec"><span class="h">Assessment</span><div class="col" style="gap:4px">
+          <div class="line">In 1 450 mL · Out 900 mL since 07:00 <span class="from">I/O 17:30</span></div>
+          <div class="line">"Wound dressing clean and dry" <span class="from">Note 12:05</span></div></div></div>
+        <div class="sec"><span class="h">Recommendation</span><div class="col" style="gap:2px">
+          <div class="todo"><span class="check"></span>Repeat BP at 20:00 — call doctor if over 160/100</div>
+          <div class="todo"><span class="check"></span>HbA1c result pending <span class="from">Order 09:15</span></div>
+          <div class="todo"><span class="check"></span>Metformin 500 mg due 18:00 — not yet given <span class="from">MAR</span></div>
+          <div class="todo muted"><i data-i="plus" class="sm"></i>Add a to-do</div></div></div>
+        <div class="row between" style="margin-top:auto;padding-top:12px;border-top:1px solid rgb(var(--border))">
+          <span class="xs muted row" style="gap:6px"><i data-i="save" class="sm"></i>Draft kept on this tab</span>
+          <div class="row"><span class="btn sm">Next patient<i data-i="chev" class="sm"></i></span><span class="btn primary">Hand over 5 patients</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <span class="mock-tag" style="top:auto;bottom:8px">Mockup · synthetic data</span>
+</div><script src="icons.js"></script></body></html>

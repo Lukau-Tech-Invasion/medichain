@@ -1,7 +1,8 @@
 #!/bin/bash
 # ==============================================================================
 # MediChain PostgreSQL Integration Test
-# Verifies database connectivity and demo user loading
+# Verifies database connectivity and that the seeded fixture accounts can sign in
+# (seed them first: scripts/seed-browser-test-fixtures.ts).
 # ==============================================================================
 
 set -e
@@ -14,9 +15,24 @@ echo ""
 
 # Configuration
 API_URL="${API_URL:-http://localhost:8090}"
-ADMIN_WALLET="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
-DOCTOR_WALLET="5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
-PATIENT_WALLET="5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z"
+BASE="$API_URL"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/actors.sh
+. "$SCRIPT_DIR/lib/actors.sh"
+actors_init
+
+# fixture ROLE — "login_id password" of the first fixture with that role, read
+# from the manifest the seeder wrote. Credentials live only in that file.
+fixture() {
+    python - "$SCRIPT_DIR/../.browser-test/fixtures.json" "$1" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+role = sys.argv[2]
+rows = [m["patient"]] if role == "Patient" else [s for s in m["staff"] if s["role"] == role]
+r = rows[0]
+print(r["login_id"], r.get("password", ""))
+PY
+}
 
 PASSED=0
 FAILED=0
@@ -25,13 +41,13 @@ FAILED=0
 test_endpoint() {
     local name="$1"
     local url="$2"
-    local user_id="$3"
+    local actor="$3"
     local expected="$4"
     
     echo -n "  Testing: $name... "
     
-    if [ -n "$user_id" ]; then
-        response=$(curl -s -H "X-User-Id: $user_id" "$url")
+    if [ -n "$actor" ]; then
+        response=$(curl -s -H "Authorization: Bearer $(tok_of "$actor")" "$url")
     else
         response=$(curl -s "$url")
     fi
@@ -73,21 +89,27 @@ echo "[3/5] Testing demo endpoints..."
 test_endpoint "Demo info" "$API_URL/api/demo/info" "" "demo_users"
 
 echo ""
-echo "[4/5] Testing user authentication (RBAC)..."
-test_endpoint "Admin access" "$API_URL/api/users" "$ADMIN_WALLET" "wallet_address\|Admin"
-test_endpoint "Doctor access" "$API_URL/api/users/me" "$DOCTOR_WALLET" "Doctor\|wallet_address"
-test_endpoint "Patient access" "$API_URL/api/users/me" "$PATIENT_WALLET" "Patient\|wallet_address"
+echo "[4/5] Testing credential sign-in and RBAC..."
+for pair in "admin Admin" "doctor Doctor" "patient Patient"; do
+    set -- $pair
+    read -r login password <<< "$(fixture "$2")"
+    echo "  Signing in as the $1 fixture: $(login_as "$1" "$login" "${password:-${MEDICHAIN_ADMIN_PASSWORD:-}}")"
+done
+test_endpoint "Admin access" "$API_URL/api/users" "admin" "user_id\|Admin"
+test_endpoint "Doctor access" "$API_URL/api/users/me" "doctor" "Doctor\|user_id"
+test_endpoint "Patient access" "$API_URL/api/users/me" "patient" "Patient\|user_id"
+test_endpoint "An unknown bearer token is refused" "$API_URL/api/users/me" "never-signed-in" "INVALID\|UNAUTHORIZED\|error"
 
 echo ""
 echo "[5/5] Testing demo user count..."
 # Get user count
-user_count=$(curl -s -H "X-User-Id: $ADMIN_WALLET" "$API_URL/api/users" | grep -o '"wallet_address"' | wc -l)
+user_count=$(curl -s -H "Authorization: Bearer $(tok_of admin)" "$API_URL/api/users" | grep -o '"user_id"' | wc -l)
 echo "  Found $user_count users in system"
 if [ "$user_count" -ge 10 ]; then
-    echo "  ✅ Demo users loaded correctly (expected: 12)"
+    echo "  ✅ Fixture users loaded correctly (expected at least 10)"
     ((PASSED++))
 else
-    echo "  ❌ Fewer users than expected (expected: 12, got: $user_count)"
+    echo "  ❌ Fewer users than expected (expected at least 10, got: $user_count)"
     ((FAILED++))
 fi
 

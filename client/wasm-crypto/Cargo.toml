@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Lukau Invasion (Pty) Ltd <dev@lukau-invasion.io>"]
 description = "MediChain WebAssembly cryptographic module for browser-based encryption"
-license = "MIT"
+# Proprietary, like every MediChain crate: see the root LICENSE and the note in
+# api/Cargo.toml. It previously declared MIT, granting in package metadata the
+# rights LICENSE withholds. `publish = false` keeps it off public registries.
+license-file = "../../LICENSE"
+publish = false
 repository = "https://github.com/lukau-invasion/medichain"
 
 [lib]

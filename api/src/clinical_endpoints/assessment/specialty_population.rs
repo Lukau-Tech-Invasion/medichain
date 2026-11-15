@@ -8,8 +8,310 @@
 
 use super::*;
 
+#[cfg(test)]
+mod obstetric_unrecorded_tests {
+    use crate::{AppState, Role};
+    use actix_web::{test, web, App};
+
+    /// An obstetric record stores what was recorded and nothing else: no
+    /// 0 weeks, no G0 P0, no "membranes intact" for an unexamined patient.
+    /// The FHR category is the server's, from all four tracing findings.
+    #[actix_web::test]
+    async fn unrecorded_obstetric_findings_are_null_and_the_category_is_derived() {
+        let state = AppState::new();
+        crate::test_fixtures::register(&state, "ob-doctor", Role::Doctor);
+        crate::test_fixtures::seed_patient(&state, "PAT-OB").await;
+        let data = web::Data::new(state);
+        let app =
+            test::init_service(App::new().app_data(data.clone()).service(super::create_ob)).await;
+        let post = |body: serde_json::Value| {
+            test::TestRequest::post()
+                .uri("/api/clinical/ob")
+                .insert_header(crate::test_fixtures::as_user("ob-doctor"))
+                .set_json(body)
+                .to_request()
+        };
+        let bare: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            post(serde_json::json!({ "patient_id": "PAT-OB" })),
+        )
+        .await;
+        let stored = data
+            .repositories
+            .obstetric_emergencies
+            .get_by_id(bare["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(stored.gestational_age_weeks, None);
+        assert_eq!(stored.gravida, None);
+        assert_eq!(stored.para, None);
+        assert_eq!(stored.prenatal_care, None);
+        assert_eq!(stored.contractions, None);
+        assert_eq!(stored.rupture_of_membranes, None);
+        assert_eq!(stored.fhr_category, None);
+
+        let traced: serde_json::Value = test::call_and_read_body_json(
+            &app,
+            post(serde_json::json!({
+                "patient_id": "PAT-OB", "gestational_age_weeks": 38, "gravida": 2, "para": 1,
+                "fetal_heart_rate": 140, "fetal_heart_variability": "moderate",
+                "fetal_accelerations": true, "fetal_decelerations": "none"
+            })),
+        )
+        .await;
+        assert_eq!(traced["fhr_category"], "I");
+        let stored = data
+            .repositories
+            .obstetric_emergencies
+            .get_by_id(traced["assessment_id"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            (stored.gestational_age_weeks, stored.gravida, stored.para),
+            (Some(38), Some(2), Some(1))
+        );
+        assert_eq!(stored.fhr_category.as_deref(), Some("I"));
+    }
+}
+
+#[cfg(test)]
+mod pediatric_unknown_tests {
+    use crate::test_fixtures::register;
+    use crate::{AppState, Role};
+    use actix_web::{http::StatusCode, test, web, App};
+
+    /// A patient born `years_old` years ago, stored as the product stores one.
+    async fn seed_aged(state: &AppState, id: &str, years_old: i32) {
+        use chrono::Datelike;
+        let today = chrono::Utc::now().date_naive();
+        let mut profile = crate::test_fixtures::patient_profile(id, "Synthetic Child");
+        profile.date_of_birth = format!("{:04}-01-01", today.year() - years_old);
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+    }
+
+    /// A paediatric assessment for an adult is refused; for a child it is filed.
+    #[actix_web::test]
+    async fn a_paediatric_assessment_is_refused_for_an_adult() {
+        let state = AppState::new();
+        register(&state, "peds-age-doctor", Role::Doctor);
+        seed_aged(&state, "PAT-PEDS-ADULT", 38).await;
+        seed_aged(&state, "PAT-PEDS-CHILD", 4).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_peds),
+        )
+        .await;
+        for (patient, expected) in [
+            ("PAT-PEDS-ADULT", StatusCode::BAD_REQUEST),
+            ("PAT-PEDS-CHILD", StatusCode::CREATED),
+        ] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/peds")
+                    .insert_header(crate::test_fixtures::as_user("peds-age-doctor"))
+                    .insert_header(("Idempotency-Key", format!("peds-age-{patient}")))
+                    .set_json(serde_json::json!({ "patient_id": patient }))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), expected, "{patient}");
+        }
+    }
+
+    /// Missing observations and age remain distinct from documented false and newborn age zero.
+    #[actix_web::test]
+    async fn pediatric_unknown_observations_round_trip() {
+        let state = AppState::new();
+        register(&state, "peds-qa-doctor", Role::Doctor);
+        seed_aged(&state, "PAT-PEDS-QA", 3).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::create_peds)
+                .service(super::get_peds)
+                .service(crate::clinical_endpoints::list_peds_for_patient),
+        )
+        .await;
+        for observation in [
+            serde_json::Value::Null,
+            serde_json::json!(false),
+            serde_json::json!(true),
+        ] {
+            let created = test::call_service(&app, test::TestRequest::post().uri("/api/clinical/peds")
+                .insert_header(crate::test_fixtures::as_user("peds-qa-doctor"))
+                .insert_header(("Idempotency-Key", format!("peds-qa-{observation}")))
+                .set_json(serde_json::json!({"patient_id":"PAT-PEDS-QA", "client_operation_id":"spoofed-operation", "weight_estimated":observation,
+                    "parent_guardian_present":observation, "child_protective_concerns":observation,
+                    "cps_notified":observation, "age_months":if observation.is_null() { serde_json::Value::Null } else { serde_json::json!(0) }}))
+                .to_request()).await;
+            assert_eq!(created.status(), StatusCode::CREATED);
+            let result: serde_json::Value = test::read_body_json(created).await;
+            let read = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!(
+                        "/api/clinical/peds/{}",
+                        result["assessment_id"].as_str().unwrap()
+                    ))
+                    .insert_header(crate::test_fixtures::as_user("peds-qa-doctor"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(read.status(), StatusCode::OK);
+            let record: serde_json::Value = test::read_body_json(read).await;
+            for field in [
+                "weight_estimated",
+                "parent_guardian_present",
+                "child_protective_concerns",
+                "cps_notified",
+            ] {
+                assert_eq!(record[field], observation, "{field}");
+            }
+            assert_eq!(
+                record["age_months"],
+                if observation.is_null() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(0)
+                }
+            );
+            for field in [
+                "appearance_score",
+                "work_of_breathing",
+                "circulation_to_skin",
+            ] {
+                assert!(record[field].is_null());
+            }
+            assert_eq!(record["assessed_by"], "peds-qa-doctor");
+            assert_eq!(
+                record["data"]["client_operation_id"],
+                format!("peds-qa-{observation}")
+            );
+        }
+        let mut ids = std::collections::HashSet::new();
+        for (page, expected) in [(1, 2), (2, 1)] {
+            let response = test::call_service(
+                &app,
+                test::TestRequest::get()
+                    .uri(&format!(
+                        "/api/clinical/peds/patient/PAT-PEDS-QA?page={page}&limit=2"
+                    ))
+                    .insert_header(crate::test_fixtures::as_user("peds-qa-doctor"))
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: serde_json::Value = test::read_body_json(response).await;
+            let rows = body["items"].as_array().unwrap();
+            assert_eq!(rows.len(), expected);
+            for row in rows {
+                assert!(ids.insert(row["id"].as_str().unwrap().to_owned()));
+            }
+        }
+        assert_eq!(ids.len(), 3);
+    }
+
+    /// Malformed ages and observation types must be refused before any assessment is stored.
+    #[actix_web::test]
+    async fn pediatric_invalid_observations_do_not_create_records() {
+        let state = AppState::new();
+        register(&state, "peds-validation-doctor", Role::Doctor);
+        seed_aged(&state, "PAT-PEDS-VALIDATION", 5).await;
+        let state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .service(super::create_peds),
+        )
+        .await;
+        for invalid in [
+            serde_json::json!({"age_months":-1}),
+            serde_json::json!({"age_months":1.5}),
+            serde_json::json!({"age_months":2147483648_i64}),
+            serde_json::json!({"age_months":"2"}),
+            serde_json::json!({"weight_estimated":"false"}),
+            serde_json::json!({"parent_guardian_present":1}),
+            serde_json::json!({"child_protective_concerns":[]}),
+            serde_json::json!({"cps_notified":{}}),
+        ] {
+            let mut body = invalid;
+            body["patient_id"] = serde_json::json!("PAT-PEDS-VALIDATION");
+            let response = test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/api/clinical/peds")
+                    .insert_header(crate::test_fixtures::as_user("peds-validation-doctor"))
+                    .set_json(body)
+                    .to_request(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        let records = state
+            .repositories
+            .pediatric_assessments
+            .get_by_patient(
+                "PAT-PEDS-VALIDATION",
+                crate::repositories::Pagination::new(0, 100),
+            )
+            .await
+            .unwrap();
+        assert!(records.items.is_empty());
+    }
+}
+
 // PHASE 6: SPECIALTY POPULATION ENDPOINTS
 // ============================================================================
+
+/// Return a validation message when supplied age or observations cannot be stored faithfully.
+fn pediatric_input_error(body: &serde_json::Value) -> Option<&'static str> {
+    if let Some(age) = body.get("age_months").filter(|value| !value.is_null()) {
+        if age
+            .as_i64()
+            .filter(|value| *value >= 0 && *value <= i32::MAX as i64)
+            .is_none()
+        {
+            return Some("Age in months must be a non-negative whole number or unknown");
+        }
+    }
+    for field in [
+        "weight_estimated",
+        "parent_guardian_present",
+        "child_protective_concerns",
+        "cps_notified",
+    ] {
+        if body
+            .get(field)
+            .is_some_and(|value| !value.is_null() && !value.is_boolean())
+        {
+            return Some("Recorded pediatric observations must be true, false, or unknown");
+        }
+    }
+    None
+}
+
+/// The patient's age in whole months from their recorded date of birth, or
+/// `None` when it is not on file or cannot be read.
+async fn patient_age_months(data: &web::Data<AppState>, patient_id: &str) -> Option<u32> {
+    let entity = data
+        .repositories
+        .patients
+        .get_by_id(patient_id)
+        .await
+        .ok()?;
+    let profile = crate::patient_entity_to_profile(&entity, &data.encryption_keyring)?;
+    crate::support::age_in_months(&profile.date_of_birth, chrono::Utc::now().date_naive())
+}
 
 /// Create pediatric assessment
 #[post("/api/clinical/peds")]
@@ -35,7 +337,7 @@ pub async fn create_peds(
         });
     }
 
-    let body = normalise_body_keys(req.into_inner());
+    let mut body = normalise_body_keys(req.into_inner());
     // The page posts camelCase and every lookup below is snake_case.
     // Without this the typed columns were written from nothing: an empty
     // patient id, zeroed counts and every flag false, returned as a 201.
@@ -47,6 +349,31 @@ pub async fn create_peds(
     if let Err(resp) = require_known_patient(&data, &patient_id).await {
         return resp;
     }
+    // A paediatric assessment is for a child. Nothing stopped one being filed
+    // for an adult, and the chart then offered "Latest pediatric assessment"
+    // with a 14 kg weight on a 38-year-old. A patient whose date of birth is
+    // not on file is not refused: an unknown age is not an adult one.
+    if let Some(months) = patient_age_months(&data, &patient_id).await {
+        if months >= crate::support::PAEDIATRIC_AGE_LIMIT_MONTHS {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                error: "A paediatric assessment is for a patient under 18".to_string(),
+                code: "NOT_A_PAEDIATRIC_PATIENT".to_string(),
+            });
+        }
+    }
+    if let Some(error) = pediatric_input_error(&body) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: error.to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    // Lost-response recovery uses a server-observed key, never a body-supplied correlation.
+    body["client_operation_id"] = http_req
+        .headers()
+        .get("Idempotency-Key")
+        .and_then(|value| value.to_str().ok())
+        .map(serde_json::Value::from)
+        .unwrap_or(serde_json::Value::Null);
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let assessment_id = format!("PED-{}", uuid::Uuid::new_v4().simple());
@@ -60,22 +387,22 @@ pub async fn create_peds(
         // Who performed the assessment is the authenticated caller, not a
         // value the client asserts — the pages were sending a literal
         // "Current Doctor" placeholder, which is what ended up on the record.
-        assessed_by: current_user.wallet_address.clone(),
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .get("assessment_datetime")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .unwrap_or(now),
-        age_months: body.get("age_months").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+        age_months: body
+            .get("age_months")
+            .and_then(|v| v.as_i64())
+            .and_then(|v| i32::try_from(v).ok()),
         weight_kg: body
             .get("weight_kg")
             .and_then(|v| v.as_f64())
             .and_then(rust_decimal::Decimal::from_f64_retain),
-        weight_estimated: body
-            .get("weight_estimated")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        weight_estimated: body.get("weight_estimated").and_then(|v| v.as_bool()),
         length_cm: body
             .get("length_cm")
             .and_then(|v| v.as_f64())
@@ -166,8 +493,7 @@ pub async fn create_peds(
             .map(str::to_string),
         parent_guardian_present: body
             .get("parent_guardian_present")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+            .and_then(|v| v.as_bool()),
         parent_guardian_name: body
             .get("parent_guardian_name")
             .and_then(|v| v.as_str())
@@ -178,12 +504,8 @@ pub async fn create_peds(
             .map(str::to_string),
         child_protective_concerns: body
             .get("child_protective_concerns")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        cps_notified: body
-            .get("cps_notified")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+            .and_then(|v| v.as_bool()),
+        cps_notified: body.get("cps_notified").and_then(|v| v.as_bool()),
         notes: body
             .get("notes")
             .and_then(|v| v.as_str())
@@ -307,7 +629,7 @@ pub async fn create_ob(
         // Who performed the assessment is the authenticated caller, not a
         // value the client asserts — the pages were sending a literal
         // "Current Doctor" placeholder, which is what ended up on the record.
-        assessed_by: current_user.wallet_address.clone(),
+        assessed_by: current_user.id.clone(),
         assessment_datetime: body
             .get("assessment_datetime")
             .and_then(|v| v.as_str())
@@ -317,13 +639,16 @@ pub async fn create_ob(
         gestational_age_weeks: body
             .get("gestational_age_weeks")
             .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32,
+            .map(|v| v as i32),
         gestational_age_days: body
             .get("gestational_age_days")
             .and_then(|v| v.as_i64())
             .map(|v| v as i32),
-        gravida: body.get("gravida").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
-        para: body.get("para").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+        gravida: body
+            .get("gravida")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32),
+        para: body.get("para").and_then(|v| v.as_i64()).map(|v| v as i32),
         abortions: body
             .get("abortions")
             .and_then(|v| v.as_i64())
@@ -340,10 +665,7 @@ pub async fn create_ob(
             .get("edd_date")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()),
-        prenatal_care: body
-            .get("prenatal_care")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        prenatal_care: body.get("prenatal_care").and_then(|v| v.as_bool()),
         prenatal_care_provider: body
             .get("prenatal_care_provider")
             .and_then(|v| v.as_str())
@@ -358,10 +680,7 @@ pub async fn create_ob(
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string(),
-        contractions: body
-            .get("contractions")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        contractions: body.get("contractions").and_then(|v| v.as_bool()),
         contraction_frequency_min: body
             .get("contraction_frequency_min")
             .and_then(|v| v.as_i64())
@@ -370,10 +689,7 @@ pub async fn create_ob(
             .get("contraction_duration_sec")
             .and_then(|v| v.as_i64())
             .map(|v| v as i32),
-        rupture_of_membranes: body
-            .get("rupture_of_membranes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
+        rupture_of_membranes: body.get("rupture_of_membranes").and_then(|v| v.as_bool()),
         rom_time: body
             .get("rom_time")
             .and_then(|v| v.as_str())
@@ -423,6 +739,16 @@ pub async fn create_ob(
             .get("fetal_decelerations")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        fetal_accelerations: body.get("fetal_accelerations").and_then(|v| v.as_bool()),
+        fhr_category: crate::clinical_scoring::fhr_category(
+            body.get("fetal_heart_rate")
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32),
+            body.get("fetal_heart_variability").and_then(|v| v.as_str()),
+            body.get("fetal_accelerations").and_then(|v| v.as_bool()),
+            body.get("fetal_decelerations").and_then(|v| v.as_str()),
+        )
+        .map(str::to_string),
         uterine_tenderness: body
             .get("uterine_tenderness")
             .and_then(|v| v.as_bool())
@@ -504,10 +830,12 @@ pub async fn create_ob(
         data: body.clone(),
     };
 
+    let fhr_category = entity.fhr_category.clone();
     match data.repositories.obstetric_emergencies.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "success": true,
-            "assessment_id": assessment_id
+            "assessment_id": assessment_id,
+            "fhr_category": fhr_category,
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
             error: msg,

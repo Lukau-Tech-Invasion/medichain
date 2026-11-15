@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AttachmentPicker,
+  attachFilesToMessage,
+  MessageAttachmentList,
   getApiErrorMessage,
   markMessageRead,
   useTranslation,
@@ -7,10 +10,11 @@ import {
   sendMessage,
   formatDateOnly,
   formatTimestamp,
+  notifySuccess,
 } from '@medichain/shared';
 import type { MessageConversation, SecureMessagesResponse, SecureMessage } from '@medichain/shared';
-import { Loader2, MessageSquare, RefreshCw, Send, User } from 'lucide-react';
-import StaffSelect from '../components/StaffSelect';
+import { Loader2, MessageSquare, Plus, RefreshCw, Send, User } from 'lucide-react';
+import MessageRecipientSelect from '../components/MessageRecipientSelect';
 import { useAuthStore } from '../store/authStore';
 
 interface SendForm {
@@ -40,6 +44,8 @@ export default function MessagesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [sendForm, setSendForm] = useState<SendForm>(EMPTY_FORM);
+  // Files for the next message; attached right after it is sent.
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(true);
   const [sendLoading, setSendLoading] = useState(false);
   const [error, setError] = useState('');
@@ -87,7 +93,7 @@ export default function MessagesPage() {
   useEffect(() => {
     if (!selectedConversation || selectedConversation.unreadCount === 0 || !user) return;
     const unread = selectedConversation.messages.filter(
-      message => !message.read && message.recipient_id === user.walletAddress,
+      message => !message.read && message.recipient_id === user.userId,
     );
     if (unread.length === 0) return;
     const selectedConversationId = selectedConversation.id;
@@ -101,7 +107,7 @@ export default function MessagesPage() {
                 unreadCount: 0,
                 messages: candidate.messages.map(message => ({
                   ...message,
-                  read: message.recipient_id === user.walletAddress ? true : message.read,
+                  read: message.recipient_id === user.userId ? true : message.read,
                 })),
               }
             : candidate
@@ -117,9 +123,11 @@ export default function MessagesPage() {
 
   const handleSend = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!user) return;
+    if (!user || sendLoading) return;
     const recipientId = selectedConversation?.providerId || sendForm.recipient_id;
-    if (!recipientId || !sendForm.body.trim()) return;
+    // Said in words: the button is no longer greyed out to mean "not yet".
+    if (!recipientId) { setError(t('docMessages.errorNoRecipient')); return; }
+    if (!sendForm.body.trim()) { setError(t('docMessages.errorEmptyBody')); return; }
     setSendLoading(true);
     setError('');
     setSuccess('');
@@ -133,13 +141,24 @@ export default function MessagesPage() {
       if (sendForm.subject.trim()) payload.subject = sendForm.subject.trim();
       if (latest?.thread_id) payload.thread_id = latest.thread_id;
       if (latest?.message_id) payload.reply_to = latest.message_id;
+      let sentId: string;
       try {
-        await sendMessage(payload as Parameters<typeof sendMessage>[0]);
+        const sent = await sendMessage(payload as Parameters<typeof sendMessage>[0]);
+        sentId = sent.message.message_id;
       } catch (refused) {
         setError(getApiErrorMessage(refused, t('docMessages.failSend')));
         return;
       }
+      // The message exists now; a file that fails to attach is reported by
+      // name rather than letting the send look complete.
+      const failed = files.length > 0 ? await attachFilesToMessage(sentId, files) : [];
+      setFiles([]);
+      if (failed.length > 0) {
+        const list = failed.map((file) => (file.reason ? `${file.name} (${file.reason})` : file.name)).join(', ');
+        setError(t('messages.attachmentsPartlyFailed', { files: list }));
+      }
       setSuccess(t('docMessages.sentVisible'));
+      notifySuccess(t('docMessages.sentVisible'));
       setSendForm({ recipient_id: recipientId, subject: '', body: '' });
       setShowCompose(false);
       const loaded = await fetchConversations();
@@ -160,6 +179,22 @@ export default function MessagesPage() {
     (total, conversation) => total + conversation.unreadCount,
     0,
   );
+
+  // A message arriving for this account reloads the list (see Layout).
+  useEffect(() => {
+    const reload = () => void fetchConversations();
+    window.addEventListener('medichain:messages-refresh', reload);
+    return () => window.removeEventListener('medichain:messages-refresh', reload);
+  }, [fetchConversations]);
+
+  // On a phone the panel sits below a tall conversation list, so opening
+  // Compose or a conversation looked like nothing happened.
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if ((showCompose || selectedId) && window.matchMedia?.('(max-width: 1023px)').matches) {
+      panelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }
+  }, [showCompose, selectedId]);
 
   const beginCompose = () => {
     setShowCompose(true);
@@ -191,12 +226,6 @@ export default function MessagesPage() {
           >
             <RefreshCw size={14} /> {t('docMessages.refresh')}
           </button>
-          <button
-            onClick={beginCompose}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
-          >
-            <Send size={14} /> {t('docMessages.compose')}
-          </button>
         </div>
       </header>
 
@@ -215,6 +244,22 @@ export default function MessagesPage() {
         <section className="bg-surface rounded-xl shadow min-h-[520px]" aria-label={t('docMessages.conversations')}>
           <div className="p-4 border-b">
             <h2 className="font-semibold text-content">{t('docMessages.conversations')}</h2>
+          </div>
+          {/* The same entry point as the patient app: one large, obvious button. */}
+          <div className="p-4 border-b">
+            <button
+              type="button"
+              onClick={beginCompose}
+              className="w-full flex items-center gap-4 p-4 rounded-xl border-2 border-transparent bg-surface-sunken hover:border-brand text-left"
+            >
+              <span className="w-12 h-12 shrink-0 bg-brand-subtle rounded-full flex items-center justify-center">
+                <Plus className="w-6 h-6 text-brand" aria-hidden="true" />
+              </span>
+              <span>
+                <span className="block font-medium text-content">{t('docMessages.startNew')}</span>
+                <span className="block text-sm text-content-muted">{t('docMessages.startNewDesc')}</span>
+              </span>
+            </button>
           </div>
           {loading ? (
             <div className="p-8 text-center">
@@ -260,7 +305,7 @@ export default function MessagesPage() {
           )}
         </section>
 
-        <section className="bg-surface rounded-xl shadow min-h-[520px] flex flex-col" aria-label={t('docMessages.history')}>
+        <section ref={panelRef} className="bg-surface rounded-xl shadow min-h-[520px] flex flex-col scroll-mt-4" aria-label={t('docMessages.history')}>
           {showCompose ? (
             <ComposeForm
               form={sendForm}
@@ -268,6 +313,8 @@ export default function MessagesPage() {
               onChange={setSendForm}
               onCancel={() => setShowCompose(false)}
               onSubmit={handleSend}
+              files={files}
+              onFilesChange={setFiles}
               title={t('docMessages.newMessage')}
             />
           ) : selectedConversation ? (
@@ -280,7 +327,7 @@ export default function MessagesPage() {
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-sunken max-h-[520px]">
                 {selectedConversation.messages.map(message => (
-                  <MessageBubble key={message.message_id} message={message} currentUserId={user?.walletAddress ?? ''} />
+                  <MessageBubble key={message.message_id} message={message} currentUserId={user?.userId ?? ''} />
                 ))}
               </div>
               <form onSubmit={handleSend} className="border-t p-4 space-y-3">
@@ -296,10 +343,11 @@ export default function MessagesPage() {
                   required
                   placeholder={t('docMessages.messagePlaceholder')}
                 />
+                <AttachmentPicker files={files} onChange={setFiles} disabled={sendLoading} />
                 <button
                   type="submit"
-                  disabled={sendLoading || !sendForm.body.trim()}
-                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
+                  aria-disabled={sendLoading || undefined}
+                  className="flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 aria-disabled:cursor-wait"
                 >
                   {sendLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                   {t('docMessages.send')}
@@ -327,6 +375,7 @@ function MessageBubble({ message, currentUserId }: { message: SecureMessage; cur
           {message.subject && <p className="text-xs font-semibold mb-1 opacity-80">{message.subject}</p>}
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         </div>
+        <MessageAttachmentList attachments={message.attachments} />
         <p className={`mt-1 text-xs text-content-muted ${mine ? 'text-right' : 'text-left'}`}>
           {mine ? 'You' : message.sender_name} · {messageDate(message.sent_at)}
           {mine && message.read ? ' · Read' : ''}
@@ -343,6 +392,8 @@ function ComposeForm({
   onCancel,
   onSubmit,
   title,
+  files,
+  onFilesChange,
 }: {
   form: SendForm;
   loading: boolean;
@@ -350,19 +401,19 @@ function ComposeForm({
   onCancel: () => void;
   onSubmit: (event: React.FormEvent) => void;
   title: string;
+  files: File[];
+  onFilesChange: (files: File[]) => void;
 }) {
   const { t } = useTranslation();
   return (
     <div className="p-4">
       <h2 className="font-semibold text-content mb-4">{title}</h2>
       <form onSubmit={onSubmit} className="space-y-3">
-        <StaffSelect
+        <MessageRecipientSelect
           id="msg-recipient"
           value={form.recipient_id}
           onChange={recipientId => onChange({ ...form, recipient_id: recipientId })}
           label={t('docMessages.toProvider')}
-          placeholder={t('docMessages.providerPlaceholder')}
-          required
         />
         <div>
           <label htmlFor="msg-subject" className="block text-xs font-medium text-content-secondary mb-1">{t('docMessages.subject')}</label>
@@ -386,8 +437,9 @@ function ComposeForm({
             placeholder={t('docMessages.messagePlaceholder')}
           />
         </div>
+        <AttachmentPicker files={files} onChange={onFilesChange} disabled={loading} />
         <div className="flex gap-2">
-          <button type="submit" disabled={loading || !form.recipient_id || !form.body.trim()} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100">
+          <button type="submit" aria-disabled={loading || undefined} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 aria-disabled:cursor-wait">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {t('docMessages.send')}
           </button>

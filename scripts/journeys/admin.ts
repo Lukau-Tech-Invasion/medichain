@@ -15,8 +15,8 @@
  *
  * Zero of the fourteen screens in `ADMIN_NAV` had ever had a write driven
  * against a live server, and the 2026-08-14 browser sweep recorded the
- * administrator as untestable because the demo admin wallet was not enrolled in
- * credential sign-in. It is now (`bt.admin`), so there is no longer a reason.
+ * administrator as untestable because the demo admin had no credential to sign
+ * in with. It is now (`bt.admin`), so there is no longer a reason.
  *
  * # The assertion that matters here
  *
@@ -67,20 +67,19 @@ export async function adminJourney(
   );
 
   // --- Onboarding a new clinician -----------------------------------------
-  // UserManagementPage.tsx: walletRegister -> POST /api/auth/register
+  // UserManagementPage.tsx: register -> POST /api/auth/register
   //
-  // A fresh SS58-shaped wallet. Deliberately synthetic and never signed with,
-  // because the point is the authorization lifecycle, not another sign-in.
-  const newWallet = `5JourneyHarness${stamp}`.padEnd(48, 'x').slice(0, 48);
+  // The account is created `pending` with a one-time credential code that this
+  // journey never redeems, because the point is the authorization lifecycle, not
+  // another sign-in.
   // Distinct per run so a stale row from an earlier run cannot satisfy the
   // round-trip assertion below.
   const newPhone = `+27 11 555 ${String(stamp).slice(-4)}`;
   const create = await http('POST', '/auth/register', {
     token: admin.token,
     body: {
-      wallet_address: newWallet,
+      login_id: `jc${stamp}`,
       name: `Journey Clinician ${stamp}`,
-      username: `jc${stamp}`,
       role: 'Nurse',
       email: `jc${stamp}@example.invalid`,
       // A phone number, which this endpoint refused outright until staff
@@ -95,11 +94,12 @@ export async function adminJourney(
     },
   });
   const createdUser = j.status('a new clinician account is created', create.status, [200, 201], create.json);
+  const newUserId = String(create.json.user_id ?? '');
 
   if (createdUser) {
     const after = await http('GET', '/users?limit=200', { token: admin.token });
     const arows = rowsOf(after.json, 'users', 'data');
-    const mine = findBy(arows, 'wallet_address', newWallet) ?? findBy(arows, 'userId', newWallet);
+    const mine = findBy(arows, 'user_id', newUserId);
     j.record(
       'the new account is in the directory immediately',
       mine !== undefined,
@@ -125,9 +125,9 @@ export async function adminJourney(
         `a staff contact that saves and cannot be read is the same as no contact at all`
     );
 
-    // Correcting a profile. `updateUserProfile` -> PUT /api/users/{wallet}
+    // Correcting a profile. `updateUserProfile` -> PUT /api/users/{user_id}
     const fixed = `Journey Clinician ${stamp} (corrected)`;
-    const update = await http('PUT', `/users/${newWallet}`, {
+    const update = await http('PUT', `/users/${newUserId}`, {
       token: admin.token,
       body: {
         name: fixed,
@@ -141,7 +141,7 @@ export async function adminJourney(
     if (updated) {
       const back = await http('GET', '/users?limit=200', { token: admin.token });
       const brows = rowsOf(back.json, 'users', 'data');
-      const bmine = findBy(brows, 'wallet_address', newWallet);
+      const bmine = findBy(brows, 'user_id', newUserId);
       const bbad = discrepancies(bmine, { name: fixed, department: 'Intensive Care' });
       j.record(
         'the correction is what the next reader sees',
@@ -182,7 +182,7 @@ export async function adminJourney(
 
   const promote = await http('POST', '/roles/assign', {
     token: admin.token,
-    body: { wallet_address: subject.wallet, name: 'Lab Browser Test Two', role: 'Nurse' },
+    body: { user_id: subject.userId, name: 'Lab Browser Test Two', role: 'Nurse' },
   });
   const promoted = j.status('the administrator assigns a new role', promote.status, [200, 201], promote.json);
 
@@ -217,7 +217,7 @@ export async function adminJourney(
     // And put it back, which is the other half of the control.
     const restore = await http('POST', '/roles/assign', {
       token: admin.token,
-      body: { wallet_address: subject.wallet, name: 'Lab Browser Test Two', role: 'LabTechnician' },
+      body: { user_id: subject.userId, name: 'Lab Browser Test Two', role: 'LabTechnician' },
     });
     const restored = j.status('the role can be changed back', restore.status, [200, 201], restore.json);
     if (restored) {
@@ -265,7 +265,7 @@ export async function adminJourney(
   // An administrator must not be able to grant themselves, or anyone, Admin.
   const escalate = await http('POST', '/roles/assign', {
     token: admin.token,
-    body: { wallet_address: subject.wallet, name: 'x', role: 'Admin' },
+    body: { user_id: subject.userId, name: 'x', role: 'Admin' },
   });
   j.status(
     'no one can be promoted to administrator through the role endpoint',

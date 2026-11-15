@@ -1,5 +1,6 @@
 //! In-memory progress note repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     PaginatedResult, Pagination, ProgressNoteEntity, ProgressNoteRepository, RepositoryError,
     RepositoryResult,
@@ -28,7 +29,7 @@ impl MemoryProgressNoteRepository {
 #[async_trait]
 impl ProgressNoteRepository for MemoryProgressNoteRepository {
     async fn create(&self, mut note: ProgressNoteEntity) -> RepositoryResult<ProgressNoteEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&note.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -46,7 +47,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<ProgressNoteEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("Progress note with ID {} not found", id))
         })
@@ -57,7 +58,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut notes: Vec<ProgressNoteEntity> = storage
             .values()
@@ -80,7 +81,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
         encounter_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut notes: Vec<ProgressNoteEntity> = storage
             .values()
@@ -105,7 +106,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
     }
 
     async fn update(&self, mut note: ProgressNoteEntity) -> RepositoryResult<ProgressNoteEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&note.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -120,7 +121,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
     }
 
     async fn delete(&self, id: &str) -> RepositoryResult<()> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if let Some(mut note) = storage.get(id).cloned() {
             note.is_active = false;
@@ -140,7 +141,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
         note_type: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut notes: Vec<ProgressNoteEntity> = storage
             .values()
@@ -162,7 +163,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut notes: Vec<ProgressNoteEntity> =
             storage.values().filter(|n| n.is_active).cloned().collect();

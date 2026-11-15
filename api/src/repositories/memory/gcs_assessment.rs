@@ -1,5 +1,6 @@
 //! In-memory Glasgow Coma Scale assessment repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     GcsAssessmentEntity, GcsAssessmentRepository, PaginatedResult, Pagination, RepositoryError,
     RepositoryResult,
@@ -31,7 +32,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
         &self,
         mut assessment: GcsAssessmentEntity,
     ) -> RepositoryResult<GcsAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         // Check for existing ID
         if storage.contains_key(&assessment.id) {
@@ -53,7 +54,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<GcsAssessmentEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("GCS assessment with ID {} not found", id))
         })
@@ -64,7 +65,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<GcsAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut assessments: Vec<GcsAssessmentEntity> = storage
             .values()
@@ -88,7 +89,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Option<GcsAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let latest = storage
             .values()
@@ -103,7 +104,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
         &self,
         mut assessment: GcsAssessmentEntity,
     ) -> RepositoryResult<GcsAssessmentEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&assessment.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -125,7 +126,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
         &self,
         threshold: i32,
     ) -> RepositoryResult<Vec<GcsAssessmentEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let critical_assessments: Vec<GcsAssessmentEntity> = storage
             .values()

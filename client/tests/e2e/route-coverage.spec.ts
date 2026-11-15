@@ -1,4 +1,5 @@
 import { test, expect, Page, ConsoleMessage, Response } from '@playwright/test';
+import { signInPatient, signInStaff } from './support';
 
 /**
  * Route coverage sweep for both PWAs.
@@ -98,7 +99,7 @@ const IGNORED_REQUESTS = [/\/favicon\.ico$/i, /\.map$/i, /@vite\//i, /@react-ref
 /**
  * Routes that an Admin may open and the demo Doctor may NOT.
  *
- * The sweep signs in as Dr. Mbeki (role Doctor). These pages correctly answer
+ * The sweep signs in as the seeded doctor fixture. These pages correctly answer
  * 403, and counting that as breakage was the instrument being wrong, not the
  * app — three "failures" that were RBAC doing its job.
  *
@@ -164,12 +165,12 @@ function attachCollectors(page: Page, current: () => RouteReport | null): void {
   });
 }
 
-async function loginWithDemoButton(page: Page, buttonText: string): Promise<void> {
-  await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  const button = page.locator(`button:has-text("${buttonText}")`).first();
-  await expect(button, `demo login button "${buttonText}" must exist`).toBeVisible({ timeout: 15000 });
-  await button.click();
-  await page.waitForURL(/dashboard/, { timeout: 20000 });
+/** Which seeded account a sweep signs in as, through the app's real sign-in form. */
+type SweepAccount = 'doctor' | 'patient';
+
+async function signInForSweep(page: Page, account: SweepAccount): Promise<void> {
+  if (account === 'doctor') await signInStaff(page, 'Doctor');
+  else await signInPatient(page);
 }
 
 /** Visit one route and finish populating its report. */
@@ -243,7 +244,7 @@ function isBroken(r: RouteReport): boolean {
  * names exactly which pages are broken instead of failing as a single opaque
  * assertion.
  */
-function sweep(appName: string, baseURL: string, demoButton: string, routes: string[]): void {
+function sweep(appName: string, baseURL: string, account: SweepAccount, routes: string[]): void {
   test.describe(`${appName} route coverage`, () => {
     test.use({ baseURL });
 
@@ -260,7 +261,7 @@ function sweep(appName: string, baseURL: string, demoButton: string, routes: str
     test.beforeAll(async ({ browser }) => {
       const context = await browser.newContext({ baseURL });
       const page = await context.newPage();
-      await loginWithDemoButton(page, demoButton);
+      await signInForSweep(page, account);
       storageState = await context.storageState();
       await context.close();
     });
@@ -303,5 +304,5 @@ function sweep(appName: string, baseURL: string, demoButton: string, routes: str
   });
 }
 
-sweep('Doctor Portal', 'http://localhost:5173', 'Mbeki', DOCTOR_ROUTES);
-sweep('Patient App', 'http://localhost:5174', 'Thabo', PATIENT_ROUTES);
+sweep('Doctor Portal', 'http://localhost:5173', 'doctor', DOCTOR_ROUTES);
+sweep('Patient App', 'http://localhost:5174', 'patient', PATIENT_ROUTES);

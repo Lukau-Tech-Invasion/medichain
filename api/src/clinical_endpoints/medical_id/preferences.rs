@@ -93,7 +93,6 @@ pub async fn update_medical_id_preferences(
     let mut updated_entity = crate::patient_profile_to_entity(&patient, &data.encryption_keyring);
     updated_entity.health_id = entity.health_id.clone();
     updated_entity.gender = entity.gender.clone();
-    updated_entity.wallet_address = entity.wallet_address.clone();
     updated_entity.is_verified = entity.is_verified;
     updated_entity.registered_by = entity.registered_by.clone();
     updated_entity.primary_provider_id = entity.primary_provider_id.clone();
@@ -273,9 +272,10 @@ pub async fn trigger_emergency_notification(
         is_emergency_access: true,
         ip_address: None,
         user_agent: None,
-        blockchain_tx_hash: None,
         accessed_at: chrono::Utc::now(),
         facility_id: None,
+        authority_type: None,
+        authority_id: None,
     };
     if let Err(response) = crate::support::require_durable_audit(&data, log_entry).await {
         return response;

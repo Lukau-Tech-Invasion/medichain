@@ -5,8 +5,7 @@
  * Prioritizes caching critical emergency data.
  */
 
-const STATIC_CACHE = 'medichain-patient-static-v3';
-const DATA_CACHE = 'medichain-patient-data-v3';
+const STATIC_CACHE = 'medichain-patient-static-v4';
 
 // Docker mounts this app at `/patient/`. Keep every cached and notification
 // URL inside that scope instead of accidentally navigating to nginx's root.
@@ -43,8 +42,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames
           .filter((name) => name.startsWith('medichain-patient-') && 
-                          name !== STATIC_CACHE && 
-                          name !== DATA_CACHE)
+                          name !== STATIC_CACHE)
           .map((name) => caches.delete(name))
       );
     })
@@ -57,6 +55,10 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // External providers own their network and TLS errors; this app must not
+  // replace their scripts or media requests with its offline fallback.
+  if (url.origin !== APP_BASE_URL.origin) return;
+
   if (request.method !== 'GET') return;
 
   // DevTools and extensions may issue chrome-extension:// requests from a
@@ -64,46 +66,26 @@ self.addEventListener('fetch', (event) => {
   // supports HTTP(S) requests.
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
 
-  // Medical ID endpoint - always cache for offline emergency access
-  if (url.pathname.includes('/api/medical-id/') || 
-      url.pathname.includes('/api/my-records')) {
+  // API responses are never answered or kept by this worker. The offline
+  // Medical ID and records used to be cached here in plain Cache Storage, where
+  // anyone copying the browser profile could read them; the app now keeps its
+  // offline copy encrypted under the account's device key (`useOfflineCache`).
+  // Activation deletes the old data cache.
+  if (url.pathname.startsWith('/api/')) return;
+
+  // HTML must follow a deployment; cache-first navigation kept old screens
+  // alive indefinitely. Preserve the offline shell when the network fails.
+  if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const clonedResponse = response.clone();
-            caches.open(DATA_CACHE).then((cache) => {
-              cache.put(request, clonedResponse);
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(request).then((cached) => {
-            if (cached) return cached;
-            return new Response(
-              JSON.stringify({
-                success: false,
-                error: 'Offline - cached data unavailable',
-                code: 'OFFLINE',
-              }),
-              { status: 503, headers: { 'Content-Type': 'application/json' } }
-            );
-          });
-        })
+      fetch(request).catch(async () =>
+        (await caches.match(request)) || (await caches.match(OFFLINE_PAGE)) ||
+        new Response('Offline', { status: 503 })
+      )
     );
     return;
   }
 
-  // API requests - network first
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request).catch(() => caches.match(request))
-    );
-    return;
-  }
-
-  // Static assets - cache first
+  // Hashed static assets - cache first
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;

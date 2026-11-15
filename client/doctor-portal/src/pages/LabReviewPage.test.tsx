@@ -51,7 +51,7 @@ describe('LabReviewPage', () => {
       },
     ],
     notes: 'synthetic',
-    submitted_by: 'lab_tech_wallet',
+    submitted_by: 'lab_tech_id',
     submitted_at: new Date('2026-08-26T08:00:00Z').toISOString(),
     status: 'pending' as const,
     ...over,
@@ -61,7 +61,7 @@ describe('LabReviewPage', () => {
     vi.clearAllMocks();
     (useAuthStore as unknown as Mock).mockImplementation(
       (sel: (s: unknown) => unknown) =>
-        sel({ user: { walletAddress: 'doctor_wallet', role: 'Doctor' } })
+        sel({ user: { userId: 'doctor_id', role: 'Doctor' } })
     );
   });
 
@@ -120,7 +120,7 @@ describe('LabReviewPage', () => {
 
   it('will not let the submitter sign off their own result', async () => {
     vi.mocked(getPendingLabResults).mockResolvedValue([
-      submission({ submitted_by: 'doctor_wallet' }),
+      submission({ submitted_by: 'doctor_id' }),
     ]);
     render(<LabReviewPage />);
 

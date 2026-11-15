@@ -142,7 +142,7 @@ fn sms_inbound_webhook_secret() -> String {
 /// as attacker-controlled with zero authentication, so anyone could opt out
 /// an arbitrary phone number from medication/appointment-reminder SMS by
 /// posting a spoofed `from` + a STOP keyword. A carrier webhook cannot sign
-/// with a wallet signature (there is no user session), so this uses a
+/// with a user id signature (there is no user session), so this uses a
 /// shared secret in the callback URL instead — the same class of mitigation
 /// most webhook providers without built-in request signing rely on.
 ///

@@ -1,10 +1,10 @@
 /**
  * MediChain Application Configuration
  * 
- * Blockchain-based health ID system configuration.
- * All authentication is wallet-based using Substrate addresses.
+ * National health ID system configuration.
+ * Sign-in is by employee ID or username and password; identity is `user_id` (UUID).
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 // ============================================================================
@@ -17,29 +17,30 @@
 /**
  * Development mode.
  *
- * Defaults to **false**, not true. This gates `DEMO_WALLET_GENERATION`,
- * `NFC_SIMULATION` and the demo-wallet branch of both auth stores — controls
- * that mint an identity — so the question it answers is "may this build hand
- * out a session without a real credential". A gate on that question has to
- * fail closed.
+ * Defaults to **false**, not true. This gates `NFC_SIMULATION` and other
+ * development-only controls, so the question it answers is "may this build
+ * turn on a shortcut". A gate on that question has to fail closed.
  *
  * It previously read `?? true`, so any context where `import.meta.env` is
  * absent — a non-Vite bundler, SSR, a test harness, an embedded webview —
- * silently became a development build with the demo-identity paths switched
- * on. Vite defines `DEV` explicitly in a real dev server, so nothing about
- * ordinary development changes.
+ * silently became a development build with the shortcuts switched on. Vite
+ * defines `DEV` explicitly in a real dev server, so nothing about ordinary
+ * development changes.
  */
 export const IS_DEVELOPMENT = import.meta.env?.DEV ?? false;
 export const IS_PRODUCTION = import.meta.env?.PROD ?? true;
 
 /**
- * Explicit build-time opt-in for the local presentation stack's seeded
- * credential buttons. The server independently refuses the credentials unless
- * it is both a demo deployment and in developer mode, so this flag cannot
- * create a sign-in path on its own.
+ * Presentation (demo) build.
+ *
+ * Only the literal string `'true'` switches it on; unset, empty, `'1'` or a
+ * typo all read as off, so a production build that never mentions the variable
+ * is never a demo build. It decides whether the sign-in page offers the seeded
+ * demo accounts at all — the server still refuses to hand them out unless it
+ * is itself a dev-mode demo deployment, so this can only ever hide the
+ * shortcut, never create one.
  */
-const DEMO_CREDENTIALS_ENABLED =
-  (import.meta.env?.VITE_DEMO_CREDENTIALS_ENABLED ?? 'false') === 'true';
+export const DEMO_MODE = (import.meta.env?.VITE_DEMO_MODE ?? 'false') === 'true';
 
 /**
  * Detect the best API URL based on environment
@@ -76,16 +77,6 @@ function detectApiBaseUrl(): string {
 }
 
 /**
- * Detect WebSocket URL for Substrate node
- */
-function detectSubstrateWsUrl(): string {
-  if (import.meta.env?.VITE_SUBSTRATE_WS) {
-    return import.meta.env.VITE_SUBSTRATE_WS;
-  }
-  return 'ws://127.0.0.1:9944';
-}
-
-/**
  * API Configuration
  */
 export const API_CONFIG = {
@@ -104,9 +95,6 @@ export const API_CONFIG = {
   /** Maximum delay between retries (ms) */
   RETRY_MAX_DELAY: 10000,
   
-  /** WebSocket URL for Substrate node */
-  SUBSTRATE_WS_URL: detectSubstrateWsUrl(),
-  
   /**
    * Health check endpoint.
    *
@@ -124,17 +112,15 @@ export const API_CONFIG = {
  * Feature flags for development and production
  */
 export const FEATURES = {
-  /** Enable wallet connection UI */
-  WALLET_CONNECT: true,
-  
-  /** Allow demo wallet generation (for testing) */
-  DEMO_WALLET_GENERATION: IS_DEVELOPMENT || DEMO_CREDENTIALS_ENABLED,
-  
+  /**
+   * Offer the labelled "Demo accounts" shortcut on the clinician sign-in page.
+   * Off unless the build sets `VITE_DEMO_MODE=true`, including in `vite dev`:
+   * a developer build is not automatically a presentation build.
+   */
+  QUICK_LOGIN: DEMO_MODE,
+
   /** Log debug information */
   DEBUG_LOGGING: IS_DEVELOPMENT,
-  
-  /** Use localStorage for wallet persistence */
-  PERSIST_WALLET: true,
   
   /** Enable NFC card simulation */
   NFC_SIMULATION: IS_DEVELOPMENT,
@@ -145,13 +131,9 @@ export const FEATURES = {
 // ============================================================================
 
 export const STORAGE_KEYS = {
-  /** Current connected wallet */
-  WALLET: 'medichain_wallet',
-  /** All registered accounts */
-  ACCOUNTS: 'medichain_accounts',
-  /** Patient-specific auth data */
+  /** Patient-specific display session (identity only; never a credential) */
   PATIENT_AUTH: 'medichain_patient_auth',
-  /** Provider-specific auth data */
+  /** Provider-specific display session (identity only; never a credential) */
   PROVIDER_AUTH: 'medichain_provider_auth',
 } as const;
 
@@ -184,85 +166,73 @@ export const debugLog = (context: string, ...args: unknown[]): void => {
   }
 };
 
-/**
- * Get connected wallet address from localStorage
- * Returns null if no wallet is connected
- */
-export const getConnectedWalletAddress = (): string | null => {
+/** What the browser remembers about a signed-in patient (display only). */
+export interface StoredPatientAuth {
+  userId: string;
+  healthId: string;
+  name: string;
+}
+
+/** What the browser remembers about a signed-in staff member (display only). */
+export interface StoredProviderAuth {
+  userId: string;
+  role: string;
+  name: string;
+}
+
+function readStored<T>(key: string, isValid: (value: Record<string, unknown>) => boolean): T | null {
   try {
-    const walletData = localStorage.getItem(STORAGE_KEYS.WALLET);
-    if (!walletData) return null;
-    const wallet = JSON.parse(walletData);
-    return wallet.address || null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    return parsed && typeof parsed === 'object' && isValid(parsed) ? (parsed as T) : null;
   } catch {
     return null;
   }
-};
+}
 
 /**
  * Get patient auth data from localStorage
  * Used by patient-app
  */
-export const getPatientAuth = (): { address: string; healthId: string; name: string } | null => {
-  try {
-    const authData = localStorage.getItem(STORAGE_KEYS.PATIENT_AUTH);
-    if (!authData) return null;
-    return JSON.parse(authData);
-  } catch {
-    return null;
-  }
-};
+export const getPatientAuth = (): StoredPatientAuth | null =>
+  readStored<StoredPatientAuth>(
+    STORAGE_KEYS.PATIENT_AUTH,
+    (v) => typeof v.userId === 'string' && v.userId.length > 0
+  );
 
 /**
- * Get provider auth data from localStorage  
+ * Get provider auth data from localStorage
  * Used by doctor-portal
  */
-export const getProviderAuth = (): { address: string; role: string; name: string } | null => {
-  try {
-    const authData = localStorage.getItem(STORAGE_KEYS.PROVIDER_AUTH);
-    if (!authData) return null;
-    return JSON.parse(authData);
-  } catch {
-    return null;
-  }
-};
+export const getProviderAuth = (): StoredProviderAuth | null =>
+  readStored<StoredProviderAuth>(
+    STORAGE_KEYS.PROVIDER_AUTH,
+    (v) => typeof v.userId === 'string' && v.userId.length > 0
+  );
 
 /**
  * Store patient auth data
  */
-export const setPatientAuth = (data: { address: string; healthId: string; name: string }): void => {
+export const setPatientAuth = (data: StoredPatientAuth): void => {
   localStorage.setItem(STORAGE_KEYS.PATIENT_AUTH, JSON.stringify(data));
-  localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: data.address, role: 'Patient' }));
 };
 
 /**
  * Store provider auth data
  */
-export const setProviderAuth = (data: { address: string; role: string; name: string }): void => {
+export const setProviderAuth = (data: StoredProviderAuth): void => {
   localStorage.setItem(STORAGE_KEYS.PROVIDER_AUTH, JSON.stringify(data));
-  localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: data.address, role: data.role }));
 };
 
 /** Clear only the clinician session and preserve a patient portal session. */
 export const clearProviderAuth = (): void => {
   localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
-  const patient = getPatientAuth();
-  if (patient) {
-    localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: patient.address, role: 'Patient' }));
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.WALLET);
-  }
 };
 
 /** Clear only the patient session and preserve a clinician portal session. */
 export const clearPatientAuth = (): void => {
   localStorage.removeItem(STORAGE_KEYS.PATIENT_AUTH);
-  const provider = getProviderAuth();
-  if (provider) {
-    localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: provider.address, role: provider.role }));
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.WALLET);
-  }
 };
 
 // ============================================================================
@@ -291,29 +261,6 @@ export async function checkApiHealth(): Promise<boolean> {
 }
 
 /**
- * Validate SS58 wallet address format
- * MediChain uses Substrate addresses: 48 characters, starts with "5"
- */
-export function isValidWalletAddress(address: string): boolean {
-  if (!address || typeof address !== 'string') {
-    return false;
-  }
-  if (address.length !== 48) {
-    debugLog('wallet', `Invalid address length: ${address.length}, expected 48`);
-    return false;
-  }
-  if (!address.startsWith('5')) {
-    debugLog('wallet', `Invalid address prefix: should start with "5"`);
-    return false;
-  }
-  if (!/^[A-Za-z0-9]+$/.test(address)) {
-    debugLog('wallet', 'Invalid address characters: must be alphanumeric');
-    return false;
-  }
-  return true;
-}
-
-/**
  * Sleep utility for retry delays
  */
 export function sleep(ms: number): Promise<void> {
@@ -326,7 +273,7 @@ export function sleep(ms: number): Promise<void> {
  */
 const IS_TEST_RUNTIME: boolean =
   (typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test') ||
-  (typeof process !== 'undefined' && process.env?.VITEST === 'true');
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.VITEST === 'true';
 
 /**
  * Calculate exponential backoff delay with jitter

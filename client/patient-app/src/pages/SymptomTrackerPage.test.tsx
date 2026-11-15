@@ -21,7 +21,7 @@ describe('SymptomTrackerPage (Patient)', () => {
     id: '1',
     healthId: 'HEALTH123',
     fullName: 'Test Patient',
-    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+    userId: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
     role: 'patient',
   };
 
@@ -93,6 +93,22 @@ describe('SymptomTrackerPage (Patient)', () => {
     expect(screen.getByText(/Log Symptom/i)).toBeInTheDocument();
     expect(screen.getByText(/Pain/i)).toBeInTheDocument();
     expect(screen.getByText(/Respiratory/i)).toBeInTheDocument();
+  });
+
+  it('clears a previous symptom when changing category before saving', async () => {
+    render(<MemoryRouter><SymptomTrackerPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Log New Symptom' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pain' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Abdominal pain' }));
+    expect(screen.getByRole('button', { name: 'Save Entry' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Respiratory' }));
+    // The old symptom is gone: saving now asks for one instead of sending it.
+    fireEvent.click(screen.getByRole('button', { name: 'Save Entry' }));
+    expect(await screen.findByText(/Choose a category and a symptom first/i)).toBeInTheDocument();
+    expect(shared.logSymptom).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cough' }));
+    expect(screen.getByRole('button', { name: 'Save Entry' })).toBeEnabled();
   });
 
   it('retracts an entry through the API instead of only hiding it locally', async () => {

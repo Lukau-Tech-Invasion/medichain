@@ -56,7 +56,7 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
     async fn create_request_with_audit(
         &self,
         request: AccessRequestEntity,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<AccessRequestEntity> {
         // Demo-only memory storage has no shared transaction manager with the
         // in-process outbox. Production uses the PostgreSQL implementation.
@@ -111,7 +111,7 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         &self,
         request_id: &str,
         grant: AccessGrantEntity,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>> {
         // Demo-only memory storage has no shared transaction manager with the
         // in-process outbox. Production uses the PostgreSQL implementation.
@@ -134,7 +134,7 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
     async fn deny_request_with_audit(
         &self,
         request_id: &str,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<Option<AccessRequestEntity>> {
         self.deny_request(request_id).await
     }
@@ -191,7 +191,7 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         &self,
         grant_id: &str,
         now: DateTime<Utc>,
-        _event: crate::audit_outbox::AuditOutboxEvent,
+        _event: crate::audit_outbox::AuditEvent,
     ) -> RepositoryResult<Option<AccessGrantEntity>> {
         self.revoke_grant(grant_id, now).await
     }

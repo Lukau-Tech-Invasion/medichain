@@ -33,7 +33,6 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] SMTP dispatch for regulator/data-subject breach notifications **(needs SMTP provider — scaffold + document)**
 
 ### Infra & observability (8.1, 8.2, 12.1)
-- [x] Add Substrate node service + `docker-compose.prod.yml` overrides + per-service health checks
 - [x] Wire Grafana dashboard + Prometheus alert rules into the deployment
 - [x] Frontend bundle analysis + code-split doctor vs patient apps (< 200KB initial JS)
 
@@ -135,23 +134,6 @@ Run as specialist agents in separate lanes (worktrees) with a verifier gate betw
       verified-clean state — all of doctor-portal/patient-app/shared `npm run typecheck` pass).
       Added `client/shared/src/types/clinical.ts` (1489 lines) — real interfaces for
       clinical-domain API responses derived from the Rust structs, replacing `unknown` returns.
-- [x] **Verifier agent — run directly, not via subagent** (the subagent lane hit the session limit
-      before starting). Full gate, all green:
-      - `cargo check --workspace --all-targets` — clean
-      - `cargo clippy --workspace -- -D warnings` — **clean** (was 148 issues on the newer clippy
-        1.97.1 toolchain vs. whatever version last gave this project a green run — not a regression
-        from any change this session; fixed via `cargo clippy --fix` for the mechanical ~27, then
-        99× `sort_by(|a,b| b.X.cmp(&a.X))` → `sort_by_key(|b| Reverse(b.X))` across 21 repository
-        files, 9× `match {Ok(v)=>v, Err(_)=>default}` → `.unwrap_or_default()`, 1× manual
-        `strip_prefix`, plus 3 cases left with a scoped, commented `#[allow]` instead of a risky
-        rewrite: a deliberate single-arm match scaffold, an unwrap-after-is_some in blockchain
-        extrinsic submission code, and an enum variant rename that would've silently changed its
-        serde wire format — and 9× `await_holding_lock` false positives (this clippy version doesn't
-        recognize explicit `drop()` calls; all 9 sites already correctly drop the guard before
-        awaiting, confirmed file-by-file)
-      - `cargo test --workspace` — 168 passed, only the 3 known `Pg*` tests fail (need a live
-        PostgreSQL, expected in this environment)
-      - `npm run typecheck` — clean in doctor-portal, patient-app, and shared
 
 ---
 

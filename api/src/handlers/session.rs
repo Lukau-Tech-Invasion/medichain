@@ -4,6 +4,13 @@ use super::*;
 // Session Token Endpoints
 // ============================================================================
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeviceRegistrationRequest {
+    pub token: String,
+    pub device_type: Option<String>,
+    pub device_name: Option<String>,
+}
+
 #[post("/api/notifications/register-device")]
 pub async fn register_device(
     data: web::Data<AppState>,
@@ -11,7 +18,7 @@ pub async fn register_device(
     req: web::Json<DeviceRegistrationRequest>,
 ) -> impl Responder {
     let user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 

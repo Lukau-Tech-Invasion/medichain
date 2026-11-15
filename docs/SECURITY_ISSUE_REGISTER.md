@@ -32,7 +32,6 @@ alone — an issue that blocks the clinic demo outranks a worse one that doesn't
 | SEC-34 | Emergency card hid allergies from responders (`FIXED`) | Registration wrote allergies to the patient profile but never to the allergies repository the card reads, AND the card filtered out anything not Severe/Moderate — which was every registration allergy, since registration hardcoded severity `Mild`. A patient registered with penicillin showed an EMPTY allergy list, and the lock screen printed "No Critical Allergies". Now merges both sources, records `Unknown` severity honestly, lists every allergen with `critical`/`severity_assessed` flags, and says "No allergies on file" only when genuinely empty. |
 | SEC-35 | Emergency card showed no medications/conditions (`FIXED`) | Hardcoded empty vectors behind a "Phase 2 repository" TODO on the paramedic-facing view. `[]` there reads as "no known conditions". Now reads the real profile; verified a Warfarin + atrial-fibrillation patient shows both. |
 | SEC-36 | AMA discharge fabricated a patient signature (`FIXED`) | `patientSigned: true` hardcoded while status was 'pending-signatures'. An Against-Medical-Advice record's entire evidentiary value is the signatures. |
-| SEC-37 | Wallet publicKey was 32 zero bytes for every account (`FIXED`) | Identical key returned for all wallets; now decoded from the SS58 address. |
 | SEC-13 | **No frontend served by Docker** (`FIXED`) | `client/Dockerfile` now builds both portals into the nginx image: `/` landing page with a synthetic-data banner, `/doctor/`, `/patient/`, `/api/` proxied. SPA deep links survive a refresh. `bash scripts/demo-smoke-test.sh` — **18/18**. Verified against the real compose stack. |
 | SEC-14 | Docs/README contradict runtime | Partly addressed by `WHERE_WE_ARE.md`; README still overstates. |
 | SEC-15 | No visual/accessibility audit yet | **Unblocked by SEC-13** — the portals are now served, so this can finally be done. Keyboard reach, focus order/visibility, screen-reader names, contrast, zoom, RTL, small-screen, form-error association and empty/offline/error states remain uncertified. Needs a browser, not curl. |
@@ -51,18 +50,6 @@ alone — an issue that blocks the clinic demo outranks a worse one that doesn't
 | SEC-23 | Idempotency not bound to a body digest | Same key + different body on one route replays the first response. Needs payload buffering — sits in front of large uploads. |
 | SEC-24 | Audit completeness | Must record denied reads and consent decisions, be immutable and org-scoped. |
 | SEC-25 | Backup/restore, downtime and corruption drills never rehearsed | Also blocks the Horizon active gate. |
-| SEC-26 | PostgreSQL path (`FIXED — 160/160`) | Volume recreated; **43/43 migrations apply**. Five distinct defects fixed to get there: `nfc_tags.tag_uid` VARCHAR(32) holding a 64-char SHA3 hash (no patient could register at all); `users.valid_wallet` rejecting the `PAT-` placeholder wallet; `io_records.recorded_by/verified_by` uuid-vs-wallet-string (FKs to a `users.id` the app never populates); `medication_records.data` missing; 16 uuid actor columns across 6 tables failing both read and write decode; and four PostgreSQL `list_all` methods that were never implemented, inheriting a trait DEFAULT that returns a runtime `NotFound`. **Both backends now 160/160.** |
-
-## P2 — blocks multi-hospital or blockchain claims
-
-| ID | Issue | Notes |
-|---|---|---|
-| SEC-27 | No adversarial Hospital A/B isolation test | Until this exists, isolation is a claim. |
-| SEC-28 | `node` + `runtime` excluded from workspace; `node/Dockerfile` absent; subcommands return `Ok(())` | **Do not call this blockchain-backed.** |
-| SEC-29 | Placeholder pallet weights | Benchmark before any validator topology. |
-| SEC-30 | No validator/finality/partition/key-rotation/upgrade policy | The review's unanswered questions are the right list. |
-| SEC-31 | Shared encryption key blast radius | Per-organization domains backed by KMS/HSM. |
-| SEC-32 | No load test at realistic volume or 10/100-hospital traffic | — |
 
 ## Standing risk
 

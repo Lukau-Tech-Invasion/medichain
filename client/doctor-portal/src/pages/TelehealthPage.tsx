@@ -9,11 +9,12 @@ import {
   getTelehealthJoinQr,
   listMyTelehealthSessions,
   useTranslation,
-  formatTimestamp,
+  formatTimestamp, ChoiceChips,
+  useLatestRequest,
 } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2, QrCode } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
-import { JitsiMeetComponent } from '@medichain/shared';
+import { JitsiMeetComponent, TelehealthRecordingList } from '@medichain/shared';
 
 /** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
 interface JitsiCredentials {
@@ -71,24 +72,28 @@ export default function TelehealthPage() {
   // used to render an empty list until a patient id was typed in, so a
   // clinician opening their own telehealth list saw nothing and had no way to
   // discover what they were seeing today.
+  const beginSessionsRead = useLatestRequest();
   const fetchSessions = useCallback(async (pid: string) => {
     if (!user) return;
+    const current = beginSessionsRead();
     setLoading(true);
     try {
       const data = pid
         ? await getPatientTelehealthSessions(pid)
         : await listMyTelehealthSessions();
+      if (!current()) return;
       setSessions(data.sessions ?? []);
       setError('');
     } catch (e) {
       console.error(e);
+      if (!current()) return;
       // Said out loud. A failed fetch used to leave the previous list on
       // screen with no indication it was stale.
       setError(getApiErrorMessage(e, t('docTelehealth.errLoad')));
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [user, t]);
+  }, [user, t, beginSessionsRead]);
 
   useEffect(() => {
     void fetchSessions(patientId);
@@ -137,7 +142,10 @@ export default function TelehealthPage() {
       await fetchSessions(patientId);
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
-      setError(t('docTelehealth.errConnect'));
+      // The server's reason, not a generic "failed to connect": a deployment
+      // with telehealth switched off answered clearly and was misreported as
+      // a network fault.
+      setError(getApiErrorMessage(e, t('docTelehealth.errConnect')));
     }
   };
 
@@ -366,6 +374,7 @@ export default function TelehealthPage() {
                       {t('docTelehealth.durationMinutes', { minutes: session.duration_minutes })}
                     </span>
                   </div>
+                  {isOver(session.status) && <TelehealthRecordingList sessionId={session.session_id} />}
                 </div>
                 <div className="flex gap-2 ml-4">
                   {!isOver(session.status) && (
@@ -440,25 +449,25 @@ export default function TelehealthPage() {
                 id="telehealth-form-patient"
                 label={t('docTelehealth.patientId')}
                 value={formData.patient_id}
-                onChange={(selectedPatientId) => setFormData({ ...formData, patient_id: selectedPatientId })}
+                onChange={(selectedPatientId) => setFormData(current => ({ ...current, patient_id: selectedPatientId }))}
                 required
               />
             </div>
             <div>
-              <label htmlFor="telehealth-session-type" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.sessionType')}</label>
-              <select
+              <ChoiceChips
                 id="telehealth-session-type"
+                label={t('docTelehealth.sessionType')}
                 value={formData.session_type}
-                onChange={e => setFormData({ ...formData, session_type: e.target.value })}
-                className="w-full border rounded-lg px-3 py-2"
-              >
-                <option value="VideoVisit">{t('docTelehealth.typeVideo')}</option>
-                <option value="PhoneCall">{t('docTelehealth.typePhone')}</option>
-                <option value="SecureMessage">{t('docTelehealth.typeMessage')}</option>
-                <option value="AsyncVideo">{t('docTelehealth.typeAsyncVideo')}</option>
-                <option value="RemoteMonitoring">{t('docTelehealth.typeMonitoring')}</option>
-                <option value="VirtualGroupVisit">{t('docTelehealth.typeGroup')}</option>
-              </select>
+                onChange={(next) => { if (next === undefined) return; setFormData(current => ({ ...current, session_type: next })); }}
+                options={[
+                  { value: 'VideoVisit', label: t('docTelehealth.typeVideo') },
+                  { value: 'PhoneCall', label: t('docTelehealth.typePhone') },
+                  { value: 'SecureMessage', label: t('docTelehealth.typeMessage') },
+                  { value: 'AsyncVideo', label: t('docTelehealth.typeAsyncVideo') },
+                  { value: 'RemoteMonitoring', label: t('docTelehealth.typeMonitoring') },
+                  { value: 'VirtualGroupVisit', label: t('docTelehealth.typeGroup') },
+                ]}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -467,7 +476,7 @@ export default function TelehealthPage() {
                   id="telehealth-date"
                   type="date"
                   value={formData.scheduled_start_date}
-                  onChange={e => setFormData({ ...formData, scheduled_start_date: e.target.value })}
+                  onChange={e => setFormData(current => ({ ...current, scheduled_start_date: e.target.value }))}
                   className="w-full border rounded-lg px-3 py-2"
                   required
                 />
@@ -478,7 +487,7 @@ export default function TelehealthPage() {
                   id="telehealth-time"
                   type="time"
                   value={formData.scheduled_start_time}
-                  onChange={e => setFormData({ ...formData, scheduled_start_time: e.target.value })}
+                  onChange={e => setFormData(current => ({ ...current, scheduled_start_time: e.target.value }))}
                   className="w-full border rounded-lg px-3 py-2"
                   required
                 />
@@ -492,7 +501,7 @@ export default function TelehealthPage() {
                 min={15}
                 max={120}
                 value={formData.duration_minutes}
-                onChange={e => setFormData({ ...formData, duration_minutes: parseInt(e.target.value) })}
+                onChange={e => setFormData(current => ({ ...current, duration_minutes: parseInt(e.target.value) }))}
                 className="w-full border rounded-lg px-3 py-2"
               />
             </div>
@@ -524,7 +533,8 @@ export default function TelehealthPage() {
 
       {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
       {!activeCall && activeCallUrl && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        // ux-allow(overlay): the full-screen call itself, not a dialog; Escape must not end a consultation.
+        <div role="dialog" aria-modal="true" aria-label={t('docTelehealth.videoCall')} className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-gray-900 text-white">
             <span className="flex items-center gap-2 font-medium">
               <Video size={20} /> {t('docTelehealth.videoCall')}

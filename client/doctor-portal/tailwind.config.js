@@ -8,6 +8,13 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      // Minimum 14 px text (UX plan WP 1.4). `text-xs` was 12 px and carried
+      // dates of birth, doses and health IDs in 932 places -- below what a
+      // clinician reads at arm's length on a ward tablet. It now matches
+      // `text-sm`; hierarchy comes from weight and colour, not a smaller size.
+      fontSize: {
+        xs: ['0.875rem', { lineHeight: '1.25rem' }],
+      },
       // A bare `border` or `divide-y` takes Tailwind's default colour, gray-200,
       // in BOTH themes -- a light hairline across every dark surface. Pointing the
       // default at the token makes every unqualified border follow the theme.

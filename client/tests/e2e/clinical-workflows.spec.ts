@@ -39,8 +39,8 @@ function staff(manifest: Manifest, prefix: string): Staff {
 
 async function signIn(page: Page, account: Staff): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel(/employee identifier/i).fill(account.login_id);
-  await page.getByLabel(/^password$/i).fill(account.password);
+  await page.locator('input#identifier').fill(account.login_id);
+  await page.locator('input#password').fill(account.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 }

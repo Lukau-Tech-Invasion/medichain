@@ -19,7 +19,7 @@
 ## Security and privacy
 
 - [ ] No secrets, keys or credentials added
-- [ ] No personal health information written on-chain
+- [ ] No personal health information written to audit events or checkpoints
 - [ ] No real personal data in tests, fixtures or examples
 - [ ] Authorization checked where this touches patient data
 - [ ] If this changes a compliance-relevant control, the relevant doc is updated

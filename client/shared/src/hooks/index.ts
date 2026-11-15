@@ -5,16 +5,19 @@
 // and `useProviderDirectory` below are the pattern that is actually in use.
 // `AuthProvider` / `useAuth` lived here and had no consumers either -- both
 // portals use their own Zustand `authStore`. Removed 2026-09-10, and not only
-// as dead weight: it restored a session by reading a wallet address out of
+// as dead weight: it restored a session by reading an identity out of
 // `localStorage` on mount and setting `isAuthenticated: true`, which is exactly
 // the path `authStore.restoreSession` fails closed on by design -- no access
-// token, refresh token or signing key is persisted, so nothing should survive a
-// full page load. A dead weaker auth path beside the live one is a trap, not
+// token is persisted and the refresh token is an HttpOnly cookie, so nothing
+// script-readable should survive a full page load. A dead weaker auth path beside the live one is a trap, not
 // spare capacity.
 export * from './useSidebarData';
+export * from './useUnreadNotifications';
 export * from './useSSE';
 export * from './useApiStatus';
 export * from './useOfflineCache';
 export * from './useProviderDirectory';
 export * from './useScoringCatalog';
 export * from './useStepUp';
+export * from './useLatestRequest';
+export * from './useAsyncRead';

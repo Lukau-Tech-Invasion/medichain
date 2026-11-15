@@ -45,7 +45,7 @@ pub struct DashboardPatient {
 }
 
 /// Project a stored patient row into the dashboard view, decrypting where possible.
-fn dashboard_patient(
+pub(super) fn dashboard_patient(
     entity: &crate::repositories::traits::PatientEntity,
     keyring: &crate::encryption_keyring::EncryptionKeyring,
 ) -> DashboardPatient {
@@ -98,7 +98,7 @@ pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) 
         Ok(u) => u,
         Err(resp) => return resp,
     };
-    let current_user_id = current_user.wallet_address.clone();
+    let current_user_id = current_user.id.clone();
 
     let patients: Vec<DashboardPatient> = required_dashboard_read!(
         data.repositories
@@ -350,24 +350,57 @@ async fn ward_context(data: &web::Data<AppState>, patient_id: &str) -> WardConte
     context
 }
 
+/// The caller's day (`handlers::day_list`), kept to the patients they are
+/// treating, as dashboard rows.
+///
+/// A patient is listed only when `resolve_chart_access` grants a treating
+/// authority now, the same gate a chart read applies, so a lapsed relationship
+/// drops off the list instead of showing a name the nurse cannot open.
+async fn treated_patients(
+    data: &web::Data<AppState>,
+    caller: &crate::User,
+) -> Result<Vec<DashboardPatient>, String> {
+    let mut rows = Vec::new();
+    for (patient_id, _) in crate::handlers::day_list(data, caller).await {
+        let authority = crate::care_access::resolve_chart_access(data, caller, &patient_id)
+            .await
+            .map_err(|e| e.0)?;
+        if !crate::handlers::is_treating_authority(&authority) {
+            continue;
+        }
+        match data.repositories.patients.get_by_id(&patient_id).await {
+            Ok(entity) => rows.push(dashboard_patient(&entity, &data.encryption_keyring)),
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    Ok(rows)
+}
+
 #[get("/api/dashboard/nurse")]
 pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    // I/O summaries use the existing registry permission and durable bulk-read audit.
+    if let Err(response) =
+        crate::clinical_endpoints::require_registry_reader(&data, &http_req).await
+    {
+        return response;
+    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.id.clone();
 
-    let patients: Vec<DashboardPatient> = required_dashboard_read!(
-        data.repositories
-            .patients
-            .list(Pagination::new(0, 15))
-            .await,
+    // The nurse's own patients: their ward, their care relationships, today's
+    // appointments. This was `patients.list(0, 15)` — the first fifteen rows in
+    // the database, which put strangers' names on every nurse's screen and left
+    // the nurse's actual ward off it.
+    let patients = required_dashboard_read!(
+        treated_patients(&data, &caller).await,
         "nurse dashboard patients"
-    )
-    .items
-    .iter()
-    .map(|e| dashboard_patient(e, &data.encryption_keyring))
-    .collect();
+    );
+    let on_list: std::collections::HashSet<&str> =
+        patients.iter().map(|p| p.patient_id.as_str()).collect();
 
     // Bed, acuity and the three standing tasks, per patient. The page has
     // always rendered these columns; the endpoint has never filled them.
@@ -403,15 +436,11 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
     let medication_records = ward_medications_due(&data, &patients).await;
 
     let critical_alerts: Vec<_> = required_dashboard_read!(
-        data.repositories
-            .cds_alerts
-            .list_all(Pagination::new(0, 20))
-            .await,
+        data.repositories.cds_alerts.get_high_severity().await,
         "nurse dashboard critical alerts"
     )
-    .items
     .into_iter()
-    .filter(|a| a.severity == "critical")
+    .filter(|a| a.severity == "critical" && on_list.contains(a.patient_id.as_str()))
     .take(5)
     .collect();
 
@@ -439,11 +468,22 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
             .get_high_risk_patients()
             .await,
         "nurse dashboard fall-risk patients"
-    );
+    )
+    .into_iter()
+    .filter(|a| on_list.contains(a.patient_id.as_str()))
+    .collect::<Vec<_>>();
 
-    // Intake/output has no ward-wide listing; the entries a nurse records are
-    // shown on the Intake & Output screen itself.
-    let io_records: Vec<serde_json::Value> = Vec::new();
+    let io_records = required_dashboard_read!(
+        super::nurse_io::summaries(&data).await,
+        "nurse dashboard intake/output"
+    )
+    .into_iter()
+    .filter(|row| {
+        row.get("patient_id")
+            .and_then(|v| v.as_str())
+            .is_some_and(|id| on_list.contains(id))
+    })
+    .collect::<Vec<_>>();
 
     HttpResponse::Ok().json(serde_json::json!({
         "nurse_id": current_user_id,
@@ -472,7 +512,7 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
 #[get("/api/dashboard/lab")]
 pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -551,7 +591,7 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         .iter()
         .map(|r| r.patient_id.clone())
         .collect();
-    let rejection_names = resolve_patient_names(&data, &rejection_ids).await;
+    let rejection_names = crate::support::resolve_patient_names(&data, &rejection_ids).await;
 
     // Enrich the SERIALISED ENTITY, not `entity.data`.
     //
@@ -600,7 +640,7 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
         .iter()
         .map(|c| c.patient_id.clone())
         .collect();
-    let critical_names = resolve_patient_names(&data, &critical_ids).await;
+    let critical_names = crate::support::resolve_patient_names(&data, &critical_ids).await;
     let critical_notifications: Vec<serde_json::Value> = critical_records
         .iter()
         .map(|record| {
@@ -645,37 +685,6 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
     }))
 }
 
-/// Resolve patient ids to display names, decrypting through the keyring.
-///
-/// Dashboards do this rather than the client for one reason: the name is
-/// encrypted at rest and only the API holds the keyring, so a panel that reads
-/// `patient_name` off a raw entity gets `undefined` and announces a result
-/// without saying whose it is.
-///
-/// Ids are de-duplicated, so a patient with six unacknowledged criticals costs
-/// one read rather than six. Ids that cannot be resolved are simply absent from
-/// the map, and the caller leaves the field off — an unnamed alert is better
-/// than one attributed to the wrong person.
-async fn resolve_patient_names(
-    data: &web::Data<AppState>,
-    patient_ids: &[String],
-) -> std::collections::HashMap<String, String> {
-    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for patient_id in patient_ids {
-        if patient_id.is_empty() || names.contains_key(patient_id) {
-            continue;
-        }
-        if let Ok(entity) = data.repositories.patients.get_by_id(patient_id).await {
-            if let Some(profile) =
-                crate::patient_entity_to_profile(&entity, &data.encryption_keyring)
-            {
-                names.insert(patient_id.clone(), profile.full_name);
-            }
-        }
-    }
-    names
-}
-
 /// Administrator Dashboard
 ///
 /// Returns the shape `AdminDashboardPage` reads. It read a per-role staffing
@@ -685,7 +694,7 @@ async fn resolve_patient_names(
 #[get("/api/dashboard/admin")]
 pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+        Ok(u) => u.id,
         Err(resp) => return resp,
     };
 
@@ -707,11 +716,6 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
         data.repositories.medical_records.count().await,
         "admin dashboard record count"
     );
-    let tx_count = required_dashboard_read!(
-        data.repositories.chain_of_custody.list_all().await,
-        "admin dashboard chain-of-custody count"
-    )
-    .len();
 
     let users: Vec<crate::types::User> = data
         .users
@@ -735,59 +739,36 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
     )
     .items;
 
+    // Counted across the whole database. These used to walk the first 100
+    // patients of the roster and add up what each had, so past 100 patients
+    // every figure was a partial count presented as the total.
     let code_blues = required_dashboard_read!(
-        data.repositories.code_blue.list_all().await,
+        data.repositories.code_blue.count_all().await,
         "admin dashboard code-blue count"
-    )
-    .len();
-
-    // Stroke, trauma and sepsis assessments and NFC cards are only queryable per
-    // patient, so they are counted in one pass over the roster rather than
-    // through a ward-wide listing these repositories do not provide.
-    let mut strokes = 0usize;
-    let mut traumas = 0usize;
-    let mut sepsis_cases = 0usize;
-    let mut nfc_cards = Vec::new();
-    let roster = required_dashboard_read!(
-        data.repositories
-            .patients
-            .list(Pagination::new(0, 100))
-            .await,
-        "admin dashboard patient roster"
     );
-    for entity in roster.items {
-        strokes += required_dashboard_read!(
-            data.repositories
-                .stroke_assessments_repo
-                .get_by_patient(&entity.id, Pagination::new(0, 100))
-                .await,
-            "admin dashboard stroke assessments"
-        )
-        .items
-        .len();
-        traumas += required_dashboard_read!(
-            data.repositories
-                .trauma_assessments_repo
-                .get_by_patient(&entity.id, Pagination::new(0, 100))
-                .await,
-            "admin dashboard trauma assessments"
-        )
-        .items
-        .len();
-        sepsis_cases += required_dashboard_read!(
-            data.repositories
-                .sepsis_assessments_repo
-                .get_by_patient(&entity.id, Pagination::new(0, 100))
-                .await,
-            "admin dashboard sepsis assessments"
-        )
-        .items
-        .len();
-        nfc_cards.extend(required_dashboard_read!(
-            data.repositories.nfc_tags.get_by_patient(&entity.id).await,
-            "admin dashboard NFC cards"
-        ));
-    }
+    let strokes = required_dashboard_read!(
+        data.repositories.stroke_assessments_repo.count_all().await,
+        "admin dashboard stroke assessments"
+    );
+    let traumas = required_dashboard_read!(
+        data.repositories.trauma_assessments_repo.count_all().await,
+        "admin dashboard trauma assessments"
+    );
+    let sepsis_cases = required_dashboard_read!(
+        data.repositories.sepsis_assessments_repo.count_all().await,
+        "admin dashboard sepsis assessments"
+    );
+    let card_counts = required_dashboard_read!(
+        data.repositories.nfc_tags.count_by_status().await,
+        "admin dashboard NFC cards"
+    );
+    let cards_in = |status: &str| -> u64 {
+        card_counts
+            .iter()
+            .filter(|(s, _)| s.eq_ignore_ascii_case(status))
+            .map(|(_, n)| n)
+            .sum()
+    };
 
     let submissions = required_dashboard_read!(
         data.repositories
@@ -802,36 +783,16 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
         .filter(|s| s.status == "approved")
         .count();
 
-    // This used to report `status: "healthy", peers: 4, best_block: 12450,
-    // finalized_block: 12445` as literals — an administrator's node-health
-    // panel that showed a healthy, syncing chain even with no node configured
-    // at all. The client exposes connection readiness and nothing else, so
-    // that is all this reports; peer count and block heights are null rather
-    // than invented, and an operator can tell the difference between "not
-    // configured", "unreachable" and "connected".
-    let node_status = serde_json::json!({
-        "status": if !crate::blockchain::blockchain_enabled() {
-            "disabled"
-        } else if data
-            .substrate_client
-            .as_ref()
-            .is_some_and(|client| client.is_ready())
-        {
-            "connected"
-        } else {
-            "unavailable"
-        },
-        "peers": serde_json::Value::Null,
-        "best_block": serde_json::Value::Null,
-        "finalized_block": serde_json::Value::Null
-    });
+    // The sealed audit stream, measured: backlog, last seal and export, sink and
+    // signing. This panel used to show a node's peers and block heights, as
+    // literals for a long time, and then as nulls.
+    let audit_seal = crate::audit_batching::audit_seal_summary(&data).await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "admin_id": current_user_id,
         "system_stats": {
             "total_patients": patient_count,
             "total_records": record_count,
-            "total_blockchain_transactions": tx_count,
             "total_users": users.len(),
             "doctors": count_role(crate::types::Role::Doctor),
             "nurses": count_role(crate::types::Role::Nurse),
@@ -852,11 +813,17 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
             "pending": labs_pending,
             "approved": labs_approved,
         },
+        // Counts by status. The page used to filter a list of cards for
+        // `'active'` and `'revoked'` while the stored status is `Active` and
+        // `Revoked`, so both tiles read 0 whatever was issued.
         "nfc_cards": {
-            "total": nfc_cards.len(),
-            "cards": nfc_cards,
+            "total": card_counts.iter().map(|(_, n)| n).sum::<u64>(),
+            "active": cards_in("Active"),
+            "suspended": cards_in("Suspended"),
+            "revoked": cards_in("Revoked"),
+            "expired": cards_in("Expired"),
         },
-        "node_status": node_status
+        "audit_seal": audit_seal
     }))
 }
 
@@ -903,20 +870,57 @@ fn check_interaction_rows(
 /// Returns the shape `PharmacistDashboardPage` reads: it read
 /// `prescriptions.list`, `drug_interactions` and `allergy_alerts` while the API
 /// returned `pending_fills`, so the queue and both safety panels were empty.
+/// Whether a stored prescription has been sent to the pharmacy: transmitted,
+/// or any state the pharmacy moves it to after that. A draft, a pending or a
+/// merely signed prescription is still the prescriber's.
+fn reached_the_pharmacy(prescription: &serde_json::Value) -> bool {
+    matches!(
+        prescription["status"].as_str(),
+        Some("Transmitted" | "Received" | "InProgress" | "Dispensed" | "PartialFill")
+    )
+}
+
 #[get("/api/dashboard/pharmacist")]
 pub async fn pharmacist_dashboard(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let current_user = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
 
-    let records = required_dashboard_read!(
+    let all_records = required_dashboard_read!(
         data.repositories.e_prescriptions_v2.list_all().await,
         "pharmacy dashboard prescriptions"
     );
+    let mut records = Vec::new();
+    for record in all_records {
+        // A prescription transmitted to the pharmacy is pharmacy work, whoever
+        // the pharmacist is: it was addressed to them, and any pharmacist may
+        // dispense it. Gating the queue on chart authority as well left every
+        // new prescription invisible to the queue it was sent to -- nobody
+        // grants a pharmacist access to their chart -- while the dispense
+        // button still worked. The queue row carries only what is on the
+        // prescription; the allergy and interaction panels below read the
+        // chart and stay gated on care authority.
+        if reached_the_pharmacy(&record.data) {
+            records.push(record);
+            continue;
+        }
+        let patient_id = record.data["patient_id"]
+            .as_str()
+            .unwrap_or(&record.owner_id);
+        let authority = required_dashboard_read!(
+            crate::care_access::resolve_chart_access(&data, &current_user, patient_id)
+                .await
+                .map_err(|error| error.0),
+            "pharmacy dashboard care authority"
+        );
+        if authority.is_permitted() {
+            records.push(record);
+        }
+    }
     // Flattened for the queue table, which reads `medication_name`, `dosage`,
     // `patient_name` and `priority` directly. The stored document nests the drug
     // under `medication`, so passing it through raw threw on
@@ -1053,6 +1057,15 @@ pub async fn pharmacist_dashboard(
         "pharmacy dashboard safety roster"
     );
     for entity in safety_roster.items {
+        let authority = required_dashboard_read!(
+            crate::care_access::resolve_chart_access(&data, &current_user, &entity.id)
+                .await
+                .map_err(|error| error.0),
+            "pharmacy dashboard safety authority"
+        );
+        if !authority.is_permitted() {
+            continue;
+        }
         let profile = patient_entity_to_profile(&entity, &data.encryption_keyring);
         let patient_name = profile.as_ref().map(|p| p.full_name.clone());
         // The interactions found by the latest check a prescriber ran for this
@@ -1091,7 +1104,7 @@ pub async fn pharmacist_dashboard(
     }
 
     HttpResponse::Ok().json(serde_json::json!({
-        "pharmacist_id": current_user_id,
+        "pharmacist_id": current_user.id,
         "prescriptions": {
             "list": list,
             "pending_fill": pending_fill,
@@ -1110,7 +1123,7 @@ mod lab_rejection_tests {
 
     fn lab_tech() -> crate::User {
         crate::User {
-            wallet_address: "lab_wallet".to_string(),
+            id: "lab_user".to_string(),
             username: None,
             name: "Lab Test".to_string(),
             role: crate::Role::LabTechnician,
@@ -1142,7 +1155,7 @@ mod lab_rejection_tests {
             .users
             .write()
             .unwrap()
-            .insert("lab_wallet".to_string(), lab_tech());
+            .insert("lab_user".to_string(), lab_tech());
 
         let patient_id = "PAT-REJ-1";
         let now = chrono::Utc::now();
@@ -1200,7 +1213,7 @@ mod lab_rejection_tests {
                 rejection_reason: "Haemolysed sample".to_string(),
                 rejection_category: "collection_error".to_string(),
                 detailed_notes: None,
-                rejected_by: "lab_wallet".to_string(),
+                rejected_by: "lab_user".to_string(),
                 rejected_at: now,
                 recollection_required: false,
                 recollection_scheduled: None,
@@ -1224,7 +1237,7 @@ mod lab_rejection_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/lab")
-                .insert_header(("x-user-id", "lab_wallet"))
+                .insert_header(crate::test_fixtures::as_user("lab_user"))
                 .to_request(),
         )
         .await;
@@ -1251,7 +1264,7 @@ mod pharmacy_tile_tests {
 
     fn pharmacist() -> crate::User {
         crate::User {
-            wallet_address: "tile_pharm".to_string(),
+            id: "tile_pharm".to_string(),
             username: None,
             name: "Tile Pharm".to_string(),
             role: crate::Role::Pharmacist,
@@ -1317,6 +1330,14 @@ mod pharmacy_tile_tests {
                 .expect("seed prescription");
         }
 
+        crate::care_access::record_encounter(
+            &state,
+            "PAT-TILE",
+            "tile_pharm",
+            "QA-ENCOUNTER",
+            chrono::Utc::now(),
+        )
+        .await;
         let app_state = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -1329,7 +1350,7 @@ mod pharmacy_tile_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/pharmacist")
-                .insert_header(("x-user-id", "tile_pharm"))
+                .insert_header(crate::test_fixtures::as_user("tile_pharm"))
                 .to_request(),
         )
         .await;
@@ -1360,7 +1381,7 @@ mod pharmacy_queue_tests {
 
     fn pharmacist() -> crate::User {
         crate::User {
-            wallet_address: "pharm_wallet".to_string(),
+            id: "pharm_user".to_string(),
             username: None,
             name: "Pharm Test".to_string(),
             role: crate::Role::Pharmacist,
@@ -1391,7 +1412,7 @@ mod pharmacy_queue_tests {
             .users
             .write()
             .unwrap()
-            .insert("pharm_wallet".to_string(), pharmacist());
+            .insert("pharm_user".to_string(), pharmacist());
 
         let patient_id = "PAT-PHARM-1";
         let now = chrono::Utc::now();
@@ -1466,6 +1487,14 @@ mod pharmacy_queue_tests {
                 .expect("seed prescription");
         }
 
+        crate::care_access::record_encounter(
+            &state,
+            "PAT-PHARM-1",
+            "pharm_user",
+            "QA-ENCOUNTER",
+            chrono::Utc::now(),
+        )
+        .await;
         let app_state = web::Data::new(state);
         let app = test::init_service(
             App::new()
@@ -1478,7 +1507,7 @@ mod pharmacy_queue_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/pharmacist")
-                .insert_header(("x-user-id", "pharm_wallet"))
+                .insert_header(crate::test_fixtures::as_user("pharm_user"))
                 .to_request(),
         )
         .await;
@@ -1491,6 +1520,87 @@ mod pharmacy_queue_tests {
             "the queue must carry the patient's name, got {text}"
         );
     }
+
+    /// A prescription transmitted to the pharmacy reaches the queue of a
+    /// pharmacist the patient never granted access to -- the dispense button
+    /// already worked for them -- while one still with the prescriber does not,
+    /// and the chart-derived allergy panel stays behind care authority.
+    #[actix_web::test]
+    async fn a_transmitted_prescription_reaches_a_pharmacist_without_chart_access() {
+        let state = crate::AppState::new();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("pharm_user".to_string(), pharmacist());
+        let patient_id = "PAT-NO-GRANT";
+        let mut profile = crate::test_fixtures::patient_profile(patient_id, "Lerato No-Grant");
+        profile.emergency_info.allergies.push(crate::Allergy {
+            name: "Penicillin".to_string(),
+            severity: crate::AllergySeverity::Moderate,
+            reaction: None,
+            verified_at: None,
+        });
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .expect("seed patient");
+        let now = chrono::Utc::now();
+        for (id, status) in [("RX-SENT", "Transmitted"), ("RX-UNSENT", "Signed")] {
+            state
+                .repositories
+                .e_prescriptions_v2
+                .create(crate::repositories::traits::JsonRecordEntity {
+                    id: id.to_string(),
+                    owner_id: patient_id.to_string(),
+                    data: serde_json::json!({
+                        "prescription_id": id,
+                        "patient_id": patient_id,
+                        "prescriber_name": "Dr Queue",
+                        "medication": { "name": "Amoxicillin", "strength": "500mg", "directions": "tds" },
+                        "status": status,
+                    }),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await
+                .expect("seed prescription");
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(pharmacist_dashboard),
+        )
+        .await;
+        let resp = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/api/dashboard/pharmacist")
+                .insert_header(crate::test_fixtures::as_user("pharm_user"))
+                .to_request(),
+        )
+        .await;
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let ids: Vec<&str> = body["prescriptions"]["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| row["prescription_id"].as_str())
+            .collect();
+        assert_eq!(ids, vec!["RX-SENT"], "got {body}");
+        assert_eq!(body["prescriptions"]["pending_fill"], 1);
+        assert_eq!(
+            body["allergy_alerts"],
+            serde_json::json!([]),
+            "the chart stays gated"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1500,7 +1610,7 @@ mod pending_lab_tile_tests {
 
     fn doctor() -> crate::User {
         crate::User {
-            wallet_address: "dash_doctor".to_string(),
+            id: "dash_doctor".to_string(),
             username: None,
             name: "Dr Dashboard".to_string(),
             role: crate::Role::Doctor,
@@ -1589,7 +1699,7 @@ mod pending_lab_tile_tests {
             &app,
             test::TestRequest::get()
                 .uri("/api/dashboard/doctor")
-                .insert_header(("x-user-id", "dash_doctor"))
+                .insert_header(crate::test_fixtures::as_user("dash_doctor"))
                 .to_request(),
         )
         .await;
@@ -1677,15 +1787,32 @@ mod pharmacy_interaction_panel_tests {
             .await
             .expect("file check");
 
+        let app_state = web::Data::new(state);
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(state))
+                .app_data(app_state.clone())
                 .service(super::pharmacist_dashboard),
+        )
+        .await;
+        // A pharmacy role alone must not disclose an unrelated patient's safety data.
+        let denied = test::TestRequest::get()
+            .uri("/api/dashboard/pharmacist")
+            .insert_header(crate::test_fixtures::as_user("5Pharm"))
+            .to_request();
+        let denied_body: serde_json::Value = test::call_and_read_body_json(&app, denied).await;
+        assert_eq!(denied_body["allergy_alerts"], serde_json::json!([]));
+        assert_eq!(denied_body["drug_interactions"], serde_json::json!([]));
+        crate::care_access::record_encounter(
+            &app_state,
+            "PAT-INT-1",
+            "5Pharm",
+            "QA-ENCOUNTER",
+            chrono::Utc::now(),
         )
         .await;
         let req = test::TestRequest::get()
             .uri("/api/dashboard/pharmacist")
-            .insert_header(("X-User-Id", "5Pharm"))
+            .insert_header(crate::test_fixtures::as_user("5Pharm"))
             .to_request();
         let body: serde_json::Value = test::call_and_read_body_json(&app, req).await;
 
@@ -1698,5 +1825,111 @@ mod pharmacy_interaction_panel_tests {
         let allergy = &body["allergy_alerts"][0];
         assert_eq!(allergy["allergen"], "Penicillin", "{body}");
         assert!(allergy["id"].is_string(), "a row the page can key: {body}");
+    }
+}
+
+#[cfg(test)]
+mod nurse_list_tests {
+    //! A nurse's "My Patients" is the nurse's patients, not the first rows in
+    //! the database.
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+    use serde_json::Value;
+
+    const NURSE: &str = "dash-nurse";
+    const MINE: &str = "PAT-DASH-MINE";
+    const STRANGER: &str = "PAT-DASH-STRANGER";
+
+    #[actix_web::test]
+    async fn my_patients_lists_the_nurses_patient_and_not_a_stranger() {
+        let state = AppState::new();
+        test_fixtures::register(&state, NURSE, Role::Nurse);
+        test_fixtures::seed_patient(&state, STRANGER).await;
+        test_fixtures::seed_patient(&state, MINE).await;
+        crate::care_access::record_encounter(&state, MINE, NURSE, "APT-DASH-1", Utc::now()).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::nurse_dashboard),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/dashboard/nurse")
+            .insert_header(test_fixtures::as_user(NURSE))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        let ids: Vec<&str> = body["patients"]["list"]
+            .as_array()
+            .expect("a patient list")
+            .iter()
+            .filter_map(|p| p["patient_id"].as_str())
+            .collect();
+        assert_eq!(ids, vec![MINE], "only the nurse's own patient is listed");
+        assert_eq!(body["patients"]["total"], 1);
+    }
+}
+
+#[cfg(test)]
+mod admin_count_tests {
+    //! The admin card tiles count what is stored, in the case it is stored in.
+    use crate::repositories::traits::NfcTagEntity;
+    use crate::{test_fixtures, AppState, Role};
+    use actix_web::{test, web, App};
+    use chrono::Utc;
+    use serde_json::Value;
+
+    const ADMIN: &str = "dash-admin";
+
+    fn card(id: &str, status: &str) -> NfcTagEntity {
+        NfcTagEntity {
+            id: id.to_string(),
+            tag_uid: format!("UID-{id}"),
+            patient_id: "PAT-CARDS".to_string(),
+            tag_type: "emergency".to_string(),
+            is_active: status == "Active",
+            pin_hash: None,
+            issued_at: Utc::now(),
+            expires_at: None,
+            last_used_at: None,
+            use_count: 0,
+            issued_by: None,
+            status: status.to_string(),
+        }
+    }
+
+    #[actix_web::test]
+    async fn card_tiles_count_stored_statuses() {
+        let state = AppState::new();
+        test_fixtures::register(&state, ADMIN, Role::Admin);
+        for (id, status) in [("c1", "Active"), ("c2", "Active"), ("c3", "Revoked")] {
+            state
+                .repositories
+                .nfc_tags
+                .create(card(id, status))
+                .await
+                .unwrap();
+        }
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .service(super::admin_dashboard),
+        )
+        .await;
+        let req = test::TestRequest::get()
+            .uri("/api/dashboard/admin")
+            .insert_header(test_fixtures::as_user(ADMIN))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        let cards = &body["nfc_cards"];
+        assert_eq!(cards["total"], 3);
+        assert_eq!(cards["active"], 2, "stored as `Active`, not `active`");
+        assert_eq!(cards["revoked"], 1);
+        assert_eq!(cards["suspended"], 0);
     }
 }

@@ -1,10 +1,10 @@
 /**
  * @medichain/shared - Shared components and utilities
  * 
- * Blockchain-based health ID system shared library.
- * All authentication is wallet-based using Substrate addresses.
+ * National health ID system shared library.
+ * Sign-in is by login id and password; identity is `user_id`.
  * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 // Configuration
@@ -33,14 +33,12 @@ export {
 } from './i18n';
 export type { SupportedLocale, LocaleConfig } from './i18n';
 
-// Credential-backed access to the clinician's signing key (staff login).
-export * from './auth/credentials';
+// Password proof and session establishment (staff and patient sign-in).
+export * from './auth/proof';
+export * from './auth/loginId';
+export * from './auth/session';
 // The one place that decides whether the interface is dark.
 export * from './theme';
-
-// Wallet Types and Service (Blockchain Identity)
-export * from './wallet/types';
-export * from './wallet/service';
 
 // Types (canonical Role definition is here)
 export * from './types';
@@ -65,8 +63,12 @@ export * from './utils/cache';
 export { lookupOr, componentOr } from './utils/enumLookup';
 export * from './utils/indexedDB';
 export * from './utils/syncQueue';
-export * from './utils/offlineQueue';
+export * from './utils/offlineSeal';
+export * from './utils/offlinePolicy';
+export * from './utils/offlineRoster';
+export * from './utils/healthId';
 export * from './utils/validation';
+export * from './utils/sealStatus';
 
 // Components
 export * from './components';
@@ -89,3 +91,30 @@ export * from './validation/useValidatedForm';
 export * from './components/field';
 export * from './components/FieldParts';
 export * from './utils/clickable';
+export * from './utils/localDateTime';
+export { returnPathFrom } from './utils/returnPath';
+export { csvCell, csvRow } from './utils/csv';
+export { reloadOnStaleChunks } from './utils/staleChunks';
+export { followSessionAcrossTabs, signedInIdentity } from './utils/sessionAcrossTabs';
+export { parseEmergencyCode } from './utils/emergencyQr';
+export { nfcSupported, nfcErrorMessage, readNfcCardOnce, writeNfcCard, textOfRecords } from './utils/webNfc';
+export type { OfflineEmergencySummary, ScannedEmergencyCode } from './utils/emergencyQr';
+
+export { getEmergencyNumber } from './utils/emergencyNumber';
+
+// Form engine: one status per submission, duplicate-safe saves, drafts and the
+// unsaved-changes guard (docs/UX_IMPLEMENTATION_PLAN_2026-10-30.md Phase 1.1).
+export * from './forms/submission';
+export * from './forms/unsavedChanges';
+export * from './forms/drafts';
+export * from './forms/signOutGuard';
+export * from './forms/enterKey';
+export * from './components/ErrorSummary';
+export * from './components/SubmitButton';
+export * from './components/Sheet';
+export * from './components/ChoiceChips';
+export * from './components/ClinicalFields';
+export * from './components/StatusBanner';
+export * from './components/WorkQueueItem';
+export * from './motion/useMotionNavigate';
+export * from './motion/MotionLink';

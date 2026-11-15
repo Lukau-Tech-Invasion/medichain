@@ -1,5 +1,6 @@
 //! In-memory medication record repository implementation.
 
+use super::lock_poisoned;
 use crate::repositories::traits::{
     DateRange, MedicationRecordEntity, MedicationRecordRepository, PaginatedResult, Pagination,
     RepositoryError, RepositoryResult,
@@ -28,7 +29,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
         &self,
         mut record: MedicationRecordEntity,
     ) -> RepositoryResult<MedicationRecordEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if storage.contains_key(&record.id) {
             return Err(RepositoryError::Duplicate(format!(
@@ -58,7 +59,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<MedicationRecordEntity> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
         storage.get(id).cloned().ok_or_else(|| {
             RepositoryError::NotFound(format!("Medication record with ID {} not found", id))
         })
@@ -69,7 +70,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
         patient_id: &str,
         date: NaiveDate,
     ) -> RepositoryResult<Option<MedicationRecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let record = storage
             .values()
@@ -85,7 +86,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
         date_range: Option<DateRange>,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<MedicationRecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<MedicationRecordEntity> = storage
             .values()
@@ -128,7 +129,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
         &self,
         mut record: MedicationRecordEntity,
     ) -> RepositoryResult<MedicationRecordEntity> {
-        let mut storage = self.data.write().unwrap();
+        let mut storage = self.data.write().map_err(lock_poisoned)?;
 
         if !storage.contains_key(&record.id) {
             return Err(RepositoryError::NotFound(format!(
@@ -143,7 +144,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
     }
 
     async fn get_incomplete_records(&self) -> RepositoryResult<Vec<MedicationRecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let incomplete: Vec<MedicationRecordEntity> = storage
             .values()
@@ -166,7 +167,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
         &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<MedicationRecordEntity>> {
-        let storage = self.data.read().unwrap();
+        let storage = self.data.read().map_err(lock_poisoned)?;
 
         let mut records: Vec<MedicationRecordEntity> =
             storage.values().filter(|r| r.is_active).cloned().collect();

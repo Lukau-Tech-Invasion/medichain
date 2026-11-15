@@ -11,7 +11,7 @@ vi.mock('../store', () => ({
 
 describe('DashboardPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     username: 'Dr. Smith',
     role: 'Doctor',
   };

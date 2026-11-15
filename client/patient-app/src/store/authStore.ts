@@ -1,10 +1,12 @@
 /**
  * Patient App Authentication Store
- * 
- * Wallet-based authentication for patient accounts.
- * Uses Substrate SS58 addresses and health IDs.
- * 
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ *
+ * Username-and-password authentication for patient accounts. A patient's
+ * account is created at registration and activated by them: they redeem the
+ * one-time activation code the clinic gave them, choose a username and set
+ * their own password (see `ActivatePage`). Nobody at the clinic ever sees it.
+ *
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 import { create } from 'zustand';
@@ -14,16 +16,14 @@ import {
   clearPatientAuth as clearStoredAuth,
   getPatientAuth,
   debugLog,
-  syncApiClientUserId,
   getApiClient,
   initPushNotifications,
   getCurrentUser,
-  requestWalletChallenge,
-  issueJwt,
-  signMessage,
-  secretFromMnemonic,
-  signerFromSecret,
+  signInWithPassword,
+  activateWithCode,
+  clearSessionMemory,
 } from '@medichain/shared';
+import type { SignedInUser, SignInOutcome } from '@medichain/shared';
 
 /**
  * Request push-notification permission and register the device token
@@ -37,11 +37,11 @@ function initPush(): void {
 }
 
 /**
- * Patient information (wallet-based)
+ * Patient information
  */
 export interface Patient {
-  /** Substrate wallet address (SS58 format, 48 chars starting with "5") */
-  walletAddress: string;
+  /** The account's id (UUID) */
+  userId: string;
   /** MediChain Health ID (MCHI-YYYY-XXXX-XXXX format) */
   healthId: string;
   /** Patient full name */
@@ -68,233 +68,246 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  
+  /** The account has an authenticator; sign-in is waiting for its code (not an error). */
+  mfaRequired: boolean;
+
   // Actions
-  login: (walletAddress: string) => Promise<boolean>;
   /**
-   * Sign in with the twelve-word recovery phrase issued at registration.
-   *
-   * The extension path assumes a patient has installed Polkadot.js and
-   * imported their key. A patient handed twelve words at a clinic reception
-   * desk has done neither, and had no way in at all -- the only other control
-   * on the sign-in screen mints a DIFFERENT, unregistered identity.
+   * Sign in with username and password. Resolves `true` when signed in,
+   * `'mfa_required'` when the account has an authenticator and the same call
+   * must be repeated with its code (`mfaRequired` is then set too), and `false`
+   * on failure.
    */
-  loginWithRecoveryPhrase: (mnemonic: string) => Promise<boolean>;
-  logout: () => void;
+  login: (username: string, password: string, totpCode?: string) => Promise<boolean | 'mfa_required'>;
+  /**
+   * Redeem the activation code from registration: choose a username and a
+   * password, and sign in.
+   */
+  activate: (input: {
+    identifier: string;
+    code: string;
+    username: string;
+    password: string;
+  }) => Promise<boolean>;
+  logout: () => Promise<void>;
   setPatient: (patient: Patient) => void;
   clearError: () => void;
-  restoreSession: () => void;
+  restoreSession: () => Promise<boolean>;
   updateProfile: (updates: Partial<Patient>) => void;
+}
+
+/** A message a person can act on, from whatever a failed sign-in threw. */
+function signInErrorMessage(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  switch (code) {
+    case 'INVALID_CREDENTIALS':
+      return 'Username or password is not correct.';
+    case 'ACCOUNT_LOCKED':
+      return 'This account is temporarily locked after too many attempts. Try again later or ask your clinic.';
+    case 'INVALID_GRANT':
+      return 'That activation code is not valid, has expired, or was already used. Ask your clinic for a new one.';
+    case 'GRANT_LOCKED':
+      return 'That activation code was entered wrongly too many times. Ask your clinic for a new one.';
+    case 'USERNAME_TAKEN':
+    case 'LOGIN_ID_TAKEN':
+      return 'That username is already taken. Choose another.';
+    case 'INVALID_USERNAME':
+      return 'That username is not allowed. Use letters, numbers and dots, at least three characters.';
+    default:
+      break;
+  }
+  if (error instanceof Error) {
+    return error.message === 'Failed to fetch'
+      ? 'Cannot reach the server. Check your connection and try again.'
+      : error.message;
+  }
+  return 'Login failed';
 }
 
 /**
  * Patient auth store with persistence
  */
-
-/**
- * Everything a patient sign-in does after a signature exists.
- *
- * The two paths differ only in WHERE the signature comes from: a browser
- * extension, or a key derived in this tab from the recovery phrase. Sharing
- * the rest means the JWT exchange, the role check, the health-id check and
- * the session write cannot drift apart between them.
- */
-async function completeLogin(
-  set: (partial: Partial<AuthState>) => void,
-  walletAddress: string,
-  sign: (message: string) => Promise<string>
-): Promise<boolean> {
-  set({ isLoading: true, error: null });
-
-  set({ isLoading: true, error: null });
-
-  try {
-    const challenge = await requestWalletChallenge(walletAddress);
-    const signature = await sign(challenge.challenge.message);
-    const tokens = await issueJwt({
-      wallet_address: walletAddress,
-      challenge_id: challenge.challenge.challenge_id,
-      nonce: challenge.challenge.nonce,
-      signature,
-    });
-    getApiClient().setTokens(tokens.access_token, tokens.refresh_token);
-    const accountData = await getCurrentUser();
-
-    if (accountData.role !== 'Patient') {
-      throw new Error('Please use the Doctor Portal for provider accounts');
-    }
-
-    const patient: Patient = {
-      walletAddress: accountData.wallet_address,
-      healthId: accountData.linked_patient_id ?? '',
-      fullName: accountData.name || 'Patient',
-      firstName: accountData.name?.split(' ')[0] || 'Patient',
-      createdAt: accountData.created_at || new Date().toISOString(),
-    };
-    if (!patient.healthId) {
-      throw new Error('This patient account is not linked to a health record');
-    }
-      
-    // Store auth data for API calls
-    setPatientAuth({
-      address: patient.walletAddress,
-      healthId: patient.healthId,
-      name: patient.fullName,
-    });
-      
-    // The legacy header remains only for demo compatibility. Production
-    // identity comes from the bearer token issued above.
-    syncApiClientUserId();
-      
-    set({
-      patient,
-      isAuthenticated: true,
-      isLoading: false,
-      error: null,
-    });
-
-    initPush();
-
-    debugLog('patientAuthStore', 'Wallet authentication completed');
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Login failed';
-    
-    set({
-      patient: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: message,
-    });
-    
-    return false;
-  }
-}
-
 export const usePatientAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
-      patient: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: null,
-
+    (set, get) => {
       /**
-       * Login with a wallet address
-       * Proves wallet ownership, then obtains the caller's own identity from
-       * the authenticated API. It deliberately never performs anonymous
-       * wallet discovery.
+       * Everything a patient sign-in does after the server has issued a
+       * session: the role check, the health-record link check and the session
+       * write cannot drift apart between password sign-in and activation.
        */
-      login: async (walletAddress: string) => {
-        // The extension signs. Everything after the signature is identical
-        // for both sign-in paths, so it lives in `completeLogin`.
-        return completeLogin(set, walletAddress, (message) =>
-          signMessage(walletAddress, message)
-        );
-      },
-
-      loginWithRecoveryPhrase: async (mnemonic: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          // Derived in this browser; the phrase is never sent anywhere. The
-          // address comes out of the phrase, so a typo produces a wallet the
-          // server does not know rather than someone else's account.
-          const secret = await secretFromMnemonic(mnemonic);
-          const signer = await signerFromSecret(secret);
-          return await completeLogin(set, signer.address, (message) =>
-            signer.sign(message)
-          );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : 'That recovery phrase did not work';
-          set({ patient: null, isAuthenticated: false, isLoading: false, error: message });
-          return false;
+      const finishSignIn = async (signedIn: SignedInUser): Promise<boolean> => {
+        if (signedIn.role !== 'Patient') {
+          throw new Error('Please use the Doctor Portal for provider accounts');
         }
-      },
+        const account = await getCurrentUser();
+        const patient: Patient = {
+          userId: signedIn.user_id,
+          healthId: account.linked_patient_id ?? signedIn.linked_patient_id ?? '',
+          fullName: account.name || signedIn.name || 'Patient',
+          firstName: (account.name || signedIn.name)?.split(' ')[0] || 'Patient',
+          createdAt: account.created_at || new Date().toISOString(),
+        };
+        if (!patient.healthId) {
+          throw new Error('This patient account is not linked to a health record');
+        }
+        setPatientAuth({ userId: patient.userId, healthId: patient.healthId, name: patient.fullName });
+        set({ patient, isAuthenticated: true, isLoading: false, mfaRequired: false, error: null });
+        initPush();
+        debugLog('patientAuthStore', 'Sign-in completed');
+        return true;
+      };
 
-      logout: () => {
+      const settle = async (outcome: SignInOutcome): Promise<boolean | 'mfa_required'> => {
+        if (outcome.status === 'mfa_required') {
+          set({ patient: null, isAuthenticated: false, isLoading: false, mfaRequired: true, error: null });
+          return 'mfa_required';
+        }
+        return finishSignIn(outcome.user);
+      };
+
+      const fail = (error: unknown): false => {
+        // Undo anything the half-finished sign-in put on the shared client.
+        getApiClient().clearTokens();
+        clearSessionMemory();
         clearStoredAuth();
-        // Revoke the session server-side too; `endSession` clears the local
-        // tokens whether or not the request reaches the API.
-        void getApiClient().endSession();
-        syncApiClientUserId();
         set({
           patient: null,
           isAuthenticated: false,
           isLoading: false,
-          error: null,
+          mfaRequired: false,
+          error: signInErrorMessage(error),
         });
-        debugLog('patientAuthStore', 'Logged out');
-      },
+        return false;
+      };
 
-      setPatient: (patient: Patient) => {
-        setPatientAuth({
-          address: patient.walletAddress,
-          healthId: patient.healthId,
-          name: patient.fullName,
-        });
-        // Sync API client with new userId
-        syncApiClientUserId();
-        set({
-          patient,
-          isAuthenticated: true,
-          isLoading: false,
-          error: null,
-        });
-      },
+      return {
+        patient: null,
+        isAuthenticated: false,
+        isLoading: false,
+        error: null,
+        mfaRequired: false,
 
-      clearError: () => {
-        set({ error: null });
-      },
-      
-      /**
-       * Restore session from localStorage on app startup
-       */
-      restoreSession: () => {
-        const storedAuth = getPatientAuth();
-        // Zustand may already have rehydrated its persisted state, but the API
-        // singleton still needs the portal-specific wallet after a reload.
-        if (storedAuth) getApiClient().setUserId(storedAuth.address);
-        if (storedAuth && !get().isAuthenticated) {
-          // We only have limited data from storage, 
-          // but enough to authenticate for API calls
-          set({
-            patient: {
-              walletAddress: storedAuth.address,
-              healthId: storedAuth.healthId,
-              fullName: storedAuth.name,
-              firstName: storedAuth.name.split(' ')[0],
-              createdAt: new Date().toISOString(),
-            },
-            isAuthenticated: true,
-          });
-          initPush();
-          debugLog('patientAuthStore', 'Restored session from storage');
-        }
-      },
-      
-      /**
-       * Update patient profile
-       */
-      updateProfile: (updates: Partial<Patient>) => {
-        const current = get().patient;
-        if (current) {
-          const updated = { ...current, ...updates };
-          set({ patient: updated });
-          
-          // Update stored auth if name changed
-          if (updates.fullName) {
-            setPatientAuth({
-              address: updated.walletAddress,
-              healthId: updated.healthId,
-              name: updated.fullName,
-            });
+        login: async (username, password, totpCode) => {
+          set({ isLoading: true, error: null });
+          try {
+            return await settle(await signInWithPassword(username, password, totpCode));
+          } catch (error) {
+            return fail(error);
           }
-        }
-      },
-    }),
+        },
+
+        activate: async ({ identifier, code, username, password }) => {
+          set({ isLoading: true, error: null });
+          try {
+            // Redemption always yields a session or an error; never a code prompt.
+            return (await settle(await activateWithCode({ identifier, code, username, password }))) === true;
+          } catch (error) {
+            return fail(error);
+          }
+        },
+
+        logout: async () => {
+          clearStoredAuth();
+          // Finish server revocation before navigation can cancel the request.
+          // `endSession` clears local tokens even if the network is unavailable.
+          await getApiClient().endSession();
+          clearSessionMemory();
+          set({
+            patient: null,
+            isAuthenticated: false,
+            isLoading: false,
+            mfaRequired: false,
+            error: null,
+          });
+          debugLog('patientAuthStore', 'Logged out');
+        },
+
+        setPatient: (patient: Patient) => {
+          setPatientAuth({ userId: patient.userId, healthId: patient.healthId, name: patient.fullName });
+          getApiClient().setUserId(patient.userId);
+          set({
+            patient,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          });
+        },
+
+        clearError: () => {
+          set({ error: null });
+        },
+
+        /**
+         * Re-establish a session after a page reload (WP12).
+         *
+         * The access token lives only in memory. The refresh token is an
+         * HttpOnly, Secure, SameSite=Strict cookie the browser presents to the
+         * refresh endpoint. Only a session the server accepts is restored; this
+         * used to mark the patient signed in from localStorage alone, with no
+         * token behind it.
+         *
+         * @returns whether a verified session was restored.
+         */
+        restoreSession: async (): Promise<boolean> => {
+          const storedAuth = getPatientAuth();
+          if (!storedAuth) return false;
+          // The API singleton needs the patient's id after a reload.
+          getApiClient().setUserId(storedAuth.userId);
+          if (get().isAuthenticated && getApiClient().getAccessToken()) return true;
+          set({ isLoading: true });
+          if (await getApiClient().restoreSession()) {
+            // Logout or another sign-in may have won while refresh was pending.
+            if (getPatientAuth()?.userId !== storedAuth.userId ||
+                !getApiClient().getAccessToken()) return false;
+            set({
+              patient: get().patient ?? {
+                userId: storedAuth.userId,
+                healthId: storedAuth.healthId,
+                fullName: storedAuth.name,
+                firstName: storedAuth.name.split(' ')[0],
+                createdAt: new Date().toISOString(),
+              },
+              isAuthenticated: true,
+              isLoading: false,
+            });
+            initPush();
+            debugLog('patientAuthStore', 'Session restored from the refresh cookie');
+            return true;
+          }
+          clearStoredAuth();
+          getApiClient().clearTokens();
+          set({ patient: null, isAuthenticated: false, isLoading: false });
+          return false;
+        },
+
+        /**
+         * Update patient profile
+         */
+        updateProfile: (updates: Partial<Patient>) => {
+          const current = get().patient;
+          if (current) {
+            const updated = { ...current, ...updates };
+            set({ patient: updated });
+
+            // Update stored auth if name changed
+            if (updates.fullName) {
+              setPatientAuth({
+                userId: updated.userId,
+                healthId: updated.healthId,
+                name: updated.fullName,
+              });
+            }
+          }
+        },
+      };
+    },
     {
       name: 'medichain-patient-auth',
+      version: 2, // 2: identity is `userId`; older persisted sessions used a retired identifier
+      migrate: (persistedState, version) => {
+        if (version < 2) return { patient: null, isAuthenticated: false };
+        return persistedState as { patient: Patient | null; isAuthenticated: boolean };
+      },
       partialize: (state) => ({
         patient: state.patient,
         isAuthenticated: state.isAuthenticated,
@@ -302,4 +315,3 @@ export const usePatientAuthStore = create<AuthState>()(
     }
   )
 );
-

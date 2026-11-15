@@ -23,13 +23,12 @@
 # - IS_DEMO=true and REQUIRE_SIGNATURES=false are pinned (cannot be
 #   overridden by a stray host .env value), matching the authorized static
 #   scope's "synthetic data only" requirement.
-# - BLOCKCHAIN_ENABLED stays false — no real chain submission, placeholder
-#   hashes only, so testing here can never touch a real Substrate node.
-# - Ports are NOT published to the host beyond what the API/nginx need for
-#   local test traffic — postgres/ipfs stay on the internal network only,
-#   unlike the dev compose file (which exposes them on host ports 5432/5001/
-#   8080/4001 for local developer convenience). Nothing here is reachable
-#   from outside this machine.
+# - AUDIT_CHECKPOINT_SINK stays none and no signing key is set — batches are
+#   sealed unsigned and nothing is exported, so testing here can never write
+#   a checkpoint anywhere outside this disposable stack.
+# - PostgreSQL binds only to the host loopback at a separate synthetic-test
+#   port; the application uses the private Compose network. Nothing here is
+#   reachable from outside this machine.
 
 services:
   postgres:
@@ -57,17 +56,13 @@ services:
       POSTGRES_PASSWORD: horizon-isolated-synthetic-only
       POSTGRES_DB: medichain_horizon
 
-  ipfs:
-    container_name: medichain_horizon_ipfs
-    ports: !override []  # internal-only
-
   api:
     container_name: medichain_horizon_api
     environment:
       DATABASE_URL: postgres://medichain_horizon:horizon-isolated-synthetic-only@postgres:5432/medichain_horizon
       IS_DEMO: "true"
       REQUIRE_SIGNATURES: "false"
-      BLOCKCHAIN_ENABLED: "false"
+      AUDIT_CHECKPOINT_SINK: "none"
       AT_API_KEY: ""
       FAYDA_API_KEY: ""
       GHANA_CARD_API_KEY: ""

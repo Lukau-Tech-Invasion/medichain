@@ -1,32 +1,13 @@
+import { portalPath } from './portal-path';
 import { test, expect } from '@playwright/test';
-import { skipFirstVisitReload } from './support';
+import { signIn, skipFirstVisitReload } from './support';
 
 test.describe('Login Flow', () => {
-  test('should login successfully with a demo doctor wallet', async ({ page }) => {
+  test('should login successfully with a seeded doctor account', async ({ page }) => {
     // See `skipFirstVisitReload`: index.html reloads itself 100ms into a fresh
     // profile's first visit, which detaches whatever this test is mid-way
     // through doing.
-    await skipFirstVisitReload(page);
-    await page.goto('/login');
-
-    // Click on a demo doctor button (Dr. Thandi Mbeki).
-    //
-    // These are populated from GET /api/auth/demo-credentials, which answers
-    // only when the API runs with MEDICHAIN_DEV_MODE. Without the guard this
-    // clicked a button that did not exist and reported a bare 30-second
-    // timeout, which says nothing about the missing environment variable.
-    const demoDoctor = page.locator('button').filter({ hasText: /doctor/i });
-    const available = await demoDoctor
-      .first()
-      .waitFor({ state: 'visible', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
-    expect(
-      available,
-      'No demo sign-in buttons. Start the API with MEDICHAIN_DEV_MODE=1 — the compose ' +
-        'file deliberately does not set it, since the endpoint exposes credentials.'
-    ).toBe(true);
-    await demoDoctor.click();
+    await signIn(page, 'Doctor', 0);
 
     // Should redirect to dashboard
     await expect(page).toHaveURL(/.*dashboard/);
@@ -46,13 +27,11 @@ test.describe('Login Flow', () => {
 
   test('should show error for invalid credentials', async ({ page }) => {
     await skipFirstVisitReload(page);
-    await page.goto('/login');
+    await page.goto(portalPath('/login'));
 
-    // The form takes an employee identifier and a password. It used to take a
-    // raw wallet address in `input#walletAddress`, and this test kept filling a
-    // field that no longer exists -- timing out after 30s against a login
-    // screen that had been redesigned around not making a clinician type an
-    // SS58 address.
+    // The form takes an employee identifier and a password, the way a clinician
+    // signs in; an earlier version of this test filled a field that no longer
+    // existed and timed out after 30s against the redesigned screen.
     await page.locator('input#identifier').fill('no.such.person');
     await page.locator('input#password').fill('wrong-password-value');
     await page.click('button[type="submit"]');

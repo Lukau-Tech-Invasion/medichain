@@ -37,7 +37,7 @@ export function EmptyState({
       role="status"
       className={clsx(
         'flex flex-col items-center justify-center text-center',
-        compact ? 'py-6' : 'py-12',
+        compact ? 'py-2' : 'py-8',
         className,
       )}
     >

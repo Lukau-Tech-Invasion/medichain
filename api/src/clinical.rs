@@ -7,7 +7,7 @@
 //! - Glasgow Coma Scale (GCS) with automatic scoring
 //! - Vital Signs Flowsheet with time-series tracking
 //!
-//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 // Allow medical acronyms to be in uppercase (medical standard naming)
 #![allow(clippy::upper_case_acronyms)]
@@ -129,8 +129,8 @@ pub struct TriageVitalSigns {
     pub pain_scale: Option<u8>,
     /// Glasgow Coma Scale score (3-15) - 15 = fully alert
     pub gcs_score: Option<u8>,
-    /// Blood glucose (mg/dL) - Normal fasting: 70-100
-    pub blood_glucose: Option<u16>,
+    /// Blood glucose, mmol/L - Normal fasting: 3.9-5.6
+    pub blood_glucose: Option<f64>,
     /// Weight in kilograms
     pub weight_kg: Option<f32>,
 }
@@ -149,9 +149,11 @@ impl TriageVitalSigns {
             .is_some_and(|t| !(35.0..=40.0).contains(&t));
         let spo2_critical = self.oxygen_saturation.is_some_and(|spo2| spo2 < 90);
         let gcs_critical = self.gcs_score.is_some_and(|gcs| gcs < 9);
-        let glucose_critical = self
-            .blood_glucose
-            .is_some_and(|bg| !(50..=400).contains(&bg));
+        // The catalogue band, not a second copy of it in other units.
+        let glucose_critical = self.blood_glucose.is_some_and(|bg| {
+            let (low, high) = crate::clinical_scoring::vital_beyond("blood_glucose", bg);
+            low || high
+        });
 
         hr_critical
             || rr_critical
@@ -852,6 +854,14 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
             ],
         },
         // Basic Metabolic Panel (BMP)
+        //
+        // Every concentration in this catalogue is SI, as South African
+        // laboratories report it, with the LOINC code for that property
+        // (Moles/volume, not Mass/volume) -- the code is unit-specific, so
+        // changing the unit without the code would mislabel every export.
+        // Codes checked against the NLM LOINC service, 2026-09-25. Ranges
+        // and critical limits are the previous mg/dL values converted, not
+        // new clinical choices.
         LabPanelTemplate {
             name: "Basic Metabolic Panel (BMP)".to_string(),
             code: "BMP".to_string(),
@@ -860,7 +870,7 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                 LabTestTemplate {
                     name: "Sodium".to_string(),
                     code: Some("2951-2".to_string()),
-                    unit: "mEq/L".to_string(),
+                    unit: "mmol/L".to_string(),
                     reference_range_male: "136-145".to_string(),
                     reference_range_female: "136-145".to_string(),
                     reference_range_pediatric: None,
@@ -870,7 +880,7 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                 LabTestTemplate {
                     name: "Potassium".to_string(),
                     code: Some("2823-3".to_string()),
-                    unit: "mEq/L".to_string(),
+                    unit: "mmol/L".to_string(),
                     reference_range_male: "3.5-5.0".to_string(),
                     reference_range_female: "3.5-5.0".to_string(),
                     reference_range_pediatric: None,
@@ -880,7 +890,7 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                 LabTestTemplate {
                     name: "Chloride".to_string(),
                     code: Some("2075-0".to_string()),
-                    unit: "mEq/L".to_string(),
+                    unit: "mmol/L".to_string(),
                     reference_range_male: "98-106".to_string(),
                     reference_range_female: "98-106".to_string(),
                     reference_range_pediatric: None,
@@ -890,7 +900,7 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                 LabTestTemplate {
                     name: "Bicarbonate (CO2)".to_string(),
                     code: Some("1963-8".to_string()),
-                    unit: "mEq/L".to_string(),
+                    unit: "mmol/L".to_string(),
                     reference_range_male: "22-29".to_string(),
                     reference_range_female: "22-29".to_string(),
                     reference_range_pediatric: None,
@@ -898,44 +908,44 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                     critical_high: Some(40.0),
                 },
                 LabTestTemplate {
-                    name: "BUN".to_string(),
-                    code: Some("3094-0".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "7-20".to_string(),
-                    reference_range_female: "7-20".to_string(),
-                    reference_range_pediatric: Some("5-18".to_string()),
+                    name: "Urea".to_string(),
+                    code: Some("22664-7".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: "2.5-7.1".to_string(),
+                    reference_range_female: "2.5-7.1".to_string(),
+                    reference_range_pediatric: Some("1.8-6.4".to_string()),
                     critical_low: None,
-                    critical_high: Some(100.0),
+                    critical_high: Some(35.7),
                 },
                 LabTestTemplate {
                     name: "Creatinine".to_string(),
-                    code: Some("2160-0".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "0.7-1.3".to_string(),
-                    reference_range_female: "0.6-1.1".to_string(),
-                    reference_range_pediatric: Some("0.3-0.7".to_string()),
+                    code: Some("14682-9".to_string()),
+                    unit: "µmol/L".to_string(),
+                    reference_range_male: "62-115".to_string(),
+                    reference_range_female: "53-97".to_string(),
+                    reference_range_pediatric: Some("27-62".to_string()),
                     critical_low: None,
-                    critical_high: Some(10.0),
+                    critical_high: Some(884.0),
                 },
                 LabTestTemplate {
                     name: "Glucose".to_string(),
-                    code: Some("2345-7".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "70-100 (fasting)".to_string(),
-                    reference_range_female: "70-100 (fasting)".to_string(),
+                    code: Some("14749-6".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: "3.9-5.6".to_string(),
+                    reference_range_female: "3.9-5.6".to_string(),
                     reference_range_pediatric: None,
-                    critical_low: Some(40.0),
-                    critical_high: Some(500.0),
+                    critical_low: Some(2.2),
+                    critical_high: Some(27.8),
                 },
                 LabTestTemplate {
                     name: "Calcium".to_string(),
-                    code: Some("17861-6".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "8.5-10.5".to_string(),
-                    reference_range_female: "8.5-10.5".to_string(),
-                    reference_range_pediatric: Some("8.8-10.8".to_string()),
-                    critical_low: Some(6.0),
-                    critical_high: Some(13.0),
+                    code: Some("2000-8".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: "2.12-2.62".to_string(),
+                    reference_range_female: "2.12-2.62".to_string(),
+                    reference_range_pediatric: Some("2.20-2.70".to_string()),
+                    critical_low: Some(1.5),
+                    critical_high: Some(3.24),
                 },
             ],
             indications: vec![
@@ -983,33 +993,33 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                 },
                 LabTestTemplate {
                     name: "Total Bilirubin".to_string(),
-                    code: Some("1975-2".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "0.1-1.2".to_string(),
-                    reference_range_female: "0.1-1.2".to_string(),
+                    code: Some("14631-6".to_string()),
+                    unit: "µmol/L".to_string(),
+                    reference_range_male: "2-21".to_string(),
+                    reference_range_female: "2-21".to_string(),
                     reference_range_pediatric: None,
                     critical_low: None,
-                    critical_high: Some(15.0),
+                    critical_high: Some(257.0),
                 },
                 LabTestTemplate {
                     name: "Albumin".to_string(),
                     code: Some("1751-7".to_string()),
-                    unit: "g/dL".to_string(),
-                    reference_range_male: "3.5-5.0".to_string(),
-                    reference_range_female: "3.5-5.0".to_string(),
+                    unit: "g/L".to_string(),
+                    reference_range_male: "35-50".to_string(),
+                    reference_range_female: "35-50".to_string(),
                     reference_range_pediatric: None,
-                    critical_low: Some(1.5),
+                    critical_low: Some(15.0),
                     critical_high: None,
                 },
                 LabTestTemplate {
                     name: "Total Protein".to_string(),
                     code: Some("2885-2".to_string()),
-                    unit: "g/dL".to_string(),
-                    reference_range_male: "6.0-8.3".to_string(),
-                    reference_range_female: "6.0-8.3".to_string(),
+                    unit: "g/L".to_string(),
+                    reference_range_male: "60-83".to_string(),
+                    reference_range_female: "60-83".to_string(),
                     reference_range_pediatric: None,
-                    critical_low: Some(3.0),
-                    critical_high: Some(12.0),
+                    critical_low: Some(30.0),
+                    critical_high: Some(120.0),
                 },
             ],
             indications: vec![
@@ -1027,41 +1037,41 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
             tests: vec![
                 LabTestTemplate {
                     name: "Total Cholesterol".to_string(),
-                    code: Some("2093-3".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "<200 desirable".to_string(),
-                    reference_range_female: "<200 desirable".to_string(),
-                    reference_range_pediatric: Some("<170".to_string()),
+                    code: Some("14647-2".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: "<5.2 desirable".to_string(),
+                    reference_range_female: "<5.2 desirable".to_string(),
+                    reference_range_pediatric: Some("<4.4".to_string()),
                     critical_low: None,
                     critical_high: None,
                 },
                 LabTestTemplate {
                     name: "Triglycerides".to_string(),
-                    code: Some("2571-8".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "<150".to_string(),
-                    reference_range_female: "<150".to_string(),
+                    code: Some("14927-8".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: "<1.7".to_string(),
+                    reference_range_female: "<1.7".to_string(),
                     reference_range_pediatric: None,
                     critical_low: None,
-                    critical_high: Some(1000.0),
+                    critical_high: Some(11.3),
                 },
                 LabTestTemplate {
                     name: "HDL Cholesterol".to_string(),
-                    code: Some("2085-9".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: ">40".to_string(),
-                    reference_range_female: ">50".to_string(),
-                    reference_range_pediatric: Some(">45".to_string()),
+                    code: Some("14646-4".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: ">1.0".to_string(),
+                    reference_range_female: ">1.3".to_string(),
+                    reference_range_pediatric: Some(">1.2".to_string()),
                     critical_low: None,
                     critical_high: None,
                 },
                 LabTestTemplate {
                     name: "LDL Cholesterol".to_string(),
-                    code: Some("18262-6".to_string()),
-                    unit: "mg/dL".to_string(),
-                    reference_range_male: "<100 optimal".to_string(),
-                    reference_range_female: "<100 optimal".to_string(),
-                    reference_range_pediatric: Some("<110".to_string()),
+                    code: Some("69419-0".to_string()),
+                    unit: "mmol/L".to_string(),
+                    reference_range_male: "<2.6 optimal".to_string(),
+                    reference_range_female: "<2.6 optimal".to_string(),
+                    reference_range_pediatric: Some("<2.8".to_string()),
                     critical_low: None,
                     critical_high: None,
                 },
@@ -1135,20 +1145,20 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
                 },
                 LabTestTemplate {
                     name: "Free T4".to_string(),
-                    code: Some("3024-7".to_string()),
-                    unit: "ng/dL".to_string(),
-                    reference_range_male: "0.8-1.8".to_string(),
-                    reference_range_female: "0.8-1.8".to_string(),
+                    code: Some("14920-3".to_string()),
+                    unit: "pmol/L".to_string(),
+                    reference_range_male: "10.3-23.2".to_string(),
+                    reference_range_female: "10.3-23.2".to_string(),
                     reference_range_pediatric: None,
-                    critical_low: Some(0.2),
-                    critical_high: Some(5.0),
+                    critical_low: Some(2.6),
+                    critical_high: Some(64.4),
                 },
                 LabTestTemplate {
                     name: "Free T3".to_string(),
-                    code: Some("3053-6".to_string()),
-                    unit: "pg/mL".to_string(),
-                    reference_range_male: "2.3-4.2".to_string(),
-                    reference_range_female: "2.3-4.2".to_string(),
+                    code: Some("14928-6".to_string()),
+                    unit: "pmol/L".to_string(),
+                    reference_range_male: "3.5-6.5".to_string(),
+                    reference_range_female: "3.5-6.5".to_string(),
                     reference_range_pediatric: None,
                     critical_low: None,
                     critical_high: None,
@@ -1171,6 +1181,40 @@ pub fn get_standard_lab_panels() -> Vec<LabPanelTemplate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Concentrations are SI, each with the LOINC code for that property. The
+    /// code is unit-specific: 2345-7 is glucose by MASS, 14749-6 by moles.
+    #[test]
+    fn the_lab_catalogue_is_si_with_matching_loinc_codes() {
+        let panels = get_standard_lab_panels();
+        let find = |name: &str| {
+            panels
+                .iter()
+                .flat_map(|p| p.tests.iter())
+                .find(|t| t.name == name)
+                .unwrap_or_else(|| panic!("{name} missing"))
+                .clone()
+        };
+        for (name, code, unit) in [
+            ("Glucose", "14749-6", "mmol/L"),
+            ("Creatinine", "14682-9", "\u{00b5}mol/L"),
+            ("Urea", "22664-7", "mmol/L"),
+            ("Total Bilirubin", "14631-6", "\u{00b5}mol/L"),
+            ("Free T3", "14928-6", "pmol/L"),
+            ("Potassium", "2823-3", "mmol/L"),
+        ] {
+            let t = find(name);
+            assert_eq!(t.code.as_deref(), Some(code), "{name}");
+            assert_eq!(t.unit, unit, "{name}");
+        }
+        assert!(
+            panels
+                .iter()
+                .flat_map(|p| p.tests.iter())
+                .all(|t| !t.unit.contains("mg/dL") && !t.unit.contains("mEq")),
+            "a US conventional unit is left in the catalogue"
+        );
+    }
 
     #[test]
     fn test_esi_level_values() {
@@ -2315,8 +2359,8 @@ pub struct RadiologyReport {
     pub study_type: RadiologyStudyType,
     /// Body part examined
     pub body_part: String,
-    /// Study date/time
-    pub study_datetime: i64,
+    /// Observed study date/time, absent when acquisition time was not recorded.
+    pub study_datetime: Option<i64>,
     /// Technique/protocol
     pub technique: String,
     /// Contrast used
@@ -2577,10 +2621,28 @@ pub struct FamilyMedicalHistory {
 /// Family history member (for medical history)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FamilyHistoryMember {
+    /// Stable identifier for retry-safe relative additions; absent on legacy records.
+    #[serde(default)]
+    pub member_id: Option<String>,
+    /// Optional relative name as entered by the recorder.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// General documentation, separate from each condition's notes.
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Unknown remains absent rather than becoming an observed negative answer.
+    #[serde(default)]
+    pub consanguineous: Option<bool>,
+    /// Authenticated recorder of this relative entry (legacy rows may omit it).
+    #[serde(default)]
+    pub recorded_by: Option<String>,
+    /// Server-recorded time in Unix milliseconds.
+    #[serde(default)]
+    pub recorded_at: Option<i64>,
     /// Relationship
     pub relationship: FamilyHistoryRelationship,
     /// Living status
-    pub living: bool,
+    pub living: Option<bool>,
     /// Current age (if living)
     pub current_age: Option<u8>,
     /// Age at death
@@ -2602,6 +2664,8 @@ pub enum FamilyHistoryRelationship {
     PaternalGrandfather,
     Sister,
     Brother,
+    HalfSister,
+    HalfBrother,
     Daughter,
     Son,
     MaternalAunt,
@@ -2617,6 +2681,12 @@ pub struct FamilyCondition {
     pub condition: String,
     pub age_at_diagnosis: Option<u8>,
     pub notes: Option<String>,
+    /// Explicitly recorded category; no disease category is inferred from free text.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Explicit severity, if recorded.
+    #[serde(default)]
+    pub severity: Option<String>,
 }
 
 /// Genetic condition
@@ -3797,8 +3867,19 @@ pub struct TelehealthSession {
     pub provider_joined_at: Option<i64>,
     /// Recording enabled
     pub recording_enabled: bool,
-    /// Recording consent given
+    /// Recording consent given: true only while BOTH parties have consented.
     pub recording_consent: bool,
+    /// When the assigned clinician consented to recording (WP7.6), as a Unix
+    /// timestamp; `None` if they have not, or withdrew.
+    #[serde(default)]
+    pub provider_recording_consent_at: Option<i64>,
+    /// When the patient consented to recording, in their own app; `None` if
+    /// they have not, or withdrew.
+    #[serde(default)]
+    pub patient_recording_consent_at: Option<i64>,
+    /// When recording last started. Only ever set while both had consented.
+    #[serde(default)]
+    pub recording_started_at: Option<i64>,
     /// Chat enabled
     pub chat_enabled: bool,
     /// Screen share enabled
@@ -4088,14 +4169,20 @@ pub struct EPrescription {
     pub prescriber_id: String,
     /// Prescriber name
     pub prescriber_name: String,
-    /// Prescriber NPI
-    pub prescriber_npi: String,
-    /// Prescriber DEA (if controlled)
+    /// The prescriber's professional registration number, as recorded on their
+    /// account (`users.license_number`). Absent when none is recorded. Named for
+    /// the US NPI it was modelled on; every prescription used to carry the
+    /// placeholder "1234567890".
+    #[serde(default)]
+    pub prescriber_npi: Option<String>,
+    /// Prescriber DEA registration. Nothing supplies one, so it is absent: a
+    /// controlled-substance prescription used to carry the invented "AA1234567".
     pub prescriber_dea: Option<String>,
     /// Medication
     pub medication: PrescribedMedication,
-    /// Pharmacy
-    pub pharmacy: EPharmacyInfo,
+    /// The pharmacy the prescriber named, if they named one.
+    #[serde(default)]
+    pub pharmacy: Option<EPharmacyInfo>,
     /// Status
     pub status: PrescriptionStatus,
     /// Created at
@@ -4143,6 +4230,10 @@ pub struct EPrescription {
     pub patient_instructions: String,
     /// Diagnosis codes
     pub diagnosis_codes: Vec<String>,
+    /// The prescription this one refills, when it was created by approving a
+    /// patient's refill request. Absent on every original prescription.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refill_of: Option<String>,
 }
 
 /// Prescribed medication details
@@ -4161,21 +4252,37 @@ pub struct PrescribedMedication {
     pub daw_code: u8,
 }
 
-/// Pharmacy information for e-prescriptions
+/// The pharmacy a prescription names.
+///
+/// Only what the prescriber supplied. Every prescription used to be stamped
+/// with "123 Pharmacy St, Medical City", "(555) 123-4567" and a fixed NPI and
+/// NCPDP id whatever pharmacy was named, and those details reached the printed
+/// prescription. Older rows still carry them, hence `default` on each field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EPharmacyInfo {
-    pub ncpdp_id: String,
-    pub npi: String,
+    #[serde(default)]
+    pub ncpdp_id: Option<String>,
+    #[serde(default)]
+    pub npi: Option<String>,
     pub name: String,
-    pub address: String,
-    pub city: String,
-    pub state: String,
-    pub zip: String,
-    pub phone: String,
+    #[serde(default)]
+    pub address: Option<String>,
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub zip: Option<String>,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
     pub fax: Option<String>,
-    pub is_mail_order: bool,
-    pub is_24_hour: bool,
-    pub accepts_epcs: bool,
+    #[serde(default)]
+    pub is_mail_order: Option<bool>,
+    #[serde(default)]
+    pub is_24_hour: Option<bool>,
+    #[serde(default)]
+    pub accepts_epcs: Option<bool>,
 }
 
 /// E-signature for prescription

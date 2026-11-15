@@ -214,7 +214,7 @@ pub async fn set_provider_schedule(
         Err(resp) => return resp,
     };
 
-    if caller.wallet_address != provider_id && !caller.role.is_admin() {
+    if caller.id != provider_id && !caller.role.is_admin() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             error: "A schedule can be set by the provider it belongs to, or by an administrator."
                 .to_string(),
@@ -257,7 +257,7 @@ pub async fn set_provider_schedule(
         working_days: body.working_days,
         blocked: body.blocked,
         slot_minutes: body.slot_minutes.unwrap_or_else(default_slot_minutes),
-        updated_by: Some(caller.wallet_address.clone()),
+        updated_by: Some(caller.id.clone()),
         updated_at: Some(chrono::Utc::now().timestamp()),
     };
 

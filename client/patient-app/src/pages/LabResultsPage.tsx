@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPatientLabSubmissions, useTranslation, formatTimestamp } from '@medichain/shared';
+import { getLabTrends, getPatientLabSubmissions, useTranslation, formatDateOnly, formatTimestamp } from '@medichain/shared';
 import type { LabResultSubmission } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -13,12 +13,17 @@ import {
   WifiOff,
   RefreshCw,
   Calendar,
+  TrendingUp,
 } from 'lucide-react';
+import { PageTitle } from '../components/MergedScreen';
+import { TrendChart, trendFor, trendsFromApi, type LabTrend } from '../components/LabTrend';
 
 interface LabResult {
   submission_id?: string;
   id?: string;
   test_name: string;
+  /** The measurement as the lab named it; its trend is filed under this name. */
+  parameter?: string;
   ordered_date?: string;
   result_date?: string;
   resulted_at?: string;
@@ -46,6 +51,7 @@ function patientResultsFromSubmissions(submissions: LabResultSubmission[]): LabR
       return {
         id: `${submission.id}:${index}`,
         test_name: `${submission.test_name} — ${result.parameter}`,
+        parameter: result.parameter,
         resulted_at: submission.reviewed_at ?? submission.submitted_at,
         result_value: result.value,
         unit: result.unit,
@@ -67,7 +73,7 @@ function patientResultsFromSubmissions(submissions: LabResultSubmission[]): LabR
  * - Shows test name, dates, value, reference range, status
  * - Highlights critical values in red
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function LabResultsPage() {
   const navigate = useNavigate();
@@ -76,6 +82,10 @@ export function LabResultsPage() {
   const [results, setResults] = useState<LabResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
+  // Each result opens its own trend (patient-app plan, 2026-11-04). Read
+  // separately: if trends cannot load, the results still show.
+  const [trends, setTrends] = useState<LabTrend[]>([]);
+  const [openTrend, setOpenTrend] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || !patient) {
@@ -90,6 +100,12 @@ export function LabResultsPage() {
       const submissions = await getPatientLabSubmissions(patient.healthId);
       setResults(patientResultsFromSubmissions(submissions));
       setApiConnected(true);
+      getLabTrends(patient.healthId)
+        .then((body) => {
+          const list = (body as { trends?: unknown[] }).trends;
+          setTrends(Array.isArray(list) ? trendsFromApi(list) : []);
+        })
+        .catch(() => setTrends([]));
     } catch (err) {
       console.error('Failed to load lab results:', err);
       setApiConnected(false);
@@ -173,7 +189,7 @@ export function LabResultsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-content">{t('labResults.title')}</h1>
+          <PageTitle className="text-2xl font-bold text-content">{t('labResults.title')}</PageTitle>
           <p className="text-content-muted">{t('labResults.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -266,6 +282,47 @@ export function LabResultsPage() {
               {r.notes && (
                 <p className="text-xs text-content-muted mt-2 italic">{r.notes}</p>
               )}
+
+              {(() => {
+                const trend = r.parameter ? trendFor(trends, r.parameter) : undefined;
+                // One reading is not a trend; nothing to open.
+                if (!trend || trend.results.length < 2) return null;
+                const key = r.id ?? r.test_name;
+                const open = openTrend === key;
+                const panelId = `trend-${key.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+                return (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      aria-controls={panelId}
+                      onClick={() => setOpenTrend(open ? null : key)}
+                      className="inline-flex min-h-[44px] items-center gap-2 text-sm font-medium text-brand hover:underline"
+                    >
+                      <TrendingUp className="w-4 h-4" aria-hidden="true" />
+                      {open ? t('labResults.hideTrend') : t('labResults.showTrend', { n: trend.results.length })}
+                    </button>
+                    {open && (
+                      <div id={panelId} className="mt-2 space-y-3">
+                        <TrendChart trend={trend} />
+                        <p className="text-sm text-content-secondary">
+                          {trend.percentChange === null
+                            ? t('labTrends.changeUnavailable')
+                            : t('labResults.trendChange', { change: `${trend.percentChange > 0 ? '+' : ''}${trend.percentChange}%` })}
+                        </p>
+                        <ul className="divide-y divide-border text-sm">
+                          {trend.results.slice(0, 5).map((point) => (
+                            <li key={point.id} className="flex justify-between py-1.5">
+                              <span className="text-content-muted">{formatDateOnly(point.date)}</span>
+                              <span className="font-medium text-content">{point.value} {trend.test.unit}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ))}
         </div>

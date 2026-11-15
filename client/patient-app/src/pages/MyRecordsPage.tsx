@@ -1,14 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, useTranslation, clickable, formatTimestamp } from '@medichain/shared';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useProviderDirectory, downloadRecordContent, getPatientDocuments, getPatientEPrescriptions, getPatientGCS, getPatientLabSubmissions, getPatientRecords, getPatientTriageAssessments, getPatientVitals, getRecordsSummary, useTranslation, formatTimestamp, SealStatusBadge, Sheet } from '@medichain/shared';
+import type { SealStatus } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
   Download,
-  Eye,
-  Calendar,
-  User,
   Search,
-  ChevronRight,
   X,
   FlaskConical,
   Image,
@@ -16,22 +13,46 @@ import {
   Stethoscope,
   FileCheck,
   Syringe,
-  Clock,
-  Shield,
   CheckCircle,
 } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
+import { RecordDocument } from '../components/RecordDocument';
+import { HealthSubnav } from '../components/HealthSubnav';
+import { useWideScreen } from '../hooks/useWideScreen';
+
+// ux-allow(no-form): the only field is a search box that filters the list as it is typed; there is nothing to submit.
+
+const MONTH_LABEL = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
+
+/** Records newest first, in calendar-month groups; undated ones last. */
+export function groupByMonth<R extends { date: string }>(records: R[]): Array<{ key: string; label: string | null; records: R[] }> {
+  const groups = new Map<string, { key: string; label: string | null; records: R[] }>();
+  const sorted = [...records].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  for (const record of sorted) {
+    const at = Date.parse(record.date);
+    const key = Number.isNaN(at) ? 'undated' : record.date.slice(0, 7);
+    const label = Number.isNaN(at) ? null : MONTH_LABEL.format(new Date(at));
+    if (!groups.has(key)) groups.set(key, { key, label, records: [] });
+    groups.get(key)!.records.push(record);
+  }
+  return [...groups.values()];
+}
 
 interface MedicalRecord {
   id: string;
-  type: 'lab_result' | 'imaging' | 'prescription' | 'consultation' | 'discharge_summary' | 'vaccination' | 'other';
+  type: 'lab_result' | 'imaging' | 'prescription' | 'consultation' | 'procedure' | 'discharge_summary' | 'vaccination' | 'vital_signs' | 'assessment' | 'other';
   title: string;
   description: string;
   provider: string;
   date: string;
   contentHash: string;
   metadataHash: string;
-  verified: boolean;
+  /**
+   * Where this stored document stands in the sealed audit stream, when the
+   * server reported it. Only a state the server sent may produce a badge --
+   * the old badge was a hard-coded `verified: true` on nearly every record type.
+   */
+  sealStatus?: SealStatus | null;
   // Lab result specific fields (optional)
   labResults?: Array<{
     parameter: string;
@@ -60,29 +81,49 @@ interface SoapNoteResponse {
   }>;
 }
 
+/**
+ * The record's moment as a full ISO instant. Cut to the day, every record from
+ * today sorted level with every other, so a note written a minute ago could sit
+ * behind a page of this morning's lab results and never be seen.
+ */
+/** "Level3Urgent" is the server's enum name; a patient reads "Triage level 3". */
+export function triageLevelLabel(level: string | null | undefined): string | null {
+  if (!level) return null;
+  const n = /^Level([1-5])/.exec(level)?.[1];
+  return n ? `Triage level ${n}` : level;
+}
+
 function timestampDate(value?: number | string): string {
   if (!value) return '';
   const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
 function medicalRecordType(value: string): MedicalRecord['type'] {
   const supported: MedicalRecord['type'][] = [
-    'lab_result', 'imaging', 'prescription', 'consultation',
-    'discharge_summary', 'vaccination', 'other',
+    'lab_result', 'imaging', 'prescription', 'consultation', 'procedure',
+    'discharge_summary', 'vaccination', 'vital_signs', 'assessment', 'other',
   ];
   return supported.includes(value as MedicalRecord['type'])
     ? value as MedicalRecord['type']
     : 'other';
 }
 
+/** Use recorded procedure descriptions; fall back to the document type when none was entered. */
+function procedureDescription(item: Record<string, unknown>, label: string): string {
+  const captured = item.data && typeof item.data === 'object' && !Array.isArray(item.data)
+    ? item.data as Record<string, unknown> : {};
+  return String(item.location || item.procedure_name || item.scheduled_surgery || item.procedure_type
+    || captured.procedure || captured.procedureName || item.anesthesia_type || label);
+}
+
 /**
  * My Records Page
  *
- * View and download medical records stored on IPFS.
- * Records are encrypted and blockchain-verified.
+ * View clinical records and download available encrypted documents.
+ * Stored documents carry their seal state (Sealing pending, Sealed, Sealed and exported).
  *
- * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyRecordsPage() {
   const { t } = useTranslation();
@@ -97,10 +138,10 @@ export function MyRecordsPage() {
   // the patient is told so rather than left to believe it is complete.
   const [unloadedSections, setUnloadedSections] = useState<string[]>([]);
   const patient = usePatientAuthStore(state => state.patient);
-  // Records name their author by wallet address, which is the API's identity
+  // Records name their author by user id, which is the API's identity
   // and means nothing to a patient. The directory turns it into a name, and
-  // leaves an address it cannot resolve as it is rather than guessing.
-  const { providerName } = useProviderDirectory(patient?.walletAddress);
+  // leaves an id it cannot resolve as it is rather than guessing.
+  const { providerName } = useProviderDirectory(patient?.userId);
 
   const loadRecords = useCallback(async () => {
     setIsLoading(true);
@@ -127,6 +168,20 @@ export function MyRecordsPage() {
       });
     const documents = (kind: Parameters<typeof getPatientDocuments>[1]) =>
       settle(kind, getPatientDocuments(patientId, kind), {} as Record<string, unknown>);
+    // Most sections come from one summary read (WP11) instead of a request
+    // each. A section the server could not read is named as not loaded, the
+    // same as a failed individual read, and never shown as empty.
+    const summary = await getRecordsSummary(patientId).catch((error: unknown) => {
+      console.error('Failed to load the records summary:', error);
+      return null;
+    });
+    const section = (key: string): Record<string, unknown> => {
+      if (!summary || summary.unavailable.includes(key) || !summary.sections[key]) {
+        failed.push(key);
+        return {};
+      }
+      return summary.sections[key];
+    };
 
     try {
       const [
@@ -149,6 +204,10 @@ export function MyRecordsPage() {
         amaData,
         gcsData,
         emsData,
+        immunizationData,
+        administrationData,
+        emergencyCareData,
+        ivSiteData,
       ] = await Promise.all([
         settle('lab', getPatientLabSubmissions(patientId), []),
         settle('documents', getPatientRecords(patientId), []),
@@ -166,42 +225,40 @@ export function MyRecordsPage() {
         // A History & Physical, a progress note, a wound assessment and a
         // vitals reading are all written about the patient, and none of them
         // were reachable from this page before.
-        documents('history-physicals'),
-        documents('progress-notes'),
-        documents('wounds'),
-        settle(
-          'vitals',
-          getPatientVitals(patientId),
-          { readings: [] } as unknown as Awaited<ReturnType<typeof getPatientVitals>>,
-        ),
+        section('history-physicals'),
+        section('progress-notes'),
+        section('wounds'),
+        // Same shape as the vitals endpoint; `readings` is empty when the
+        // section did not load (and it is then named as not loaded).
+        { readings: [], ...section('vitals') } as unknown as Awaited<ReturnType<typeof getPatientVitals>>,
         // The document a patient physically leaves hospital with. It was
         // reachable only by an id the patient has never seen, so it could be
         // written, approved by a second clinician, stored — and never read by
         // the person it was written for.
-        documents('discharges'),
+        section('discharges'),
         // The scan the patient was sent for, waited for and worried about.
         // The report was readable only by an id they have never seen, behind a
         // clinical-staff gate that refused them even with it.
-        documents('imaging'),
+        section('imaging'),
         // Where a cancer diagnosis, a margin status and a staging live — the
         // result a patient chases hardest, and the one they were least able to
         // reach: it was keyed by an accession number they have never seen.
-        documents('pathology'),
+        section('pathology'),
         // What the specialist actually said, and what they want done next. A
         // patient told "the specialist has seen your notes" and unable to read
         // the answer is being asked to take the recommendation on trust.
-        documents('consults'),
+        section('consults'),
         // The one clinical document written in the second person: what the
         // goals of this admission are and what the patient is expected to do.
-        documents('care-plans'),
+        section('care-plans'),
         // A blood group is the single most reusable fact in a record — asked
         // in every emergency department and on every pre-operative form.
-        documents('blood'),
+        section('blood'),
         // "What was done to me" is one question; it was split across five
         // endpoints, none of which the patient could reach.
-        documents('procedures'),
+        section('procedures'),
         // The document most likely to be cited against the patient later.
-        documents('ama-discharges'),
+        section('ama-discharges'),
         // Neurological observations. `POST /api/clinical/gcs` and this read had
         // both existed with no caller at either end: nothing wrote a GCS
         // assessment and nothing displayed one.
@@ -211,7 +268,18 @@ export function MyRecordsPage() {
           { assessments: [] } as unknown as Awaited<ReturnType<typeof getPatientGCS>>,
         ),
         // What the ambulance crew found and did before the hospital door.
-        documents('ems-handoffs'),
+        section('ems-handoffs'),
+        section('immunizations'),
+        // Each dose the ward recorded as given, held or refused. A patient
+        // could be given a drug and have no way to see that it was given.
+        section('medication-administrations'),
+        // Resuscitation, trauma, stroke, cardiac and sepsis care. A patient who
+        // was resuscitated could not see that it happened.
+        section('emergency-care'),
+        // Each cannula and how its site was last assessed. The clinical list
+        // is closed to patient sessions, so a patient whose arm was graded for
+        // phlebitis had no way to read it.
+        section('iv-sites'),
       ]);
 
       const labRecords = labData.map(sub => ({
@@ -220,10 +288,9 @@ export function MyRecordsPage() {
           title: sub.test_name,
           description: `${sub.test_category} - ${sub.results.length} parameter(s)`,
           provider: sub.reviewed_by || sub.submitted_by,
-          date: new Date(sub.reviewed_at || sub.submitted_at).toISOString().split('T')[0],
+          date: new Date(sub.reviewed_at || sub.submitted_at).toISOString(),
           contentHash: sub.content_hash || `lab-${sub.id}`,
           metadataHash: sub.metadata_hash || `meta-${sub.id}`,
-          verified: true,
           labResults: sub.results,
           reviewedBy: sub.reviewed_by,
       }));
@@ -234,16 +301,17 @@ export function MyRecordsPage() {
           metadata_hash: string;
           record_type: string;
           uploaded_at: number;
+          seal_status?: SealStatus | null;
         }>).map(rec => ({
           id: rec.content_hash,
           type: medicalRecordType(rec.record_type),
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
           description: t('records.defaultDescription'),
           provider: 'MediChain',
-          date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString().split('T')[0] : '',
+          date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString() : '',
           contentHash: rec.content_hash,
           metadataHash: rec.metadata_hash,
-          verified: true,
+          sealStatus: rec.seal_status ?? null,
       }));
       allRecords.push(...medRecords);
 
@@ -256,7 +324,6 @@ export function MyRecordsPage() {
         date: timestampDate(note.created_at),
         contentHash: `soap-${note.note_id}`,
         metadataHash: note.note_id,
-        verified: true,
       }));
       allRecords.push(...soapRecords);
 
@@ -270,7 +337,6 @@ export function MyRecordsPage() {
         date: timestampDate(rx.created_at),
         contentHash: `rx-${rx.prescription_id}`,
         metadataHash: rx.prescription_id,
-        verified: true,
       }));
       allRecords.push(...prescriptionRecords);
 
@@ -278,12 +344,11 @@ export function MyRecordsPage() {
         id: assessment.assessment_id,
         type: 'consultation' as const,
         title: 'Triage Assessment',
-        description: [assessment.chief_complaint, assessment.esi_level].filter(Boolean).join(' — '),
+        description: [assessment.chief_complaint, triageLevelLabel(assessment.esi_level)].filter(Boolean).join(' — '),
         provider: assessment.performed_by || 'MediChain provider',
         date: timestampDate(assessment.performed_at),
         contentHash: `triage-${assessment.assessment_id}`,
         metadataHash: assessment.assessment_id,
-        verified: true,
       }));
       allRecords.push(...triageRecords);
 
@@ -294,13 +359,13 @@ export function MyRecordsPage() {
         type: 'discharge_summary' as const,
         title: 'Discharge summary',
         description: String(
-          summary.discharge_diagnosis || summary.primary_diagnosis || 'Summary of this admission'
+          (typeof summary.discharge_diagnosis === 'string' ? summary.discharge_diagnosis : (summary.discharge_diagnosis as { description?: string } | null)?.description) ||
+          summary.primary_diagnosis || (summary.data as Record<string, unknown> | undefined)?.primary_diagnosis || 'Summary of this admission'
         ),
-        provider: String(summary.attending_physician_id || summary.created_by || 'MediChain provider'),
-        date: timestampDate(summary.discharge_date as string | number | undefined),
+        provider: String(summary.attending_physician_id || summary.created_by || (summary.data as Record<string, unknown> | undefined)?.prepared_by || 'MediChain provider'),
+        date: timestampDate((summary.discharge_date || summary.discharge_datetime || summary.created_at) as string | number | undefined),
         contentHash: `discharge-${summary.id}`,
         metadataHash: String(summary.id),
-        verified: true,
       }));
       allRecords.push(...dischargeRecords);
 
@@ -320,7 +385,6 @@ export function MyRecordsPage() {
         date: timestampDate(item.created_at as string | number | undefined),
         contentHash: `discharge-instructions-${item.id}`,
         metadataHash: String(item.id),
-        verified: true,
       }));
       allRecords.push(...dischargeInstructionRecords);
 
@@ -340,7 +404,6 @@ export function MyRecordsPage() {
         date: timestampDate(report.report_datetime as string | number | undefined),
         contentHash: `imaging-report-${report.id}`,
         metadataHash: String(report.status || report.id),
-        verified: String(report.status || '').toLowerCase() === 'final',
       }));
       allRecords.push(...imagingRecords);
 
@@ -363,8 +426,6 @@ export function MyRecordsPage() {
           ),
           contentHash: `imaging-order-${order.id}`,
           metadataHash: String(order.status || order.id),
-          // Nothing has been reported, so there is nothing to have verified.
-          verified: false,
         }));
       allRecords.push(...imagingOrderRecords);
 
@@ -382,7 +443,6 @@ export function MyRecordsPage() {
         date: timestampDate(report.report_date as string | number | undefined),
         contentHash: `pathology-${report.id}`,
         metadataHash: String(report.status || report.id),
-        verified: String(report.status || '').toLowerCase() === 'final',
       }));
       allRecords.push(...pathologyRecords);
 
@@ -406,7 +466,6 @@ export function MyRecordsPage() {
         metadataHash: String(consult.status || consult.id),
         // A consult that has been answered is a document; one still awaiting a
         // specialist is a request, and saying otherwise overstates it.
-        verified: Boolean(consult.completed_at),
       }));
       allRecords.push(...consultRecords);
 
@@ -421,7 +480,6 @@ export function MyRecordsPage() {
         date: timestampDate(plan.created_at as string | number | undefined),
         contentHash: `care-plan-${plan.id}`,
         metadataHash: String(plan.care_level || plan.id),
-        verified: true,
       }));
       allRecords.push(...carePlanRecords);
 
@@ -443,7 +501,6 @@ export function MyRecordsPage() {
           date: timestampDate(screen.created_at as string | number | undefined),
           contentHash: `blood-screen-${screen.id}`,
           metadataHash: String(screen.id),
-          verified: true,
         })),
         ...((bloodBody.transfusions) || []).map(tx => ({
           id: String(tx.id),
@@ -456,12 +513,12 @@ export function MyRecordsPage() {
           date: timestampDate(tx.created_at as string | number | undefined),
           contentHash: `transfusion-${tx.id}`,
           metadataHash: String(tx.id),
-          verified: true,
         })),
       ];
       allRecords.push(...bloodRecords);
 
-      // Five kinds of procedure, one list. A patient asking what was done to
+      // Surgical assessments and procedures share the patient-scoped record list.
+      // A patient asking what was done to
       // them does not distinguish an intubation from a splint by which
       // endpoint served it.
       const procedureBody = procedureData as Record<string, Array<Record<string, unknown>> | undefined>;
@@ -471,22 +528,22 @@ export function MyRecordsPage() {
         ['splints_and_casts', 'Splint or cast'],
         ['burn_assessments', 'Burn assessment'],
         ['anesthesia_records', 'Anaesthesia'],
+        ['pre_op_assessments', 'Pre-operative assessment'],
+        ['operative_notes', 'Operative note'],
+        ['post_op_notes', 'Post-operative note'],
       ];
       const procedureRecords = procedureKinds.flatMap(([key, label]) =>
         (procedureBody[key] || []).map(item => ({
           id: String(item.id),
-          type: 'consultation' as const,
+          type: ['pre_op_assessments', 'burn_assessments'].includes(key) ? 'assessment' as const : 'procedure' as const,
           title: label,
-          description: String(
-            item.location || item.procedure_type || item.anesthesia_type || label
-          ),
-          provider: String(item.performed_by || item.anesthesiologist_id || 'MediChain provider'),
+          description: procedureDescription(item, label),
+          provider: String(item.performed_by || item.assessed_by || item.surgeon_id || item.provider_id || item.anesthesiologist_id || 'MediChain provider'),
           date: timestampDate(
-            (item.performed_at ?? item.created_at) as string | number | undefined
+            (item.performed_at ?? item.assessed_at ?? item.note_date ?? item.created_at) as string | number | undefined
           ),
           contentHash: `procedure-${key}-${item.id}`,
           metadataHash: String(item.id),
-          verified: true,
         }))
       );
       allRecords.push(...procedureRecords);
@@ -506,13 +563,12 @@ export function MyRecordsPage() {
         metadataHash: String(record.id),
         // The record's evidentiary value is its signatures; until they are
         // captured it is a pending document, and saying otherwise overstates it.
-        verified: Boolean(record.patient_signed && record.provider_signed),
       }));
       allRecords.push(...amaRecords);
 
       const gcsRecords = (gcsData.assessments ?? []).map(assessment => ({
         id: assessment.assessment_id,
-        type: 'consultation' as const,
+        type: 'assessment' as const,
         title: `Glasgow Coma Scale ${assessment.total_score ?? ''}`.trim(),
         // The server's interpretation, not a phrase composed here. The total
         // and its meaning are scored server-side and displayed as returned.
@@ -521,7 +577,6 @@ export function MyRecordsPage() {
         date: timestampDate(assessment.assessed_at),
         contentHash: `gcs-${assessment.assessment_id}`,
         metadataHash: assessment.assessment_id,
-        verified: true,
       }));
       allRecords.push(...gcsRecords);
 
@@ -535,9 +590,68 @@ export function MyRecordsPage() {
         date: timestampDate(handoff.received_at as string | undefined),
         contentHash: `ems-${handoff.id}`,
         metadataHash: String(handoff.id),
-        verified: true,
       }));
       allRecords.push(...emsRecords);
+
+      const DOSE_STATUS: Record<string, string> = {
+        given: 'Given', held: 'Held', refused: 'Refused', 'not-given': 'Not given', missed: 'Missed',
+      };
+      const administrationRecords = (((administrationData as { administrations?: Array<Record<string, unknown>> })
+        .administrations) || []).map(dose => ({
+        id: String(dose.administration_id),
+        type: 'prescription' as const,
+        title: `Medication ${(DOSE_STATUS[String(dose.status)] ?? 'recorded').toLowerCase()}: ${String(dose.medication_name || 'medication not named')}`,
+        description: [dose.dose, dose.route, dose.reason_not_given ? `Reason: ${dose.reason_not_given}` : null]
+          .filter(Boolean).join(' · '),
+        provider: String(dose.administered_by || 'Nurse not recorded'),
+        date: timestampDate((dose.administered_at || dose.record_date) as string | undefined),
+        contentHash: `dose-${dose.administration_id}`,
+        metadataHash: String(dose.administration_id),
+      }));
+      allRecords.push(...administrationRecords);
+
+      const ivSiteRecords = (((ivSiteData as { iv_sites?: Array<Record<string, unknown>> })
+        .iv_sites) || []).map(site => {
+        const location = String(site.site_location || 'site not recorded').replace(/-/g, ' ');
+        const grade = site.phlebitis_grade;
+        return {
+          id: String(site.id),
+          type: 'procedure' as const,
+          title: `IV cannula: ${location}`,
+          description: [
+            site.catheter_gauge, site.catheter_type,
+            // An unassessed site has no grade, which is not grade 0 (rule 12).
+            grade == null ? 'Site not yet assessed' : `Phlebitis grade ${String(grade)}`,
+            site.site_discontinued ? `Removed${site.discontinuation_reason ? `: ${String(site.discontinuation_reason)}` : ''}` : null,
+          ].filter(Boolean).join(' · '),
+          provider: String(site.assessed_by || 'Nurse not recorded'),
+          date: timestampDate((site.assessed_at || site.insertion_date) as string | undefined),
+          contentHash: `iv-${String(site.id)}`,
+          metadataHash: String(site.id),
+        };
+      });
+      allRecords.push(...ivSiteRecords);
+
+      const emergencyKinds: Array<[string, string, (row: Record<string, unknown>) => string]> = [
+        ['code_blues', 'Resuscitation (code blue)', (row) => row.outcome ? `Outcome: ${row.outcome}` : ''],
+        ['traumas', 'Trauma assessment', (row) => String(row.mechanism || '')],
+        ['strokes', 'Stroke assessment', (row) => row.nihss_total != null ? `NIHSS ${row.nihss_total}` : ''],
+        ['cardiac_events', 'Cardiac event', (row) => String(row.event_type || '')],
+        ['sepsis_assessments', 'Sepsis screening', (row) => String(row.severity || '')],
+      ];
+      for (const [field, title, describe] of emergencyKinds) {
+        const rows = ((emergencyCareData as Record<string, unknown>)[field] as Array<Record<string, unknown>> | undefined) || [];
+        allRecords.push(...rows.map(row => ({
+          id: String(row.id),
+          type: 'other' as const,
+          title,
+          description: describe(row),
+          provider: String(row.documented_by || row.assessed_by || row.created_by || 'Emergency team'),
+          date: timestampDate(row.created_at as string | undefined),
+          contentHash: `${field}-${row.id}`,
+          metadataHash: String(row.id),
+        })));
+      }
 
       const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
         .history_physicals) || []).map(hp => ({
@@ -549,7 +663,6 @@ export function MyRecordsPage() {
         date: timestampDate(hp.performed_at as string | number | undefined),
         contentHash: `hp-${hp.id}`,
         metadataHash: String(hp.id),
-        verified: true,
       }));
       allRecords.push(...hpRecords);
 
@@ -563,9 +676,21 @@ export function MyRecordsPage() {
         date: timestampDate(note.created_at as string | number | undefined),
         contentHash: `progress-${note.id}`,
         metadataHash: String(note.id),
-        verified: true,
       }));
       allRecords.push(...progressRecords);
+
+      const immunizationRecords = ((immunizationData.immunizations as Array<Record<string, unknown>>) || []).map(record => ({
+        id: String(record.id),
+        type: 'vaccination' as const,
+        title: String(record.vaccine_name || 'Vaccination'),
+        description: [record.dose_number != null ? `Dose ${record.dose_number}` : null,
+          record.lot_number ? `Lot ${record.lot_number}` : null].filter(Boolean).join(' · '),
+        provider: String(record.administered_by_name || record.administered_by || 'Provider not recorded'),
+        date: timestampDate(record.administration_date as string | undefined),
+        contentHash: `immunization-${record.id}`,
+        metadataHash: String(record.id),
+      }));
+      allRecords.push(...immunizationRecords);
 
       const woundRecords = (((woundData as { wounds?: Array<Record<string, unknown>> })
         .wounds) || []).map(wound => ({
@@ -577,13 +702,12 @@ export function MyRecordsPage() {
         date: timestampDate(wound.assessed_at as string | number | undefined),
         contentHash: `wound-${wound.id}`,
         metadataHash: String(wound.id),
-        verified: true,
       }));
       allRecords.push(...woundRecords);
 
       const vitalsRecords = vitalsData.readings.map(v => ({
         id: v.reading_id,
-        type: 'lab_result' as const,
+        type: 'vital_signs' as const,
         title: 'Vital signs',
         description: [
           v.heart_rate ? `HR ${v.heart_rate}` : null,
@@ -598,7 +722,6 @@ export function MyRecordsPage() {
         date: timestampDate(v.recorded_at as string | number | undefined),
         contentHash: `vitals-${v.reading_id}`,
         metadataHash: v.reading_id,
-        verified: true,
       }));
       allRecords.push(...vitalsRecords);
     } catch (error) {
@@ -629,6 +752,8 @@ export function MyRecordsPage() {
         return <Pill className="w-5 h-5" />;
       case 'consultation':
         return <Stethoscope className="w-5 h-5" />;
+      case 'procedure':
+        return <FileCheck className="w-5 h-5" />;
       case 'discharge_summary':
         return <FileCheck className="w-5 h-5" />;
       case 'vaccination':
@@ -648,6 +773,8 @@ export function MyRecordsPage() {
         return 'bg-ok-subtle text-ok-subtle-fg';
       case 'consultation':
         return 'bg-brand-subtle text-brand';
+      case 'procedure':
+        return 'bg-info-light text-info';
       case 'discharge_summary':
         return 'bg-caution-subtle text-caution';
       case 'vaccination':
@@ -668,8 +795,11 @@ export function MyRecordsPage() {
       imaging: t('records.typeImaging'),
       prescription: t('records.typePrescription'),
       consultation: t('records.typeConsultation'),
+      procedure: t('records.typeProcedure'),
       discharge_summary: t('records.typeDischarge'),
       vaccination: t('records.typeVaccination'),
+      vital_signs: t('records.typeVitalSigns'),
+      assessment: t('records.typeAssessment'),
       other: t('records.typeOther'),
     };
     return map[type] || formatRecordType(type);
@@ -684,71 +814,50 @@ export function MyRecordsPage() {
   };
 
   /**
-   * In-app preview of a record's contents.
-   *
-   * The View button used to have no `onClick` at all - it rendered, took the
-   * click and did nothing. Viewing goes through the same authorised download
-   * endpoint as the Download button; the difference is only that the bytes are
-   * shown here instead of being written to a file.
+   * The open record's contents (mockup p5). Tapping a record opens the
+   * document itself -- there is no details step before it -- through the same
+   * authorised download endpoint the Download button uses.
    */
-  const [preview, setPreview] = useState<{
-    title: string;
-    kind: 'text' | 'image' | 'pdf' | 'unsupported';
-    text?: string;
-    url?: string;
-    contentType: string;
-  } | null>(null);
-  const [isViewing, setIsViewing] = useState<string | null>(null);
+  const [preview, setPreview] = useState<RecordPreview | null>(null);
+  const [isViewing, setIsViewing] = useState(false);
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const wide = useWideScreen();
+  const viewRequest = useRef(0);
+  useEffect(() => () => { viewRequest.current += 1; }, []);
+  const previewUrl = preview?.url;
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
-  /** Revoke the object URL when the preview closes, so blobs are not leaked. */
-  const closePreview = () => {
-    setPreview(current => {
-      if (current?.url) URL.revokeObjectURL(current.url);
-      return null;
-    });
+  /** Close the reader and drop any document still on its way. */
+  const closeDetails = () => {
+    viewRequest.current += 1;
+    setIsViewing(false);
+    setPreview(null);
+    setSelectedRecord(null);
   };
 
-  const handleView = async (record: MedicalRecord) => {
-    setIsViewing(record.id);
+  const openRecord = async (record: MedicalRecord) => {
+    const ticket = ++viewRequest.current;
+    setSelectedRecord(record);
+    setPreview(null);
+    setIsViewing(true);
     try {
-      let download: { blob: Blob; contentType: string };
-      try {
-        download = await downloadRecordContent(record.contentHash);
-      } catch {
-        showError(t('records.viewFailed', { title: record.title }));
-        return;
-      }
-      const { blob, contentType } = download;
-
+      const { blob, contentType } = await downloadRecordContent(record.contentHash);
+      if (viewRequest.current !== ticket) return;
       if (contentType.startsWith('text/') || contentType.includes('json')) {
-        setPreview({
-          title: record.title,
-          kind: 'text',
-          text: await blob.text(),
-          contentType,
-        });
+        const text = await blob.text();
+        if (viewRequest.current === ticket) setPreview({ kind: 'text', text, contentType });
       } else if (contentType.startsWith('image/')) {
-        setPreview({
-          title: record.title,
-          kind: 'image',
-          url: URL.createObjectURL(blob),
-          contentType,
-        });
+        setPreview({ kind: 'image', url: URL.createObjectURL(blob), contentType });
       } else if (contentType.includes('pdf')) {
-        setPreview({
-          title: record.title,
-          kind: 'pdf',
-          url: URL.createObjectURL(blob),
-          contentType,
-        });
+        setPreview({ kind: 'pdf', url: URL.createObjectURL(blob), contentType });
       } else {
         // Say so rather than rendering bytes as mojibake; Download still works.
-        setPreview({ title: record.title, kind: 'unsupported', contentType });
+        setPreview({ kind: 'unsupported', contentType });
       }
     } catch {
-      showError(t('records.viewError', { title: record.title }));
+      if (viewRequest.current === ticket) setPreview({ kind: 'failed', contentType: '' });
     } finally {
-      setIsViewing(null);
+      if (viewRequest.current === ticket) setIsViewing(false);
     }
   };
 
@@ -780,16 +889,23 @@ export function MyRecordsPage() {
   const filteredRecords = records.filter(record => {
     const needle = searchQuery.toLowerCase();
     const hit = (value: unknown) => String(value ?? '').toLowerCase().includes(needle);
-    const matchesSearch = hit(record.title) || hit(providerName(record.provider));
+    const matchesSearch = hit(record.title) || hit(record.description) || hit(record.id) || hit(providerName(record.provider));
     const matchesFilter = filterType === 'all' || record.type === filterType;
     return matchesSearch && matchesFilter;
   });
 
-  const recordTypes = ['all', 'lab_result', 'imaging', 'prescription', 'consultation', 'vaccination'];
+  // Newest first, grouped by month (mockup p4): a patient looks for "the visit
+  // in March", not for record number 37 of 80. A page at a time, so 75
+  // records are not 12 screens of scrolling.
+  const visible = byNewest(filteredRecords).slice(0, shown);
+  const monthCounts = new Map(groupByMonth(filteredRecords).map((g) => [g.key, g.records.length]));
+  const byMonth = groupByMonth(visible);
+
+  const recordTypes = ['all', 'lab_result', 'imaging', 'prescription', 'consultation', 'procedure', 'discharge_summary', 'vaccination', 'vital_signs', 'assessment', 'other'];
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4 animate-pulse">
+      <div className="p-6 space-y-4">
         <div className="h-8 bg-surface-sunken rounded w-48" />
         <div className="h-12 bg-surface-sunken rounded-xl" />
         {[1, 2, 3].map(i => (
@@ -799,300 +915,262 @@ export function MyRecordsPage() {
     );
   }
 
+  const downloadButton = (record: MedicalRecord, wideButton: boolean) => (
+    <button
+      type="button"
+      onClick={() => void handleDownload(record)}
+      aria-disabled={isDownloading === record.id || undefined}
+      aria-label={wideButton ? undefined : t('records.downloadNamed', { title: record.title })}
+      className={wideButton
+        ? 'flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-brand px-6 font-semibold text-brand-fg hover:bg-brand-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+        : 'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus'}
+    >
+      {isDownloading === record.id
+        ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-border-strong border-t-transparent" aria-hidden="true" />
+        : <Download className="h-5 w-5" aria-hidden="true" />}
+      {wideButton && t('records.download')}
+    </button>
+  );
+
+  const reader = selectedRecord && (
+    <RecordReader
+      record={selectedRecord}
+      preview={preview}
+      loading={isViewing}
+      typeLabel={typeLabel(selectedRecord.type)}
+      provider={providerName(selectedRecord.provider)}
+      date={formatDate(selectedRecord.date)}
+      reviewer={selectedRecord.reviewedBy ? providerName(selectedRecord.reviewedBy) : null}
+      onRetry={() => void openRecord(selectedRecord)}
+    />
+  );
+
   return (
-    <div className="p-4 md:p-6 space-y-6 pb-24">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-content">{t('records.pageTitle')}</h1>
-        <p className="text-content-muted">{t('records.subtitle')}</p>
-      </div>
+    <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_minmax(0,1fr)] lg:gap-0">
+      <aside className="hidden self-start border-r border-border p-4 lg:sticky lg:top-16 lg:block">
+        <HealthSubnav />
+      </aside>
 
-      {unloadedSections.length > 0 && (
-        <div role="alert" className="rounded-xl bg-caution-subtle text-caution-subtle-fg p-4 flex items-start justify-between gap-4">
-          <p>{t('records.partialLoad')}</p>
-          <button
-            type="button"
-            onClick={() => void loadRecords()}
-            className="shrink-0 font-medium underline"
-          >
-            {t('records.retry')}
-          </button>
-        </div>
-      )}
-
-      {/* Search & Filter */}
-      <div className="space-y-4">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
-          <input
-            type="text"
-            placeholder={t('records.search')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-surface-sunken text-content border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
-          />
+      <div className="space-y-4 p-4 pb-6 md:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold text-content">{t('records.pageTitle')}</h1>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-content-muted" aria-hidden="true" />
+            <input aria-label={t('records.search')}
+              type="search"
+              placeholder={t('records.search')}
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setShown(PAGE_SIZE); }}
+              className="min-h-[44px] w-full rounded-xl border border-border-interactive bg-surface pl-12 pr-4 text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            />
+          </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4">
+        {unloadedSections.length > 0 && (
+          <div role="alert" className="rounded-xl bg-caution-subtle text-caution-subtle-fg p-4 flex items-start justify-between gap-4">
+            <p>{t('records.partialLoad')}</p>
+            <button type="button" onClick={() => void loadRecords()} className="shrink-0 font-medium underline">
+              {t('records.retry')}
+            </button>
+          </div>
+        )}
+
+        {/* Filter chips stay in reach while the list scrolls. */}
+        <div className="sticky top-16 z-20 -mx-4 flex gap-2 overflow-x-auto bg-surface-sunken lg:flex-wrap lg:overflow-visible px-4 py-2 md:-mx-5 md:px-5">
           {recordTypes.map(type => (
             <button
               key={type}
-              onClick={() => setFilterType(type)}
-              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+              type="button"
+              aria-pressed={filterType === type}
+              onClick={() => { setFilterType(type); setShown(PAGE_SIZE); }}
+              className={`min-h-[40px] whitespace-nowrap rounded-full border px-4 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
                 filterType === type
-                  ? 'bg-primary-500 text-brand-fg'
-                  : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
+                  ? 'border-selected bg-selected text-selected-fg'
+                  : 'border-border-interactive bg-surface text-content hover:bg-surface-sunken'
               }`}
             >
               {type === 'all' ? t('records.allRecords') : typeLabel(type)}
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Records Count */}
-      <div className="flex items-center gap-2 text-sm text-content-muted">
-        <FileText className="w-4 h-4" />
-        {t('records.found', { count: filteredRecords.length })}
-      </div>
+        <div className="space-y-4">
+          {byMonth.map((group) => (
+            <section key={group.key} aria-labelledby={`records-${group.key}`} className="space-y-2">
+              <h2 id={`records-${group.key}`} className="px-1 text-sm font-semibold uppercase tracking-wide text-content-secondary">
+                {t('records.monthCount', { month: group.label ?? t('records.undated'), n: String(monthCounts.get(group.key) ?? group.records.length) })}
+              </h2>
+              <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+                {group.records.map(record => {
+                  const open = selectedRecord?.id === record.id;
+                  return (
+                    <li key={record.id} className={`flex items-center gap-1 pr-2 ${open ? 'bg-selected text-selected-fg' : ''}`}>
+                      <button
+                        type="button"
+                        onClick={() => void openRecord(record)}
+                        aria-current={open ? 'true' : undefined}
+                        className="flex min-h-[64px] min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+                      >
+                        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${getRecordColor(record.type)}`} aria-hidden="true">
+                          {getRecordIcon(record.type)}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block truncate font-semibold ${open ? '' : 'text-content'}`}>{record.title}</span>
+                          <span className={`block truncate text-sm ${open ? '' : 'text-content-muted'}`}>
+                            {[record.description !== record.title ? record.description : null, formatDate(record.date), providerName(record.provider)]
+                              .filter(Boolean).join(' · ')}
+                          </span>
+                        </span>
+                      </button>
+                      {!wide && downloadButton(record, false)}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
 
-      {/* Records List */}
-      <div className="space-y-3">
-        {filteredRecords.map(record => (
-          <div
-            key={record.id}
-            className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
-            {...clickable(() => setSelectedRecord(record))}
-          >
-            <div className="flex items-start gap-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getRecordColor(record.type)}`}>
-                {getRecordIcon(record.type)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-medium text-content truncate">{record.title}</h3>
-                  {record.verified && (
-                    <Shield className="w-4 h-4 text-ok-subtle-fg flex-shrink-0" />
-                  )}
-                </div>
-                <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
-                <div className="flex items-center gap-4 text-xs text-content-muted">
-                  <span className="flex items-center gap-1">
-                    <User className="w-3 h-3" />
-                    {providerName(record.provider)}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
-                    {formatDate(record.date)}
-                  </span>
-                </div>
-              </div>
-              <ChevronRight className="w-5 h-5 text-content-muted flex-shrink-0" />
+          {filteredRecords.length === 0 && (
+            <div className="text-center py-12">
+              <FileText className="w-12 h-12 text-content-muted mx-auto mb-4" aria-hidden="true" />
+              <p className="text-content-muted">{t('records.noRecords')}</p>
             </div>
-          </div>
-        ))}
+          )}
 
-        {filteredRecords.length === 0 && (
-          <div className="text-center py-12">
-            <FileText className="w-12 h-12 text-content-muted mx-auto mb-4" />
-            <p className="text-content-muted">{t('records.noRecords')}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Record Detail Modal */}
-      {selectedRecord && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-content">{t('records.recordDetails')}</h2>
-              <button
-                onClick={() => setSelectedRecord(null)}
-                className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
-              >
-                <X className="w-6 h-6 text-content-muted" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-6">
-              {/* Record Header */}
-              <div className="flex items-start gap-4">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${getRecordColor(selectedRecord.type)}`}>
-                  {getRecordIcon(selectedRecord.type)}
-                </div>
-                <div>
-                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-1 ${getRecordColor(selectedRecord.type)}`}>
-                    {typeLabel(selectedRecord.type)}
-                  </span>
-                  <h3 className="font-semibold text-lg text-content">{selectedRecord.title}</h3>
-                  <p className="text-content-muted">{selectedRecord.description}</p>
-                </div>
-              </div>
-
-              {/* Record Info */}
-              <div className="space-y-4 p-4 bg-surface-sunken rounded-xl">
-                <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-content-muted" />
-                  <div>
-                    <p className="text-sm text-content-muted">{t('records.provider')}</p>
-                    <p className="font-medium text-content">{providerName(selectedRecord.provider)}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Calendar className="w-5 h-5 text-content-muted" />
-                  <div>
-                    <p className="text-sm text-content-muted">{t('records.date')}</p>
-                    <p className="font-medium text-content">{formatDate(selectedRecord.date)}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-content-muted" />
-                  <div>
-                    <p className="text-sm text-content-muted">{t('records.status')}</p>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-caution'}`} />
-                      <p className="font-medium text-content">
-                        {selectedRecord.verified ? t('records.verified') : t('records.pendingVerification')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* IPFS Hash */}
-              <div className="p-4 bg-info-light rounded-xl">
-                <p className="text-sm text-info-dark mb-1 font-medium flex items-center gap-2 inline-flex items-center min-h-[24px] py-1">
-                  <Shield className="w-4 h-4" />
-                  {t('records.documentHash')}
-                </p>
-                <p className="font-mono text-xs text-info break-all">{selectedRecord.contentHash}</p>
-              </div>
-
-              {/* Lab Results Details (only for lab_result type) */}
-              {selectedRecord.type === 'lab_result' && selectedRecord.labResults && selectedRecord.labResults.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <FlaskConical className="w-5 h-5 text-info" />
-                    <h4 className="font-semibold text-content">{t('records.testResults')}</h4>
-                    <span className="text-xs text-ok-subtle-fg flex items-center gap-1 bg-ok-subtle px-2 py-0.5 rounded-full">
-                      <CheckCircle className="w-3 h-3" />
-                      {t('records.doctorApproved')}
-                    </span>
-                  </div>
-                  <div className="bg-surface-sunken rounded-xl overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead className="bg-surface-sunken">
-                        <tr>
-                          <th className="text-left px-4 py-2 font-medium text-content-muted">{t('records.parameter')}</th>
-                          <th className="text-right px-4 py-2 font-medium text-content-muted">{t('records.value')}</th>
-                          <th className="text-right px-4 py-2 font-medium text-content-muted">{t('records.reference')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedRecord.labResults.map((result, idx) => (
-                          <tr key={idx} className="border-t border-border">
-                            <td className="px-4 py-2 text-content">{result.parameter}</td>
-                            <td className="px-4 py-2 text-right">
-                              <span className={`font-medium ${
-                                result.flag === 'High' ? 'text-critical-subtle-fg' :
-                                result.flag === 'Low' ? 'text-caution' :
-                                'text-content'
-                              }`}>
-                                {result.value} {result.unit}
-                              </span>
-                              {result.flag && (
-                                <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                                  result.flag === 'High' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                  'bg-caution-subtle text-caution'
-                                }`}>
-                                  {result.flag}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-right text-content-muted">{result.reference_range}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {selectedRecord.reviewedBy && (
-                    <p className="text-xs text-content-muted flex items-center gap-1">
-                      <Shield className="w-3 h-3 text-ok-subtle-fg" />
-                      {t('records.reviewedByName', { name: selectedRecord.reviewedBy })}
-                    </p>
-                  )}
-                </div>
+          {filteredRecords.length > 0 && (
+            <div className="space-y-2 text-center">
+              <p className="text-sm text-content-muted">
+                {t('records.tapToRead')} · {t('records.showing', { shown: String(visible.length), total: String(filteredRecords.length) })}
+              </p>
+              {visible.length < filteredRecords.length && (
+                <button type="button" onClick={() => setShown((n) => n + PAGE_SIZE)}
+                  className="min-h-[44px] rounded-xl border border-border-interactive px-5 font-semibold text-content hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  {t('records.showMore')}
+                </button>
               )}
+            </div>
+          )}
+        </div>
+      </div>
 
-              {/* Actions */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleDownload(selectedRecord)}
-                  disabled={isDownloading === selectedRecord.id}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-                >
-                  {isDownloading === selectedRecord.id ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Download className="w-5 h-5" />
-                  )}
-                  {t('records.download')}
-                </button>
-                <button
-                  onClick={() => void handleView(selectedRecord)}
-                  disabled={isViewing === selectedRecord.id}
-                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:bg-none disabled:bg-disabled disabled:text-disabled-fg disabled:opacity-100"
-                >
-                  {isViewing === selectedRecord.id ? (
-                    <div className="w-5 h-5 border-2 border-border-strong border-t-neutral-600 rounded-full animate-spin" />
-                  ) : (
-                    <Eye className="w-5 h-5" />
-                  )}
-                  {t('records.view')}
+      {/* Laptop: the document opens beside the list, no pop-up (mockup p6). */}
+      {wide && (
+        <aside aria-label={selectedRecord?.title ?? t('records.recordDetails')}
+          className="sticky top-16 flex h-[calc(100dvh-4rem)] flex-col border-l border-border bg-surface">
+          {selectedRecord ? (
+            <>
+              <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+                <h2 className="text-xl font-bold text-content">{selectedRecord.title}</h2>
+                <button type="button" onClick={closeDetails} aria-label={t('common.close')}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl hover:bg-surface-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-focus">
+                  <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
-            </div>
-          </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{reader}</div>
+              <div className="border-t border-border px-5 py-3">{downloadButton(selectedRecord, true)}</div>
+            </>
+          ) : (
+            <p className="p-6 text-content-muted">{t('records.chooseRecord')}</p>
+          )}
+        </aside>
+      )}
+
+      {/* Phone and tablet: one sheet, never two, with Download pinned. */}
+      {!wide && selectedRecord && (
+        <Sheet title={selectedRecord.title} onClose={closeDetails} actions={downloadButton(selectedRecord, true)}>
+          {reader}
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+type RecordPreview = {
+  kind: 'text' | 'image' | 'pdf' | 'unsupported' | 'failed';
+  text?: string;
+  url?: string;
+  contentType: string;
+};
+
+const PAGE_SIZE = 20;
+
+/** Newest first; undated last. */
+function byNewest<R extends { date: string }>(records: R[]): R[] {
+  return [...records].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+}
+
+/** The open record: who and when, any lab table, then the document itself. */
+function RecordReader({ record, preview, loading, typeLabel, provider, date, reviewer, onRetry }: {
+  record: MedicalRecord;
+  preview: RecordPreview | null;
+  loading: boolean;
+  typeLabel: string;
+  provider: string;
+  date: string;
+  reviewer: string | null;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-4">
+      <p className="flex flex-wrap items-center gap-2 text-sm text-content-muted">
+        <span>{[typeLabel, date, provider].filter(Boolean).join(' · ')}</span>
+        {record.sealStatus && <SealStatusBadge status={record.sealStatus} />}
+      </p>
+      {record.description && record.description !== record.title && (
+        <p className="text-content">{record.description}</p>
+      )}
+
+      {record.type === 'lab_result' && record.labResults && record.labResults.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-sunken">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-content-muted">{t('records.parameter')}</th>
+                <th className="px-3 py-2 text-right font-medium text-content-muted">{t('records.value')}</th>
+                <th className="px-3 py-2 text-right font-medium text-content-muted">{t('records.reference')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {record.labResults.map((result, idx) => (
+                <tr key={idx} className="border-t border-border">
+                  <td className="px-3 py-2 text-content">{result.parameter}</td>
+                  <td className="px-3 py-2 text-right">
+                    <span className="font-medium text-content">{result.value} {result.unit}</span>
+                    {result.flag && (
+                      <span className={`ml-2 rounded px-1.5 py-0.5 text-xs ${
+                        result.flag.toLowerCase() === 'normal' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                        result.flag.toLowerCase().startsWith('critical') ? 'bg-critical-subtle text-critical-subtle-fg' :
+                        ['high', 'low'].includes(result.flag.toLowerCase()) ? 'bg-caution-subtle text-caution-subtle-fg' :
+                        'bg-surface-sunken text-content-secondary'
+                      }`}>{result.flag}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right text-content-muted">{result.reference_range}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {reviewer && (
+            <p className="flex items-center gap-1 border-t border-border px-3 py-2 text-xs text-content-muted">
+              <CheckCircle className="h-3 w-3 text-ok-subtle-fg" aria-hidden="true" />
+              {t('records.reviewedByName', { name: reviewer })}
+            </p>
+          )}
         </div>
       )}
 
-      {preview && (
-        <div
-          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={preview.title}
-        >
-          <div className="bg-surface rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="font-semibold text-content truncate">{preview.title}</h2>
-              <button
-                type="button"
-                onClick={closePreview}
-                className="px-3 py-1 text-sm text-content-muted hover:text-content"
-              >
-                {t('records.close')}
-              </button>
-            </div>
-            <div className="p-4 overflow-auto">
-              {preview.kind === 'text' && (
-                <pre className="text-sm text-content whitespace-pre-wrap break-words font-mono">
-                  {preview.text}
-                </pre>
-              )}
-              {preview.kind === 'image' && (
-                <img src={preview.url} alt={preview.title} className="max-w-full h-auto mx-auto" />
-              )}
-              {preview.kind === 'pdf' && (
-                <iframe src={preview.url} title={preview.title} className="w-full h-[65vh]" />
-              )}
-              {preview.kind === 'unsupported' && (
-                <p className="text-sm text-content-muted">
-                  {t('records.viewUnsupported', { type: preview.contentType })}
-                </p>
-              )}
-            </div>
-          </div>
+      {loading && <p role="status" className="text-content-muted">{t('records.opening')}</p>}
+      {preview?.kind === 'text' && preview.text && <RecordDocument text={preview.text} />}
+      {preview?.kind === 'image' && <img src={preview.url} alt={record.title} className="mx-auto h-auto max-w-full" />}
+      {preview?.kind === 'pdf' && <iframe src={preview.url} title={record.title} className="h-[60vh] w-full" />}
+      {preview?.kind === 'unsupported' && (
+        <p className="text-sm text-content-muted">{t('records.viewUnsupported', { type: preview.contentType })}</p>
+      )}
+      {preview?.kind === 'failed' && (
+        <div role="alert" className="rounded-xl bg-caution-subtle p-3 text-sm text-caution-subtle-fg">
+          <p>{t('records.viewFailed', { title: record.title })}</p>
+          <button type="button" onClick={onRetry} className="mt-1 font-semibold underline">{t('records.retry')}</button>
         </div>
       )}
     </div>

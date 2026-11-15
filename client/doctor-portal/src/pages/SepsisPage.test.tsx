@@ -18,12 +18,19 @@ vi.mock('../store/authStore', async (importOriginal) => ({
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
+  useScoringCatalog: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
+// What the catalog endpoint serves. One test below serves different
+// cut-points, to prove the page holds none of its own.
+const catalogWith = (qsofa: Record<string, number> | undefined) =>
+  ({ catalog: qsofa ? { qsofa } : null, isLoading: false, error: null }) as unknown as ReturnType<typeof shared.useScoringCatalog>;
+const SERVED = { respiratory_rate_at_or_above: 22, systolic_bp_at_or_below: 100, gcs_below: 15, positive_threshold: 2 };
+
 describe('SepsisPage', () => {
   const mockUser = {
-    walletAddress: '5GrwvaEF...mock',
+    userId: '5GrwvaEF...mock',
     role: 'Doctor',
   };
 
@@ -33,6 +40,7 @@ describe('SepsisPage', () => {
       user: mockUser,
     });
     vi.mocked(shared.getPatients).mockResolvedValue([]);
+    vi.mocked(shared.useScoringCatalog).mockReturnValue(catalogWith(SERVED));
   });
 
   it('renders sepsis page', () => {
@@ -51,12 +59,43 @@ describe('SepsisPage', () => {
 
   it('allows calculating qSOFA', () => {
     render(<SepsisPage />);
+    fireEvent.change(screen.getByLabelText(/RR ≥22/i), { target: { value: '24' } });
+    fireEvent.change(screen.getByLabelText(/SBP ≤100 mmHg/i), { target: { value: '95' } });
+    fireEvent.change(screen.getByLabelText(/GCS <15/i), { target: { value: '15' } });
+    expect(screen.getByText('2/3')).toBeInTheDocument();
+  });
 
-    const systolicInput = screen.getByLabelText(/SBP ≤100 mmHg/i);
-    fireEvent.click(systolicInput);
+  // The bundle counters also read "0/3"; the qSOFA total is the large one.
+  const qsofaTotals = () => screen.queryAllByText(/^[0-3]\/3$/)
+    .filter((element) => element.classList.contains('text-4xl'))
+    .map((element) => element.textContent);
 
-    // The running total renders as "<n>/3" beneath the criteria, not as a
-    // "qSOFA Total:" caption.
-    expect(screen.getAllByText(/\/3$/).length).toBeGreaterThan(0);
+  const enterObservations = () => {
+    fireEvent.change(screen.getByLabelText(/RR ≥22/i), { target: { value: '24' } });
+    fireEvent.change(screen.getByLabelText(/SBP ≤100 mmHg/i), { target: { value: '95' } });
+    fireEvent.change(screen.getByLabelText(/GCS <15/i), { target: { value: '15' } });
+  };
+
+  it('scores the preview from the served cut-points, not from its own', () => {
+    vi.mocked(shared.useScoringCatalog).mockReturnValue(
+      catalogWith({ respiratory_rate_at_or_above: 30, systolic_bp_at_or_below: 80, gcs_below: 15, positive_threshold: 2 }));
+    render(<SepsisPage />);
+    enterObservations();
+    expect(qsofaTotals()).toEqual(['0/3']);
+  });
+
+  it('shows a dash, not a score, until the catalog has arrived', () => {
+    vi.mocked(shared.useScoringCatalog).mockReturnValue(catalogWith(undefined));
+    render(<SepsisPage />);
+    enterObservations();
+    expect(qsofaTotals()).toEqual([]);
+  });
+
+  it('leaves unmeasured observations empty instead of inventing a normal score', () => {
+    render(<SepsisPage />);
+    expect(screen.getByLabelText(/RR ≥22/i)).toHaveValue(null);
+    expect(screen.getByLabelText(/SBP ≤100 mmHg/i)).toHaveValue(null);
+    expect(screen.getByLabelText(/GCS <15/i)).toHaveValue(null);
+    expect(screen.queryAllByText('0/3').some((element) => element.classList.contains('text-4xl'))).toBe(false);
   });
 });
