@@ -1,10 +1,10 @@
 # Technical Debt Register
 
-Last updated: 2026-09-29.
+Last updated: 2026-11-15.
 
 ---
 
-## 2026-11-08 — Seen during the c4 workspace pass, not fixed
+## 2026-11-08 — CLOSED 2026-11-14: seen during the c4 workspace pass
 
 Two things noticed in the browser while checking the patient workspace against
 mockup c4 (commits `3585138`, `ee51b1e` and the batch-3 commit). Neither was
@@ -20,6 +20,11 @@ investigated beyond what is written here.
   a record exists, so the open question is whether the paediatric form should
   accept an adult at all, and whether the card should appear for one. Probably
   test data written by an earlier harness; not checked.
+
+**Both closed 2026-11-14.** The review card names the submitter through
+`StaffName` (`ffef7a2`, `LabResultsPage.submitter.test.tsx`). The paediatric
+handler refuses a patient 18 or older with `NOT_A_PAEDIATRIC_PATIENT`
+(`fcd8f6f`), so the adult chart can no longer gain such a card.
 
 ---
 
@@ -501,9 +506,9 @@ Found in this pass, verified unreferenced, not removed:
 | `AppState` maps `telehealth_sessions`, `wearable_alerts`, `wearable_devices`, `lab_trends`, `blood_type_screens` | zero references outside `state.rs` |
 | `repositories.e_prescription_records` | no caller outside the repository wiring |
 | `repositories.blood_type_screens` (typed) | read by the register, written by nothing |
-| `.gradient-text` in `doctor-portal/src/index.css` | no class user |
-| `useProviderDirectory` beside `StaffName`'s directory | two implementations of one lookup |
-| `client/shared/src/utils/fetchWithRetry.ts` | exported, no consumer |
+| `.gradient-text` in `doctor-portal/src/index.css` | no class user. **Removed 2026-11-15** (`d8eacdf`) |
+| `useProviderDirectory` beside `StaffName`'s directory | two implementations of one lookup. **Resolved 2026-11-15**: the doctor portal uses only `StaffName`; the hook remains for the patient app, which has no `StaffName` |
+| `client/shared/src/utils/fetchWithRetry.ts` | exported, no consumer. **Gone** (the file no longer exists, as of 2026-11-15) |
 
 ---
 
@@ -4736,7 +4741,7 @@ against that target. The server computes `fluid_target_ml` from `weight_kg`
 and stores and returns it. Lactate readings are banded by `lactateBand` from
 the catalog and stay uncoloured until it loads.
 
-## 2026-11-12 — OPEN: two API wrappers with no screen, which look unfinished rather than dead
+## 2026-11-12 — HALF CLOSED 2026-11-14: two API wrappers with no screen, which look unfinished rather than dead
 
 Found by a scan for `client/shared/src/api/endpoints/` functions named nowhere
 else. Neither is removed: each is a capability a person needs.
@@ -4747,6 +4752,11 @@ else. Neither is removed: each is a capability a person needs.
   * `getPatientEmsHandoffs` -> `GET /api/clinical/patient/{id}/ems-handoffs`.
     The patient-scoped read of ambulance handovers (rule 10) exists; no patient
     screen lists them.
+
+**Reissue closed 2026-11-14** (`9559d09`, `ReissueActivationCode` on the
+patient's chart for Admin, Doctor and Nurse). **EMS handoffs still open**:
+the 2026-11-15 removal pass left the wrapper in place on purpose, because it
+is the reader a patient-facing screen needs, not dead code.
 
 ## 2026-11-12 — Phase 6 clean-up: what was removed and what was kept
 
@@ -4925,3 +4935,54 @@ missing from its own union.
   * The server stores the device's public key and does not yet verify a
     signature with it. The binding today is the server-signed, device-scoped
     capability plus the device being active.
+
+## 2026-11-15 — Part A of the "finish everything" pass: what landed and what is left
+
+**Pre-selected findings (rule 9), a defect class across fifteen forms.** Each
+of these opened on a plausible answer and filed it for a patient nobody had
+examined. Every one now starts unchosen, and the fields that make up the
+record are required:
+
+  * trauma (`2710633`), stroke (`fc7176e`), obstetrics, with a migration
+    dropping NOT NULL defaults (`8fb9fca`), toxicology (`158f544`), imaging
+    (`f01cb68`), cardiac Killip class, burn mechanism and pain (`dd31804`),
+    splint neurovascular checks (`1ec88f8`), autopsy manner of death
+    (`8ddcb6a`), laceration repair (`7e67cb5`), immunisation and IV sites
+    (`235c007`), consult, ECG, care plans, H&P and operative specimens
+    (`fb623db`), and intubation (`f9d309e`).
+  * Intubation also computed its own airway score in the browser (rule 8),
+    from defaults describing an easy airway. `clinical_scoring::airway_difficulty`
+    now scores it server-side. It counts only what was examined, returns null
+    with nothing examined (rule 12), and says "not difficult" only once every
+    finding was examined.
+
+**Draft-keeping.** About forty more clinical forms keep an unsent draft for the
+tab, warn before a link discards it and are named by Close patient (`99af2e0`,
+`e7dea97`, `a59da2a`, `c47b70b`). `draftFieldsOfReducer` covers forms held in
+a reducer. The test setup now clears drafts between tests: one test's unsaved
+form was reappearing in the next. A barcode scan and the five-rights check are
+never restored from a draft.
+
+**Lockscreen device key (`14f824f`).** A token request must now carry an ECDSA
+P-256 signature by the phone's enrolled key over the device id and the moment.
+Registration refuses a key that is not a P-256 point. Verified with the
+synthetic harness at 281/0 on a fresh PostgreSQL database.
+
+**Still open from this pass:**
+
+  * **IV sites keep no draft.** The page holds unsaved sites in the same list
+    as stored ones, so a first-render baseline would mark the page dirty when
+    the list loads. It needs its draft list separated from the stored list
+    first.
+  * **The React Router 7 and printpdf 0.12 upgrades are in the working tree,
+    uncommitted.** Both match Part A items 11 and 12 and both verify:
+    react-router-dom 7.18.5 is installed, the patient app passes 304/304, the
+    doctor portal builds and passes 1114/1114, the API's PDF tests pass, and
+    clippy is clean. They were left out of every commit on purpose: they predate
+    this pass's own edits. `Cargo.lock` also carries unrelated version bumps
+    (actix, syn 3).
+  * **Operative note** still fills the surgeon (the author) and the date
+    (today). Both are things the author knows rather than findings, but the
+    surgeon field is a free-text box holding a UUID; a staff picker would be
+    the right control.
+
