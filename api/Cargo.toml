@@ -80,7 +80,7 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 console-subscriber = { version = "0.4", optional = true }
 
 # PDF generation (Phase 13.3)
-printpdf = "0.7"
+printpdf = { version = "0.12", default-features = false }
 
 # QR Code generation
 # QR rendering only. `qrcode`'s default features pull `image` with *its*
