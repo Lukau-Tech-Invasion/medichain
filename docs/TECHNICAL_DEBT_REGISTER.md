@@ -600,6 +600,11 @@ asserting it as a product failure — it is a seeding gap.
   full write and read it back through the UI, which is the step that would
   subsume the HTTP journeys rather than complement them.
 
+**Both stale as of 2026-11-15.** ADR-0010 removed the client keystore, so the
+administrator signs in like anyone else and `admin-accounts.spec.ts` drives its
+screens; specs such as `prescribe-dispense.spec.ts` and `e2e/workflows.spec.ts`
+save through the UI and read the record back as another role.
+
 The two suites answer different questions and the HTTP one answers the more
 important half first: a Save that discards its payload is invisible to a browser
 test that only checks a toast appeared.
