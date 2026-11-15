@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -13,10 +13,12 @@ import {
   keepEnterInField,
   submitOnce,
   useSubmission,
+  useDraftFields,
 } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import PatientSelect, { findDirectoryPatient } from '../components/PatientSelect';
 import StaffName from '../components/StaffName';
+import { applyStaged, nextDraftKey, noStagedEdits, type StagedEdits } from './IVSitePage.staged';
 import {
   Syringe,
   Droplet,
@@ -177,10 +179,27 @@ export default function IVSitePage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'sites' | 'add-site' | 'assess'>('sites');
 
-  // IV Sites data
-  const [ivSites, setIvSites] = useState<IVSite[]>([]);
-  // Keys a new site on this screen until the server issues its id.
-  const draftCount = useRef(0);
+  // IV Sites data: what the server returned, and what this screen has staged
+  // over it and not yet saved. Only the staged edits are a draft.
+  const [storedSites, setStoredSites] = useState<IVSite[]>([]);
+  type Staged = StagedEdits<IVSite, IVAssessment> & { patientId?: string };
+  const [staged, setStaged] = useState<Staged>(noStagedEdits);
+  const patientId = selectedPatient?.patient_id;
+  // Edits staged for another patient are not this one's; they wait in that
+  // patient's draft.
+  const current = useMemo<StagedEdits<IVSite, IVAssessment>>(
+    () => (staged.patientId === patientId
+      ? { added: staged.added, assessments: staged.assessments, discontinued: staged.discontinued }
+      : noStagedEdits()),
+    [staged, patientId],
+  );
+  const stage = (edit: (prev: StagedEdits<IVSite, IVAssessment>) => StagedEdits<IVSite, IVAssessment>) =>
+    setStaged((prev) => ({ ...edit(prev.patientId === patientId ? prev : noStagedEdits()), patientId }));
+  const ivSites = useMemo(() => applyStaged(storedSites, current), [storedSites, current]);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const ivDraft = useDraftFields('iv-site', patientId, t('docIVSite.formLabel'), {
+    staged: [current, (restored: StagedEdits<IVSite, IVAssessment>) => setStaged({ ...restored, patientId })],
+  });
   // Set when the history could not be read: "no sites" would then be a guess.
   const [sitesError, setSitesError] = useState('');
   const [selectedSite, setSelectedSite] = useState<IVSite | null>(null);
@@ -286,7 +305,7 @@ export default function IVSitePage() {
       try {
         const data = await getApiClient().get<SiteList>(`/api/clinical/iv-sites/${selectedPatient.patient_id}`);
         const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
-        setIvSites(sites.map(row => {
+        setStoredSites(sites.map(row => {
           const site = toIVSite(row);
           return { ...site, expiresAt: site.expiresAt || (site.insertedAt
             ? dwellDueAt(site.insertedAt, site.catheterType, catalog)?.toISOString().split('T')[0] || '' : '') };
@@ -344,7 +363,7 @@ export default function IVSitePage() {
     const site: IVSite = {
       // A local key only. The page used to send `IV-${Date.now()}` as the
       // site's id and the server stored it; a new site's id is the server's.
-      id: `draft-${++draftCount.current}`,
+      id: nextDraftKey(current.added),
       draft: true,
       patientId: selectedPatient.patient_id,
       location: newSite.location,
@@ -358,7 +377,7 @@ export default function IVSitePage() {
       assessments: []
     };
 
-    setIvSites(prev => [...prev, site]);
+    stage(prev => ({ ...prev, added: [...prev.added, site] }));
     setNewSite({ locationDetail: '' });
     setActiveTab('sites');
     setSuccess(t('docIVSite.successSiteAdded'));
@@ -398,11 +417,11 @@ export default function IVSitePage() {
       infiltrationGrade: newAssessment.infiltrationGrade
     };
 
-    setIvSites(prev => prev.map(site => 
-      site.id === selectedSite.id 
-        ? { ...site, assessments: [...site.assessments, assessment] }
-        : site
-    ));
+    const siteId = selectedSite.id;
+    stage(prev => ({
+      ...prev,
+      assessments: { ...prev.assessments, [siteId]: [...(prev.assessments[siteId] ?? []), assessment] },
+    }));
 
     setShowAssessmentForm(false);
     setNewAssessment({
@@ -433,17 +452,8 @@ export default function IVSitePage() {
   /** Stage an explicit discontinuation reason; the Save All action persists it. */
   const discontinueSite = (siteId: string, reason: string) => {
     if (!reason.trim()) return;
-    setIvSites(prev => prev.map(site => 
-      site.id === siteId 
-        ? { 
-            ...site, 
-            isActive: false, 
-            discontinuedAt: new Date().toISOString(),
-            discontinuedBy: user?.userId || 'Unknown',
-            discontinuedReason: reason.trim()
-          }
-        : site
-    ));
+    const off = { at: new Date().toISOString(), by: user?.userId || 'Unknown', reason: reason.trim() };
+    stage(prev => ({ ...prev, discontinued: { ...prev.discontinued, [siteId]: off } }));
     setDiscontinuingSiteId(null);
     setDiscontinuationReason('');
   };
@@ -489,6 +499,10 @@ export default function IVSitePage() {
 
       const outcome = await submitOnce(submission, ivSiteData, () => createIvSite(ivSiteData));
       if (outcome === 'busy') return;
+      // Saved (or queued to send once): the staged edits are no longer a draft.
+      setStoredSites(ivSites);
+      stage(() => noStagedEdits());
+      ivDraft.markSaved();
       setSuccess(outcome === 'queued' ? t('forms.queued') : t('docIVSite.successRecordsSaved'));
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {
