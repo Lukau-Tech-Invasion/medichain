@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission, useLatestRequest } from '@medichain/shared';
+import { administerEmergencyMedication, getApiErrorMessage, createCodeBlue, getPatientCodeBlues, formatTimestamp, notifySuccess, useTranslation, type CodeBlueListRow, ChoiceChips, keepEnterInField, submitOnce, useSubmission, useLatestRequest, useDraftFields } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Activity,
@@ -51,6 +51,17 @@ export default function CodeBluePage() {
   // response-time review is done by location.
   const [location, setLocation] = useState('');
   const [primaryCause, setPrimaryCause] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const codeBlueDraft = useDraftFields('code-blue', selectedPatient || undefined, t('docCodeBlue.formLabel'), {
+    isActive: [isActive, setIsActive],
+    startTime: [startTime, setStartTime],
+    events: [events, setEvents],
+    teamMembers: [teamMembers, setTeamMembers],
+    narrative: [narrative, setNarrative],
+    outcome: [outcome, setOutcome],
+    location: [location, setLocation],
+    primaryCause: [primaryCause, setPrimaryCause],
+  });
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -166,6 +177,7 @@ export default function CodeBluePage() {
       // One record per resuscitation: a double tap or a retry is the same submission.
       const outcomeOfSave = await submitOnce(submission, codeData, () => createCodeBlue(codeData));
       if (outcomeOfSave === 'busy') return;
+      codeBlueDraft.markSaved();
       notifySuccess(t(outcomeOfSave === 'saved' ? 'forms.saved' : outcomeOfSave === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       returnAfterSave();
     } catch (error) {

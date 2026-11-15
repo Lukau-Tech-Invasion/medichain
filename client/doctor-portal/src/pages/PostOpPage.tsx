@@ -140,7 +140,7 @@ const PostOpPage: React.FC = () => {
   const [dischargeDisposition, setDischargeDisposition] = useState('');
   const [complications, setComplications] = useState('');
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const post_opDraft = useDraftFields('post-op', selectedPatient || undefined, t('docPostOp.formLabel'), {
+  const postOpDraft = useDraftFields('post-op', selectedPatient || undefined, t('docPostOp.formLabel'), {
     procedure: [procedure, setProcedure],
     surgeon: [surgeon, setSurgeon],
     anesthesiaType: [anesthesiaType, setAnesthesiaType],
@@ -241,7 +241,7 @@ const PostOpPage: React.FC = () => {
     try {
       await createPostOp(note);
       resetCompletedDraft();
-      post_opDraft.markSaved();
+      postOpDraft.markSaved();
       showSuccess(t('docPostOp.saved'));
     } catch (err) {
       console.error('Failed to save post-op note:', err);

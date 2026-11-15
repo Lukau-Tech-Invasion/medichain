@@ -188,7 +188,7 @@ const LacerationRepairPage: React.FC = () => {
     notes: ''
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const laceration_repairDraft = useDraftFields('laceration-repair', newRepair.patientId || undefined, t('docLaceration.formLabel'),
+  const lacerationRepairDraft = useDraftFields('laceration-repair', newRepair.patientId || undefined, t('docLaceration.formLabel'),
     draftFieldsOf(newRepair, setNewRepair, ['location', 'woundType', 'length', 'depth', 'closureMethod', 'sutureType', 'sutureCount', 'anesthesia', 'tetanusGiven', 'antibioticsPrescribed', 'notes']));
   const [saving, setSaving] = useState(false);
   const submissionPending = useRef(false);
@@ -339,7 +339,7 @@ const LacerationRepairPage: React.FC = () => {
         notes: '',
       });
       setActiveTab('repairs');
-      laceration_repairDraft.markSaved();
+      lacerationRepairDraft.markSaved();
       setPhotoHashes([]);
       await refreshRepairList();
     } catch (err) {

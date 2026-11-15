@@ -16,8 +16,7 @@ import {
   Textarea,
   useValidatedForm,
   medicationAdministrationSchema,
-  ChoiceChips,
-} from '@medichain/shared';
+  ChoiceChips, useDraftFields } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
 import PatientSelect, { useDirectoryNames } from '../components/PatientSelect';
 import { useToastActions } from '../components/Toast';
@@ -223,6 +222,18 @@ const MedicationAdminPage: React.FC = () => {
   // The route this dose was given by. Starts from the prescription's, when it
   // names one; otherwise the nurse must choose -- it is recorded on the MAR.
   const [administeredRoute, setAdministeredRoute] = useState<'' | AdministrationRoute>('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const medicationAdminDraft = useDraftFields('medication-admin', selectedPatientId || undefined, t('docMedicationAdmin.formLabel'), {
+    selectedMed: [selectedMed, setSelectedMed],
+    selectedTime: [selectedTime, setSelectedTime],
+    actualTime: [actualTime, setActualTime],
+    status: [status, setStatus],
+    reasonNotGiven: [reasonNotGiven, setReasonNotGiven],
+    administrationSite: [administrationSite, setAdministrationSite],
+    witnessedBy: [witnessedBy, setWitnessedBy],
+    patientResponse: [patientResponse, setPatientResponse],
+    administeredRoute: [administeredRoute, setAdministeredRoute],
+  });
 
   const handleAdministerMed = (med: ScheduledMedication, time: string) => {
     setSelectedMed(med);
@@ -298,6 +309,7 @@ const MedicationAdminPage: React.FC = () => {
       if ((await submitOnce(submission, administration, () => administerMedication(administration))) === 'busy') return;
 
       await loadData();
+      medicationAdminDraft.markSaved();
       showSuccess(t('docMedicationAdmin.successRecorded'));
       setActiveTab('mar');
       setSelectedMed(null);

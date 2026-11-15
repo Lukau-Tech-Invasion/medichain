@@ -11,8 +11,7 @@ import {
   LoadingSpinner,
   Input,
   useValidatedForm,
-  transfusionStartSchema, ChoiceChips
-} from '@medichain/shared';
+  transfusionStartSchema, ChoiceChips, useDraftFields } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
 import PatientSelect, { useDirectoryNames, useDirectoryPatient } from '../components/PatientSelect';
@@ -191,6 +190,13 @@ const BloodBankPage: React.FC = () => {
   const [units, setUnits] = useState('');
   const [indication, setIndication] = useState('');
   const [priority, setPriority] = useState<BloodOrder['priority'] | ''>('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const bloodOrderDraft = useDraftFields('blood-order', selectedPatientId || undefined, t('docBloodBank.formLabel'), {
+    product: [product, setProduct],
+    units: [units, setUnits],
+    indication: [indication, setIndication],
+    priority: [priority, setPriority],
+  });
 
   // Transfusion form state
   const [startTime, setStartTime] = useState('');
@@ -207,6 +213,23 @@ const BloodBankPage: React.FC = () => {
   const [postRR, setPostRR] = useState('');
   const [reactions, setReactions] = useState<string[]>([]);
   const [transfusionNotes, setTransfusionNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const transfusionDraft = useDraftFields('transfusion', selectedOrder?.patientId, t('docBloodBank.transfusionFormLabel'), {
+    startTime: [startTime, setStartTime],
+    endTime: [endTime, setEndTime],
+    administeredBy: [administeredBy, setAdministeredBy],
+    witnessedBy: [witnessedBy, setWitnessedBy],
+    preBP: [preBP, setPreBP],
+    preHR: [preHR, setPreHR],
+    preTemp: [preTemp, setPreTemp],
+    preRR: [preRR, setPreRR],
+    postBP: [postBP, setPostBP],
+    postHR: [postHR, setPostHR],
+    postTemp: [postTemp, setPostTemp],
+    postRR: [postRR, setPostRR],
+    reactions: [reactions, setReactions],
+    transfusionNotes: [transfusionNotes, setTransfusionNotes],
+  });
 
   const fetchBloodBankOrders = useCallback(async () => {
     const requestId = ++latestOrderRequest.current;
@@ -299,6 +322,7 @@ const BloodBankPage: React.FC = () => {
         // The server assigns the order ID and signed orderer.  Reload those
         // durable values instead of displaying the browser's provisional one.
         await fetchBloodBankOrders();
+        bloodOrderDraft.markSaved();
         showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: response.id ?? '' }));
         setSelectedPatientId('');
         setProduct('');
@@ -409,6 +433,7 @@ const BloodBankPage: React.FC = () => {
         // A transfusion is a separate durable event. Re-read the register so
         // the worklist reflects its server-generated event ID and audit data.
         await fetchBloodBankOrders();
+        transfusionDraft.markSaved();
         showSuccess(endTime ? t('docBloodBank.successTransfusionCompleted') : t('docBloodBank.successTransfusionStarted'));
         setActiveTab('orders');
         setSelectedOrder(null);

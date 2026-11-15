@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { listRadiology, createRadiologyReport, getApiErrorMessage, useTranslation, Alert, LoadingSpinner, ChoiceChips } from '@medichain/shared';
+import { listRadiology, createRadiologyReport, getApiErrorMessage, useTranslation, Alert, LoadingSpinner, ChoiceChips, useDraftFields } from '@medichain/shared';
 import { StoredValue } from '../components/StoredSoapDetails';
 import { PatientName } from '../components/PatientName';
 
@@ -137,6 +137,16 @@ const RadiologyPage: React.FC = () => {
   const [impression, setImpression] = useState('');
   const [criticalFindings, setCriticalFindings] = useState(false);
   const [communicatedTo, setCommunicatedTo] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const radiologyReportDraft = useDraftFields(`radiology-report-${selectedStudy?.id ?? '-'}`, selectedStudy?.patientId, t('docRadiology.formLabel'), {
+    technique: [technique, setTechnique],
+    studyDateTime: [studyDateTime, setStudyDateTime],
+    comparison: [comparison, setComparison],
+    findings: [findings, setFindings],
+    impression: [impression, setImpression],
+    criticalFindings: [criticalFindings, setCriticalFindings],
+    communicatedTo: [communicatedTo, setCommunicatedTo],
+  });
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -304,6 +314,7 @@ const RadiologyPage: React.FC = () => {
         reportedAt: now.toISOString()
       };
       setStudies(studies.map(s => s.id === selectedStudy.id ? updatedStudy : s));
+      radiologyReportDraft.markSaved();
       showSuccess(t('docRadiology.savedAs', { status: asFinal ? t('docRadiology.statusFinalUpper') : t('docRadiology.statusPrelimUpper') }));
       setSelectedStudy(null);
       draftReportId.current = null;

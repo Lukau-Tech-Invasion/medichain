@@ -146,7 +146,7 @@ const NursingCarePlanPage: React.FC = () => {
     patientId: '', diagnosis: '', priority: '' as Priority | '', goals: '', interventions: '',
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const nursing_care_planDraft = useDraftFields('nursing-care-plan', form.patientId || undefined, t('docNursingCarePlan.formLabel'),
+  const nursingCarePlanDraft = useDraftFields('nursing-care-plan', form.patientId || undefined, t('docNursingCarePlan.formLabel'),
     draftFieldsOf(form, setForm, ['diagnosis', 'priority', 'goals', 'interventions']));
   const { user } = useAuthStore();
 
@@ -173,7 +173,7 @@ const NursingCarePlanPage: React.FC = () => {
         interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
           .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
       });
-      nursing_care_planDraft.markSaved();
+      nursingCarePlanDraft.markSaved();
       setSaveMessage(t('docNursingCarePlan.savedOk'));
       setForm({ patientId: '', diagnosis: '', priority: '', goals: '', interventions: '' });
       notifySuccess('Care plan saved.');

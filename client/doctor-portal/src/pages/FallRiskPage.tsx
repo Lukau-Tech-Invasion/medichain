@@ -131,7 +131,7 @@ export default function FallRiskPage() {
   const [environmentalHazards, setEnvironmentalHazards] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const fall_riskDraft = useDraftFields('fall-risk', selectedPatient?.patient_id, t('docFallRisk.formLabel'), {
+  const fallRiskDraft = useDraftFields('fall-risk', selectedPatient?.patient_id, t('docFallRisk.formLabel'), {
     morseScale: [morseScale, setMorseScale],
     medications: [medications, setMedications],
     recentFall: [recentFall, setRecentFall],
@@ -356,14 +356,14 @@ export default function FallRiskPage() {
       });
       if (outcome === 'busy') return;
       if (outcome === 'duplicate' || !saved && outcome !== 'queued') {
-        fall_riskDraft.markSaved();
+        fallRiskDraft.markSaved();
         setSuccess(t('forms.alreadySaved'));
         setTimeout(() => returnAfterSave(), 2000);
         return;
       }
       if (outcome === 'queued' || !saved) {
         // The score is the server's (rule 8); it exists once the record is sent.
-        fall_riskDraft.markSaved();
+        fallRiskDraft.markSaved();
         setSuccess(`${t('forms.queued')} ${t('clinicianOffline.scoreOffline')}`);
         setTimeout(() => returnAfterSave(), 2000);
         return;
@@ -374,7 +374,7 @@ export default function FallRiskPage() {
         total_score: saved.total_score ?? null,
         risk_level: (saved.risk_level as RiskLevel) ?? null
       });
-      fall_riskDraft.markSaved();
+      fallRiskDraft.markSaved();
       setSuccess(t('docFallRisk.successSaved'));
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {

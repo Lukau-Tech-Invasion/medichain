@@ -135,7 +135,7 @@ export default function PreOpPage() {
     'anesthesiaSeen': false
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const pre_opDraft = useDraftFields('pre-op', selectedPatient?.patient_id, t('docPreOp.formLabel'), {
+  const preOpDraft = useDraftFields('pre-op', selectedPatient?.patient_id, t('docPreOp.formLabel'), {
     scheduledSurgery: [scheduledSurgery, setScheduledSurgery],
     surgeon: [surgeon, setSurgeon],
     scheduledDate: [scheduledDate, setScheduledDate],
@@ -367,7 +367,7 @@ export default function PreOpPage() {
 
       await createPreOp(assessmentData);
       resetCompletedDraft();
-      pre_opDraft.markSaved();
+      preOpDraft.markSaved();
       setSuccess(t('docPreOp.savedSuccess'));
       setActiveTab('history');
     } catch (err) {

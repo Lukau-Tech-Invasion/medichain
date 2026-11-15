@@ -10,8 +10,7 @@ import {
   Textarea,
   useValidatedForm,
   autopsyReportSchema,
-  formatDateOnly, ChoiceChips
-} from '@medichain/shared';
+  formatDateOnly, ChoiceChips, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import type { PatientDirectoryEntry } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -188,6 +187,9 @@ const AutopsyPage: React.FC = () => {
     legalNotification: '',
     notes: '',
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const autopsyDraft = useDraftFields('autopsy', newAutopsy.patientId || undefined, t('docAutopsy.formLabel'),
+    draftFieldsOf(newAutopsy, setNewAutopsy, ['autopsyType', 'dateOfDeath', 'dateOfAutopsy', 'timeOfAutopsy', 'location', 'assistant', 'circumstances', 'clinicalHistory', 'bodyLength', 'bodyWeight', 'bodyHabitus', 'rigorMortis', 'livorMortis', 'decomposition', 'externalInjuries', 'identifyingMarks', 'cardiovascular', 'respiratory', 'gastrointestinal', 'hepatobiliary', 'genitourinary', 'endocrine', 'musculoskeletal', 'nervous', 'causeOfDeath', 'mannerOfDeath', 'contributingFactors', 'microbiologyFindings', 'radiologyFindings', 'conclusions', 'recommendations', 'caseNumber', 'legalNotification', 'notes']));
 
   const fetchAutopsies = useCallback(async () => {
     try {
@@ -315,6 +317,7 @@ const AutopsyPage: React.FC = () => {
           notes: '',
         });
         setActiveTab('reports');
+        autopsyDraft.markSaved();
         showSuccess(t('docAutopsy.successCreated', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docAutopsy.errorCreateFailed'));

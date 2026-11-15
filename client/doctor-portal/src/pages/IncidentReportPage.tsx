@@ -154,7 +154,7 @@ const IncidentReportPage: React.FC = () => {
     immediateActions: ''
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const incident_reportDraft = useDraftFields('incident-report', formData.patientId || undefined, t('docIncidentReport.formLabel'),
+  const incidentReportDraft = useDraftFields('incident-report', formData.patientId || undefined, t('docIncidentReport.formLabel'),
     draftFieldsOf(formData, setFormData, ['type', 'severity', 'dateTime', 'location', 'department', 'description', 'patientInvolved', 'staffInvolved', 'witnesses', 'immediateActions']));
 
   useEffect(() => {
@@ -211,7 +211,7 @@ const IncidentReportPage: React.FC = () => {
       };
 
       await createIncidentReport(payload);
-      incident_reportDraft.markSaved();
+      incidentReportDraft.markSaved();
       showSuccess(t('docIncidentReport.successSubmit'));
       
       // Refresh list

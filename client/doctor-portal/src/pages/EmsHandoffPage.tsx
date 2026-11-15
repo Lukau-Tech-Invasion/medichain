@@ -4,8 +4,7 @@ import {
   formatTimestamp,
   getApiErrorMessage,
   listRecentEmsHandoffs,
-  useTranslation,
-} from '@medichain/shared';
+  useTranslation, useDraftFields } from '@medichain/shared';
 import type { CreateEmsHandoffBody, EmsHandoff, EmsVitals } from '@medichain/shared';
 import { Loader2, Plus, RefreshCw, Trash2, Truck } from 'lucide-react';
 import PatientSelect from '../components/PatientSelect';
@@ -95,6 +94,25 @@ function EmsHandoffPage() {
     trauma_alert: false, stroke_alert: false, stemi_alert: false, sepsis_alert: false,
   });
   const [notes, setNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const emsHandoffDraft = useDraftFields('ems-handoff', patientId || undefined, t('docEms.formLabel'), {
+    agency: [agency, setAgency],
+    unit: [unit, setUnit],
+    crew: [crew, setCrew],
+    incidentType: [incidentType, setIncidentType],
+    sceneAddress: [sceneAddress, setSceneAddress],
+    dispatchTime: [dispatchTime, setDispatchTime],
+    onSceneTime: [onSceneTime, setOnSceneTime],
+    departedTime: [departedTime, setDepartedTime],
+    complaint: [complaint, setComplaint],
+    mechanism: [mechanism, setMechanism],
+    gcs: [gcs, setGcs],
+    vitals: [vitals, setVitals],
+    interventions: [interventions, setInterventions],
+    sample: [sample, setSample],
+    alerts: [alerts, setAlerts],
+    notes: [notes, setNotes],
+  });
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -163,6 +181,7 @@ function EmsHandoffPage() {
     setSaving(true);
     try {
       const result = await createEmsHandoff(body);
+      emsHandoffDraft.markSaved();
       setNotice(t('docEms.recorded', { id: result.id }));
       reset();
       await load();

@@ -227,7 +227,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
     plan: ''
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const history_physicalDraft = useDraftFields('history-physical', formData.patientId || undefined, t('docHistoryPhysical.formLabel'),
+  const historyPhysicalDraft = useDraftFields('history-physical', formData.patientId || undefined, t('docHistoryPhysical.formLabel'),
     draftFieldsOf(formData, setFormData, ['examType', 'chiefComplaint', 'hpi', 'pmh', 'psh', 'medications', 'allergies', 'socialHistory', 'familyHistory', 'vitalSigns', 'reviewOfSystems', 'physicalExam', 'assessment', 'plan']));
 
   const systemsList = [
@@ -370,13 +370,13 @@ const HistoryAndPhysicalPage: React.FC = () => {
         if (outcome === 'busy') return;
         if (outcome === 'queued') {
           // Kept on this device; the list cannot show it until it is sent.
-          history_physicalDraft.markSaved();
+          historyPhysicalDraft.markSaved();
           showSuccess(t('forms.queued'));
           setActiveTab('list');
           return;
         }
       }
-      history_physicalDraft.markSaved();
+      historyPhysicalDraft.markSaved();
       showSuccess(status === 'signed' ? t('docHistoryPhysical.successSigned') : t('docHistoryPhysical.successDraft'));
       setActiveTab('list');
       setEditingHpId(null);

@@ -11,8 +11,7 @@ import {
   formatTimestamp,
   useTranslation, ChoiceChips,
   submitOnce,
-  useSubmission,
-} from '@medichain/shared';
+  useSubmission, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { 
   Pill, Droplets, ClipboardList, Plus, Save, Clock, 
   AlertCircle, CheckCircle, User, Calendar, Loader2,
@@ -342,13 +341,17 @@ function NursingPage() {
   const [newFluidEntry, setNewFluidEntry] = useState({
     type: 'intake',
     fluidType: '',
-    amount: 0,
+    // Empty until measured: a box showing 0 mL reads as a measurement.
+    amount: null as number | null,
     notes: '',
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const fluidDraft = useDraftFields('ward-fluid', selectedPatient || undefined, t('docNursing.formLabel'),
+    draftFieldsOf(newFluidEntry, setNewFluidEntry, ['type', 'fluidType', 'amount', 'notes']));
 
   const recordFluid = async () => {
     if (!user || saving) return;
-    if (!selectedPatient || !newFluidEntry.fluidType || !Number.isFinite(newFluidEntry.amount) || newFluidEntry.amount <= 0) {
+    if (!selectedPatient || !newFluidEntry.fluidType || newFluidEntry.amount === null || !Number.isFinite(newFluidEntry.amount) || newFluidEntry.amount <= 0) {
       setError(t('docNursing.errorSelectPatientAmount'));
       return;
     }
@@ -367,7 +370,8 @@ function NursingPage() {
       const outcome = await submitOnce(submission, fluid, () => recordWardFluid(fluid));
       if (outcome === 'busy') return;
       setSuccess(outcome === 'queued' ? t('forms.queued') : t('docNursing.successFluidRecorded'));
-      setNewFluidEntry({ type: 'intake', fluidType: '', amount: 0, notes: '' });
+      fluidDraft.markSaved();
+      setNewFluidEntry({ type: 'intake', fluidType: '', amount: null, notes: '' });
       if (outcome !== 'queued') fetchData();
     } catch (err) {
       setError(getApiErrorMessage(err, t('docNursing.errorRecordFluid')));
@@ -631,8 +635,8 @@ function NursingPage() {
                     <input
                       id="nursing-amount"
                       type="number"
-                      value={newFluidEntry.amount}
-                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, amount: parseInt(e.target.value) || 0 })}
+                      value={newFluidEntry.amount ?? ''}
+                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, amount: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                       placeholder={t('docNursing.amountMlPh')}
                       className="w-full px-3 py-2 border border-border-interactive rounded-lg"
                       aria-label={t('docNursing.amountMlAriaLabel')}

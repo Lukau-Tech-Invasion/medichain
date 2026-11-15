@@ -189,7 +189,7 @@ const ConsultPage: React.FC = () => {
     notes: '',
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const consult_requestDraft = useDraftFields('consult-request', newConsult.patientId || undefined, t('docConsult.formLabel'),
+  const consultRequestDraft = useDraftFields('consult-request', newConsult.patientId || undefined, t('docConsult.formLabel'),
     draftFieldsOf(newConsult, setNewConsult, ['specialty', 'urgency', 'reason', 'clinicalQuestion', 'relevantHistory', 'currentMedications', 'vitalSigns', 'labResults', 'imagingResults', 'notes']));
 
   const [consultResponse, setConsultResponse] = useState({
@@ -290,7 +290,7 @@ const ConsultPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    consult_requestDraft.markSaved();
+    consultRequestDraft.markSaved();
     showSuccess(t('docConsult.successRequested', { id: consultId }));
     // Read the list back: the row shown is then the stored one.
     void fetchConsults();

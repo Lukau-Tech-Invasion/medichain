@@ -1,4 +1,4 @@
-import { MotionLink, useLatestRequest } from '@medichain/shared';
+import { MotionLink, useLatestRequest, useDraftFields } from '@medichain/shared';
 import { useState, useEffect, useCallback } from 'react';
 import {
   exportDocumentToPdf,
@@ -89,6 +89,13 @@ function LabResultsPage() {
   const [entryValues, setEntryValues] = useState<Record<string, string>>({});
   const [referenceGroup, setReferenceGroup] = useState('');
   const [entryNotes, setEntryNotes] = useState('');
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const labResultEntryDraft = useDraftFields('lab-result-entry', entryPatientId || undefined, t('docLabResults.formLabel'), {
+    entryPanelCode: [entryPanelCode, setEntryPanelCode],
+    entryValues: [entryValues, setEntryValues],
+    referenceGroup: [referenceGroup, setReferenceGroup],
+    entryNotes: [entryNotes, setEntryNotes],
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [entryError, setEntryError] = useState<string | null>(null);
   const [entrySaved, setEntrySaved] = useState<string | null>(null);
@@ -166,6 +173,7 @@ function LabResultsPage() {
       if (outcome.kind === 'busy') return;
       // Only a fresh save has an id to name; the queue read below shows the
       // record an earlier attempt already wrote.
+      labResultEntryDraft.markSaved();
       setEntrySaved(outcome.kind === 'saved' ? t('docLabResults.submittedAs', { id: outcome.value.submission_id })
         : t(outcome.kind === 'duplicate' ? 'forms.alreadySaved' : 'forms.queued'));
       resetEntry();

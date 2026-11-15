@@ -2516,6 +2516,7 @@ const en_US: TranslationRecord = {
   },
 
   docCodeBlue: {
+    formLabel: 'Code record',
     errorNotStarted: 'Start the code first: the record needs the time it was called.',
     errorStopFirst: 'Stop the code before saving the record.',
     errorLoadHistory: 'Past code blue events could not be loaded. Reload to try again; do not assume there were none.',
@@ -2924,6 +2925,7 @@ const en_US: TranslationRecord = {
   },
 
   docRadiology: {
+    formLabel: 'Radiology report',
     criticalCommunicate: 'Critical findings must be communicated before saving this report',
     savedAs: 'Report saved as {{status}}',
     statusFinalUpper: 'FINAL',
@@ -3310,6 +3312,7 @@ const en_US: TranslationRecord = {
   },
 
   docEms: {
+    formLabel: 'EMS handoff',
     title: 'Ambulance handover',
     subtitle: 'Record the crew\'s handover as it is given: who and when, what happened, what they found, what they did.',
     patientLabel: 'Patient',
@@ -3622,6 +3625,7 @@ const en_US: TranslationRecord = {
   },
 
   docLabResults: {
+    formLabel: 'Lab result entry',
     tabQueue: 'Review Queue',
     tabEnter: 'Enter Result',
     enterHeading: 'Enter a lab result',
@@ -4752,6 +4756,7 @@ const en_US: TranslationRecord = {
     metric_criticalMedsLow: 'Critical Meds Low',
   },
   docAutopsy: {
+    formLabel: 'Autopsy report',
     title: 'Autopsy Reports',
     subtitle: 'Post-mortem examination documentation and findings',
     tabAllReports: 'All Reports ({{count}})',
@@ -4885,6 +4890,8 @@ const en_US: TranslationRecord = {
     notMeasured: 'Not measured',
   },
   docBloodBank: {
+    transfusionFormLabel: 'Transfusion record',
+    formLabel: 'Blood product order',
     title: 'Blood Bank',
     subtitle: 'Transfusion Medicine Services',
     loggedInAs: 'Logged in as',
@@ -7293,6 +7300,7 @@ const en_US: TranslationRecord = {
     saveMciRecordButton: 'Save MCI Record',
   },
   docMedicationAdmin: {
+    formLabel: 'Medication administration',
     title: 'Medication Administration Record (eMAR)',
     subtitle: 'Electronic medication tracking and documentation',
     nurseLabel: 'Nurse',
@@ -7473,6 +7481,7 @@ const en_US: TranslationRecord = {
     macroDesc_followup: 'Follow-up appointment template',
   },
   docNursing: {
+    formLabel: 'Fluid entry',
     notRecorded: 'Not recorded',
     title: 'Nursing Documentation',
     subtitle: 'MAR, Intake/Output, and Care Plans',

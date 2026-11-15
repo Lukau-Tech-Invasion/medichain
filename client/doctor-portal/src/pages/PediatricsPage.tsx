@@ -168,7 +168,7 @@ const PediatricsPage: React.FC = () => {
     notes: ''
   });
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const pediatric_assessmentDraft = useDraftFields('pediatric-assessment', assessmentForm.patientId || undefined, t('docPediatrics.formLabel'),
+  const pediatricAssessmentDraft = useDraftFields('pediatric-assessment', assessmentForm.patientId || undefined, t('docPediatrics.formLabel'),
     draftFieldsOf(assessmentForm, setAssessmentForm, ['weightKg', 'heightCm', 'heartRate', 'respiratoryRate', 'temperature', 'patAppearance', 'patWorkOfBreathing', 'patCirculation', 'developmentalStatus', 'notes']));
 
   /**
@@ -419,7 +419,7 @@ const PediatricsPage: React.FC = () => {
       }
       saveConfirmed.current = true;
       await refreshSavedSummary(operation.payload.patient_id);
-      pediatric_assessmentDraft.markSaved();
+      pediatricAssessmentDraft.markSaved();
       showSuccess(t('docPediatrics.submittedSuccess'));
       setActiveTab('patients');
       // Reset form

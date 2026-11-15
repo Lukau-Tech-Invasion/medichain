@@ -201,7 +201,7 @@ const DeathCertificatePage: React.FC = () => {
   // one.
   const [registerUnknown, setRegisterUnknown] = useState(false);
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
-  const death_certificateDraft = useDraftFields('death-certificate', patientId || undefined, t('docDeathCertificate.formLabel'), {
+  const deathCertificateDraft = useDraftFields('death-certificate', patientId || undefined, t('docDeathCertificate.formLabel'), {
     deceasedInfo: [deceasedInfo, setDeceasedInfo],
     deathInfo: [deathInfo, setDeathInfo],
     causeInfo: [causeInfo, setCauseInfo],
@@ -335,7 +335,7 @@ const DeathCertificatePage: React.FC = () => {
         const created = await draftDeathCertificate(draftPayload());
         setEditingDraftId(created.id);
       }
-      death_certificateDraft.markSaved();
+      deathCertificateDraft.markSaved();
       showSuccess(t('docDeathCertificate.draftSaved'));
       await loadCertificates();
     } catch (err) {
@@ -444,7 +444,7 @@ const DeathCertificatePage: React.FC = () => {
         await createDeathCertificate({ ...draftPayload(), signature: certifierInfo.signature });
       }
 
-      death_certificateDraft.markSaved();
+      deathCertificateDraft.markSaved();
       showSuccess(t('docDeathCertificate.successSubmitted'));
       setActiveTab('certificates');
       setCurrentStep(1);
