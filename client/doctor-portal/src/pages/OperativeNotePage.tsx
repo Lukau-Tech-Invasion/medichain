@@ -20,6 +20,7 @@ import {
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
 import StaffName from '../components/StaffName';
+import StaffSelect from '../components/StaffSelect';
 
 
 
@@ -257,13 +258,14 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-surgeon" className="text-sm text-content-muted">{t('docOperativeNote.surgeonLabel')}</label>
-                  <input
+                  {/* A person, not a typed id: the stored value is the surgeon's account id. */}
+                  <StaffSelect
                     id="opnote-surgeon"
-                    type="text"
+                    label={t('docOperativeNote.surgeonLabel')}
+                    roleFilter="Doctor"
                     value={surgeon}
-                    onChange={e => setField('surgeon', e.target.value)}
-                    className="w-full border rounded p-2"
+                    onChange={(id) => setField('surgeon', id)}
+                    required
                   />
                 </div>
                 <div>
