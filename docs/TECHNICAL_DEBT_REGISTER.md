@@ -86,7 +86,8 @@ one. Now:
   typing marks it unsaved, so the leave-page warning and "Close patient" catch
   it; it cannot restore what was typed.
 
-Open: the remaining ~33 forms can each move to `useDraftFields` with one call
+**Closed 2026-11-15** (`99af2e0`, `e7dea97`, `a59da2a`, `c47b70b`, and IV
+sites in `cc27df8`): every clinical form keeps a draft. Was open: the remaining ~33 forms can each move to `useDraftFields` with one call
 listing their fields. Not done in bulk: their state is dozens of separate
 `useState`s each, and guessing the list risks sweeping in loaded data, which
 would raise false "unsaved" warnings.
@@ -102,10 +103,10 @@ Accepted for now, each with its reason:
   `<Link>`/`useNavigate` and an SSR-hydration issue are fixed only in v7. The
   portals do not server-render, and the one redirect built from user data
   (`client/shared/src/utils/returnPath.ts`) rejects `//` and `\`. Upgrade to
-  React Router 7 as its own change.
+  React Router 7 as its own change. **Done 2026-11-15** (`f240782`).
 - **`lopdf` via `printpdf` (RUSTSEC-2026-0187).** A stack overflow parsing
   deeply nested PDFs; the API only generates PDFs. Upgrade `printpdf` when its
-  API change can be absorbed.
+  API change can be absorbed. **Done 2026-11-15** (`b921bde`, printpdf 0.12).
 - **`rkyv`, `rsa` in `Cargo.lock`.** Optional dependencies that are never
   compiled into this binary (`cargo tree -i` finds no path).
 - **Rehearsal AWS stack.** The audit bucket is in GOVERNANCE mode for the
@@ -503,8 +504,8 @@ Found in this pass, verified unreferenced, not removed:
 
 | Item | Evidence |
 | --- | --- |
-| `AppState` maps `telehealth_sessions`, `wearable_alerts`, `wearable_devices`, `lab_trends`, `blood_type_screens` | zero references outside `state.rs` |
-| `repositories.e_prescription_records` | no caller outside the repository wiring |
+| `AppState` maps `telehealth_sessions`, `wearable_alerts`, `wearable_devices`, `lab_trends`, `blood_type_screens` | zero references outside `state.rs`. **Gone** (as of 2026-11-15, no field of those names remains in `api/src`) |
+| `repositories.e_prescription_records` | no caller outside the repository wiring. **Gone** (no reference in `api/src`, 2026-11-15) |
 | `repositories.blood_type_screens` (typed) | read by the register, written by nothing |
 | `.gradient-text` in `doctor-portal/src/index.css` | no class user. **Removed 2026-11-15** (`d8eacdf`) |
 | `useProviderDirectory` beside `StaffName`'s directory | two implementations of one lookup. **Resolved 2026-11-15**: the doctor portal uses only `StaffName`; the hook remains for the patient app, which has no `StaffName` |
@@ -3033,7 +3034,9 @@ is not.
 
 ### Handler length
 
-Measured properly in round two and left open with a number: **292 functions in
+**Closed by a better measure** (recorded 2026-11-15): rule 3 now counts lines
+that branch or bind, not raw lines, and `scripts/check-function-length.py`
+gates it with no exemptions and passes. Was: measured properly in round two and left open with a number: **292 functions in
 `api/src` exceed the limit**, and the mechanical fix was tried and reverted
 because it made the code worse. See "Handler length: measured, and the
 mechanical fix made it worse" above.
@@ -4086,6 +4089,9 @@ authorisation rather than a judgement call.
     today, because the handlers own those fields. `ConsultPage` sending
     `consultId` is the WF-020 shape — a client choosing a record id — and is
     the one worth removing first if anyone touches these pages.
+    **Consult closed** (checked 2026-11-15): `createConsult` now sends only the
+    collected fields and takes `consult_id` from the server; `IVSitePage` sends
+    no id for a new site. The other four were not re-checked.
 
     Verified on PostgreSQL, not only in memory: the schedule saves, reads back
     with its break and blocked date intact, produces the same slot list as the
@@ -4779,7 +4785,8 @@ removed (owner approval, 2026-11-15).
     store panic until restart. Still open: about 270 lock calls there map the
     error with a differently worded `Internal`/`Database` message (consistent
     enough to leave), and 10 `unwrap`s on `AppState` locks in `telehealth.rs`,
-    `websocket.rs` and `handlers/account_directory.rs`.
+    `websocket.rs` and `handlers/account_directory.rs`. **Those 10 are gone** (`a16e67f`,
+    2026-11-14; none remain in the three files as of 2026-11-15).
   * **CI:** `gen-request-types.py --check`, `check-actor-columns.py` and
     `check-no-migration-seeds.py` now run in `ci.yml`. The last two existed and
     passed locally but were never wired in.
@@ -4939,9 +4946,10 @@ missing from its own union.
   * A native lock-screen surface (iOS widget or Android lock-screen
     notification). The Expo starter shows the card on the app's own locked
     screen; drawing on the phone's lock screen needs native code.
-  * The server stores the device's public key and does not yet verify a
-    signature with it. The binding today is the server-signed, device-scoped
-    capability plus the device being active.
+  * ~~The server stores the device's public key and does not yet verify a
+    signature with it.~~ **Closed 2026-11-15** (`14f824f`): every
+    lockscreen-token request carries an ECDSA P-256 signature by the enrolled
+    key over the device id and the moment.
 
 ## 2026-11-15 — Part A of the "finish everything" pass: what landed and what is left
 
