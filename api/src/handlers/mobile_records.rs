@@ -16,6 +16,15 @@ pub struct AuthoriseMobileRecordRequest {
     pub encrypted_content_reference: String,
     pub watermark_text: Option<String>,
 }
+/// The enrolled phone's proof that it holds its private key.
+#[derive(Debug, Deserialize)]
+pub struct LockscreenTokenRequest {
+    /// Unix seconds the request was signed at.
+    pub timestamp: i64,
+    /// Hex DER ECDSA P-256 signature over `lockscreen_request_message`.
+    pub signature: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RevokeMobileDeviceRequest {
     pub reason: String,
@@ -64,6 +73,13 @@ pub async fn register_patient_mobile_device(
         Ok(value) => value,
         Err(response) => return response,
     };
+    // The key signs every lockscreen-token request, so it must be one.
+    if !crate::mobile_records::is_p256_public_key(&body.public_key) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "public_key must be an uncompressed P-256 point, hex".into(),
+            code: "INVALID_DEVICE_KEY".into(),
+        });
+    }
     match data
         .mobile_records
         .register_device_durable(
@@ -160,15 +176,25 @@ pub async fn issue_mobile_lockscreen_token(
     data: web::Data<AppState>,
     req: HttpRequest,
     path: web::Path<String>,
+    body: Option<web::Json<LockscreenTokenRequest>>,
 ) -> impl Responder {
     let patient_id = match authenticated_patient_id(&data, &req) {
         Ok(value) => value,
         Err(response) => return response,
     };
     let device_id = path.into_inner();
-    match data.mobile_records.get_device_durable(&device_id).await {
+    let Some(proof) = body.map(web::Json::into_inner) else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            error: "Sign the request with the enrolled device key".into(),
+            code: "DEVICE_SIGNATURE_REQUIRED".into(),
+        });
+    };
+    let public_key = match data.mobile_records.get_device_durable(&device_id).await {
         Ok(Some(device))
-            if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active => {}
+            if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active =>
+        {
+            device.public_key
+        }
         Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 error: "Mobile device is not active for this patient".into(),
@@ -182,6 +208,22 @@ pub async fn issue_mobile_lockscreen_token(
             });
         }
         Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
+    if let Err(error) = crate::mobile_records::verify_device_signature(
+        &public_key,
+        &device_id,
+        proof.timestamp,
+        &proof.signature,
+        chrono::Utc::now().timestamp(),
+    ) {
+        let code = match error {
+            crate::mobile_records::DeviceSignatureError::Stale => "DEVICE_SIGNATURE_EXPIRED",
+            crate::mobile_records::DeviceSignatureError::Invalid => "DEVICE_SIGNATURE_INVALID",
+        };
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "The request was not signed by this device's enrolled key".into(),
+            code: code.into(),
+        });
     }
     match crate::mobile_records::issue_lockscreen_token(&patient_id, &device_id) {
         Ok(token) => HttpResponse::Ok().json(LockscreenTokenResponse {

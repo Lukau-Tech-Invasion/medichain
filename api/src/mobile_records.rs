@@ -102,6 +102,55 @@ fn capability_secret() -> String {
         .unwrap_or_else(|_| "medichain-dev-secret-change-in-production".to_string())
 }
 
+/// How far a signed lockscreen-token request may be from the server's clock.
+pub const DEVICE_SIGNATURE_MAX_SKEW_SECS: i64 = 5 * 60;
+
+/// What an enrolled phone signs to ask for a lockscreen capability: the
+/// device and the moment, so a signature is good for one device and minutes.
+pub fn lockscreen_request_message(device_id: &str, timestamp: i64) -> String {
+    format!("medichain-lockscreen-token\n{device_id}\n{timestamp}")
+}
+
+/// Whether `hex_key` is an uncompressed P-256 public point (65 bytes, 0x04).
+pub fn is_p256_public_key(hex_key: &str) -> bool {
+    hex::decode(hex_key.trim())
+        .map(|bytes| bytes.len() == 65 && bytes[0] == 0x04)
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceSignatureError {
+    /// The signed moment is outside the allowed clock skew.
+    Stale,
+    /// Not a signature by this device's enrolled key over this request.
+    Invalid,
+}
+
+/// Verify that the enrolled device's private key signed this request: an
+/// ECDSA P-256 / SHA-256 signature, DER-encoded and hex, over
+/// [`lockscreen_request_message`]. Until this existed the server stored the
+/// phone's public key and never used it, so the capability rested on the
+/// session alone.
+pub fn verify_device_signature(
+    public_key_hex: &str,
+    device_id: &str,
+    timestamp: i64,
+    signature_hex: &str,
+    now: i64,
+) -> Result<(), DeviceSignatureError> {
+    if (now - timestamp).abs() > DEVICE_SIGNATURE_MAX_SKEW_SECS {
+        return Err(DeviceSignatureError::Stale);
+    }
+    let key = hex::decode(public_key_hex.trim()).map_err(|_| DeviceSignatureError::Invalid)?;
+    let signature = hex::decode(signature_hex.trim()).map_err(|_| DeviceSignatureError::Invalid)?;
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ECDSA_P256_SHA256_ASN1, key)
+        .verify(
+            lockscreen_request_message(device_id, timestamp).as_bytes(),
+            &signature,
+        )
+        .map_err(|_| DeviceSignatureError::Invalid)
+}
+
 pub fn issue_lockscreen_token(
     patient_id: &str,
     device_id: &str,
@@ -538,6 +587,47 @@ fn row_to_device(row: MobileDeviceRow) -> Result<PatientMobileDevice, &'static s
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_device_signature_binds_the_device_and_the_moment() {
+        use ring::rand::SystemRandom;
+        use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_ASN1_SIGNING};
+        let rng = SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, &rng).unwrap();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_ASN1_SIGNING, pkcs8.as_ref(), &rng)
+            .unwrap();
+        let public = hex::encode(pair.public_key().as_ref());
+        assert!(super::is_p256_public_key(&public));
+        let now = 1_800_000_000;
+        let sign = |device: &str, at: i64| {
+            let message = super::lockscreen_request_message(device, at);
+            hex::encode(pair.sign(&rng, message.as_bytes()).unwrap().as_ref())
+        };
+        let good = sign("DEV-1", now);
+        assert_eq!(
+            super::verify_device_signature(&public, "DEV-1", now, &good, now),
+            Ok(())
+        );
+        // Another device's id, another moment, another key: refused.
+        assert_eq!(
+            super::verify_device_signature(&public, "DEV-2", now, &good, now),
+            Err(super::DeviceSignatureError::Invalid)
+        );
+        assert_eq!(
+            super::verify_device_signature(&public, "DEV-1", now + 1, &good, now),
+            Err(super::DeviceSignatureError::Invalid)
+        );
+        let stale = sign("DEV-1", now - 3600);
+        assert_eq!(
+            super::verify_device_signature(&public, "DEV-1", now - 3600, &stale, now),
+            Err(super::DeviceSignatureError::Stale)
+        );
+        assert_eq!(
+            super::verify_device_signature("SYNTH-PUBKEY-0001", "DEV-1", now, &good, now),
+            Err(super::DeviceSignatureError::Invalid)
+        );
+        assert!(!super::is_p256_public_key("public-key"));
+    }
+
     use super::*;
     #[test]
     fn revoked_mobile_device_invalidates_its_record_capabilities() {

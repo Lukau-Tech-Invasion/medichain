@@ -10,14 +10,16 @@
  * was saved, so a responder sees what the patient chose to show even when the
  * phone has no signal.
  *
- * The server stores the public key but does not yet verify a signature with
- * it; the binding today is the server-signed, device-scoped capability plus
- * the device being active on the patient's account.
+ * Every capability request is signed with that private key over the device
+ * id and the moment (`lockscreen_request_message` on the server), and the
+ * server verifies it against the enrolled public key: a session alone, without
+ * the phone's key, cannot obtain one.
  */
 
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { ec as EC } from 'elliptic';
+import { sha256 } from '@noble/hashes/sha256';
 import { apiClient, randomBytes } from '../api/client';
 
 const DEVICE_KEY = 'medichain.phone.device';
@@ -65,6 +67,15 @@ async function enrol(patientId: string): Promise<EnrolledPhone> {
   return phone;
 }
 
+/** The server's `lockscreen_request_message`, signed with the phone's key. */
+export function signLockscreenRequest(privateKeyHex: string, deviceId: string, timestamp: number): string {
+  const message = `medichain-lockscreen-token
+${deviceId}
+${timestamp}`;
+  const digest = sha256(new TextEncoder().encode(message));
+  return new EC('p256').keyFromPrivate(privateKeyHex, 'hex').sign(digest).toDER('hex');
+}
+
 /**
  * Enrol if needed, then read and save the current lock-screen card. Call while
  * signed in; throws if the server refuses (for example, the patient has not
@@ -72,9 +83,10 @@ async function enrol(patientId: string): Promise<EnrolledPhone> {
  */
 export async function refreshPhoneCard(patientId: string): Promise<SavedCard> {
   const phone = await enrol(patientId);
+  const timestamp = Math.floor(Date.now() / 1000);
   const capability = await apiClient.post<{ token: string }>(
     `/api/mobile/devices/${encodeURIComponent(phone.deviceId)}/lockscreen-token`,
-    {}
+    { timestamp, signature: signLockscreenRequest(phone.privateKey, phone.deviceId, timestamp) }
   );
   const card = await apiClient.getWithCapability<LockscreenCard>(
     `/api/medical-id/${encodeURIComponent(patientId)}/lockscreen`,

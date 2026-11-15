@@ -826,10 +826,29 @@ if [ -n "$PAT_COND" ]; then
   # is the patient's call, not a default. The patient opts in first.
   c=$(code POST "/api/medical-id/$PAT_COND/preferences" '{"show_when_locked":true}' "$COND_ACTOR")
   check "patient enables lockscreen medical ID" 200 "$c" "$(body)"
-  code POST /api/mobile/devices/register     '{"device_label":"Patient Handset","platform":"android","public_key":"SYNTH-PUBKEY-0001"}'     "$COND_ACTOR" >/dev/null
+  # The phone enrols a real P-256 key and signs every capability request with
+  # it; the server verifies the signature against the enrolled public key.
+  PHONE_DIR=$(mktemp -d)
+  openssl ecparam -name prime256v1 -genkey -noout -out "$PHONE_DIR/key.pem" 2>/dev/null
+  PHONE_PUB=$(openssl ec -in "$PHONE_DIR/key.pem" -pubout -outform DER 2>/dev/null | tail -c 65 | xxd -p | tr -d '
+')
+  c=$(code POST /api/mobile/devices/register '{"device_label":"Patient Handset","platform":"android","public_key":"SYNTH-PUBKEY-0001"}' "$COND_ACTOR")
+  check "a device key that is not a P-256 point is refused" 400 "$c" "$(body)"
+  code POST /api/mobile/devices/register "{\"device_label\":\"Patient Handset\",\"platform\":\"android\",\"public_key\":\"$PHONE_PUB\"}" "$COND_ACTOR" >/dev/null
   COND_DEVICE=$(jget device_id)
   [ -n "$COND_DEVICE" ] || COND_DEVICE=$(jget id)
-  code POST "/api/mobile/devices/$COND_DEVICE/lockscreen-token" '' "$COND_ACTOR" >/dev/null
+  c=$(code POST "/api/mobile/devices/$COND_DEVICE/lockscreen-token" '' "$COND_ACTOR")
+  check "a lockscreen token is refused without the device's signature" 400 "$c" "$(body)"
+  PHONE_TS=$(date +%s)
+  printf 'medichain-lockscreen-token
+%s
+%s' "$COND_DEVICE" "$PHONE_TS" > "$PHONE_DIR/msg"
+  PHONE_SIG=$(openssl dgst -sha256 -sign "$PHONE_DIR/key.pem" "$PHONE_DIR/msg" | xxd -p | tr -d '
+')
+  c=$(code POST "/api/mobile/devices/$COND_DEVICE/lockscreen-token" "{\"timestamp\":$((PHONE_TS + 1)),\"signature\":\"$PHONE_SIG\"}" "$COND_ACTOR")
+  check "a signature over another moment is refused" 401 "$c" "$(body)"
+  code POST "/api/mobile/devices/$COND_DEVICE/lockscreen-token" "{\"timestamp\":$PHONE_TS,\"signature\":\"$PHONE_SIG\"}" "$COND_ACTOR" >/dev/null
+  rm -rf "$PHONE_DIR"
   COND_LOCK_TOK=$(jget token)
   c=$(code_device GET "/api/medical-id/$PAT_COND/lockscreen" "$COND_LOCK_TOK" "$COND_DEVICE")
   check "lockscreen readable with a valid token" 200 "$c" "$(body)"

@@ -2344,6 +2344,7 @@ dependencies = [
  "proptest",
  "qrcode",
  "reqwest",
+ "ring",
  "rust_decimal",
  "serde",
  "serde_json",

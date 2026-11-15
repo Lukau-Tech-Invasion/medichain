@@ -63,6 +63,9 @@ zeroize = "1.6"
 # HMAC-SHA256 for AWS Signature Version 4 (the S3 audit checkpoint sink).
 hmac = "0.12"
 hex = "0.4"
+# ECDSA P-256 verification of an enrolled phone's lockscreen-token request.
+# Already in the tree through jsonwebtoken.
+ring = "0.17"
 
 # JWT authentication (Phase 9.4) and TOTP multi-factor auth (Phase 11.3)
 jsonwebtoken = "9"
