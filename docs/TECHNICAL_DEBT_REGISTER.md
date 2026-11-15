@@ -4741,7 +4741,7 @@ against that target. The server computes `fluid_target_ml` from `weight_kg`
 and stores and returns it. Lactate readings are banded by `lactateBand` from
 the catalog and stay uncoloured until it loads.
 
-## 2026-11-12 — HALF CLOSED 2026-11-14: two API wrappers with no screen, which look unfinished rather than dead
+## 2026-11-12 — CLOSED 2026-11-15: two API wrappers with no screen, which look unfinished rather than dead
 
 Found by a scan for `client/shared/src/api/endpoints/` functions named nowhere
 else. Neither is removed: each is a capability a person needs.
@@ -4757,6 +4757,13 @@ else. Neither is removed: each is a capability a person needs.
 patient's chart for Admin, Doctor and Nurse). **EMS handoffs still open**:
 the 2026-11-15 removal pass left the wrapper in place on purpose, because it
 is the reader a patient-facing screen needs, not dead code.
+
+**EMS handoffs closed 2026-11-15: the entry was wrong.** A patient screen
+already lists them: My Records reads `GET /api/clinical/patient/{id}/ems-handoffs`
+through the patient-documents path map in `records.ts` (`section('ems-handoffs')`,
+since `7bff676`). The scan matched function names, and this reader is reached
+by path, not by the wrapper. `getPatientEmsHandoffs` was the duplicate and is
+removed (owner approval, 2026-11-15).
 
 ## 2026-11-12 — Phase 6 clean-up: what was removed and what was kept
 
@@ -4968,14 +4975,16 @@ P-256 signature by the phone's enrolled key over the device id and the moment.
 Registration refuses a key that is not a P-256 point. Verified with the
 synthetic harness at 281/0 on a fresh PostgreSQL database.
 
-**Still open from this pass:**
+**Closed later on 2026-11-15** (the items below were the open list):
 
-  * **IV sites keep no draft.** The page holds unsaved sites in the same list
-    as stored ones, so a first-render baseline would mark the page dirty when
-    the list loads. It needs its draft list separated from the stored list
-    first.
-  * **The React Router 7 and printpdf 0.12 upgrades are in the working tree,
-    uncommitted.** Both match Part A items 11 and 12 and both verify:
+  * ~~**IV sites keep no draft.**~~ **Closed.** The page now keeps the stored
+    sites and the staged edits (added sites, assessments, discontinuations)
+    apart (`IVSitePage.staged.ts`) and shows one laid over the other. Only the
+    staged edits are the draft, so a load is not unsaved work, and a restored
+    draft lands on a fresh load instead of replacing it with a stale copy
+    (`IVSitePage.draft.test.tsx`).
+  * ~~**The React Router 7 and printpdf 0.12 upgrades are in the working tree,
+    uncommitted.**~~ **Committed** (`f240782`, `b921bde`). Both match Part A items 11 and 12 and both verify:
     react-router-dom 7.18.5 is installed, the patient app passes 304/304, the
     doctor portal builds and passes 1114/1114, the API's PDF tests pass, and
     clippy is clean. They were left out of every commit on purpose: they predate
@@ -4984,5 +4993,7 @@ synthetic harness at 281/0 on a fresh PostgreSQL database.
   * **Operative note** still fills the surgeon (the author) and the date
     (today). Both are things the author knows rather than findings, but the
     surgeon field is a free-text box holding a UUID; a staff picker would be
-    the right control.
+    the right control. **Closed:** the surgeon is chosen with `StaffSelect`
+    (doctors only), still starting as the author; the stored value is the same
+    account id.
 

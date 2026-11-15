@@ -496,10 +496,3 @@ export async function receiveEmsRun(runId: string): Promise<{ run: EmsRun }> {
 export async function getPatientEmsRuns(patientId: string): Promise<{ runs: EmsRunWithEvents[] }> {
   return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/ems-runs`);
 }
-
-/** The ambulance handovers recorded about one patient (their team, or themselves). */
-export async function getPatientEmsHandoffs(
-  patientId: string
-): Promise<{ success: boolean; handoffs: EmsHandoff[]; count: number }> {
-  return getApiClient().get(`/api/clinical/patient/${encodeURIComponent(patientId)}/ems-handoffs`);
-}
