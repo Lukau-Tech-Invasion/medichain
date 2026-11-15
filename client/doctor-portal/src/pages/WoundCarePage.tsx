@@ -22,7 +22,6 @@ import {
   getPatients,
   getWound,
   getApiClient,
-  useProviderDirectory,
   useTranslation,
   clickable,
   Input,
@@ -34,6 +33,7 @@ import {
   useDraftFields,
   draftFieldsOf,
 } from '@medichain/shared';
+import StaffName from '../components/StaffName';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -178,7 +178,6 @@ const WoundCarePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
-  const { providerName } = useProviderDirectory(user?.userId);
 
   // The assessment tab was previously pure markup: no state, no handler, and a
   // Save button with no onClick at all, so nothing a nurse typed was ever sent.
@@ -512,7 +511,7 @@ const WoundCarePage: React.FC = () => {
                   <div className="flex items-center justify-between text-xs text-content-muted">
                     <div className="flex items-center gap-1">
                       <User className="w-3 h-3" />
-                      <span>{providerName(wound.assessedBy)}</span>
+                      <span><StaffName id={wound.assessedBy} /></span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />

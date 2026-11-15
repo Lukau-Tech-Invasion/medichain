@@ -165,10 +165,6 @@
     @apply shadow-lg -translate-y-1;
   }
 
-  /* Gradient text */
-  .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-600 to-primary-800;
-  }
 }
 
 /* Utility classes */
