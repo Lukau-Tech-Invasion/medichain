@@ -4,7 +4,7 @@ import {
   type SepsisClassification, type SepsisForm, type SepsisFormAction, type SofaField,
 } from './SepsisPage.form';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest, useScoringCatalog, qsofaPreview, sepsisFluidTargetPreview, lactateBand } from '@medichain/shared';
+import { createSepsis, getPatientSepsisAssessments, formatDateOnly, useTranslation, clickable, type SepsisListRow, formatTimestamp, ChoiceChips, useLatestRequest, useScoringCatalog, qsofaPreview, sepsisFluidTargetPreview, lactateBand, useDraftFields, draftFieldsOfReducer } from '@medichain/shared';
 import type { SepsisCreateResult } from '@medichain/shared';
 import {
   Thermometer,
@@ -60,6 +60,11 @@ export default function SepsisPage() {
 
   // Everything the clinician enters is one object; SepsisPage.form.ts owns its rules.
   const [form, dispatch] = useReducer(sepsisFormReducer, undefined, emptySepsisForm);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const sepsisDraft = useDraftFields('sepsis', selectedPatient || undefined, t('docSepsis.formLabel'),
+    draftFieldsOfReducer(form, dispatch, ['respiratoryRate', 'systolicBP', 'gcsScore', 'respiratorySupport', 'platelets',
+      'bilirubin', 'map', 'creatinine', 'urineOutput', 'noradrenaline', 'lactateReadings', 'newLactate', 'classification',
+      'infectionSource', 'suspectedOrganism', 'antibioticsGiven', 'fluidVolume', 'weightKg', 'vasopressorType', 'narrative']));
   const {
     respiratoryRate, systolicBP, gcsScore, pao2fio2, respiratorySupport, platelets,
     bilirubin, map, creatinine, urineOutput, noradrenaline, lactateReadings,
@@ -207,6 +212,7 @@ export default function SepsisPage() {
       // measured — a total of 2 from six systems and 2 from one are different
       // clinical pictures.
       setSavedScores(saved);
+      sepsisDraft.markSaved();
       setSuccess(true);
       setTimeout(() => returnAfterSave(), 2000);
     } catch (err) {

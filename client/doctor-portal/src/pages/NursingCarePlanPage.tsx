@@ -24,8 +24,7 @@ import {
   useValidatedForm,
   carePlanSchema,
   createCarePlan,
-  notifySuccess,
-} from '@medichain/shared';
+  notifySuccess, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -146,6 +145,9 @@ const NursingCarePlanPage: React.FC = () => {
     // Unchosen until the nurse sets it (rule 9).
     patientId: '', diagnosis: '', priority: '' as Priority | '', goals: '', interventions: '',
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const nursing_care_planDraft = useDraftFields('nursing-care-plan', form.patientId || undefined, t('docNursingCarePlan.formLabel'),
+    draftFieldsOf(form, setForm, ['diagnosis', 'priority', 'goals', 'interventions']));
   const { user } = useAuthStore();
 
   const { errors, validate, validateField, clearField } = useValidatedForm(carePlanSchema);
@@ -171,6 +173,7 @@ const NursingCarePlanPage: React.FC = () => {
         interventions: form.interventions.split('\n').map(value => value.trim()).filter(Boolean)
           .map((description, index) => ({ id: `intervention-${index + 1}`, description })),
       });
+      nursing_care_planDraft.markSaved();
       setSaveMessage(t('docNursingCarePlan.savedOk'));
       setForm({ patientId: '', diagnosis: '', priority: '', goals: '', interventions: '' });
       notifySuccess('Care plan saved.');

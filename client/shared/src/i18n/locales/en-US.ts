@@ -2561,6 +2561,7 @@ const en_US: TranslationRecord = {
   },
 
   docNursingCarePlan: {
+    formLabel: 'Nursing care plan',
     title: 'Nursing Care Plans',
     subtitle: 'Create and manage patient care plans',
     loading: 'Loading care plans...',
@@ -4110,6 +4111,7 @@ const en_US: TranslationRecord = {
   },
 
   docLaceration: {
+    formLabel: 'Laceration repair',
     errClosureRequired: 'Choose how the wound was closed.',
     sutureNotChosen: 'Choose the suture',
     savedRefreshFailed: 'The repair was saved, but the list could not be refreshed. Retry the list refresh; do not submit the repair again.',
@@ -4557,6 +4559,7 @@ const en_US: TranslationRecord = {
     diagnosesNone: 'None',
   },
   docAMA: {
+    formLabel: 'Against-medical-advice form',
     errorSignaturesIncomplete: 'The form needs the patient signature, a named witness and both attestations before it can be filed.',
     title: 'Against Medical Advice (AMA)',
     subtitle: 'Document patient refusal of care and AMA discharges',
@@ -5562,6 +5565,7 @@ const en_US: TranslationRecord = {
     transfersCountLabel: 'Transfers: {{count}}',
   },
   docConsult: {
+    formLabel: 'Consult request',
     errorChooseSpecialtyUrgency: 'Choose the specialty and how urgent the consult is.',
     specialtyNotChosen: 'Choose the specialty',
     printConsult: 'Print consultation',
@@ -6319,6 +6323,7 @@ const en_US: TranslationRecord = {
     patientFallback: 'Patient',
   },
   docHistoryPhysical: {
+    formLabel: 'History and physical',
     examTypeNotRecorded: 'Exam type not recorded',
     title: 'History & Physical',
     subtitle: 'Document comprehensive patient evaluations',
@@ -6597,6 +6602,7 @@ const en_US: TranslationRecord = {
     condition_induration: 'Induration (Hardness)',
   },
   docImmunization: {
+    formLabel: 'Vaccine administration',
     notRecorded: 'Not recorded',
     administrationDate: 'Administration date',
     actualDateRequired: 'Enter the actual administration date.',
@@ -6746,6 +6752,7 @@ const en_US: TranslationRecord = {
     schedule_mmr_age: '6, 12 months',
   },
   docIncidentReport: {
+    formLabel: 'Incident report',
     title: 'Incident Reporting',
     subtitle: 'Document and track safety incidents',
     loading: 'Loading incidents...',
@@ -7521,6 +7528,7 @@ const en_US: TranslationRecord = {
     targetLine: 'Target: {{date}}',
   },
   docOperativeNote: {
+    formLabel: 'Operative note',
     savedDetails: 'Read saved operative details',
     notRecorded: 'Not recorded',
     title: 'Operative Note',
@@ -7735,6 +7743,8 @@ const en_US: TranslationRecord = {
     traumaDesc: 'Multi-trauma patient evaluation and resuscitation',
   },
   docPathology: {
+    reportFormLabel: 'Pathology report',
+    formLabel: 'Pathology order',
     errorLoadSlides: 'The slide images could not be loaded. Reload to try again.',
     finalReadOnly: 'This report is finalized and cannot be edited.',
     reportObservations: 'Report observations',
@@ -7858,6 +7868,7 @@ const en_US: TranslationRecord = {
     finalizeReportButton: 'Finalize Report',
   },
   docPediatrics: {
+    formLabel: 'Paediatric assessment',
     caseloadUnavailable: 'The paediatric caseload could not be loaded. Children may be missing from this list; reload to try again.',
     caseloadTruncated: 'The caseload scan stopped at its limit, so this list may be incomplete. Search for a child by name to be sure.',
     title: 'Pediatric Assessment',
@@ -8213,6 +8224,7 @@ const en_US: TranslationRecord = {
   },
 
   docSepsis: {
+    formLabel: 'Sepsis assessment',
     errorLoadHistory: 'Past sepsis assessments could not be loaded. Reload to try again; do not assume there were none.',
     title: 'Sepsis Protocol',
     subtitle: 'Time-critical sepsis management bundle',

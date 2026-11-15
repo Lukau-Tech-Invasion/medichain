@@ -19,7 +19,7 @@ import {
   useTranslation,
   useValidatedForm,
   formatDateOnly,
-  notifySuccess, submitOnce, useSubmission, useDraftFields } from '@medichain/shared';
+  notifySuccess, submitOnce, useSubmission, useDraftFields, draftFieldsOfReducer } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle, Save,
   User, Activity, Stethoscope, Pill, Calendar
@@ -183,10 +183,7 @@ function SOAPNotePage() {
   // Kept for this tab while unsent, named by "Close patient" (mockup c5).
   const draft = useDraftFields(
     'soap', selectedPatientId || undefined, t('docSOAPNote.formLabel'),
-    Object.fromEntries(SOAP_FIELDS.map((field) => [
-      field,
-      [form[field], (value: never) => dispatch({ type: 'set', field, value } as SoapFormAction)] as const,
-    ])),
+    draftFieldsOfReducer(form, dispatch, SOAP_FIELDS),
   );
 
   // A template started from the template screen fills the note once, on arrival.

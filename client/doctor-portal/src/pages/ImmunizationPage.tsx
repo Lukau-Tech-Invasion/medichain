@@ -10,8 +10,7 @@ import {
   immunizationSchema,
   formatDateOnly,
   formatTimestamp,
-  ChoiceChips,
-} from '@medichain/shared';
+  ChoiceChips, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -200,6 +199,9 @@ const ImmunizationPage: React.FC = () => {
     notes: '',
     vfcEligible: false,
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const immunizationDraft = useDraftFields('immunization', newVaccine.patientId || undefined, t('docImmunization.formLabel'),
+    draftFieldsOf(newVaccine, setNewVaccine, ['vaccineType', 'vaccineName', 'manufacturer', 'lotNumber', 'expiryDate', 'administrationDate', 'dose', 'route', 'site', 'doseNumber', 'totalDoses', 'nextDueDate', 'consentObtained', 'consentBy', 'adverseReactions', 'notes', 'vfcEligible']));
 
   const fetchImmunizations = useCallback(async () => {
     try {
@@ -396,6 +398,7 @@ const ImmunizationPage: React.FC = () => {
           vfcEligible: false,
         });
         setActiveTab('records');
+        immunizationDraft.markSaved();
         showSuccess(t('docImmunization.administeredSuccess', { id: response.id ?? '' }));
       } else {
         setError(response.error || t('docImmunization.errorRecord'));

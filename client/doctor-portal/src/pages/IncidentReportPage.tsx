@@ -25,8 +25,7 @@ import {
   Input,
   Textarea,
   useValidatedForm,
-  incidentReportSchema, ModalPanel, ChoiceChips
-} from '@medichain/shared';
+  incidentReportSchema, ModalPanel, ChoiceChips, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
@@ -154,6 +153,9 @@ const IncidentReportPage: React.FC = () => {
     witnesses: '',
     immediateActions: ''
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const incident_reportDraft = useDraftFields('incident-report', formData.patientId || undefined, t('docIncidentReport.formLabel'),
+    draftFieldsOf(formData, setFormData, ['type', 'severity', 'dateTime', 'location', 'department', 'description', 'patientInvolved', 'staffInvolved', 'witnesses', 'immediateActions']));
 
   useEffect(() => {
     const fetchIncidents = async () => {
@@ -209,6 +211,7 @@ const IncidentReportPage: React.FC = () => {
       };
 
       await createIncidentReport(payload);
+      incident_reportDraft.markSaved();
       showSuccess(t('docIncidentReport.successSubmit'));
       
       // Refresh list

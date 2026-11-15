@@ -19,8 +19,7 @@ import {
   LoadingSpinner,
   Input,
   useValidatedForm,
-  pathologyRequestSchema, ChoiceChips
-} from '@medichain/shared';
+  pathologyRequestSchema, ChoiceChips, useDraftFields, draftFieldsOfReducer } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 import PatientSelect, { useDirectoryPatient } from '../components/PatientSelect';
 import { useSubmitGuard } from '../hooks/useSubmitGuard';
@@ -143,6 +142,10 @@ const PathologyPage: React.FC = () => {
 
   // The order and the report are each one object; PathologyPage.form.ts owns their rules.
   const [order, dispatchOrder] = useReducer(pathologyOrderReducer, undefined, emptyPathologyOrder);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const orderDraft = useDraftFields('pathology-order', order.selectedPatientId || undefined, t('docPathology.formLabel'),
+    draftFieldsOfReducer(order, dispatchOrder, ['specimenType', 'site', 'laterality', 'clinicalHistory',
+      'clinicalDiagnosis', 'priority', 'container', 'fixative']));
   const {
     selectedPatientId, collectionDate, collectionTime, clinician, specimenType, site,
     laterality, clinicalHistory, clinicalDiagnosis, priority, container, fixative,
@@ -151,6 +154,11 @@ const PathologyPage: React.FC = () => {
     dispatchOrder({ type: 'set', field, value } as PathologyOrderAction);
 
   const [report, dispatchReport] = useReducer(pathologyReportReducer, undefined, emptyPathologyReport);
+  // One draft per specimen: two reports for one patient are two documents.
+  const reportDraft = useDraftFields(`pathology-report-${selectedSpecimen?.specimenId ?? '-'}`, selectedSpecimen?.patientId,
+    t('docPathology.reportFormLabel'),
+    draftFieldsOfReducer(report, dispatchReport, ['grossDescription', 'blocks', 'slides', 'specialStains', 'ihcMarkers',
+      'microscopicDescription', 'diagnosis', 'snomedCode', 'isCritical', 'communicatedTo']));
   const {
     grossDescription, blocks, newBlock, slides, newSlide, specialStains,
     ihcMarkers, microscopicDescription, diagnosis, snomedCode, isCritical, communicatedTo,
@@ -219,6 +227,7 @@ const PathologyPage: React.FC = () => {
       return;
     }
 
+    orderDraft.markSaved();
     showSuccess(t('docPathology.submittedSuccess', { id: accession }));
     // Read back rather than appended: the row on screen is the one stored.
     await fetchSpecimens();
@@ -327,6 +336,7 @@ const PathologyPage: React.FC = () => {
       showError(err instanceof Error ? err.message : t('common.saveFailed'));
       return;
     }
+    reportDraft.markSaved();
     showSuccess(finalizeReport ? t('docPathology.reportFinalizedSuccess') : t('docPathology.reportSavedPrelimSuccess'));
     setActiveTab('worklist');
     setSelectedSpecimen(null);

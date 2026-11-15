@@ -13,8 +13,7 @@ import {
   useValidatedForm,
   consultRequestSchema,
   consultResponseSchema,
-  formatTimestamp, ChoiceChips
-} from '@medichain/shared';
+  formatTimestamp, ChoiceChips, useDraftFields, draftFieldsOf } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -189,6 +188,9 @@ const ConsultPage: React.FC = () => {
     imagingResults: '',
     notes: '',
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const consult_requestDraft = useDraftFields('consult-request', newConsult.patientId || undefined, t('docConsult.formLabel'),
+    draftFieldsOf(newConsult, setNewConsult, ['specialty', 'urgency', 'reason', 'clinicalQuestion', 'relevantHistory', 'currentMedications', 'vitalSigns', 'labResults', 'imagingResults', 'notes']));
 
   const [consultResponse, setConsultResponse] = useState({
     assessment: '',
@@ -288,6 +290,7 @@ const ConsultPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
+    consult_requestDraft.markSaved();
     showSuccess(t('docConsult.successRequested', { id: consultId }));
     // Read the list back: the row shown is then the stored one.
     void fetchConsults();

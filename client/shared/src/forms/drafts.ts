@@ -136,6 +136,25 @@ export function draftFieldsOf<T extends object, K extends keyof T>(
 }
 
 /**
+ * The chosen keys of a form held in a reducer with a `{ type: 'set', field,
+ * value }` action, as draft fields. Same rule as `draftFieldsOf`: leave out the
+ * patient and anything the form fills in by itself.
+ */
+export function draftFieldsOfReducer<T extends object, K extends keyof T>(
+  value: T,
+  // Any reducer dispatch: its action union is a mapped type a generic key
+  // cannot name, so the `set` action is built here and handed over untyped.
+  dispatch: (action: never) => void,
+  keys: readonly K[],
+): Record<string, DraftField> {
+  const send = dispatch as (action: { type: 'set'; field: K; value: T[K] }) => void;
+  return Object.fromEntries(keys.map((k) => [
+    String(k),
+    [value[k], (v: T[K]) => send({ type: 'set', field: k, value: v })] as const,
+  ]));
+}
+
+/**
  * Draft-keeping for a form whose fields are separate `useState`s: list them
  * once and the form keeps a draft for this tab, warns before a link discards
  * it, and is named by "Close patient". A field counts as changed when it

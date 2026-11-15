@@ -37,8 +37,7 @@ import {
   Input,
   amaDetailsSchema,
   collectAmaSignatures,
-  getApiErrorMessage, ModalPanel, ChoiceChips, formatDateOnly, formatTimestamp
-} from '@medichain/shared';
+  getApiErrorMessage, ModalPanel, ChoiceChips, formatDateOnly, formatTimestamp, useDraftFields, draftFieldsOfReducer } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 
@@ -76,6 +75,11 @@ const AMAPage: React.FC = () => {
 
   // Everything the clinician enters is one object; AMAPage.form.ts owns its rules.
   const [form, dispatch] = useReducer(amaFormReducer, undefined, emptyAmaForm);
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const amaDraft = useDraftFields('ama', form.patientId || undefined, t('docAMA.formLabel'),
+    draftFieldsOfReducer(form, dispatch, ['diagnosis', 'recommendedTreatment', 'patientStatement', 'riskLevel',
+      'riskDisclosures', 'witnessName', 'hasCapacity', 'capacityBasis', 'patientRefusedAlternatives', 'amaFormSigned',
+      'witnessAttested', 'providerAttested', 'followUpOffered', 'patientContactInfoVerified']));
   const {
     formStep, patientId, patientName, diagnosis, recommendedTreatment,
     patientStatement, riskLevel, riskDisclosures, witnessName, hasCapacity, capacityBasis,
@@ -176,6 +180,7 @@ const AMAPage: React.FC = () => {
       });
 
       await createAMADischarge(newRecord);
+      amaDraft.markSaved();
       showSuccess(t('docAMA.successCreated'));
       
       // Read back rather than appended: the row on screen is the one stored.

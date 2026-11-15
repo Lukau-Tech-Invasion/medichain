@@ -25,8 +25,7 @@ import {
   useValidatedForm,
   pediatricAssessmentSchema,
   ApiClientError,
-  CARE_RELATIONSHIP_REQUIRED, ChoiceChips
-} from '@medichain/shared';
+  CARE_RELATIONSHIP_REQUIRED, ChoiceChips, useDraftFields, draftFieldsOf } from '@medichain/shared';
 
 /**
  * PediatricsPage
@@ -168,6 +167,9 @@ const PediatricsPage: React.FC = () => {
     developmentalStatus: '',
     notes: ''
   });
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  const pediatric_assessmentDraft = useDraftFields('pediatric-assessment', assessmentForm.patientId || undefined, t('docPediatrics.formLabel'),
+    draftFieldsOf(assessmentForm, setAssessmentForm, ['weightKg', 'heightCm', 'heartRate', 'respiratoryRate', 'temperature', 'patAppearance', 'patWorkOfBreathing', 'patCirculation', 'developmentalStatus', 'notes']));
 
   /**
    * Load the paediatric caseload from the patient register.
@@ -417,6 +419,7 @@ const PediatricsPage: React.FC = () => {
       }
       saveConfirmed.current = true;
       await refreshSavedSummary(operation.payload.patient_id);
+      pediatric_assessmentDraft.markSaved();
       showSuccess(t('docPediatrics.submittedSuccess'));
       setActiveTab('patients');
       // Reset form

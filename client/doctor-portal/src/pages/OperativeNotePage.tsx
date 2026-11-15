@@ -16,8 +16,7 @@ import {
   Textarea,
   useValidatedForm,
   operativeNoteSchema,
-  formatDateOnly, ChoiceChips
-} from '@medichain/shared';
+  formatDateOnly, ChoiceChips, useDraftFields, draftFieldsOfReducer } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import { StoredValue } from '../components/StoredSoapDetails';
 import StaffName from '../components/StaffName';
@@ -89,6 +88,12 @@ const OperativeNotePage: React.FC = () => {
   // Everything the surgeon enters is one object; OperativeNotePage.form.ts owns its rules.
   const newNoteDefaults = () => ({ surgeon: user?.userId || '', today: new Date().toISOString().split('T')[0] });
   const [form, dispatch] = useReducer(operativeFormReducer, undefined, () => emptyOperativeForm(newNoteDefaults()));
+  // Kept for this tab while unsent, named by "Close patient" (mockup c5).
+  // The surgeon and date the form fills in by itself are left out.
+  const opDraft = useDraftFields('operative-note', selectedPatient || undefined, t('docOperativeNote.formLabel'),
+    draftFieldsOfReducer(form, dispatch, ['assistant', 'anesthesiologist', 'scrubNurse', 'circulator', 'preOpDiagnosis',
+      'postOpDiagnosis', 'procedureName', 'cptCodes', 'anesthesiaType', 'incision', 'findings', 'procedureText', 'closure',
+      'drains', 'ebl', 'urineOutput', 'fluidIn', 'specimens', 'woundClass', 'implants', 'complications', 'disposition']));
   const {
     surgeon, assistant, anesthesiologist, scrubNurse, circulator, procedureDate,
     preOpDiagnosis, postOpDiagnosis, procedureName, cptCodes, anesthesiaType, incision,
@@ -179,6 +184,7 @@ const OperativeNotePage: React.FC = () => {
       await createOperativeNote(note);
       resetCompletedDraft();
       setActiveTab('history');
+      opDraft.markSaved();
       showSuccess(t('docOperativeNote.successSaved'));
     } catch (err) {
       console.error('Failed to save operative note:', err);

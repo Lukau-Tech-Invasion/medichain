@@ -16,6 +16,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 // `main: src/index.ts`, which has no subpath export for test-only helpers, and
 // test utilities should not be reachable from the production bundle.
 import { installDefaultFetch } from '../../../shared/src/testing/fetchMock';
+import { clearAllDrafts } from '../../../shared/src/forms/drafts';
 
 /**
  * Router hooks that work without a `<Router>` wrapper.
@@ -97,6 +98,9 @@ beforeEach(() => {
 // Cleanup after each test
 afterEach(() => {
   cleanup();
+  // Drafts live in a module-level map for the tab; one test's unsaved form
+  // must not reappear in the next test's.
+  clearAllDrafts();
 });
 
 // Mock window.matchMedia (used by responsive components)
